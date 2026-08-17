@@ -43,6 +43,8 @@ def upsert_lead_data(db: Session, raw_data: dict, page_id: str):
         if not raw_record:
             raw_record = RawConversation(pancake_id=conv_id, page_id=page_id, payload=raw_data)
             db.add(raw_record)
+        else:
+            raw_record.payload = raw_data
 
         # 2. Extract DimLead
         phone = raw_data.get('phone_number')
