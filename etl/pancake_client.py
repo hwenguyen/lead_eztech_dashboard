@@ -3,6 +3,9 @@ import json
 import logging
 import asyncio
 import re
+import requests
+import time
+from datetime import datetime, timedelta
 from typing import List, Dict, Any
 from urllib.parse import urlparse, parse_qs
 from bs4 import BeautifulSoup
@@ -14,15 +17,129 @@ logger = logging.getLogger(__name__)
 
 class PancakeClient:
     def __init__(self):
+        self.api_token = os.getenv("PANCAKE_API_TOKEN")
         self.username = os.getenv("PANCAKE_EMAIL")
         self.password = os.getenv("PANCAKE_PASSWORD")
         self.auth_file = "pancake_auth.json"
-        
-        # Mặc định cào tối đa 100 khách mỗi lần chạy ngầm để tránh timeout
         self.limit = int(os.getenv("CRAWL_LIMIT", "100")) 
+        self.base_url = "https://pages.fm/api/v1"
 
-    async def _scrape_logic(self, page_id_or_name: str) -> List[Dict[str, Any]]:
-        logger.info(f"Khởi động Playwright cho Kênh/Page: {page_id_or_name}")
+    def _fetch_via_api(self, page_id_or_name: str) -> List[Dict[str, Any]]:
+        if not self.api_token:
+            logger.warning("Không có PANCAKE_API_TOKEN, chuyển thẳng sang Playwright.")
+            return []
+            
+        headers = {"Authorization": f"Bearer {self.api_token}", "User-Agent": "Pancake-Hybrid-Client"}
+        
+        # 1. Lấy danh sách Pages để tìm ID
+        logger.info("Đang kiểm tra quyền truy cập qua API chính thức...")
+        try:
+            res = requests.get(f"{self.base_url}/pages", params={"access_token": self.api_token}, headers=headers, timeout=10)
+            data = res.json()
+            pages = data.get("data", [])
+            if not pages and "categorized" in data:
+                pages = data["categorized"].get("activated", [])
+                
+            page_id = None
+            for p in pages:
+                if str(p.get("id")) == str(page_id_or_name) or p.get("name") == page_id_or_name:
+                    page_id = p.get("id")
+                    break
+                    
+            if not page_id:
+                # Thử dùng luôn đầu vào làm ID nếu không tìm thấy tên
+                page_id = page_id_or_name
+                
+            # 2. Sinh Page Access Token
+            res_token = requests.post(
+                f"{self.base_url}/pages/{page_id}/generate_page_access_token", 
+                params={"access_token": self.api_token},
+                timeout=10
+            )
+            token_data = res_token.json()
+            
+            if not token_data.get("success"):
+                logger.warning(f"API từ chối quyền truy cập Page '{page_id_or_name}': {token_data.get('message')}")
+                return []
+                
+            ptoken = token_data['page_access_token']
+            logger.info(f"Thành công cấp quyền API cho trang '{page_id_or_name}'. Đang kéo dữ liệu siêu tốc...")
+            
+            # 3. Kéo danh sách hội thoại
+            url_convs = f"https://pages.fm/api/public_api/v2/pages/{page_id}/conversations"
+            now_ts = datetime.utcnow().timestamp()
+            since_ts = (datetime.utcnow() - timedelta(days=365*2)).timestamp() # 2 năm
+            
+            all_convs = []
+            last_id = None
+            
+            while len(all_convs) < self.limit:
+                params = {
+                    "page_access_token": ptoken,
+                    "since": since_ts,
+                    "until": now_ts,
+                    "order_by": "updated_at",
+                    "last_conversation_id": last_id,
+                    "current_count": 60
+                }
+                params = {k: v for k, v in params.items() if v is not None}
+                
+                resp = requests.get(url_convs, params=params, timeout=30)
+                if resp.status_code != 200:
+                    logger.error(f"Lỗi API conversations: {resp.status_code}")
+                    break
+                    
+                convs = resp.json().get('conversations', [])
+                if not convs:
+                    break
+                    
+                all_convs.extend(convs)
+                last_id = convs[-1].get('id')
+                time.sleep(0.5)
+                
+            # 4. Kéo messages cho các đoạn chat (để bóc SĐT) và chuẩn hóa dữ liệu
+            results = []
+            for conv in all_convs[:self.limit]:
+                conv_id = conv.get('id')
+                # Format khách hàng
+                customers = conv.get('customers', [])
+                customer_id = customers[0].get('id') if customers else 'unknown'
+                customer_name = customers[0].get('name') if customers else 'Unknown'
+                
+                # Format Tags
+                raw_tags = conv.get('tags', [])
+                tags = [t['text'] for t in raw_tags if isinstance(t, dict) and 'text' in t]
+                
+                # Format Message
+                messages_url = f"https://pages.fm/api/public_api/v1/pages/{page_id}/conversations/{conv_id}/messages"
+                msg_resp = requests.get(messages_url, params={"page_access_token": ptoken, "current_count": 0}, timeout=10)
+                messages_data = msg_resp.json().get('messages', []) if msg_resp.status_code == 200 else []
+                
+                # Mảng messages chứa object {"message": text}
+                formatted_msgs = [{"message": m.get("message", "")} for m in messages_data if m.get("message")]
+                
+                results.append({
+                    "id": conv_id,
+                    "pancake_id": conv_id,
+                    "customer_id": customer_id,
+                    "customer_name": customer_name,
+                    "phone_number": None, # Pipeline sẽ tự bóc từ messages
+                    "message_count": len(messages_data),
+                    "tags": tags,
+                    "messages": formatted_msgs,
+                    "inserted_at": conv.get("inserted_at"),
+                    "updated_at": conv.get("updated_at")
+                })
+                
+            logger.info(f"API hoàn tất! Kéo thành công {len(results)} hội thoại.")
+            return results
+            
+        except Exception as e:
+            logger.error(f"Lỗi khi chạy API: {e}")
+            return []
+
+    async def _scrape_logic_playwright(self, page_id_or_name: str) -> List[Dict[str, Any]]:
+        logger.warning(f"Không có quyền API. Đang khởi động Playwright Fallback cho: {page_id_or_name}")
         urls_data = []
         processed_ids = set()
         consecutive_no_new_items = 0
@@ -35,13 +152,11 @@ class PancakeClient:
                     user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
                 )
                 
-                # Phục hồi phiên đăng nhập nếu có
                 if os.path.exists(self.auth_file):
                     context = await browser.new_context(storage_state=self.auth_file)
                     
                 page = await context.new_page()
 
-                # 1. Quá trình Login (áp dụng URL Oauth từ file của bạn)
                 if not os.path.exists(self.auth_file):
                     if not self.username or not self.password:
                         logger.error("Thiếu PANCAKE_EMAIL hoặc PANCAKE_PASSWORD")
@@ -60,12 +175,10 @@ class PancakeClient:
                     except:
                         pass
                     
-                    # Chờ điều hướng xong và lưu cookie
                     await page.wait_for_url("**/dashboard**", timeout=30000)
                     await context.storage_state(path=self.auth_file)
                     logger.info("Đã đăng nhập thành công và lưu session auth.")
 
-                # 2. Điều hướng tới Dashboard của Kênh/Page
                 try:
                     dashboard_item = page.locator('.dashboard-page-item', has_text=page_id_or_name).first
                     await dashboard_item.wait_for(state="visible", timeout=40000)
@@ -80,7 +193,6 @@ class PancakeClient:
                 await page.wait_for_load_state('domcontentloaded')
                 
                 try:
-                    # Lọc "Tin nhắn cá nhân" theo đúng logic file mẫu
                     svg_icon = page.locator('svg:has(path[d*="m40 15.8"])').first
                     await svg_icon.wait_for(state="visible", timeout=15000)
                     await svg_icon.hover()
@@ -92,7 +204,6 @@ class PancakeClient:
                 except Exception as e:
                     logger.warning(f"Không thể đặt filter 'Tin nhắn cá nhân'. Bỏ qua... Lỗi: {e}")
 
-                # 3. Vòng lặp Scraping (Bắt Request và DOM)
                 item_selector = ".conversation-list-item"
                 
                 while len(urls_data) < self.limit:
@@ -110,7 +221,6 @@ class PancakeClient:
                             if not internal_id or internal_id in processed_ids or internal_id.startswith("pzl_g"):
                                 continue
 
-                            # Bắt request API để lấy chuẩn các tham số ngầm (token, id)
                             async with page.expect_request(re.compile(r".*/api/v1/.*/conversations/.*"), timeout=10000) as first_request:
                                 await conv.click(force=True)
                                 request = await first_request.value
@@ -135,39 +245,35 @@ class PancakeClient:
                             
                             tags = [t.get_text(strip=True) for t in soup.select('.ant-tag.crm-select-option-tag')]
                             
-                            # Lấy số điện thoại từ giao diện CRM nếu có
                             phone = None
                             phone_elem = soup.find('div', class_='crm-customer-phone')
                             if phone_elem:
                                 phone = phone_elem.get_text(strip=True)
 
-                            # Tái cấu trúc data point khớp với Pipeline của ta (giả lập giống API payload gốc)
                             data_point = {
                                 "id": conv_id,
                                 "pancake_id": conv_id,
                                 "customer_id": customer_id,
                                 "customer_name": "Khách từ CRM", 
                                 "phone_number": phone,
-                                "message_count": 2, # Mock tạm, hoặc đếm độ dài đoạn chat
+                                "message_count": 2, 
                                 "tags": tags,
-                                # Ta chèn tạm một chuỗi message trống để Pipeline tự động gọi hàm Regex nếu chưa có sđt
                                 "messages": [{"message": soup.get_text()}],
-                                "inserted_at": None, # Sẽ được pipeline parse
+                                "inserted_at": None, 
                                 "updated_at": None
                             }
 
                             urls_data.append(data_point)
                             processed_ids.add(internal_id)
-                            logger.info(f"Đã cào ({len(urls_data)}/{self.limit}): {conv_id}")
+                            logger.info(f"Playwright đã cào ({len(urls_data)}/{self.limit}): {conv_id}")
                             found_new = True
 
                             await conv.hover(timeout=2000)
                             await page.mouse.wheel(0, 50)
                             
-                            break # Chặn lại để refresh vòng lặp DOM
+                            break 
 
                         except Exception as e:
-                            logger.debug(f"Bỏ qua 1 đoạn chat: {e}")
                             continue
 
                     if not found_new:
@@ -190,13 +296,21 @@ class PancakeClient:
         return urls_data
 
     def get_conversations(self, page_id: str) -> List[Dict[str, Any]]:
-        """Hàm đồng bộ bọc hàm bất đồng bộ Playwright"""
+        """Hàm chính: Thử API trước, nếu lỗi hoặc rỗng thì dùng Playwright"""
+        logger.info(f"--- BẮT ĐẦU CÀO DỮ LIỆU CHO PAGE: {page_id} ---")
+        
+        # 1. Thử API
+        results = self._fetch_via_api(page_id)
+        if results:
+            return results
+            
+        # 2. Nếu API trả về rỗng (hoặc lỗi phân quyền), Fallback Playwright
         if os.name == 'nt':
             asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
             
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
-            return loop.run_until_complete(self._scrape_logic(page_id))
+            return loop.run_until_complete(self._scrape_logic_playwright(page_id))
         finally:
             loop.close()
