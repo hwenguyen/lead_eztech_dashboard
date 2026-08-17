@@ -32,6 +32,7 @@ jobs:
     - name: Chạy ETL Pipeline
       env:
         DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        PANCAKE_API_TOKEN: ${{ secrets.PANCAKE_API_TOKEN }}
         PANCAKE_EMAIL: ${{ secrets.PANCAKE_EMAIL }}
         PANCAKE_PASSWORD: ${{ secrets.PANCAKE_PASSWORD }}
         PAGE_IDS: ${{ secrets.PAGE_IDS }}
