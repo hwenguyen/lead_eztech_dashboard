@@ -1,7 +1,11 @@
 import axios from 'axios';
 
 // Get API URL from env, or default to relative /api if deployed together
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+let API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+// Đảm bảo URL luôn có đuôi /api
+if (import.meta.env.VITE_API_URL && !API_BASE_URL.endsWith('/api')) {
+  API_BASE_URL = `${API_BASE_URL.replace(/\/$/, '')}/api`;
+}
 
 const apiClient = axios.create({
   baseURL: API_BASE_URL,

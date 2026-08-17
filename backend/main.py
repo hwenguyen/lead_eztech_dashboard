@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Depends, Query
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_, desc, cast, Date, String
 from datetime import datetime, timedelta
@@ -11,6 +12,14 @@ from backend.schemas import LeadMetricsSummary, TrendResponse, TrendDataPoint, L
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Pancake Lead Reporting API")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.get("/api/metrics/summary", response_model=LeadMetricsSummary)
 def get_summary(
