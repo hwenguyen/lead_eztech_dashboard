@@ -79,8 +79,18 @@ def upsert_lead_data(db: Session, raw_data: dict, page_id: str):
         status_tag = tags[0] if tags else None
         
         # Logic Contacted Lead: message_count > 1 hoặc có tag trạng thái
-        is_contacted = msg_count > 1 or bool(status_tag)
-        contacted_at = parse_pancake_date(raw_data.get('updated_at')) if is_contacted else None
+        msg_count = raw_data.get('message_count', 0)
+        assigned_users = raw_data.get('assigned_users')
+        
+        # Determine is_contacted if any message from Admin
+        is_contacted = False
+        contacted_at = None
+        for msg in raw_data.get('messages', []):
+            if msg.get('role') == 'Admin':
+                is_contacted = True
+                cat = parse_pancake_date(msg.get('inserted_at'))
+                if not contacted_at or (cat and cat > contacted_at):
+                    contacted_at = cat
 
         activity = db.query(FactLeadActivity).filter_by(conversation_id=conv_id).first()
         if not activity:
@@ -88,6 +98,7 @@ def upsert_lead_data(db: Session, raw_data: dict, page_id: str):
                 lead_id=lead.id,
                 conversation_id=conv_id,
                 status_tag=status_tag,
+                assigned_users=assigned_users,
                 message_count=msg_count,
                 is_contacted=is_contacted,
                 contacted_at=contacted_at
@@ -95,10 +106,11 @@ def upsert_lead_data(db: Session, raw_data: dict, page_id: str):
             db.add(activity)
         else:
             activity.status_tag = status_tag
+            activity.assigned_users = assigned_users
             activity.message_count = msg_count
             activity.is_contacted = is_contacted
-            if is_contacted and not activity.contacted_at:
-                activity.contacted_at = datetime.utcnow()
+            if contacted_at:
+                activity.contacted_at = contacted_at
 
         db.commit()
     except Exception as e:
@@ -120,9 +132,22 @@ def run_etl_pipeline():
     try:
         for page_id in page_ids:
             logger.info(f"Processing Page ID: {page_id}")
+            
+            # Kiểm tra xem đã có dữ liệu cho Page này chưa
+            existing_count = db.query(RawConversation).filter_by(page_id=page_id).count()
+            if existing_count == 0:
+                logger.info(f"🔔 FIRST RUN DETECTED! Kéo toàn bộ lịch sử cho Page {page_id} (giới hạn an toàn 10,000 hội thoại). Sẽ mất một lúc...")
+                client.limit = 10000 
+            else:
+                logger.info(f"⚡ DAILY RUN DETECTED! Kéo 100 hội thoại mới/cập nhật gần nhất cho Page {page_id}...")
+                client.limit = 100
+                
             conversations = client.get_conversations(page_id=page_id)
-            for conv in conversations:
+            total = len(conversations)
+            for idx, conv in enumerate(conversations):
                 upsert_lead_data(db, conv, page_id)
+                if (idx + 1) % 50 == 0:
+                    logger.info(f"Đã lưu vào DB: {idx + 1}/{total} hội thoại...")
     finally:
         db.close()
         

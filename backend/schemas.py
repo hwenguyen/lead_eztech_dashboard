@@ -15,6 +15,8 @@ class LeadResponse(BaseModel):
     page_id: str
     first_created_at: datetime
     status_tag: Optional[str] = None
+    assigned_users: Optional[str] = None
+    messages: Optional[str] = None
     is_contacted: bool
 
     class Config:

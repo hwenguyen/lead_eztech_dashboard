@@ -159,8 +159,23 @@ class PancakeClient:
                 raw_tags = conv.get('tags', [])
                 tags = [t['text'] for t in raw_tags if isinstance(t, dict) and 'text' in t]
                 
+                assignees_raw = conv.get('current_assign_users', [])
+                assigned_users = ", ".join([item['name'] for item in assignees_raw if isinstance(item, dict) and 'name' in item])
+
                 messages_data = messages_by_conv.get(conv_id, [])
-                formatted_msgs = [{"message": m.get("message", "")} for m in messages_data if m.get("message")]
+                formatted_msgs = []
+                for m in messages_data:
+                    if m.get("message"):
+                        # Capture role (admin/customer) and timestamp
+                        m_from = m.get('from', {})
+                        role = "Admin" if m_from and 'admin' in str(m_from).lower() or m_from.get('admin_name') else "Khách hàng"
+                        
+                        formatted_msgs.append({
+                            "message": m.get("message"),
+                            "inserted_at": m.get("inserted_at"),
+                            "role": role,
+                            "sender_name": m_from.get('name') or m_from.get('username') or m_from.get('admin_name') or "Unknown"
+                        })
                 
                 results.append({
                     "id": conv_id,
@@ -170,6 +185,7 @@ class PancakeClient:
                     "phone_number": None,
                     "message_count": len(messages_data),
                     "tags": tags,
+                    "assigned_users": assigned_users,
                     "messages": formatted_msgs,
                     "inserted_at": conv.get("inserted_at"),
                     "updated_at": conv.get("updated_at")

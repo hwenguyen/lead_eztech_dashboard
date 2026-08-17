@@ -16,45 +16,42 @@ export function LeadTable({ leads }: LeadTableProps) {
         <table className="w-full text-sm text-left">
           <thead className="text-xs text-muted-foreground bg-muted/50 uppercase">
             <tr>
-              <th className="px-6 py-4 font-medium">Customer ID</th>
-              <th className="px-6 py-4 font-medium">Khách Hàng</th>
-              <th className="px-6 py-4 font-medium">SĐT</th>
-              <th className="px-6 py-4 font-medium">Ngày Tạo</th>
-              <th className="px-6 py-4 font-medium">Trạng Thái</th>
-              <th className="px-6 py-4 font-medium">Liên Hệ</th>
+              <th className="px-6 py-4 font-medium min-w-[150px]">Khách Hàng</th>
+              <th className="px-6 py-4 font-medium min-w-[150px]">Nhân Viên Phụ Trách</th>
+              <th className="px-6 py-4 font-medium min-w-[120px]">SĐT</th>
+              <th className="px-6 py-4 font-medium w-full">Tin Nhắn</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
             {leads.length > 0 ? leads.map((lead) => (
               <tr key={lead.id} className="hover:bg-muted/30 transition-colors">
-                <td className="px-6 py-4 font-medium text-foreground">{lead.customer_id}</td>
-                <td className="px-6 py-4">{lead.name || '-'}</td>
-                <td className="px-6 py-4">{lead.phone_number || '-'}</td>
-                <td className="px-6 py-4 text-muted-foreground">
-                  {format(new Date(lead.first_created_at), 'dd/MM/yyyy HH:mm')}
+                <td className="px-6 py-4 font-medium text-foreground">
+                  {lead.name || 'Khách từ CRM'}
+                  <div className="text-xs text-muted-foreground mt-1 font-normal">
+                    {format(new Date(lead.first_created_at), 'dd/MM HH:mm')}
+                  </div>
                 </td>
                 <td className="px-6 py-4">
-                  {lead.status_tag ? (
-                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                      {lead.status_tag}
-                    </span>
+                  {lead.assigned_users ? (
+                    <div className="flex flex-wrap gap-1">
+                      {lead.assigned_users.split(',').map((u, i) => (
+                        <span key={i} className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">
+                          {u.trim()}
+                        </span>
+                      ))}
+                    </div>
                   ) : '-'}
                 </td>
+                <td className="px-6 py-4 whitespace-nowrap">{lead.phone_number || '-'}</td>
                 <td className="px-6 py-4">
-                  {lead.is_contacted ? (
-                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                      Có
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
-                      Chưa
-                    </span>
-                  )}
+                  <div className="max-h-[120px] overflow-y-auto pr-2 text-sm text-foreground/90 whitespace-pre-wrap rounded bg-muted/20 p-2 border border-border/50">
+                    {lead.messages || <span className="text-muted-foreground italic">Không có tin nhắn</span>}
+                  </div>
                 </td>
               </tr>
             )) : (
               <tr>
-                <td colSpan={6} className="px-6 py-12 text-center text-muted-foreground">
+                <td colSpan={4} className="px-6 py-12 text-center text-muted-foreground">
                   Không có dữ liệu
                 </td>
               </tr>

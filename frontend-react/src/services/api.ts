@@ -30,28 +30,38 @@ export interface TrendData {
 export interface Lead {
   id: number;
   customer_id: string;
-  name: string | null;
-  phone_number: string | null;
+  name?: string;
+  phone_number?: string;
   page_id: string;
   first_created_at: string;
-  status_tag: string | null;
+  status_tag?: string;
+  assigned_users?: string;
+  messages?: string;
   is_contacted: boolean;
 }
 
-export const fetchSummary = async (startDate: string, endDate: string, pageId?: string) => {
-  const params = { start_date: startDate, end_date: endDate, ...(pageId && { page_id: pageId }) };
-  const response = await apiClient.get<SummaryData>('/metrics/summary', { params });
-  return response.data;
+export const fetchSummary = async (startDate: string, endDate: string, pageId?: string, employee?: string) => {
+  const params: any = { start_date: startDate, end_date: endDate };
+  if (pageId) params.page_id = pageId;
+  if (employee) params.employee = employee;
+  const res = await apiClient.get<SummaryData>('/metrics/summary', { params });
+  return res.data;
 };
 
-export const fetchTrend = async (startDate: string, endDate: string, pageId?: string) => {
-  const params = { start_date: startDate, end_date: endDate, ...(pageId && { page_id: pageId }) };
-  const response = await apiClient.get<{ data: TrendData[] }>('/metrics/trend', { params });
-  return response.data.data;
+export const fetchTrend = async (startDate: string, endDate: string, pageId?: string, employee?: string) => {
+  const params: any = { start_date: startDate, end_date: endDate };
+  if (pageId) params.page_id = pageId;
+  if (employee) params.employee = employee;
+  const res = await apiClient.get<{data: TrendData[]}>('/metrics/trend', { params });
+  return res.data.data;
 };
 
-export const fetchLeads = async (pageId?: string, page = 1, size = 50) => {
-  const params = { page, size, ...(pageId && { page_id: pageId }) };
-  const response = await apiClient.get<{ data: Lead[], total: number }>('/leads/list', { params });
-  return response.data;
+export const fetchLeads = async (pageId?: string, employee?: string, startDate?: string, endDate?: string) => {
+  const params: any = { page: 1, size: 50 };
+  if (pageId) params.page_id = pageId;
+  if (employee) params.employee = employee;
+  if (startDate) params.start_date = startDate;
+  if (endDate) params.end_date = endDate;
+  const res = await apiClient.get<{data: Lead[]}>('/leads/list', { params });
+  return res.data;
 };

@@ -6,10 +6,37 @@ import { TrendChart } from './components/TrendChart';
 import { LeadTable } from './components/LeadTable';
 import { fetchSummary, fetchTrend, fetchLeads, type SummaryData, type TrendData, type Lead } from './services/api';
 
+function getWeekRange(year: number, month: number, weekIndex: number) {
+  const firstDay = new Date(year, month, 1);
+  const offset = (4 - firstDay.getDay() + 7) % 7; 
+  const firstThursday = new Date(year, month, 1 + offset);
+  
+  const firstFriday = new Date(firstThursday);
+  firstFriday.setDate(firstThursday.getDate() - 6);
+  
+  const start = new Date(firstFriday);
+  start.setDate(firstFriday.getDate() + (weekIndex - 1) * 7);
+  
+  const end = new Date(start);
+  end.setDate(start.getDate() + 6);
+  
+  return {
+    start: format(start, 'yyyy-MM-dd'),
+    end: format(end, 'yyyy-MM-dd')
+  };
+}
+
 function App() {
+  const currentMonth = new Date().getMonth();
+  const currentYear = new Date().getFullYear();
+
   const [startDate, setStartDate] = useState(format(subDays(new Date(), 7), 'yyyy-MM-dd'));
   const [endDate, setEndDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [pageId, setPageId] = useState('');
+  const [employee, setEmployee] = useState('');
+  
+  const [selectedMonth, setSelectedMonth] = useState(currentMonth);
+  const [selectedWeek, setSelectedWeek] = useState(1);
 
   const [summary, setSummary] = useState<SummaryData | null>(null);
   const [trend, setTrend] = useState<TrendData[]>([]);
@@ -21,9 +48,9 @@ function App() {
       setLoading(true);
       try {
         const [sumRes, trRes, ldRes] = await Promise.all([
-          fetchSummary(startDate, endDate, pageId),
-          fetchTrend(startDate, endDate, pageId),
-          fetchLeads(pageId)
+          fetchSummary(startDate, endDate, pageId, employee),
+          fetchTrend(startDate, endDate, pageId, employee),
+          fetchLeads(pageId, employee, startDate, endDate)
         ]);
         setSummary(sumRes);
         setTrend(trRes);
@@ -36,7 +63,15 @@ function App() {
     };
 
     loadData();
-  }, [startDate, endDate, pageId]);
+  }, [startDate, endDate, pageId, employee]);
+
+  const handleWeekSelect = (m: number, w: number) => {
+    setSelectedMonth(m);
+    setSelectedWeek(w);
+    const { start, end } = getWeekRange(currentYear, m, w);
+    setStartDate(start);
+    setEndDate(end);
+  };
 
   const rateContact = summary?.new_leads ? (summary.contacted_leads / summary.new_leads) * 100 : 0;
   const ratePhone = summary?.new_leads ? (summary.phone_leads / summary.new_leads) * 100 : 0;
@@ -59,34 +94,73 @@ function App() {
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
         
         {/* Filters */}
-        <div className="bg-card p-4 rounded-xl border border-border shadow-sm flex flex-wrap gap-4 items-end">
-          <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-medium text-muted-foreground">Từ ngày</label>
-            <input 
-              type="date" 
-              value={startDate} 
-              onChange={e => setStartDate(e.target.value)}
-              className="px-3 py-2 border border-border rounded-lg text-sm bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
-            />
+        <div className="bg-card p-4 rounded-xl border border-border shadow-sm flex flex-col gap-4">
+          <div className="flex flex-wrap gap-4 items-end">
+            <div className="flex flex-col gap-1.5 min-w-[120px]">
+              <label className="text-xs font-medium text-muted-foreground">Tháng</label>
+              <select 
+                value={selectedMonth}
+                onChange={e => handleWeekSelect(parseInt(e.target.value), selectedWeek)}
+                className="px-3 py-2 border border-border rounded-lg text-sm bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+              >
+                {Array.from({length: 12}).map((_, i) => (
+                  <option key={i} value={i}>Tháng {i + 1}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex flex-col gap-1.5 min-w-[120px]">
+              <label className="text-xs font-medium text-muted-foreground">Tuần</label>
+              <select 
+                value={selectedWeek}
+                onChange={e => handleWeekSelect(selectedMonth, parseInt(e.target.value))}
+                className="px-3 py-2 border border-border rounded-lg text-sm bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+              >
+                {[1, 2, 3, 4, 5].map(w => (
+                  <option key={w} value={w}>Tuần {w}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Từ ngày</label>
+              <input 
+                type="date" 
+                value={startDate} 
+                onChange={e => setStartDate(e.target.value)}
+                className="px-3 py-2 border border-border rounded-lg text-sm bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Đến ngày</label>
+              <input 
+                type="date" 
+                value={endDate} 
+                onChange={e => setEndDate(e.target.value)}
+                className="px-3 py-2 border border-border rounded-lg text-sm bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+              />
+            </div>
           </div>
-          <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-medium text-muted-foreground">Đến ngày</label>
-            <input 
-              type="date" 
-              value={endDate} 
-              onChange={e => setEndDate(e.target.value)}
-              className="px-3 py-2 border border-border rounded-lg text-sm bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
-            />
-          </div>
-          <div className="flex flex-col gap-1.5 flex-1 min-w-[200px]">
-            <label className="text-xs font-medium text-muted-foreground">Page ID (Bỏ trống để xem tất cả)</label>
-            <input 
-              type="text" 
-              placeholder="Nhập Page ID..."
-              value={pageId} 
-              onChange={e => setPageId(e.target.value)}
-              className="px-3 py-2 border border-border rounded-lg text-sm bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all w-full"
-            />
+          
+          <div className="flex flex-wrap gap-4 items-end">
+            <div className="flex flex-col gap-1.5 flex-1 min-w-[200px]">
+              <label className="text-xs font-medium text-muted-foreground">Page ID (Bỏ trống để xem tất cả)</label>
+              <input 
+                type="text" 
+                placeholder="Nhập Page ID..."
+                value={pageId} 
+                onChange={e => setPageId(e.target.value)}
+                className="px-3 py-2 border border-border rounded-lg text-sm bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all w-full"
+              />
+            </div>
+            <div className="flex flex-col gap-1.5 flex-1 min-w-[200px]">
+              <label className="text-xs font-medium text-muted-foreground">Nhân Viên</label>
+              <input 
+                type="text" 
+                placeholder="Nhập tên nhân viên..."
+                value={employee} 
+                onChange={e => setEmployee(e.target.value)}
+                className="px-3 py-2 border border-border rounded-lg text-sm bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all w-full"
+              />
+            </div>
           </div>
         </div>
 
