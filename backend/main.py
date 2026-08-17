@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Depends, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import func, and_, desc
+from sqlalchemy import func, and_, desc, cast, Date, String
 from datetime import datetime, timedelta
 from typing import Optional
 from database.db import get_db, engine, Base
@@ -23,6 +23,8 @@ def get_summary(
         start_date = datetime.utcnow() - timedelta(days=30)
     if not end_date:
         end_date = datetime.utcnow()
+    else:
+        end_date = end_date.replace(hour=23, minute=59, second=59)
 
     query_leads = db.query(DimLead).filter(
         DimLead.first_created_at >= start_date,
@@ -61,11 +63,11 @@ def get_trend(
         start_date = datetime.utcnow() - timedelta(days=7)
     if not end_date:
         end_date = datetime.utcnow()
+    else:
+        end_date = end_date.replace(hour=23, minute=59, second=59)
 
-    # Dùng SQLite func.date hoặc PostgreSQL date_trunc tuỳ DB. Ở đây viết cho SQLite tương thích
-    # Do SQLite lưu datetime dạng ISO8601 string: YYYY-MM-DD HH:MM:SS
-    # Ta dùng substr(first_created_at, 1, 10) để lấy YYYY-MM-DD
-    date_func = func.substr(DimLead.first_created_at, 1, 10)
+    # Cast datetime to Date (works on Postgres & SQLite), then cast to string for API response
+    date_func = cast(cast(DimLead.first_created_at, Date), String)
     
     # Query Leads (New & Phone)
     q_leads = db.query(
@@ -82,7 +84,7 @@ def get_trend(
     leads_grouped = q_leads.group_by(date_func).all()
     
     # Query Contacted
-    act_date_func = func.substr(FactLeadActivity.updated_at, 1, 10)
+    act_date_func = cast(cast(FactLeadActivity.updated_at, Date), String)
     q_contacted = db.query(
         act_date_func.label("date"),
         func.count(FactLeadActivity.id).label("contacted_leads")
