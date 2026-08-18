@@ -180,6 +180,7 @@ class PancakeClient:
                 results.append({
                     "id": conv_id,
                     "pancake_id": conv_id,
+                    "type": conv.get("type"),
                     "customer_id": customer_id,
                     "customer_name": customer_name,
                     "phone_number": None,
