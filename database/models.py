@@ -35,9 +35,12 @@ class FactLeadActivity(Base):
     lead_id = Column(Integer, ForeignKey("dim_leads.id"), nullable=False)
     conversation_id = Column(String, unique=True, index=True, nullable=False)
     status_tag = Column(String, nullable=True)  # VD: "Đang tư vấn", "Đã liên hệ"
+    assigned_users = Column(String, nullable=True) # Nhân viên phụ trách
     message_count = Column(Integer, default=0)
     is_contacted = Column(Boolean, default=False)
-    contacted_at = Column(DateTime, nullable=True) # Thời điểm tương tác 2 chiều hoặc gắn tag
+    contacted_at = Column(DateTime, nullable=True) # Last contacted at
+    contacted_dates = Column(String, nullable=True) # Comma separated dates like "2026-08-11,2026-08-12"
+    
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     lead = relationship("DimLead", back_populates="activities")
