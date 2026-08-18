@@ -130,7 +130,7 @@ class PlaywrightBot:
                             "phone_number": None,
                             "message_count": len(messages_list),
                             "tags": [t['text'] for t in conv_info.get('tags', []) if 'text' in t],
-                            "assigned_users": [u['name'] for u in conv_info.get('current_assign_users', []) if 'name' in u],
+                            "assigned_users": ", ".join([u['name'] for u in conv_info.get('current_assign_users', []) if 'name' in u]),
                             "inserted_at": conv_info.get("inserted_at"),
                             "updated_at": conv_info.get("updated_at"),
                             "messages": []
