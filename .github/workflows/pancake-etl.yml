@@ -29,12 +29,19 @@ jobs:
         playwright install chromium
         playwright install-deps chromium
 
-    - name: Chạy ETL Pipeline
+    - name: Chạy ETL Pipeline (Cào qua API nhanh)
       env:
         DATABASE_URL: ${{ secrets.DATABASE_URL }}
         PANCAKE_API_TOKEN: ${{ secrets.PANCAKE_API_TOKEN }}
-        PANCAKE_EMAIL: ${{ secrets.PANCAKE_EMAIL }}
-        PANCAKE_PASSWORD: ${{ secrets.PANCAKE_PASSWORD }}
         PAGE_IDS: ${{ secrets.PAGE_IDS }}
       run: |
         python -m etl.pipeline
+
+    - name: Chạy Playwright Bot (Cào ẩn danh cho các Page không có Token)
+      env:
+        DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        PANCAKE_EMAIL: ${{ secrets.PANCAKE_EMAIL }}
+        PANCAKE_PASSWORD: ${{ secrets.PANCAKE_PASSWORD }}
+        PLAYWRIGHT_PAGE_IDS: ${{ secrets.PLAYWRIGHT_PAGE_IDS }}
+      run: |
+        python -m etl.playwright_bot
