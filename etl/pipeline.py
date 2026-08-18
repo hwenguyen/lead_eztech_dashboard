@@ -36,6 +36,11 @@ def upsert_lead_data(db: Session, raw_data: dict, page_id: str):
         # 1. Lưu Raw
         conv_id = str(raw_data.get('id', ''))
         customer_id = str(raw_data.get('customer_id', ''))
+        
+        # Bỏ qua Comment (Chỉ lấy Message)
+        if raw_data.get('type') == 'comment':
+            return
+            
         if not conv_id or not customer_id:
             return
 
@@ -76,10 +81,8 @@ def upsert_lead_data(db: Session, raw_data: dict, page_id: str):
         # 3. Extract FactActivity
         msg_count = raw_data.get('message_count', 0)
         tags = raw_data.get('tags', [])
-        status_tag = tags[0] if tags else None
+        status_tag = ",".join(tags) if isinstance(tags, list) and tags else None
         
-        # Logic Contacted Lead: message_count > 1 hoặc có tag trạng thái
-        msg_count = raw_data.get('message_count', 0)
         assigned_users = raw_data.get('assigned_users')
         
         # Determine is_contacted if any message from Admin

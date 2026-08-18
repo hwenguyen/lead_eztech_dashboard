@@ -59,10 +59,10 @@ def get_summary(
     contacted_leads = 0
     
     for lead, act in results:
+        is_new = False
         if start_date <= lead.first_created_at <= end_date:
+            is_new = True
             new_leads += 1
-            if lead.phone_number:
-                phone_leads += 1
                 
         is_contacted = False
         if act and act.contacted_dates:
@@ -73,6 +73,15 @@ def get_summary(
                     break
         if is_contacted:
             contacted_leads += 1
+            
+        has_phone = False
+        if lead.phone_number:
+            has_phone = True
+        elif act and act.status_tag and "Đã add" in act.status_tag:
+            has_phone = True
+            
+        if (is_new or is_contacted) and has_phone:
+            phone_leads += 1
 
     return LeadMetricsSummary(
         new_leads=new_leads,
@@ -107,12 +116,18 @@ def get_trend(
     trend_dict = {}
 
     for lead, act in results:
+        has_phone = False
+        if lead.phone_number:
+            has_phone = True
+        elif act and act.status_tag and "Đã add" in act.status_tag:
+            has_phone = True
+
         if start_date <= lead.first_created_at <= end_date:
             dt_str = lead.first_created_at.strftime("%Y-%m-%d")
             if dt_str not in trend_dict:
                 trend_dict[dt_str] = {"date": dt_str, "new_leads": 0, "phone_leads": 0, "contacted_leads": 0}
             trend_dict[dt_str]["new_leads"] += 1
-            if lead.phone_number:
+            if has_phone:
                 trend_dict[dt_str]["phone_leads"] += 1
 
         if act and act.contacted_dates:
@@ -122,6 +137,8 @@ def get_trend(
                     if d_str not in trend_dict:
                         trend_dict[d_str] = {"date": d_str, "new_leads": 0, "phone_leads": 0, "contacted_leads": 0}
                     trend_dict[d_str]["contacted_leads"] += 1
+                    if has_phone:
+                        trend_dict[d_str]["phone_leads"] += 1
 
     sorted_trend = sorted(trend_dict.values(), key=lambda x: x["date"])
     return TrendResponse(data=[TrendDataPoint(**item) for item in sorted_trend])
@@ -183,12 +200,15 @@ def list_leads(
                 "lead": lead,
                 "assigned_users": set(),
                 "conversation_ids": [],
-                "is_contacted": is_contacted_in_period
+                "is_contacted": is_contacted_in_period,
+                "tags": set()
             }
         
         if act:
             if act.assigned_users:
                 grouped[lid]["assigned_users"].update([u.strip() for u in act.assigned_users.split(",") if u.strip()])
+            if act.status_tag:
+                grouped[lid]["tags"].update([t.strip() for t in act.status_tag.split(",") if t.strip()])
             if act.conversation_id:
                 grouped[lid]["conversation_ids"].append(act.conversation_id)
 
@@ -219,7 +239,10 @@ def list_leads(
                 for m in msgs:
                     if m.get("message"):
                         sender = m.get("sender_name", m.get("role", "Unknown"))
-                        messages.append(f"[{sender}]: {m.get('message')}")
+                        raw_msg = m.get('message', '')
+                        import re
+                        clean_msg = re.sub(r'<[^>]+>', '', raw_msg)
+                        messages.append(f"[{sender}]: {clean_msg}")
                         
         data.append(LeadResponse(
             id=lead.id,
@@ -228,7 +251,7 @@ def list_leads(
             phone_number=lead.phone_number,
             page_id=lead.page_id,
             first_created_at=lead.first_created_at,
-            status_tag=None,
+            status_tag=", ".join(item["tags"]) if item.get("tags") else None,
             assigned_users=", ".join(item["assigned_users"]),
             messages="\n".join(messages) if messages else None,
             is_contacted=item["is_contacted"]
