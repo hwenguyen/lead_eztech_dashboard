@@ -1,25 +1,26 @@
 import { useState, useEffect } from 'react';
 import { format, subDays } from 'date-fns';
-import { LayoutDashboard, Users, UserCheck, PhoneCall } from 'lucide-react';
+import { LayoutDashboard, Users, UserCheck, PhoneCall, Filter, RefreshCw } from 'lucide-react';
 import { KpiCard } from './components/KpiCard';
 import { TrendChart } from './components/TrendChart';
 import { LeadTable } from './components/LeadTable';
+import { RatioChart } from './components/RatioChart';
 import { fetchSummary, fetchTrend, fetchLeads, fetchEmployees, type SummaryData, type TrendData, type Lead } from './services/api';
 
 function getWeekRange(year: number, month: number, weekIndex: number) {
   const firstDay = new Date(year, month, 1);
-  const offset = (4 - firstDay.getDay() + 7) % 7; 
+  const offset = (4 - firstDay.getDay() + 7) % 7;
   const firstThursday = new Date(year, month, 1 + offset);
-  
+
   const firstFriday = new Date(firstThursday);
   firstFriday.setDate(firstThursday.getDate() - 6);
-  
+
   const start = new Date(firstFriday);
   start.setDate(firstFriday.getDate() + (weekIndex - 1) * 7);
-  
+
   const end = new Date(start);
   end.setDate(start.getDate() + 6);
-  
+
   return {
     start: format(start, 'yyyy-MM-dd'),
     end: format(end, 'yyyy-MM-dd')
@@ -35,7 +36,7 @@ function App() {
   const [pageId, setPageId] = useState('');
   const [employee, setEmployee] = useState('');
   const [employeesList, setEmployeesList] = useState<string[]>([]);
-  
+
   const [selectedMonth, setSelectedMonth] = useState(currentMonth);
   const [selectedWeek, setSelectedWeek] = useState(1);
 
@@ -43,6 +44,7 @@ function App() {
   const [trend, setTrend] = useState<TrendData[]>([]);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   useEffect(() => {
     const loadEmployees = async () => {
@@ -56,25 +58,26 @@ function App() {
     loadEmployees();
   }, []);
 
-  useEffect(() => {
-    const loadData = async () => {
-      setLoading(true);
-      try {
-        const [sumRes, trRes, ldRes] = await Promise.all([
-          fetchSummary(startDate, endDate, pageId, employee),
-          fetchTrend(startDate, endDate, pageId, employee),
-          fetchLeads(pageId, employee, startDate, endDate)
-        ]);
-        setSummary(sumRes);
-        setTrend(trRes);
-        setLeads(ldRes.data);
-      } catch (error) {
-        console.error("Error fetching data:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      const [sumRes, trRes, ldRes] = await Promise.all([
+        fetchSummary(startDate, endDate, pageId, employee),
+        fetchTrend(startDate, endDate, pageId, employee),
+        fetchLeads(pageId, employee, startDate, endDate)
+      ]);
+      setSummary(sumRes);
+      setTrend(trRes);
+      setLeads(ldRes.data);
+      setLastUpdated(new Date());
+    } catch (error) {
+      console.error("Error fetching data:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
+  useEffect(() => {
     loadData();
   }, [startDate, endDate, pageId, employee]);
 
@@ -90,86 +93,104 @@ function App() {
   const ratePhone = summary?.new_leads ? (summary.phone_leads / summary.new_leads) * 100 : 0;
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <header className="bg-card border-b border-border sticky top-0 z-10">
+      <header className="bg-white border-b border-gray-100 sticky top-0 z-20 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="bg-primary/10 p-2 rounded-lg">
-              <LayoutDashboard className="w-6 h-6 text-primary" />
+            <div className="w-9 h-9 bg-blue-600 rounded-xl flex items-center justify-center shadow-sm">
+              <LayoutDashboard className="w-5 h-5 text-white" />
             </div>
-            <h1 className="text-xl font-semibold text-foreground tracking-tight">Pancake Lead Dashboard</h1>
+            <div>
+              <h1 className="text-base font-bold text-gray-900 leading-none">EzTech Lead Dashboard</h1>
+              <p className="text-xs text-gray-400 mt-0.5">Pancake Analytics</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            {lastUpdated && (
+              <span className="text-xs text-gray-400">
+                Cập nhật: {format(lastUpdated, 'HH:mm')}
+              </span>
+            )}
+            <button
+              onClick={loadData}
+              className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              Làm mới
+            </button>
           </div>
         </div>
       </header>
 
-      {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-        
-        {/* Filters */}
-        <div className="bg-card p-4 rounded-xl border border-border shadow-sm flex flex-col gap-4">
-          <div className="flex flex-wrap gap-4 items-end">
-            <div className="flex flex-col gap-1.5 min-w-[120px]">
-              <label className="text-xs font-medium text-muted-foreground">Tháng</label>
-              <select 
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+
+        {/* Filter Panel */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <Filter className="w-4 h-4 text-gray-400" />
+            <span className="text-sm font-semibold text-gray-700">Bộ lọc</span>
+          </div>
+          <div className="flex flex-wrap gap-3 items-end">
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-medium text-gray-400">Tháng</label>
+              <select
                 value={selectedMonth}
                 onChange={e => handleWeekSelect(parseInt(e.target.value), selectedWeek)}
-                className="px-3 py-2 border border-border rounded-lg text-sm bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+                className="px-3 py-2 border border-gray-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all min-w-[110px]"
               >
                 {Array.from({length: 12}).map((_, i) => (
                   <option key={i} value={i}>Tháng {i + 1}</option>
                 ))}
               </select>
             </div>
-            <div className="flex flex-col gap-1.5 min-w-[120px]">
-              <label className="text-xs font-medium text-muted-foreground">Tuần</label>
-              <select 
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-medium text-gray-400">Tuần</label>
+              <select
                 value={selectedWeek}
                 onChange={e => handleWeekSelect(selectedMonth, parseInt(e.target.value))}
-                className="px-3 py-2 border border-border rounded-lg text-sm bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+                className="px-3 py-2 border border-gray-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all min-w-[100px]"
               >
                 {[1, 2, 3, 4, 5].map(w => (
                   <option key={w} value={w}>Tuần {w}</option>
                 ))}
               </select>
             </div>
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-muted-foreground">Từ ngày</label>
-              <input 
-                type="date" 
-                value={startDate} 
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-medium text-gray-400">Từ ngày</label>
+              <input
+                type="date"
+                value={startDate}
                 onChange={e => setStartDate(e.target.value)}
-                className="px-3 py-2 border border-border rounded-lg text-sm bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+                className="px-3 py-2 border border-gray-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
               />
             </div>
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-muted-foreground">Đến ngày</label>
-              <input 
-                type="date" 
-                value={endDate} 
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-medium text-gray-400">Đến ngày</label>
+              <input
+                type="date"
+                value={endDate}
                 onChange={e => setEndDate(e.target.value)}
-                className="px-3 py-2 border border-border rounded-lg text-sm bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+                className="px-3 py-2 border border-gray-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
               />
             </div>
-          </div>
-          
-          <div className="flex flex-wrap gap-4 items-end">
-            <div className="flex flex-col gap-1.5 flex-1 min-w-[200px]">
-              <label className="text-xs font-medium text-muted-foreground">Page ID (Bỏ trống để xem tất cả)</label>
-              <input 
-                type="text" 
-                placeholder="Nhập Page ID..."
-                value={pageId} 
+            <div className="h-9 w-px bg-gray-200 mx-1" />
+            <div className="flex flex-col gap-1 flex-1 min-w-[180px]">
+              <label className="text-xs font-medium text-gray-400">Page ID</label>
+              <input
+                type="text"
+                placeholder="Tất cả Page..."
+                value={pageId}
                 onChange={e => setPageId(e.target.value)}
-                className="px-3 py-2 border border-border rounded-lg text-sm bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all w-full"
+                className="px-3 py-2 border border-gray-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all w-full"
               />
             </div>
-            <div className="flex flex-col gap-1.5 flex-1 min-w-[200px]">
-              <label className="text-xs font-medium text-muted-foreground">Nhân Viên</label>
-              <select 
-                value={employee} 
+            <div className="flex flex-col gap-1 min-w-[200px]">
+              <label className="text-xs font-medium text-gray-400">Nhân Viên</label>
+              <select
+                value={employee}
                 onChange={e => setEmployee(e.target.value)}
-                className="px-3 py-2 border border-border rounded-lg text-sm bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all w-full"
+                className="px-3 py-2 border border-gray-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
               >
                 <option value="">-- Tất cả nhân viên --</option>
                 {employeesList.map(emp => (
@@ -181,40 +202,64 @@ function App() {
         </div>
 
         {loading ? (
-          <div className="flex items-center justify-center py-20">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+          <div className="flex items-center justify-center py-24">
+            <div className="flex flex-col items-center gap-3">
+              <div className="animate-spin rounded-full h-10 w-10 border-2 border-blue-200 border-t-blue-600" />
+              <p className="text-sm text-gray-400">Đang tải dữ liệu...</p>
+            </div>
           </div>
         ) : (
           <>
-            {/* KPIs */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <KpiCard 
-                title="Lead Mới" 
-                value={summary?.new_leads?.toLocaleString() || '0'} 
+            {/* KPIs row */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <KpiCard
+                title="Lead Mới"
+                value={summary?.new_leads?.toLocaleString() || '0'}
+                subtitle="Khách hàng mới trong kỳ"
                 icon={<Users className="w-5 h-5" />}
+                color="blue"
               />
-              <KpiCard 
-                title="Lead Liên Hệ" 
-                value={summary?.contacted_leads?.toLocaleString() || '0'} 
+              <KpiCard
+                title="Lead Liên Hệ"
+                value={summary?.contacted_leads?.toLocaleString() || '0'}
                 subtitle={`${rateContact.toFixed(1)}% tỉ lệ contact`}
                 icon={<UserCheck className="w-5 h-5" />}
+                color="green"
               />
-              <KpiCard 
-                title="Lead Có SĐT" 
-                value={summary?.phone_leads?.toLocaleString() || '0'} 
+              <KpiCard
+                title="Lead Có SĐT"
+                value={summary?.phone_leads?.toLocaleString() || '0'}
                 subtitle={`${ratePhone.toFixed(1)}% tỉ lệ để lại SĐT`}
                 icon={<PhoneCall className="w-5 h-5" />}
+                color="amber"
+              />
+              <KpiCard
+                title="Chưa Liên Hệ"
+                value={summary ? (summary.new_leads - summary.contacted_leads).toLocaleString() : '0'}
+                subtitle="Cần follow up"
+                icon={<Users className="w-5 h-5" />}
+                color="purple"
               />
             </div>
 
-            {/* Chart */}
-            <TrendChart data={trend} />
+            {/* Charts row */}
+            <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+              <div className="lg:col-span-3">
+                <TrendChart data={trend} />
+              </div>
+              <div className="lg:col-span-1">
+                <RatioChart
+                  newLeads={summary?.new_leads || 0}
+                  contactedLeads={summary?.contacted_leads || 0}
+                  phoneLeads={summary?.phone_leads || 0}
+                />
+              </div>
+            </div>
 
             {/* Table */}
             <LeadTable leads={leads} />
           </>
         )}
-
       </main>
     </div>
   );
