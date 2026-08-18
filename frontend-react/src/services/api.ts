@@ -67,6 +67,11 @@ export const fetchLeads = async (pageId?: string, employee?: string, startDate?:
 };
 
 export const fetchEmployees = async () => {
-  const res = await apiClient.get<{data: string[]}>('/employees/list');
-  return res.data.data;
+  try {
+    const res = await apiClient.get<{data: string[]}>('/employees/list');
+    return res.data.data;
+  } catch (error) {
+    console.error("fetchEmployees failed", error);
+    return [];
+  }
 };

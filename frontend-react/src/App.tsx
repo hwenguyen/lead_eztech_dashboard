@@ -45,19 +45,29 @@ function App() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    const loadEmployees = async () => {
+      try {
+        const empRes = await fetchEmployees();
+        setEmployeesList(empRes);
+      } catch (error) {
+        console.error("Error fetching employees:", error);
+      }
+    };
+    loadEmployees();
+  }, []);
+
+  useEffect(() => {
     const loadData = async () => {
       setLoading(true);
       try {
-        const [sumRes, trRes, ldRes, empRes] = await Promise.all([
+        const [sumRes, trRes, ldRes] = await Promise.all([
           fetchSummary(startDate, endDate, pageId, employee),
           fetchTrend(startDate, endDate, pageId, employee),
-          fetchLeads(pageId, employee, startDate, endDate),
-          fetchEmployees()
+          fetchLeads(pageId, employee, startDate, endDate)
         ]);
         setSummary(sumRes);
         setTrend(trRes);
         setLeads(ldRes.data);
-        setEmployeesList(empRes);
       } catch (error) {
         console.error("Error fetching data:", error);
       } finally {
