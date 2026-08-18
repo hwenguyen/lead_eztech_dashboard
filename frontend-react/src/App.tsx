@@ -7,38 +7,12 @@ import { LeadTable } from './components/LeadTable';
 import { RatioChart } from './components/RatioChart';
 import { fetchSummary, fetchTrend, fetchLeads, fetchEmployees, type SummaryData, type TrendData, type Lead } from './services/api';
 
-function getWeekRange(year: number, month: number, weekIndex: number) {
-  const firstDay = new Date(year, month, 1);
-  const offset = (4 - firstDay.getDay() + 7) % 7;
-  const firstThursday = new Date(year, month, 1 + offset);
-
-  const firstFriday = new Date(firstThursday);
-  firstFriday.setDate(firstThursday.getDate() - 6);
-
-  const start = new Date(firstFriday);
-  start.setDate(firstFriday.getDate() + (weekIndex - 1) * 7);
-
-  const end = new Date(start);
-  end.setDate(start.getDate() + 6);
-
-  return {
-    start: format(start, 'yyyy-MM-dd'),
-    end: format(end, 'yyyy-MM-dd')
-  };
-}
-
 function App() {
-  const currentMonth = new Date().getMonth();
-  const currentYear = new Date().getFullYear();
-
   const [startDate, setStartDate] = useState(format(subDays(new Date(), 7), 'yyyy-MM-dd'));
   const [endDate, setEndDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [pageId, setPageId] = useState('');
   const [employee, setEmployee] = useState('');
   const [employeesList, setEmployeesList] = useState<string[]>([]);
-
-  const [selectedMonth, setSelectedMonth] = useState(currentMonth);
-  const [selectedWeek, setSelectedWeek] = useState(1);
 
   const [summary, setSummary] = useState<SummaryData | null>(null);
   const [trend, setTrend] = useState<TrendData[]>([]);
@@ -80,14 +54,6 @@ function App() {
   useEffect(() => {
     loadData();
   }, [startDate, endDate, pageId, employee]);
-
-  const handleWeekSelect = (m: number, w: number) => {
-    setSelectedMonth(m);
-    setSelectedWeek(w);
-    const { start, end } = getWeekRange(currentYear, m, w);
-    setStartDate(start);
-    setEndDate(end);
-  };
 
   const rateContact = summary?.new_leads ? (summary.contacted_leads / summary.new_leads) * 100 : 0;
   const ratePhone = summary?.new_leads ? (summary.phone_leads / summary.new_leads) * 100 : 0;
@@ -132,30 +98,6 @@ function App() {
             <span className="text-sm font-semibold text-gray-700">Bộ lọc</span>
           </div>
           <div className="flex flex-wrap gap-3 items-end">
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-medium text-gray-400">Tháng</label>
-              <select
-                value={selectedMonth}
-                onChange={e => handleWeekSelect(parseInt(e.target.value), selectedWeek)}
-                className="px-3 py-2 border border-gray-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all min-w-[110px]"
-              >
-                {Array.from({length: 12}).map((_, i) => (
-                  <option key={i} value={i}>Tháng {i + 1}</option>
-                ))}
-              </select>
-            </div>
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-medium text-gray-400">Tuần</label>
-              <select
-                value={selectedWeek}
-                onChange={e => handleWeekSelect(selectedMonth, parseInt(e.target.value))}
-                className="px-3 py-2 border border-gray-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all min-w-[100px]"
-              >
-                {[1, 2, 3, 4, 5].map(w => (
-                  <option key={w} value={w}>Tuần {w}</option>
-                ))}
-              </select>
-            </div>
             <div className="flex flex-col gap-1">
               <label className="text-xs font-medium text-gray-400">Từ ngày</label>
               <input

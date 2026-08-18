@@ -22,12 +22,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-def parse_msg_date(date_str):
-    if not date_str: return None
-    try:
-        return dateutil.parser.isoparse(str(date_str)).replace(tzinfo=None)
-    except:
+def _strip_tz(dt: datetime) -> datetime:
+    """Đảm bảo datetime luôn là naive (không timezone) để so sánh nhất quán."""
+    if dt is None:
         return None
+    if hasattr(dt, 'tzinfo') and dt.tzinfo is not None:
+        return dt.replace(tzinfo=None)
+    return dt
+
+def _date_to_dt(d_str: str) -> datetime:
+    """Parse YYYY-MM-DD thành datetime tại 00:00:00."""
+    return datetime.strptime(d_str.strip(), "%Y-%m-%d")
 
 @app.get("/api/metrics/summary", response_model=LeadMetricsSummary)
 def get_summary(
@@ -41,8 +46,10 @@ def get_summary(
         start_date = datetime.utcnow() - timedelta(days=30)
     if not end_date:
         end_date = datetime.utcnow()
-    else:
-        end_date = end_date.replace(hour=23, minute=59, second=59)
+
+    # Chuẩn hóa: strip timezone + set end_date cuối ngày
+    start_date = _strip_tz(start_date).replace(hour=0, minute=0, second=0, microsecond=0)
+    end_date = _strip_tz(end_date).replace(hour=23, minute=59, second=59, microsecond=0)
 
     query = db.query(DimLead, FactLeadActivity)\
         .outerjoin(FactLeadActivity, DimLead.id == FactLeadActivity.lead_id)
@@ -59,15 +66,21 @@ def get_summary(
     contacted_leads = 0
     
     for lead, act in results:
+        # Bỏ qua lead chưa được phân cho nhân viên nào
+        if not act or not act.assigned_users:
+            continue
+
+        created_at = _strip_tz(lead.first_created_at)
+
         is_new = False
-        if start_date <= lead.first_created_at <= end_date:
+        if created_at and start_date <= created_at <= end_date:
             is_new = True
             new_leads += 1
                 
         is_contacted = False
-        if act and act.contacted_dates:
+        if act.contacted_dates:
             for d_str in act.contacted_dates.split(','):
-                d_date = datetime.strptime(d_str.strip(), "%Y-%m-%d")
+                d_date = _date_to_dt(d_str)
                 if start_date <= d_date <= end_date:
                     is_contacted = True
                     break
@@ -77,7 +90,7 @@ def get_summary(
         has_phone = False
         if lead.phone_number:
             has_phone = True
-        elif act and act.status_tag and "Đã add" in act.status_tag:
+        elif act.status_tag and "Đã add" in act.status_tag:
             has_phone = True
             
         if (is_new or is_contacted) and has_phone:
@@ -97,12 +110,9 @@ def get_trend(
     employee: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
-    if not start_date:
-        start_date = datetime.utcnow() - timedelta(days=7)
-    if not end_date:
-        end_date = datetime.utcnow()
-    else:
-        end_date = end_date.replace(hour=23, minute=59, second=59)
+    # Chuẩn hóa: strip timezone + set end_date cuối ngày
+    start_date = _strip_tz(start_date).replace(hour=0, minute=0, second=0, microsecond=0)
+    end_date = _strip_tz(end_date).replace(hour=23, minute=59, second=59, microsecond=0)
 
     query = db.query(DimLead, FactLeadActivity)\
         .outerjoin(FactLeadActivity, DimLead.id == FactLeadActivity.lead_id)
@@ -116,23 +126,28 @@ def get_trend(
     trend_dict = {}
 
     for lead, act in results:
+        # Bỏ qua lead chưa được phân cho nhân viên nào
+        if not act or not act.assigned_users:
+            continue
+
         has_phone = False
         if lead.phone_number:
             has_phone = True
-        elif act and act.status_tag and "Đã add" in act.status_tag:
+        elif act.status_tag and "Đã add" in act.status_tag:
             has_phone = True
 
-        if start_date <= lead.first_created_at <= end_date:
-            dt_str = lead.first_created_at.strftime("%Y-%m-%d")
+        created_at = _strip_tz(lead.first_created_at)
+        if created_at and start_date <= created_at <= end_date:
+            dt_str = created_at.strftime("%Y-%m-%d")
             if dt_str not in trend_dict:
                 trend_dict[dt_str] = {"date": dt_str, "new_leads": 0, "phone_leads": 0, "contacted_leads": 0}
             trend_dict[dt_str]["new_leads"] += 1
             if has_phone:
                 trend_dict[dt_str]["phone_leads"] += 1
 
-        if act and act.contacted_dates:
+        if act.contacted_dates:
             for d_str in act.contacted_dates.split(','):
-                d_date = datetime.strptime(d_str.strip(), "%Y-%m-%d")
+                d_date = _date_to_dt(d_str)
                 if start_date <= d_date <= end_date:
                     if d_str not in trend_dict:
                         trend_dict[d_str] = {"date": d_str, "new_leads": 0, "phone_leads": 0, "contacted_leads": 0}
@@ -162,8 +177,14 @@ def list_leads(
     end_date: Optional[datetime] = None,
     db: Session = Depends(get_db)
 ):
-    if end_date:
-        end_date = end_date.replace(hour=23, minute=59, second=59)
+    # Chuẩn hóa dates - luôn có filter ngày, mặc định 30 ngày gần nhất
+    if not start_date:
+        start_date = datetime.utcnow() - timedelta(days=30)
+    if not end_date:
+        end_date = datetime.utcnow()
+
+    start_date = _strip_tz(start_date).replace(hour=0, minute=0, second=0, microsecond=0)
+    end_date = _strip_tz(end_date).replace(hour=23, minute=59, second=59, microsecond=0)
 
     query = db.query(DimLead, FactLeadActivity)\
         .outerjoin(FactLeadActivity, DimLead.id == FactLeadActivity.lead_id)
@@ -179,20 +200,23 @@ def list_leads(
     # Nhóm theo Customer (lọc trước khi lấy JSON raw)
     grouped = {}
     for lead, act in results:
-        is_new_in_period = True
+        # Bỏ qua lead chưa được phân cho nhân viên nào
+        if not act or not act.assigned_users:
+            continue
+
+        created_at = _strip_tz(lead.first_created_at)
+        is_new_in_period = created_at and start_date <= created_at <= end_date
+
         is_contacted_in_period = False
-        
-        if start_date and end_date:
-            is_new_in_period = start_date <= lead.first_created_at <= end_date
-            if act and act.contacted_dates:
-                for d_str in act.contacted_dates.split(','):
-                    d_date = datetime.strptime(d_str.strip(), "%Y-%m-%d")
-                    if start_date <= d_date <= end_date:
-                        is_contacted_in_period = True
-                        break
-                            
-            if not is_new_in_period and not is_contacted_in_period:
-                continue
+        if act.contacted_dates:
+            for d_str in act.contacted_dates.split(','):
+                d_date = _date_to_dt(d_str)
+                if start_date <= d_date <= end_date:
+                    is_contacted_in_period = True
+                    break
+                        
+        if not is_new_in_period and not is_contacted_in_period:
+            continue
 
         lid = lead.id
         if lid not in grouped:
