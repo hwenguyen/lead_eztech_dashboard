@@ -85,12 +85,17 @@ def upsert_lead_data(db: Session, raw_data: dict, page_id: str):
         # Determine is_contacted if any message from Admin
         is_contacted = False
         contacted_at = None
+        c_dates = set()
         for msg in raw_data.get('messages', []):
             if msg.get('role') == 'Admin':
                 is_contacted = True
                 cat = parse_pancake_date(msg.get('inserted_at'))
-                if not contacted_at or (cat and cat > contacted_at):
-                    contacted_at = cat
+                if cat:
+                    c_dates.add(cat.strftime("%Y-%m-%d"))
+                    if not contacted_at or cat > contacted_at:
+                        contacted_at = cat
+                        
+        contacted_dates_str = ",".join(sorted(list(c_dates))) if c_dates else None
 
         activity = db.query(FactLeadActivity).filter_by(conversation_id=conv_id).first()
         if not activity:
@@ -101,7 +106,8 @@ def upsert_lead_data(db: Session, raw_data: dict, page_id: str):
                 assigned_users=assigned_users,
                 message_count=msg_count,
                 is_contacted=is_contacted,
-                contacted_at=contacted_at
+                contacted_at=contacted_at,
+                contacted_dates=contacted_dates_str
             )
             db.add(activity)
         else:
@@ -109,6 +115,7 @@ def upsert_lead_data(db: Session, raw_data: dict, page_id: str):
             activity.assigned_users = assigned_users
             activity.message_count = msg_count
             activity.is_contacted = is_contacted
+            activity.contacted_dates = contacted_dates_str
             if contacted_at:
                 activity.contacted_at = contacted_at
 

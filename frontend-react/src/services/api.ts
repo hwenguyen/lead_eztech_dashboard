@@ -65,3 +65,8 @@ export const fetchLeads = async (pageId?: string, employee?: string, startDate?:
   const res = await apiClient.get<{data: Lead[]}>('/leads/list', { params });
   return res.data;
 };
+
+export const fetchEmployees = async () => {
+  const res = await apiClient.get<{data: string[]}>('/employees/list');
+  return res.data.data;
+};

@@ -4,7 +4,7 @@ import { LayoutDashboard, Users, UserCheck, PhoneCall } from 'lucide-react';
 import { KpiCard } from './components/KpiCard';
 import { TrendChart } from './components/TrendChart';
 import { LeadTable } from './components/LeadTable';
-import { fetchSummary, fetchTrend, fetchLeads, type SummaryData, type TrendData, type Lead } from './services/api';
+import { fetchSummary, fetchTrend, fetchLeads, fetchEmployees, type SummaryData, type TrendData, type Lead } from './services/api';
 
 function getWeekRange(year: number, month: number, weekIndex: number) {
   const firstDay = new Date(year, month, 1);
@@ -34,6 +34,7 @@ function App() {
   const [endDate, setEndDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [pageId, setPageId] = useState('');
   const [employee, setEmployee] = useState('');
+  const [employeesList, setEmployeesList] = useState<string[]>([]);
   
   const [selectedMonth, setSelectedMonth] = useState(currentMonth);
   const [selectedWeek, setSelectedWeek] = useState(1);
@@ -47,14 +48,16 @@ function App() {
     const loadData = async () => {
       setLoading(true);
       try {
-        const [sumRes, trRes, ldRes] = await Promise.all([
+        const [sumRes, trRes, ldRes, empRes] = await Promise.all([
           fetchSummary(startDate, endDate, pageId, employee),
           fetchTrend(startDate, endDate, pageId, employee),
-          fetchLeads(pageId, employee, startDate, endDate)
+          fetchLeads(pageId, employee, startDate, endDate),
+          fetchEmployees()
         ]);
         setSummary(sumRes);
         setTrend(trRes);
         setLeads(ldRes.data);
+        setEmployeesList(empRes);
       } catch (error) {
         console.error("Error fetching data:", error);
       } finally {
@@ -153,13 +156,16 @@ function App() {
             </div>
             <div className="flex flex-col gap-1.5 flex-1 min-w-[200px]">
               <label className="text-xs font-medium text-muted-foreground">Nhân Viên</label>
-              <input 
-                type="text" 
-                placeholder="Nhập tên nhân viên..."
+              <select 
                 value={employee} 
                 onChange={e => setEmployee(e.target.value)}
                 className="px-3 py-2 border border-border rounded-lg text-sm bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all w-full"
-              />
+              >
+                <option value="">-- Tất cả nhân viên --</option>
+                {employeesList.map(emp => (
+                  <option key={emp} value={emp}>{emp}</option>
+                ))}
+              </select>
             </div>
           </div>
         </div>

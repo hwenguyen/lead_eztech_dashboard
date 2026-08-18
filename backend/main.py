@@ -44,9 +44,8 @@ def get_summary(
     else:
         end_date = end_date.replace(hour=23, minute=59, second=59)
 
-    query = db.query(DimLead, FactLeadActivity, RawConversation)\
-        .outerjoin(FactLeadActivity, DimLead.id == FactLeadActivity.lead_id)\
-        .outerjoin(RawConversation, FactLeadActivity.conversation_id == RawConversation.pancake_id)
+    query = db.query(DimLead, FactLeadActivity)\
+        .outerjoin(FactLeadActivity, DimLead.id == FactLeadActivity.lead_id)
 
     if page_id:
         query = query.filter(DimLead.page_id == page_id)
@@ -59,20 +58,19 @@ def get_summary(
     phone_leads = 0
     contacted_leads = 0
     
-    for lead, act, raw in results:
+    for lead, act in results:
         if start_date <= lead.first_created_at <= end_date:
             new_leads += 1
             if lead.phone_number:
                 phone_leads += 1
                 
         is_contacted = False
-        if raw and raw.payload:
-            for m in raw.payload.get("messages", []):
-                if m.get("role") == "Admin":
-                    m_date = parse_msg_date(m.get("inserted_at"))
-                    if m_date and start_date <= m_date <= end_date:
-                        is_contacted = True
-                        break
+        if act and act.contacted_dates:
+            for d_str in act.contacted_dates.split(','):
+                d_date = datetime.strptime(d_str.strip(), "%Y-%m-%d")
+                if start_date <= d_date <= end_date:
+                    is_contacted = True
+                    break
         if is_contacted:
             contacted_leads += 1
 
@@ -97,9 +95,8 @@ def get_trend(
     else:
         end_date = end_date.replace(hour=23, minute=59, second=59)
 
-    query = db.query(DimLead, FactLeadActivity, RawConversation)\
-        .outerjoin(FactLeadActivity, DimLead.id == FactLeadActivity.lead_id)\
-        .outerjoin(RawConversation, FactLeadActivity.conversation_id == RawConversation.pancake_id)
+    query = db.query(DimLead, FactLeadActivity)\
+        .outerjoin(FactLeadActivity, DimLead.id == FactLeadActivity.lead_id)
 
     if page_id:
         query = query.filter(DimLead.page_id == page_id)
@@ -109,7 +106,7 @@ def get_trend(
     results = query.all()
     trend_dict = {}
 
-    for lead, act, raw in results:
+    for lead, act in results:
         if start_date <= lead.first_created_at <= end_date:
             dt_str = lead.first_created_at.strftime("%Y-%m-%d")
             if dt_str not in trend_dict:
@@ -118,21 +115,25 @@ def get_trend(
             if lead.phone_number:
                 trend_dict[dt_str]["phone_leads"] += 1
 
-        if raw and raw.payload:
-            contacted_dates = set()
-            for m in raw.payload.get("messages", []):
-                if m.get("role") == "Admin":
-                    m_date = parse_msg_date(m.get("inserted_at"))
-                    if m_date and start_date <= m_date <= end_date:
-                        dt_str = m_date.strftime("%Y-%m-%d")
-                        contacted_dates.add(dt_str)
-            for dt_str in contacted_dates:
-                if dt_str not in trend_dict:
-                    trend_dict[dt_str] = {"date": dt_str, "new_leads": 0, "phone_leads": 0, "contacted_leads": 0}
-                trend_dict[dt_str]["contacted_leads"] += 1
+        if act and act.contacted_dates:
+            for d_str in act.contacted_dates.split(','):
+                d_date = datetime.strptime(d_str.strip(), "%Y-%m-%d")
+                if start_date <= d_date <= end_date:
+                    if d_str not in trend_dict:
+                        trend_dict[d_str] = {"date": d_str, "new_leads": 0, "phone_leads": 0, "contacted_leads": 0}
+                    trend_dict[d_str]["contacted_leads"] += 1
 
     sorted_trend = sorted(trend_dict.values(), key=lambda x: x["date"])
     return TrendResponse(data=[TrendDataPoint(**item) for item in sorted_trend])
+
+@app.get("/api/employees/list")
+def get_employees(db: Session = Depends(get_db)):
+    results = db.query(FactLeadActivity.assigned_users).distinct().all()
+    employees = set()
+    for (users_str,) in results:
+        if users_str:
+            employees.update([u.strip() for u in users_str.split(",") if u.strip()])
+    return {"data": sorted(list(employees))}
 
 @app.get("/api/leads/list", response_model=LeadListResponse)
 def list_leads(
@@ -147,9 +148,8 @@ def list_leads(
     if end_date:
         end_date = end_date.replace(hour=23, minute=59, second=59)
 
-    query = db.query(DimLead, FactLeadActivity, RawConversation)\
-        .outerjoin(FactLeadActivity, DimLead.id == FactLeadActivity.lead_id)\
-        .outerjoin(RawConversation, FactLeadActivity.conversation_id == RawConversation.pancake_id)
+    query = db.query(DimLead, FactLeadActivity)\
+        .outerjoin(FactLeadActivity, DimLead.id == FactLeadActivity.lead_id)
 
     if page_id:
         query = query.filter(DimLead.page_id == page_id)
@@ -159,22 +159,20 @@ def list_leads(
     query = query.order_by(desc(DimLead.first_created_at))
     results = query.all()
 
-    # Nhóm theo Customer
+    # Nhóm theo Customer (lọc trước khi lấy JSON raw)
     grouped = {}
-    for lead, act, raw in results:
+    for lead, act in results:
         is_new_in_period = True
         is_contacted_in_period = False
         
         if start_date and end_date:
             is_new_in_period = start_date <= lead.first_created_at <= end_date
-            
-            if raw and raw.payload:
-                for m in raw.payload.get("messages", []):
-                    if m.get("role") == "Admin":
-                        m_date = parse_msg_date(m.get("inserted_at"))
-                        if m_date and start_date <= m_date <= end_date:
-                            is_contacted_in_period = True
-                            break
+            if act and act.contacted_dates:
+                for d_str in act.contacted_dates.split(','):
+                    d_date = datetime.strptime(d_str.strip(), "%Y-%m-%d")
+                    if start_date <= d_date <= end_date:
+                        is_contacted_in_period = True
+                        break
                             
             if not is_new_in_period and not is_contacted_in_period:
                 continue
@@ -184,28 +182,45 @@ def list_leads(
             grouped[lid] = {
                 "lead": lead,
                 "assigned_users": set(),
-                "messages": [],
+                "conversation_ids": [],
                 "is_contacted": is_contacted_in_period
             }
         
-        if act and act.assigned_users:
-            grouped[lid]["assigned_users"].update([u.strip() for u in act.assigned_users.split(",") if u.strip()])
-            
-        if raw and raw.payload:
-            msgs = raw.payload.get("messages", [])
-            for m in msgs:
-                if m.get("message"):
-                    sender = m.get("sender_name", m.get("role", "Unknown"))
-                    grouped[lid]["messages"].append(f"[{sender}]: {m.get('message')}")
+        if act:
+            if act.assigned_users:
+                grouped[lid]["assigned_users"].update([u.strip() for u in act.assigned_users.split(",") if u.strip()])
+            if act.conversation_id:
+                grouped[lid]["conversation_ids"].append(act.conversation_id)
 
     final_list = list(grouped.values())
     total = len(final_list)
     
     paginated = final_list[(page - 1) * size : page * size]
     
+    # Chỉ query JSON Raw cho page hiện tại
+    conv_ids = []
+    for item in paginated:
+        conv_ids.extend(item["conversation_ids"])
+        
+    raw_results = []
+    if conv_ids:
+        raw_results = db.query(RawConversation).filter(RawConversation.pancake_id.in_(conv_ids)).all()
+        
+    raw_dict = {r.pancake_id: r for r in raw_results}
+    
     data = []
     for item in paginated:
         lead = item["lead"]
+        messages = []
+        for cid in item["conversation_ids"]:
+            raw = raw_dict.get(cid)
+            if raw and raw.payload:
+                msgs = raw.payload.get("messages", [])
+                for m in msgs:
+                    if m.get("message"):
+                        sender = m.get("sender_name", m.get("role", "Unknown"))
+                        messages.append(f"[{sender}]: {m.get('message')}")
+                        
         data.append(LeadResponse(
             id=lead.id,
             customer_id=lead.customer_id,
@@ -215,7 +230,7 @@ def list_leads(
             first_created_at=lead.first_created_at,
             status_tag=None,
             assigned_users=", ".join(item["assigned_users"]),
-            messages="\n".join(item["messages"]) if item["messages"] else None,
+            messages="\n".join(messages) if messages else None,
             is_contacted=item["is_contacted"]
         ))
         
