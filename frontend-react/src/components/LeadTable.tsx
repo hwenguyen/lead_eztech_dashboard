@@ -1,19 +1,24 @@
-
 import type { Lead } from '../services/api';
 import { format } from 'date-fns';
-import { Phone, MessageSquare, User, CheckCircle, XCircle } from 'lucide-react';
+import { Phone, MessageSquare, User, CheckCircle, XCircle, ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface LeadTableProps {
   leads: Lead[];
+  totalLeads: number;
+  page: number;
+  pageSize: number;
+  onPageChange: (page: number) => void;
 }
 
-export function LeadTable({ leads }: LeadTableProps) {
+export function LeadTable({ leads, totalLeads, page, pageSize, onPageChange }: LeadTableProps) {
+  const totalPages = Math.ceil(totalLeads / pageSize);
+
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden flex flex-col">
       <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
         <div>
           <h3 className="text-base font-semibold text-gray-900">Danh sách Lead</h3>
-          <p className="text-xs text-gray-400 mt-0.5">Tổng {leads.length} khách hàng</p>
+          <p className="text-xs text-gray-400 mt-0.5">Tổng {totalLeads} khách hàng</p>
         </div>
       </div>
       <div className="overflow-x-auto">
@@ -25,7 +30,7 @@ export function LeadTable({ leads }: LeadTableProps) {
               <th className="px-6 py-3 font-medium">SĐT</th>
               <th className="px-6 py-3 font-medium">Tags</th>
               <th className="px-6 py-3 font-medium">Liên Hệ</th>
-              <th className="px-6 py-3 font-medium w-full">Tin Nhắn Gần Nhất</th>
+              <th className="px-6 py-3 font-medium w-full min-w-[300px]">Tin Nhắn Gần Nhất</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50">
@@ -39,9 +44,9 @@ export function LeadTable({ leads }: LeadTableProps) {
               return (
                 <tr key={lead.id} className="hover:bg-gray-50/60 transition-colors group">
                   {/* Khách hàng */}
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center text-white text-xs font-bold shrink-0">
+                  <td className="px-6 py-4 align-top">
+                    <div className="flex items-start gap-3">
+                      <div className="w-9 h-9 mt-0.5 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center text-white text-xs font-bold shrink-0">
                         {(lead.name || 'K').charAt(0).toUpperCase()}
                       </div>
                       <div>
@@ -54,7 +59,7 @@ export function LeadTable({ leads }: LeadTableProps) {
                   </td>
 
                   {/* Nhân viên */}
-                  <td className="px-6 py-4">
+                  <td className="px-6 py-4 align-top">
                     {lead.assigned_users ? (
                       <div className="flex flex-wrap gap-1">
                         {lead.assigned_users.split(',').map((u, i) => (
@@ -70,7 +75,7 @@ export function LeadTable({ leads }: LeadTableProps) {
                   </td>
 
                   {/* SĐT */}
-                  <td className="px-6 py-4">
+                  <td className="px-6 py-4 align-top">
                     {lead.phone_number ? (
                       <a href={`tel:${lead.phone_number}`} className="inline-flex items-center gap-1.5 text-blue-600 font-medium hover:text-blue-800 transition-colors">
                         <Phone className="w-3.5 h-3.5" />
@@ -82,11 +87,11 @@ export function LeadTable({ leads }: LeadTableProps) {
                   </td>
 
                   {/* Tags */}
-                  <td className="px-6 py-4">
+                  <td className="px-6 py-4 align-top">
                     {lead.status_tag ? (
                       <div className="flex flex-wrap gap-1">
                         {lead.status_tag.split(',').map((tag, i) => (
-                          <span key={i} className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-purple-50 text-purple-700 border border-purple-100">
+                          <span key={i} className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-purple-50 text-purple-700 border border-purple-100 whitespace-nowrap">
                             {tag.trim()}
                           </span>
                         ))}
@@ -97,24 +102,24 @@ export function LeadTable({ leads }: LeadTableProps) {
                   </td>
 
                   {/* Liên hệ */}
-                  <td className="px-6 py-4">
+                  <td className="px-6 py-4 align-top">
                     {lead.is_contacted ? (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-100">
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-100 whitespace-nowrap">
                         <CheckCircle className="w-3 h-3" /> Đã LH
                       </span>
                     ) : (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-gray-50 text-gray-400 border border-gray-100">
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-gray-50 text-gray-400 border border-gray-100 whitespace-nowrap">
                         <XCircle className="w-3 h-3" /> Chưa LH
-      </span>
+                      </span>
                     )}
                   </td>
 
                   {/* Tin nhắn */}
-                  <td className="px-6 py-4 max-w-[320px]">
+                  <td className="px-6 py-4 align-top">
                     {cleanMsg ? (
                       <div className="flex items-start gap-2">
                         <MessageSquare className="w-3.5 h-3.5 text-gray-300 mt-0.5 shrink-0" />
-                        <p className="text-gray-600 text-xs line-clamp-2">{cleanMsg}</p>
+                        <p className="text-gray-600 text-xs leading-relaxed whitespace-pre-wrap">{cleanMsg}</p>
                       </div>
                     ) : (
                       <span className="text-gray-300 text-xs italic">Không có tin nhắn</span>
@@ -124,18 +129,43 @@ export function LeadTable({ leads }: LeadTableProps) {
               );
             }) : (
               <tr>
-                <td colSpan={6} className="px-6 py-20 text-center">
-                  <div className="flex flex-col items-center gap-3 text-gray-300">
-                    <MessageSquare className="w-10 h-10" />
-                    <p className="text-sm font-medium">Không có dữ liệu</p>
-                    <p className="text-xs">Hãy thử thay đổi bộ lọc thời gian</p>
+                <td colSpan={6} className="px-6 py-12 text-center">
+                  <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-gray-50 mb-3">
+                    <User className="w-5 h-5 text-gray-400" />
                   </div>
+                  <p className="text-sm text-gray-500">Không có khách hàng nào</p>
                 </td>
               </tr>
             )}
           </tbody>
         </table>
       </div>
+
+      {/* Pagination Controls */}
+      {totalPages > 1 && (
+        <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between bg-gray-50/50">
+          <span className="text-xs text-gray-500">
+            Hiển thị <span className="font-medium text-gray-900">{(page - 1) * pageSize + 1}</span> - <span className="font-medium text-gray-900">{Math.min(page * pageSize, totalLeads)}</span> trong <span className="font-medium text-gray-900">{totalLeads}</span> khách hàng
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => onPageChange(page - 1)}
+              disabled={page <= 1}
+              className="p-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-white hover:text-blue-600 disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-gray-600 transition-colors"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <span className="text-xs font-medium text-gray-600 px-2">Trang {page} / {totalPages}</span>
+            <button
+              onClick={() => onPageChange(page + 1)}
+              disabled={page >= totalPages}
+              className="p-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-white hover:text-blue-600 disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-gray-600 transition-colors"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
