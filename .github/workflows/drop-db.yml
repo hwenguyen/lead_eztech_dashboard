@@ -1,0 +1,17 @@
+name: Drop Database
+on:
+  workflow_dispatch: # Bấm chạy thủ công
+
+jobs:
+  drop-db:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+    - run: pip install -r requirements.txt
+    - name: Run Drop DB Script
+      env:
+        DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      run: python drop_db.py
