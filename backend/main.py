@@ -61,9 +61,9 @@ def get_summary(
 
     results = query.all()
     
-    new_leads = 0
-    phone_leads = 0
-    contacted_leads = 0
+    new_leads_set = set()
+    phone_leads_set = set()
+    contacted_leads_set = set()
     
     for lead, act in results:
         # Bỏ qua lead chưa được phân cho nhân viên nào
@@ -75,7 +75,7 @@ def get_summary(
         is_new = False
         if created_at and start_date <= created_at <= end_date:
             is_new = True
-            new_leads += 1
+            new_leads_set.add(lead.id)
                 
         is_contacted = False
         if act.contacted_dates:
@@ -83,23 +83,22 @@ def get_summary(
                 d_date = _date_to_dt(d_str)
                 if start_date <= d_date <= end_date:
                     is_contacted = True
+                    contacted_leads_set.add(lead.id)
                     break
-        if is_contacted:
-            contacted_leads += 1
             
         has_phone = False
         if lead.phone_number:
             has_phone = True
-        elif act.status_tag and "Đã add" in act.status_tag:
+        elif act.status_tag and "đã add" in act.status_tag.lower():
             has_phone = True
             
         if (is_new or is_contacted) and has_phone:
-            phone_leads += 1
+            phone_leads_set.add(lead.id)
 
     return LeadMetricsSummary(
-        new_leads=new_leads,
-        contacted_leads=contacted_leads,
-        phone_leads=phone_leads
+        new_leads=len(new_leads_set),
+        contacted_leads=len(contacted_leads_set),
+        phone_leads=len(phone_leads_set)
     )
 
 @app.get("/api/metrics/trend", response_model=TrendResponse)
@@ -133,29 +132,39 @@ def get_trend(
         has_phone = False
         if lead.phone_number:
             has_phone = True
-        elif act.status_tag and "Đã add" in act.status_tag:
+        elif act.status_tag and "đã add" in act.status_tag.lower():
             has_phone = True
 
         created_at = _strip_tz(lead.first_created_at)
         if created_at and start_date <= created_at <= end_date:
             dt_str = created_at.strftime("%Y-%m-%d")
             if dt_str not in trend_dict:
-                trend_dict[dt_str] = {"date": dt_str, "new_leads": 0, "phone_leads": 0, "contacted_leads": 0}
-            trend_dict[dt_str]["new_leads"] += 1
+                trend_dict[dt_str] = {"date": dt_str, "new_leads": set(), "phone_leads": set(), "contacted_leads": set()}
+            trend_dict[dt_str]["new_leads"].add(lead.id)
             if has_phone:
-                trend_dict[dt_str]["phone_leads"] += 1
+                trend_dict[dt_str]["phone_leads"].add(lead.id)
 
         if act.contacted_dates:
             for d_str in act.contacted_dates.split(','):
                 d_date = _date_to_dt(d_str)
                 if start_date <= d_date <= end_date:
                     if d_str not in trend_dict:
-                        trend_dict[d_str] = {"date": d_str, "new_leads": 0, "phone_leads": 0, "contacted_leads": 0}
-                    trend_dict[d_str]["contacted_leads"] += 1
+                        trend_dict[d_str] = {"date": d_str, "new_leads": set(), "phone_leads": set(), "contacted_leads": set()}
+                    trend_dict[d_str]["contacted_leads"].add(lead.id)
                     if has_phone:
-                        trend_dict[d_str]["phone_leads"] += 1
+                        trend_dict[d_str]["phone_leads"].add(lead.id)
 
-    sorted_trend = sorted(trend_dict.values(), key=lambda x: x["date"])
+    # Convert sets to length
+    final_trend = []
+    for dt_str, data in trend_dict.items():
+        final_trend.append({
+            "date": dt_str,
+            "new_leads": len(data["new_leads"]),
+            "phone_leads": len(data["phone_leads"]),
+            "contacted_leads": len(data["contacted_leads"]),
+        })
+
+    sorted_trend = sorted(final_trend, key=lambda x: x["date"])
     return TrendResponse(data=[TrendDataPoint(**item) for item in sorted_trend])
 
 @app.get("/api/employees/list")
