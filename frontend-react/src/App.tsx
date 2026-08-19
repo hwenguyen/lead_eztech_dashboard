@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { format, subDays } from 'date-fns';
-import { LayoutDashboard, Users, UserCheck, PhoneCall, Filter, RefreshCw } from 'lucide-react';
+import { Users, UserCheck, PhoneCall, Filter, RefreshCw } from 'lucide-react';
 import { KpiCard } from './components/KpiCard';
 import { TrendChart } from './components/TrendChart';
 import { LeadTable } from './components/LeadTable';
