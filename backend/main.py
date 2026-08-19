@@ -65,7 +65,8 @@ def get_summary(
     phone_leads_set = set()
     contacted_leads_set = set()
     
-    employee_stats_sets = {}
+    new_leads_employee_stats_sets = {}
+    phone_leads_employee_stats_sets = {}
     tag_stats_sets = {"HV Khác": set(), "HV TCKT": set()}
     
     for lead, act in results:
@@ -100,12 +101,25 @@ def get_summary(
 
         if is_new or is_contacted:
             # Thống kê nhân viên
-            for emp in act.assigned_users.split(','):
-                emp = emp.strip()
-                if emp:
-                    if emp not in employee_stats_sets:
-                        employee_stats_sets[emp] = set()
-                    employee_stats_sets[emp].add(lead.id)
+            emps = [e.strip() for e in act.assigned_users.split(',') if e.strip()]
+            
+            if not employee:
+                # Tránh lặp số lượng trên Pie Chart: Chỉ gán Lead cho nhân viên ĐẦU TIÊN (nhân viên chính)
+                emps = emps[:1] if emps else []
+            else:
+                # Nếu đang lọc nhân viên, chỉ lấy nhân viên đó
+                emps = [e for e in emps if employee.lower() in e.lower()]
+                
+            for emp in emps:
+                if is_new:
+                    if emp not in new_leads_employee_stats_sets:
+                        new_leads_employee_stats_sets[emp] = set()
+                    new_leads_employee_stats_sets[emp].add(lead.id)
+                    
+                if has_phone:
+                    if emp not in phone_leads_employee_stats_sets:
+                        phone_leads_employee_stats_sets[emp] = set()
+                    phone_leads_employee_stats_sets[emp].add(lead.id)
                     
             # Thống kê tag
             if act.status_tag:
@@ -116,14 +130,16 @@ def get_summary(
                     elif "hv tckt" in t:
                         tag_stats_sets["HV TCKT"].add(lead.id)
 
-    employee_stats = {k: len(v) for k, v in employee_stats_sets.items()}
+    new_leads_employee_stats = {k: len(v) for k, v in new_leads_employee_stats_sets.items()}
+    phone_leads_employee_stats = {k: len(v) for k, v in phone_leads_employee_stats_sets.items()}
     tag_stats = {k: len(v) for k, v in tag_stats_sets.items() if len(v) > 0}
 
     return LeadMetricsSummary(
         new_leads=len(new_leads_set),
         contacted_leads=len(contacted_leads_set),
         phone_leads=len(phone_leads_set),
-        employee_stats=employee_stats,
+        new_leads_employee_stats=new_leads_employee_stats,
+        phone_leads_employee_stats=phone_leads_employee_stats,
         tag_stats=tag_stats
     )
 
