@@ -2,9 +2,9 @@ name: Pancake ETL Pipeline (Playwright)
 
 on:
   schedule:
-    # Chạy mỗi giờ vào phút thứ 0 (0 * * * *)
-    - cron: '0 * * * *'
-  workflow_dispatch: # Cho phép bấm chạy thủ công trên giao diện GitHub
+    # Chạy mỗi ngày 1 lần vào lúc 0:00 sáng giờ VN (17:00 UTC)
+    - cron: '0 17 * * *'
+  workflow_dispatch: # Cho phép bấm chạy thủ công trên giao diện GitHub # Cho phép bấm chạy thủ công trên giao diện GitHub
 
 jobs:
   run-etl:
