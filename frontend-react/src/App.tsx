@@ -18,6 +18,9 @@ function App() {
   const [summary, setSummary] = useState<SummaryData | null>(null);
   const [trend, setTrend] = useState<TrendData[]>([]);
   const [leads, setLeads] = useState<Lead[]>([]);
+  const [totalLeads, setTotalLeads] = useState(0);
+  const [page, setPage] = useState(1);
+  const pageSize = 15;
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
@@ -39,16 +42,29 @@ function App() {
       const [sumRes, trRes, ldRes] = await Promise.all([
         fetchSummary(startDate, endDate, pageId, employee),
         fetchTrend(startDate, endDate, pageId, employee),
-        fetchLeads(pageId, employee, startDate, endDate)
+        fetchLeads(pageId, employee, startDate, endDate, 1, pageSize)
       ]);
       setSummary(sumRes);
       setTrend(trRes);
       setLeads(ldRes.data);
+      setTotalLeads(ldRes.total);
+      setPage(1);
       setLastUpdated(new Date());
     } catch (error) {
       console.error("Error fetching data:", error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadLeadsPage = async (newPage: number) => {
+    try {
+      const ldRes = await fetchLeads(pageId, employee, startDate, endDate, newPage, pageSize);
+      setLeads(ldRes.data);
+      setTotalLeads(ldRes.total);
+      setPage(newPage);
+    } catch (error) {
+      console.error("Error fetching leads:", error);
     }
   };
 
@@ -219,7 +235,13 @@ function App() {
             </div>
 
             {/* Table */}
-            <LeadTable leads={leads} />
+            <LeadTable 
+              leads={leads} 
+              totalLeads={totalLeads}
+              page={page}
+              pageSize={pageSize}
+              onPageChange={loadLeadsPage}
+            />
           </>
         )}
       </main>

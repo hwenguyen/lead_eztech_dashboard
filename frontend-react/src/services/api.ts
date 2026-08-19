@@ -59,13 +59,13 @@ export const fetchTrend = async (startDate: string, endDate: string, pageId?: st
   return res.data.data;
 };
 
-export const fetchLeads = async (pageId?: string, employee?: string, startDate?: string, endDate?: string) => {
-  const params: any = { page: 1, size: 50 };
+export const fetchLeads = async (pageId?: string, employee?: string, startDate?: string, endDate?: string, page: number = 1, size: number = 50) => {
+  const params: any = { page, size };
   if (pageId) params.page_id = pageId;
   if (employee) params.employee = employee;
   if (startDate) params.start_date = startDate;
   if (endDate) params.end_date = endDate;
-  const res = await apiClient.get<{data: Lead[]}>('/leads/list', { params });
+  const res = await apiClient.get<{data: Lead[], total: number, page: number, size: number}>('/leads/list', { params });
   return res.data;
 };
 
