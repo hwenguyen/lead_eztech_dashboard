@@ -162,8 +162,8 @@ def run_etl_pipeline():
                 logger.info(f"🔔 FIRST RUN DETECTED! Kéo toàn bộ lịch sử cho Page {page_id} (giới hạn an toàn 10,000 hội thoại). Sẽ mất một lúc...")
                 client.limit = 10000 
             else:
-                logger.info(f"⚡ DAILY RUN DETECTED! Kéo 100 hội thoại mới/cập nhật gần nhất cho Page {page_id}...")
-                client.limit = 100
+                logger.info(f"⚡ DAILY RUN DETECTED! Kéo 500 hội thoại mới/cập nhật gần nhất cho Page {page_id}...")
+                client.limit = 500
                 
             conversations = client.get_conversations(page_id=page_id)
             total = len(conversations)
