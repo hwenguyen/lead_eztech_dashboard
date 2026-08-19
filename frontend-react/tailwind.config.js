@@ -16,6 +16,15 @@ export default {
         background: "#F3F6FA",
         card: "#FFFFFF",
         border: "#E5E7EB",
+        foreground: "#111827",
+        primary: {
+          DEFAULT: "#1E5BD6",
+          foreground: "#ffffff"
+        },
+        muted: {
+          DEFAULT: "#F3F6FA",
+          foreground: "#4B5563"
+        },
       },
       fontFamily: {
         sans: ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', 'sans-serif'],
