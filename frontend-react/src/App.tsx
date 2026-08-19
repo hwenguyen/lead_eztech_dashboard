@@ -200,15 +200,20 @@ function App() {
             </div>
 
             {/* Additional Charts Row */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               <StatsPieChart
-                title="Lead theo Nhân viên"
-                subtitle="Phân bổ tổng số khách hàng cho từng nhân viên"
-                stats={summary?.employee_stats}
+                title="Lead Mới / Nhân viên"
+                subtitle="Phân bổ Lead Mới"
+                stats={summary?.new_leads_employee_stats}
+              />
+              <StatsPieChart
+                title="Lead Có SĐT / Nhân viên"
+                subtitle="Phân bổ Lead Có SĐT"
+                stats={summary?.phone_leads_employee_stats}
               />
               <StatsPieChart
                 title="Lead theo Khoá học"
-                subtitle="Thống kê khách hàng theo Tag quan tâm"
+                subtitle="Thống kê Tag quan tâm"
                 stats={summary?.tag_stats}
               />
             </div>
