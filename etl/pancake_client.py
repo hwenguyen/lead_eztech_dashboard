@@ -168,7 +168,15 @@ class PancakeClient:
                     if m.get("message"):
                         # Capture role (admin/customer) and timestamp
                         m_from = m.get('from', {})
-                        role = "Admin" if m_from and 'admin' in str(m_from).lower() or m_from.get('admin_name') else "Khách hàng"
+                        
+                        is_admin = False
+                        if m_from:
+                            if 'admin' in str(m_from).lower() or m_from.get('admin_name'):
+                                is_admin = True
+                            elif str(m_from.get('id')) == str(page_id):
+                                is_admin = True
+                        
+                        role = "Admin" if is_admin else "Khách hàng"
                         
                         formatted_msgs.append({
                             "message": m.get("message"),
