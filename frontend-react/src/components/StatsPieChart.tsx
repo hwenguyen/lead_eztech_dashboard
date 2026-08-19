@@ -6,7 +6,7 @@ interface StatsPieChartProps {
   stats: Record<string, number> | undefined;
 }
 
-const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#14b8a6', '#f43f5e', '#6366f1'];
+const COLORS = ['#1E5BD6', '#10B981', '#F59E0B', '#EF4444', '#0A1F44', '#FFC107', '#E6F0FF', '#4B5563'];
 
 const CustomLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent }: any) => {
   if (percent < 0.05) return null;
@@ -32,10 +32,10 @@ export function StatsPieChart({ title, subtitle, stats }: StatsPieChartProps) {
   const total = data.reduce((acc, curr) => acc + curr.value, 0);
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm">
+    <div className="bg-white rounded-2xl border border-[#E5E7EB] p-6 shadow-sm">
       <div className="mb-4">
-        <h3 className="text-base font-semibold text-gray-900">{title}</h3>
-        <p className="text-xs text-gray-400 mt-0.5">{subtitle}</p>
+        <h3 className="text-base font-semibold text-navy">{title}</h3>
+        <p className="text-xs text-[#4B5563] mt-0.5">{subtitle}</p>
       </div>
 
       {data.length > 0 ? (
@@ -73,7 +73,7 @@ export function StatsPieChart({ title, subtitle, stats }: StatsPieChartProps) {
                 </span>
                 <span className="font-semibold text-gray-800 shrink-0">
                   {item.value.toLocaleString()} 
-                  <span className="text-gray-400 font-normal ml-1">
+                  <span className="text-[#4B5563] font-normal ml-1">
                     ({((item.value / total) * 100).toFixed(1)}%)
                   </span>
                 </span>

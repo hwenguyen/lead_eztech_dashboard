@@ -25,9 +25,9 @@ const colorMap = {
 export function KpiCard({ title, value, subtitle, icon, color = 'blue', trend }: KpiCardProps) {
   const c = colorMap[color];
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm hover:shadow-md transition-all duration-200 flex flex-col gap-4">
+    <div className="bg-white rounded-2xl border border-[#E5E7EB] p-6 shadow-sm hover:shadow-md transition-all duration-200 flex flex-col gap-4">
       <div className="flex items-center justify-between">
-        <span className="text-sm font-medium text-gray-500">{title}</span>
+        <span className="text-sm font-medium text-[#4B5563]">{title}</span>
         {icon && (
           <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center", c.icon)}>
             {icon}
@@ -36,13 +36,13 @@ export function KpiCard({ title, value, subtitle, icon, color = 'blue', trend }:
       </div>
       <div className="flex items-end justify-between">
         <div>
-          <div className="text-3xl font-bold text-gray-900 tracking-tight">{value}</div>
+          <div className="text-3xl font-bold text-navy tracking-tight">{value}</div>
           {subtitle && <p className={cn("text-xs font-medium mt-1", c.text)}>{subtitle}</p>}
         </div>
         {trend !== undefined && (
           <div className={cn(
             "text-xs font-semibold px-2 py-1 rounded-full",
-            trend >= 0 ? "bg-emerald-50 text-emerald-600" : "bg-red-50 text-red-500"
+            trend >= 0 ? "bg-emerald-50 text-[#10B981]" : "bg-red-50 text-[#EF4444]"
           )}>
             {trend >= 0 ? '↑' : '↓'} {Math.abs(trend).toFixed(1)}%
           </div>

@@ -7,7 +7,7 @@ interface RatioChartProps {
   phoneLeads: number;
 }
 
-const COLORS = ['#3b82f6', '#10b981', '#f59e0b'];
+const COLORS = ['#1E5BD6', '#10B981', '#F59E0B'];
 
 const CustomLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent }: any) => {
   if (percent < 0.05) return null;
@@ -33,10 +33,10 @@ export function RatioChart({ newLeads, contactedLeads, phoneLeads }: RatioChartP
   const phoneRate = newLeads > 0 ? ((phoneLeads / newLeads) * 100).toFixed(1) : '0';
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm">
+    <div className="bg-white rounded-2xl border border-[#E5E7EB] p-6 shadow-sm">
       <div className="mb-4">
-        <h3 className="text-base font-semibold text-gray-900">Tỉ lệ chuyển đổi</h3>
-        <p className="text-xs text-gray-400 mt-0.5">Phân bổ Lead trong kỳ</p>
+        <h3 className="text-base font-semibold text-navy">Tỉ lệ chuyển đổi</h3>
+        <p className="text-xs text-[#4B5563] mt-0.5">Phân bổ Lead trong kỳ</p>
       </div>
 
       {data.length > 0 ? (
@@ -64,22 +64,22 @@ export function RatioChart({ newLeads, contactedLeads, phoneLeads }: RatioChartP
 
           <div className="mt-4 space-y-2.5">
             <div className="flex items-center justify-between text-sm">
-              <span className="flex items-center gap-2 text-gray-500">
+              <span className="flex items-center gap-2 text-[#4B5563]">
                 <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block" />
                 Tỉ lệ Contact
               </span>
-              <span className="font-bold text-emerald-600">{contactRate}%</span>
+              <span className="font-bold text-[#10B981]">{contactRate}%</span>
             </div>
             <div className="flex items-center justify-between text-sm">
-              <span className="flex items-center gap-2 text-gray-500">
+              <span className="flex items-center gap-2 text-[#4B5563]">
                 <span className="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block" />
                 Tỉ lệ Có SĐT
               </span>
-              <span className="font-bold text-amber-600">{phoneRate}%</span>
+              <span className="font-bold text-[#F59E0B]">{phoneRate}%</span>
             </div>
             <div className="h-px bg-gray-100 my-2" />
             <div className="flex items-center justify-between text-sm">
-              <span className="text-gray-400">Tổng Lead</span>
+              <span className="text-[#4B5563]">Tổng Lead</span>
               <span className="font-bold text-gray-800">{newLeads.toLocaleString()}</span>
             </div>
           </div>

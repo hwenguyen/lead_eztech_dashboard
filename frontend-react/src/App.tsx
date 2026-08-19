@@ -76,28 +76,28 @@ function App() {
   const ratePhone = summary?.new_leads ? (summary.phone_leads / summary.new_leads) * 100 : 0;
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-bg-page text-[#111827]">
       {/* Header */}
-      <header className="bg-white border-b border-gray-100 sticky top-0 z-20 shadow-sm">
+      <header className="bg-white border-b border-[#E5E7EB] sticky top-0 z-20 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 bg-blue-600 rounded-xl flex items-center justify-center shadow-sm">
+            <div className="w-9 h-9 bg-gradient-to-br from-navy to-eztech rounded-xl flex items-center justify-center shadow-sm">
               <LayoutDashboard className="w-5 h-5 text-white" />
             </div>
             <div>
-              <h1 className="text-base font-bold text-gray-900 leading-none">EzTech Lead Dashboard</h1>
-              <p className="text-xs text-gray-400 mt-0.5">Pancake Analytics</p>
+              <h1 className="text-base font-bold text-navy leading-none">EzTech Lead Dashboard</h1>
+              <p className="text-xs text-[#4B5563] mt-0.5">Pancake Analytics</p>
             </div>
           </div>
           <div className="flex items-center gap-3">
             {lastUpdated && (
-              <span className="text-xs text-gray-400">
+              <span className="text-xs text-[#4B5563]">
                 Cập nhật: {format(lastUpdated, 'HH:mm')}
               </span>
             )}
             <button
               onClick={loadData}
-              className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+              className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-[#4B5563] bg-light-blue/50 hover:bg-light-blue rounded-lg transition-colors border border-transparent hover:border-[#1E5BD6]/20 text-[#1E5BD6]"
             >
               <RefreshCw className="w-3.5 h-3.5" />
               Làm mới
@@ -109,47 +109,47 @@ function App() {
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
 
         {/* Filter Panel */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+        <div className="bg-white rounded-2xl border border-[#E5E7EB] shadow-sm p-5">
           <div className="flex items-center gap-2 mb-4">
-            <Filter className="w-4 h-4 text-gray-400" />
-            <span className="text-sm font-semibold text-gray-700">Bộ lọc</span>
+            <Filter className="w-4 h-4 text-eztech" />
+            <span className="text-sm font-semibold text-navy">Bộ lọc</span>
           </div>
           <div className="flex flex-wrap gap-3 items-end">
             <div className="flex flex-col gap-1">
-              <label className="text-xs font-medium text-gray-400">Từ ngày</label>
+              <label className="text-xs font-medium text-[#4B5563]">Từ ngày</label>
               <input
                 type="date"
                 value={startDate}
                 onChange={e => setStartDate(e.target.value)}
-                className="px-3 py-2 border border-gray-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
+                className="px-3 py-2 border border-[#E5E7EB] rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-eztech/20 focus:border-eztech transition-all text-[#111827]"
               />
             </div>
             <div className="flex flex-col gap-1">
-              <label className="text-xs font-medium text-gray-400">Đến ngày</label>
+              <label className="text-xs font-medium text-[#4B5563]">Đến ngày</label>
               <input
                 type="date"
                 value={endDate}
                 onChange={e => setEndDate(e.target.value)}
-                className="px-3 py-2 border border-gray-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
+                className="px-3 py-2 border border-[#E5E7EB] rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-eztech/20 focus:border-eztech transition-all text-[#111827]"
               />
             </div>
-            <div className="h-9 w-px bg-gray-200 mx-1" />
+            <div className="h-9 w-px bg-[#E5E7EB] mx-1" />
             <div className="flex flex-col gap-1 flex-1 min-w-[180px]">
-              <label className="text-xs font-medium text-gray-400">Page ID</label>
+              <label className="text-xs font-medium text-[#4B5563]">Page ID</label>
               <input
                 type="text"
                 placeholder="Tất cả Page..."
                 value={pageId}
                 onChange={e => setPageId(e.target.value)}
-                className="px-3 py-2 border border-gray-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all w-full"
+                className="px-3 py-2 border border-[#E5E7EB] rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-eztech/20 focus:border-eztech transition-all w-full text-[#111827]"
               />
             </div>
             <div className="flex flex-col gap-1 min-w-[200px]">
-              <label className="text-xs font-medium text-gray-400">Nhân Viên</label>
+              <label className="text-xs font-medium text-[#4B5563]">Nhân Viên</label>
               <select
                 value={employee}
                 onChange={e => setEmployee(e.target.value)}
-                className="px-3 py-2 border border-gray-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
+                className="px-3 py-2 border border-[#E5E7EB] rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-eztech/20 focus:border-eztech transition-all text-[#111827]"
               >
                 <option value="">-- Tất cả nhân viên --</option>
                 {employeesList.map(emp => (

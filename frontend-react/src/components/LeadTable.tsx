@@ -14,17 +14,17 @@ export function LeadTable({ leads, totalLeads, page, pageSize, onPageChange }: L
   const totalPages = Math.ceil(totalLeads / pageSize);
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden flex flex-col">
-      <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+    <div className="bg-white rounded-2xl border border-[#E5E7EB] shadow-sm overflow-hidden flex flex-col">
+      <div className="px-6 py-4 border-b border-[#E5E7EB] flex items-center justify-between">
         <div>
-          <h3 className="text-base font-semibold text-gray-900">Danh sách Lead</h3>
-          <p className="text-xs text-gray-400 mt-0.5">Tổng {totalLeads} khách hàng</p>
+          <h3 className="text-base font-semibold text-navy">Danh sách Lead</h3>
+          <p className="text-xs text-[#4B5563] mt-0.5">Tổng {totalLeads} khách hàng</p>
         </div>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm text-left">
           <thead>
-            <tr className="text-xs text-gray-400 bg-gray-50 uppercase tracking-wide">
+            <tr className="text-xs text-[#4B5563] bg-[#F3F6FA] uppercase tracking-wide">
               <th className="px-6 py-3 font-medium">Khách Hàng</th>
               <th className="px-6 py-3 font-medium">Nhân Viên</th>
               <th className="px-6 py-3 font-medium">SĐT</th>
@@ -33,7 +33,7 @@ export function LeadTable({ leads, totalLeads, page, pageSize, onPageChange }: L
               <th className="px-6 py-3 font-medium w-full min-w-[300px]">Tin Nhắn Gần Nhất</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-50">
+          <tbody className="divide-y divide-[#E5E7EB]">
             {leads.length > 0 ? leads.map((lead) => {
               // Lấy dòng tin nhắn cuối cùng từ khách hàng
               const msgLines = (lead.messages || '').split('\n').filter(Boolean);
@@ -42,16 +42,16 @@ export function LeadTable({ leads, totalLeads, page, pageSize, onPageChange }: L
               const cleanMsg = lastMsg.replace(/^\[.*?\]:\s*/, '');
 
               return (
-                <tr key={lead.id} className="hover:bg-gray-50/60 transition-colors group">
+                <tr key={lead.id} className="hover:bg-[#F3F6FA] transition-colors group">
                   {/* Khách hàng */}
                   <td className="px-6 py-4 align-top">
                     <div className="flex items-start gap-3">
-                      <div className="w-9 h-9 mt-0.5 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center text-white text-xs font-bold shrink-0">
+                      <div className="w-9 h-9 mt-0.5 rounded-full bg-gradient-to-br from-navy to-eztech flex items-center justify-center text-white text-xs font-bold shrink-0">
                         {(lead.name || 'K').charAt(0).toUpperCase()}
                       </div>
                       <div>
-                        <div className="font-medium text-gray-900">{lead.name || 'Khách từ CRM'}</div>
-                        <div className="text-xs text-gray-400 mt-0.5 flex items-center gap-1">
+                        <div className="font-medium text-navy">{lead.name || 'Khách từ CRM'}</div>
+                        <div className="text-xs text-[#4B5563] mt-0.5 flex items-center gap-1">
                           {format(new Date(lead.first_created_at), 'dd/MM/yyyy HH:mm')}
                         </div>
                       </div>
@@ -63,26 +63,26 @@ export function LeadTable({ leads, totalLeads, page, pageSize, onPageChange }: L
                     {lead.assigned_users ? (
                       <div className="flex flex-wrap gap-1">
                         {lead.assigned_users.split(',').map((u, i) => (
-                          <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-100">
+                          <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-light-blue text-eztech border border-eztech/20">
                             <User className="w-3 h-3" />
                             {u.trim()}
                           </span>
                         ))}
                       </div>
                     ) : (
-                      <span className="text-gray-300 text-xs">Chưa phân</span>
+                      <span className="text-[#4B5563] text-xs">Chưa phân</span>
                     )}
                   </td>
 
                   {/* SĐT */}
                   <td className="px-6 py-4 align-top">
                     {lead.phone_number ? (
-                      <a href={`tel:${lead.phone_number}`} className="inline-flex items-center gap-1.5 text-blue-600 font-medium hover:text-blue-800 transition-colors">
+                      <a href={`tel:${lead.phone_number}`} className="inline-flex items-center gap-1.5 text-eztech font-medium hover:text-navy transition-colors">
                         <Phone className="w-3.5 h-3.5" />
                         {lead.phone_number}
                       </a>
                     ) : (
-                      <span className="text-gray-300 text-xs">—</span>
+                      <span className="text-[#4B5563] text-xs">—</span>
                     )}
                   </td>
 
@@ -97,18 +97,18 @@ export function LeadTable({ leads, totalLeads, page, pageSize, onPageChange }: L
                         ))}
                       </div>
                     ) : (
-                      <span className="text-gray-300 text-xs">—</span>
+                      <span className="text-[#4B5563] text-xs">—</span>
                     )}
                   </td>
 
                   {/* Liên hệ */}
                   <td className="px-6 py-4 align-top">
                     {lead.is_contacted ? (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-100 whitespace-nowrap">
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-[#10B981] border border-[#10B981]/20 whitespace-nowrap">
                         <CheckCircle className="w-3 h-3" /> Đã LH
                       </span>
                     ) : (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-gray-50 text-gray-400 border border-gray-100 whitespace-nowrap">
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-[#F3F6FA] text-[#4B5563] border border-[#E5E7EB] whitespace-nowrap">
                         <XCircle className="w-3 h-3" /> Chưa LH
                       </span>
                     )}
@@ -118,11 +118,11 @@ export function LeadTable({ leads, totalLeads, page, pageSize, onPageChange }: L
                   <td className="px-6 py-4 align-top">
                     {cleanMsg ? (
                       <div className="flex items-start gap-2">
-                        <MessageSquare className="w-3.5 h-3.5 text-gray-300 mt-0.5 shrink-0" />
-                        <p className="text-gray-600 text-xs leading-relaxed whitespace-pre-wrap">{cleanMsg}</p>
+                        <MessageSquare className="w-3.5 h-3.5 text-[#4B5563] mt-0.5 shrink-0" />
+                        <p className="text-[#4B5563] text-xs leading-relaxed whitespace-pre-wrap">{cleanMsg}</p>
                       </div>
                     ) : (
-                      <span className="text-gray-300 text-xs italic">Không có tin nhắn</span>
+                      <span className="text-[#4B5563] text-xs italic">Không có tin nhắn</span>
                     )}
                   </td>
                 </tr>
@@ -130,10 +130,10 @@ export function LeadTable({ leads, totalLeads, page, pageSize, onPageChange }: L
             }) : (
               <tr>
                 <td colSpan={6} className="px-6 py-12 text-center">
-                  <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-gray-50 mb-3">
-                    <User className="w-5 h-5 text-gray-400" />
+                  <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-[#F3F6FA] mb-3">
+                    <User className="w-5 h-5 text-[#4B5563]" />
                   </div>
-                  <p className="text-sm text-gray-500">Không có khách hàng nào</p>
+                  <p className="text-sm text-[#4B5563]">Không có khách hàng nào</p>
                 </td>
               </tr>
             )}
@@ -143,23 +143,23 @@ export function LeadTable({ leads, totalLeads, page, pageSize, onPageChange }: L
 
       {/* Pagination Controls */}
       {totalPages > 1 && (
-        <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between bg-gray-50/50">
-          <span className="text-xs text-gray-500">
-            Hiển thị <span className="font-medium text-gray-900">{(page - 1) * pageSize + 1}</span> - <span className="font-medium text-gray-900">{Math.min(page * pageSize, totalLeads)}</span> trong <span className="font-medium text-gray-900">{totalLeads}</span> khách hàng
+        <div className="px-6 py-4 border-t border-[#E5E7EB] flex items-center justify-between bg-[#F3F6FA]">
+          <span className="text-xs text-[#4B5563]">
+            Hiển thị <span className="font-medium text-navy">{(page - 1) * pageSize + 1}</span> - <span className="font-medium text-navy">{Math.min(page * pageSize, totalLeads)}</span> trong <span className="font-medium text-navy">{totalLeads}</span> khách hàng
           </span>
           <div className="flex items-center gap-2">
             <button
               onClick={() => onPageChange(page - 1)}
               disabled={page <= 1}
-              className="p-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-white hover:text-blue-600 disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-gray-600 transition-colors"
+              className="p-1.5 rounded-lg border border-[#E5E7EB] text-[#4B5563] hover:bg-white hover:text-eztech disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-[#4B5563] transition-colors"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
-            <span className="text-xs font-medium text-gray-600 px-2">Trang {page} / {totalPages}</span>
+            <span className="text-xs font-medium text-[#4B5563] px-2">Trang {page} / {totalPages}</span>
             <button
               onClick={() => onPageChange(page + 1)}
               disabled={page >= totalPages}
-              className="p-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-white hover:text-blue-600 disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-gray-600 transition-colors"
+              className="p-1.5 rounded-lg border border-[#E5E7EB] text-[#4B5563] hover:bg-white hover:text-eztech disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-[#4B5563] transition-colors"
             >
               <ChevronRight className="w-4 h-4" />
             </button>
