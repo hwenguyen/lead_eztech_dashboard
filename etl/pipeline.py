@@ -20,11 +20,23 @@ def extract_phone_number(text: str) -> str:
     match = PHONE_REGEX.search(text)
     return match.group(0) if match else None
 
+from datetime import datetime, timedelta, timezone
+
 def parse_pancake_date(date_str: str) -> datetime:
     try:
-        return parse(date_str)
+        dt = parse(date_str)
+        # Nếu Pancake trả về không có múi giờ, ta ngầm định đó là UTC
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+            
+        # Chuyển đổi sang múi giờ Việt Nam (UTC+7)
+        vn_tz = timezone(timedelta(hours=7))
+        dt_vn = dt.astimezone(vn_tz)
+        
+        # Lưu vào DB dưới dạng naive datetime (bỏ tz đi để so sánh cho dễ)
+        return dt_vn.replace(tzinfo=None)
     except:
-        return datetime.utcnow()
+        return datetime.utcnow() + timedelta(hours=7)
 
 def upsert_lead_data(db: Session, raw_data: dict, page_id: str):
     """
@@ -38,7 +50,8 @@ def upsert_lead_data(db: Session, raw_data: dict, page_id: str):
         customer_id = str(raw_data.get('customer_id', ''))
         
         # Bỏ qua Comment (Chỉ lấy Message)
-        if raw_data.get('type') == 'comment':
+        conv_type = str(raw_data.get('type', '')).upper()
+        if conv_type == 'COMMENT':
             return
             
         if not conv_id or not customer_id:
