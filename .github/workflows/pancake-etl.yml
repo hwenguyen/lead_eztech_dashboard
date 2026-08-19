@@ -24,10 +24,7 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
 
-    - name: Cài đặt trình duyệt Playwright
-      run: |
-        playwright install chromium
-        playwright install-deps chromium
+
 
     - name: Chạy ETL Pipeline (Cào qua API nhanh)
       env:
@@ -37,11 +34,3 @@ jobs:
       run: |
         python -m etl.pipeline
 
-    - name: Chạy Playwright Bot (Cào ẩn danh cho các Page không có Token)
-      env:
-        DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        PANCAKE_EMAIL: ${{ secrets.PANCAKE_EMAIL }}
-        PANCAKE_PASSWORD: ${{ secrets.PANCAKE_PASSWORD }}
-        PLAYWRIGHT_PAGE_IDS: ${{ secrets.PLAYWRIGHT_PAGE_IDS }}
-      run: |
-        python -m etl.playwright_bot
