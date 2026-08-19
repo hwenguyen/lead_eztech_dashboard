@@ -81,11 +81,9 @@ function App() {
       <header className="bg-white border-b border-[#E5E7EB] sticky top-0 z-20 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 bg-gradient-to-br from-navy to-eztech rounded-xl flex items-center justify-center shadow-sm">
-              <LayoutDashboard className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <h1 className="text-base font-bold text-navy leading-none">EzTech Lead Dashboard</h1>
+            <img src="/logo.png" alt="EzTech Logo" className="h-10 object-contain" />
+            <div className="ml-2 border-l border-[#E5E7EB] pl-3">
+              <h1 className="text-base font-bold text-navy leading-none">Lead Dashboard</h1>
               <p className="text-xs text-[#4B5563] mt-0.5">Pancake Analytics</p>
             </div>
           </div>
