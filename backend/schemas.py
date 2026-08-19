@@ -6,6 +6,8 @@ class LeadMetricsSummary(BaseModel):
     new_leads: int
     contacted_leads: int
     phone_leads: int
+    employee_stats: dict
+    tag_stats: dict
 
 class LeadResponse(BaseModel):
     id: int

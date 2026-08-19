@@ -65,6 +65,9 @@ def get_summary(
     phone_leads_set = set()
     contacted_leads_set = set()
     
+    employee_stats_sets = {}
+    tag_stats_sets = {"HV Khác": set(), "HV TCKT": set()}
+    
     for lead, act in results:
         # Bỏ qua lead chưa được phân cho nhân viên nào
         if not act or not act.assigned_users:
@@ -95,10 +98,33 @@ def get_summary(
         if (is_new or is_contacted) and has_phone:
             phone_leads_set.add(lead.id)
 
+        if is_new or is_contacted:
+            # Thống kê nhân viên
+            for emp in act.assigned_users.split(','):
+                emp = emp.strip()
+                if emp:
+                    if emp not in employee_stats_sets:
+                        employee_stats_sets[emp] = set()
+                    employee_stats_sets[emp].add(lead.id)
+                    
+            # Thống kê tag
+            if act.status_tag:
+                tags = [t.strip().lower() for t in act.status_tag.split(',')]
+                for t in tags:
+                    if "hv khác" in t or "hv khac" in t:
+                        tag_stats_sets["HV Khác"].add(lead.id)
+                    elif "hv tckt" in t:
+                        tag_stats_sets["HV TCKT"].add(lead.id)
+
+    employee_stats = {k: len(v) for k, v in employee_stats_sets.items()}
+    tag_stats = {k: len(v) for k, v in tag_stats_sets.items() if len(v) > 0}
+
     return LeadMetricsSummary(
         new_leads=len(new_leads_set),
         contacted_leads=len(contacted_leads_set),
-        phone_leads=len(phone_leads_set)
+        phone_leads=len(phone_leads_set),
+        employee_stats=employee_stats,
+        tag_stats=tag_stats
     )
 
 @app.get("/api/metrics/trend", response_model=TrendResponse)

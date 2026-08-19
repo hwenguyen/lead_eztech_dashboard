@@ -5,6 +5,7 @@ import { KpiCard } from './components/KpiCard';
 import { TrendChart } from './components/TrendChart';
 import { LeadTable } from './components/LeadTable';
 import { RatioChart } from './components/RatioChart';
+import { StatsPieChart } from './components/StatsPieChart';
 import { fetchSummary, fetchTrend, fetchLeads, fetchEmployees, type SummaryData, type TrendData, type Lead } from './services/api';
 
 function App() {
@@ -196,6 +197,20 @@ function App() {
                   phoneLeads={summary?.phone_leads || 0}
                 />
               </div>
+            </div>
+
+            {/* Additional Charts Row */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <StatsPieChart
+                title="Lead theo Nhân viên"
+                subtitle="Phân bổ tổng số khách hàng cho từng nhân viên"
+                stats={summary?.employee_stats}
+              />
+              <StatsPieChart
+                title="Lead theo Khoá học"
+                subtitle="Thống kê khách hàng theo Tag quan tâm"
+                stats={summary?.tag_stats}
+              />
             </div>
 
             {/* Table */}

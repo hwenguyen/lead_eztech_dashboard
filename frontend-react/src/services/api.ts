@@ -18,6 +18,8 @@ export interface SummaryData {
   new_leads: number;
   contacted_leads: number;
   phone_leads: number;
+  employee_stats?: Record<string, number>;
+  tag_stats?: Record<string, number>;
 }
 
 export interface TrendData {
