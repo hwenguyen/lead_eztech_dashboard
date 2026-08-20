@@ -142,19 +142,30 @@ def upsert_lead_data(db: Session, raw_data: dict, page_id: str):
 
 def run_etl_pipeline():
     logger.info("Starting ETL Pipeline...")
-    page_ids = os.getenv("PAGE_IDS", "").split(",")
-    page_ids = [p.strip() for p in page_ids if p.strip()]
+    page_ids_env = os.getenv("PAGE_IDS", "")
+    page_ids = [p.strip() for p in page_ids_env.split(",") if p.strip()]
     
     if not page_ids:
         logger.warning("No PAGE_IDS found in environment variables.")
         return
 
-    client = PancakeClient()
+    # Hỗ trợ nhiều token cho nhiều page
+    tokens_env = os.getenv("PANCAKE_API_TOKENS")
+    if tokens_env:
+        tokens = [t.strip() for t in tokens_env.split(",")]
+    else:
+        # Fallback dùng chung 1 token
+        tokens = [os.getenv("PANCAKE_API_TOKEN")] * len(page_ids)
+
     db = SessionLocal()
     
     try:
-        for page_id in page_ids:
+        for i, page_id in enumerate(page_ids):
             logger.info(f"Processing Page ID: {page_id}")
+            
+            # Lấy token tương ứng với page, nếu thiếu thì dùng None (sẽ fallback trong class)
+            page_token = tokens[i] if i < len(tokens) else None
+            client = PancakeClient(api_token=page_token)
             
             # Kiểm tra xem đã có dữ liệu cho Page này chưa
             existing_count = db.query(RawConversation).filter_by(page_id=page_id).count()

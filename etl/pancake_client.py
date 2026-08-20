@@ -16,8 +16,8 @@ nest_asyncio.apply()
 logger = logging.getLogger(__name__)
 
 class PancakeClient:
-    def __init__(self):
-        self.api_token = os.getenv("PANCAKE_API_TOKEN")
+    def __init__(self, api_token: str = None):
+        self.api_token = api_token or os.getenv("PANCAKE_API_TOKEN")
         self.username = os.getenv("PANCAKE_EMAIL")
         self.password = os.getenv("PANCAKE_PASSWORD")
         self.auth_file = "pancake_auth.json"
