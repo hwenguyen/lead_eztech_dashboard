@@ -215,8 +215,20 @@ def get_employees(db: Session = Depends(get_db)):
     employees = set()
     for (users_str,) in results:
         if users_str:
-            employees.update([u.strip() for u in users_str.split(",") if u.strip()])
+            for u in users_str.split(","):
+                u = u.strip()
+                if u:
+                    employees.add(u)
     return {"data": sorted(list(employees))}
+
+@app.get("/api/pages/list")
+def get_pages(db: Session = Depends(get_db)):
+    results = db.query(DimLead.page_id).distinct().all()
+    pages = set()
+    for (page,) in results:
+        if page:
+            pages.add(page.strip())
+    return {"data": sorted(list(pages))}
 
 @app.get("/api/leads/list", response_model=LeadListResponse)
 def list_leads(

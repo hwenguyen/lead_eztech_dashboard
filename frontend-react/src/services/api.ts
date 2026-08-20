@@ -69,12 +69,12 @@ export const fetchLeads = async (pageId?: string, employee?: string, startDate?:
   return res.data;
 };
 
-export const fetchEmployees = async () => {
-  try {
-    const res = await apiClient.get<{data: string[]}>('/employees/list');
-    return res.data.data;
-  } catch (error) {
-    console.error("fetchEmployees failed", error);
-    return [];
-  }
+export const fetchEmployees = async (): Promise<string[]> => {
+  const response = await apiClient.get<{data: string[]}>('/employees/list');
+  return response.data.data;
+};
+
+export const fetchPages = async (): Promise<string[]> => {
+  const response = await apiClient.get<{data: string[]}>('/pages/list');
+  return response.data.data;
 };

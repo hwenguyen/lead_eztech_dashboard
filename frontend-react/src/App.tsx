@@ -6,7 +6,7 @@ import { TrendChart } from './components/TrendChart';
 import { LeadTable } from './components/LeadTable';
 import { RatioChart } from './components/RatioChart';
 import { StatsPieChart } from './components/StatsPieChart';
-import { fetchSummary, fetchTrend, fetchLeads, fetchEmployees, type SummaryData, type TrendData, type Lead } from './services/api';
+import { fetchSummary, fetchTrend, fetchLeads, fetchEmployees, fetchPages, type SummaryData, type TrendData, type Lead } from './services/api';
 
 function App() {
   const [startDate, setStartDate] = useState(format(subDays(new Date(), 7), 'yyyy-MM-dd'));
@@ -14,6 +14,7 @@ function App() {
   const [pageId, setPageId] = useState('');
   const [employee, setEmployee] = useState('');
   const [employeesList, setEmployeesList] = useState<string[]>([]);
+  const [pagesList, setPagesList] = useState<string[]>([]);
 
   const [summary, setSummary] = useState<SummaryData | null>(null);
   const [trend, setTrend] = useState<TrendData[]>([]);
@@ -25,15 +26,19 @@ function App() {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   useEffect(() => {
-    const loadEmployees = async () => {
+    const loadFilters = async () => {
       try {
-        const empRes = await fetchEmployees();
+        const [empRes, pgRes] = await Promise.all([
+          fetchEmployees(),
+          fetchPages()
+        ]);
         setEmployeesList(empRes);
+        setPagesList(pgRes);
       } catch (error) {
-        console.error("Error fetching employees:", error);
+        console.error("Error fetching filters:", error);
       }
     };
-    loadEmployees();
+    loadFilters();
   }, []);
 
   const loadData = async () => {
@@ -132,16 +137,19 @@ function App() {
               />
             </div>
             <div className="h-9 w-px bg-[#E5E7EB] mx-1" />
-            <div className="flex flex-col gap-1 flex-1 min-w-[180px]">
-              <label className="text-xs font-medium text-[#4B5563]">Page ID</label>
-              <input
-                type="text"
-                placeholder="Tất cả Page..."
-                value={pageId}
-                onChange={e => setPageId(e.target.value)}
-                className="px-3 py-2 border border-[#E5E7EB] rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-eztech/20 focus:border-eztech transition-all w-full text-[#111827]"
-              />
-            </div>
+              <div className="flex flex-col gap-1 flex-1 min-w-[180px]">
+                <label className="text-xs font-medium text-[#4B5563]">Page ID</label>
+                <select
+                  value={pageId}
+                  onChange={e => setPageId(e.target.value)}
+                  className="px-3 py-2 border border-[#E5E7EB] rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-eztech/20 focus:border-eztech transition-all text-[#111827] cursor-pointer"
+                >
+                  <option value="">Tất cả Page</option>
+                  {pagesList.map(pg => (
+                    <option key={pg} value={pg}>{pg}</option>
+                  ))}
+                </select>
+              </div>
             <div className="flex flex-col gap-1 min-w-[200px]">
               <label className="text-xs font-medium text-[#4B5563]">Nhân Viên</label>
               <select
