@@ -114,30 +114,28 @@ class PancakeClient:
             messages_by_conv = {}
             def fetch_conversation_messages(cid):
                 url = f"https://pages.fm/api/public_api/v1/pages/{page_id}/conversations/{cid}/messages"
-                current_count = 0
                 rc = 0
                 local_msgs = []
-                while True:
+                while rc <= max_retries:
                     try:
-                        resp = requests.get(url, params={"page_access_token": ptoken, "current_count": current_count}, timeout=10)
+                        # Chỉ lấy trang đầu tiên (thường là tin nhắn mới nhất), không loop qua toàn bộ lịch sử chat để tăng tốc độ x10 lần
+                        resp = requests.get(url, params={"page_access_token": ptoken}, timeout=10)
                         if resp.status_code == 200:
-                            rc = 0
                             msgs = resp.json().get('messages', [])
-                            if not msgs: break
-                            local_msgs.extend(msgs)
-                            current_count += len(msgs)
-                            time.sleep(0.1)
+                            if msgs:
+                                local_msgs.extend(msgs)
+                            break
                         elif resp.status_code == 429:
                             time.sleep(15)
-                            continue
+                            rc += 1
                         elif resp.status_code == 500:
                             rc += 1
-                            if rc <= max_retries: time.sleep(2 * rc); continue
-                            else: break
-                        else: break
+                            time.sleep(2 * rc)
+                        else:
+                            break
                     except Exception:
+                        rc += 1
                         time.sleep(2)
-                        continue
                 return cid, local_msgs
 
             with ThreadPoolExecutor(max_workers=50) as executor:
