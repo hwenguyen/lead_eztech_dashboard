@@ -28,14 +28,16 @@ function App() {
   useEffect(() => {
     const loadFilters = async () => {
       try {
-        const [empRes, pgRes] = await Promise.all([
-          fetchEmployees(),
-          fetchPages()
-        ]);
+        const empRes = await fetchEmployees();
         setEmployeesList(empRes);
+      } catch (error) {
+        console.error("Error fetching employees:", error);
+      }
+      try {
+        const pgRes = await fetchPages();
         setPagesList(pgRes);
       } catch (error) {
-        console.error("Error fetching filters:", error);
+        console.error("Error fetching pages:", error);
       }
     };
     loadFilters();
