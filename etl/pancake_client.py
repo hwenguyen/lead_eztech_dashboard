@@ -128,7 +128,7 @@ class PancakeClient:
                             current_count += len(msgs)
                             time.sleep(0.1)
                         elif resp.status_code == 429:
-                            time.sleep(15)
+                            time.sleep(3) # Đợi ngắn lại theo yêu cầu
                             continue
                         elif resp.status_code == 500:
                             rc += 1
@@ -140,7 +140,8 @@ class PancakeClient:
                         continue
                 return cid, local_msgs
 
-            with ThreadPoolExecutor(max_workers=50) as executor:
+            # Giảm số luồng xuống 5 để không bị cấm API thay vì 50
+            with ThreadPoolExecutor(max_workers=5) as executor:
                 future_to_conv = {executor.submit(fetch_conversation_messages, conv.get('id')): conv.get('id') for conv in all_convs}
                 for future in as_completed(future_to_conv):
                     try:
