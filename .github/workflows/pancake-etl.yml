@@ -25,7 +25,7 @@ jobs:
         pip install -r requirements.txt
         playwright install chromium
 
-    - name: Chạy ETL Pipeline
+    - name: Chạy ETL Pipeline (Cào qua API nhanh)
       env:
         DATABASE_URL: ${{ secrets.DATABASE_URL }}
         PANCAKE_API_TOKEN: ${{ secrets.PANCAKE_API_TOKEN }}
