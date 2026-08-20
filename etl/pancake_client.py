@@ -215,6 +215,7 @@ class PancakeClient:
         MAX_STAGNANT_ATTEMPTS = 50
         
         async with async_playwright() as p:
+            browser = None
             try:
                 browser = await p.chromium.launch(headless=True, args=['--no-sandbox'])
                 context = await browser.new_context(
@@ -360,7 +361,8 @@ class PancakeClient:
             except Exception as e:
                 logger.error(f"Lỗi Playwright tổng: {e}")
             finally:
-                await browser.close()
+                if browser:
+                    await browser.close()
                 
         return urls_data
 
