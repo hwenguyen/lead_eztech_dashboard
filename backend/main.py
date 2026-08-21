@@ -2,9 +2,9 @@ from fastapi import FastAPI, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_, desc, cast, Date, String
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
-from database.db import get_db, engine, Base
+from database.db import get_db, engine, Base, SessionLocal
 from database.models import DimLead, FactLeadActivity, RawConversation
 from backend.schemas import LeadMetricsSummary, TrendResponse, TrendDataPoint, LeadListResponse, LeadResponse
 import dateutil.parser
@@ -33,6 +33,57 @@ def _strip_tz(dt: datetime) -> datetime:
 def _date_to_dt(d_str: str) -> datetime:
     """Parse YYYY-MM-DD thành datetime tại 00:00:00."""
     return datetime.strptime(d_str.strip(), "%Y-%m-%d")
+
+def parse_pancake_date(date_str: str) -> Optional[datetime]:
+    if not date_str:
+        return None
+    try:
+        dt = dateutil.parser.parse(date_str)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        vn_tz = timezone(timedelta(hours=7))
+        dt_vn = dt.astimezone(vn_tz)
+        return dt_vn.replace(tzinfo=None)
+    except Exception:
+        return None
+
+def auto_repair_contacted_dates():
+    """Tự động làm sạch và đồng bộ lại chính xác contacted_dates từ raw_conversations payload."""
+    try:
+        db = SessionLocal()
+        raws = db.query(RawConversation).all()
+        for r in raws:
+            if not r.payload or not isinstance(r.payload, dict):
+                continue
+            msgs = r.payload.get('messages', [])
+            c_dates = set()
+            for m in msgs:
+                if isinstance(m, dict) and m.get('inserted_at'):
+                    dt = parse_pancake_date(m.get('inserted_at'))
+                    if dt:
+                        c_dates.add(dt.strftime("%Y-%m-%d"))
+            
+            contacted_dates_str = ",".join(sorted(list(c_dates))) if c_dates else None
+            
+            act = db.query(FactLeadActivity).filter_by(conversation_id=r.pancake_id).first()
+            if act and act.contacted_dates != contacted_dates_str:
+                act.contacted_dates = contacted_dates_str
+                
+            # Sửa lại first_created_at nếu có
+            conv_inserted = parse_pancake_date(r.payload.get('inserted_at'))
+            if conv_inserted and act and act.lead_id:
+                lead = db.query(DimLead).filter_by(id=act.lead_id).first()
+                if lead and (not lead.first_created_at or lead.first_created_at > conv_inserted):
+                    lead.first_created_at = conv_inserted
+                    
+        db.commit()
+        db.close()
+    except Exception as e:
+        print(f"Auto repair error: {e}")
+
+@app.on_event("startup")
+def startup_event():
+    auto_repair_contacted_dates()
 
 @app.get("/api/metrics/summary", response_model=LeadMetricsSummary)
 def get_summary(

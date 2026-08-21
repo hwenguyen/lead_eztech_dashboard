@@ -22,7 +22,9 @@ def extract_phone_number(text: str) -> str:
 
 from datetime import datetime, timedelta, timezone
 
-def parse_pancake_date(date_str: str) -> datetime:
+def parse_pancake_date(date_str: str) -> Optional[datetime]:
+    if not date_str:
+        return None
     try:
         dt = parse(date_str)
         # Nếu Pancake trả về không có múi giờ, ta ngầm định đó là UTC
@@ -35,8 +37,8 @@ def parse_pancake_date(date_str: str) -> datetime:
         
         # Lưu vào DB dưới dạng naive datetime (bỏ tz đi để so sánh cho dễ)
         return dt_vn.replace(tzinfo=None)
-    except:
-        return datetime.utcnow() + timedelta(hours=7)
+    except Exception:
+        return None
 
 def upsert_lead_data(db: Session, raw_data: dict, page_id: str):
     """
