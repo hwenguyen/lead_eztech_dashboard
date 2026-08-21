@@ -58,7 +58,7 @@ def auto_repair_contacted_dates():
             msgs = r.payload.get('messages', [])
             c_dates = set()
             for m in msgs:
-                if isinstance(m, dict) and m.get('inserted_at'):
+                if isinstance(m, dict) and m.get('role') == 'Admin' and m.get('inserted_at'):
                     dt = parse_pancake_date(m.get('inserted_at'))
                     if dt:
                         c_dates.add(dt.strftime("%Y-%m-%d"))

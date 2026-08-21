@@ -100,19 +100,20 @@ def upsert_lead_data(db: Session, raw_data: dict, page_id: str):
         
         assigned_users = raw_data.get('assigned_users')
         
-        # Determine is_contacted if any message from Admin or Customer
+        # Determine is_contacted if any message from Admin
         is_contacted = False
         contacted_at = None
         c_dates = set()
         
-        # Thu thập ngày từ tất cả tin nhắn thực tế (cả Khách hàng gửi và Admin rep)
+        # Chỉ tính là liên hệ khi Admin trả lời tin nhắn
         for msg in raw_data.get('messages', []):
-            cat = parse_pancake_date(msg.get('inserted_at'))
-            if cat:
-                is_contacted = True
-                c_dates.add(cat.strftime("%Y-%m-%d"))
-                if not contacted_at or cat > contacted_at:
-                    contacted_at = cat
+            if msg.get('role') == 'Admin':
+                cat = parse_pancake_date(msg.get('inserted_at'))
+                if cat:
+                    is_contacted = True
+                    c_dates.add(cat.strftime("%Y-%m-%d"))
+                    if not contacted_at or cat > contacted_at:
+                        contacted_at = cat
                         
         contacted_dates_str = ",".join(sorted(list(c_dates))) if c_dates else None
 
