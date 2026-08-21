@@ -4,10 +4,14 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, and_, desc, cast, Date, String
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+import threading
+import logging
 from database.db import get_db, engine, Base, SessionLocal
 from database.models import DimLead, FactLeadActivity, RawConversation
 from backend.schemas import LeadMetricsSummary, TrendResponse, TrendDataPoint, LeadListResponse, LeadResponse
 import dateutil.parser
+
+logger = logging.getLogger(__name__)
 
 # Khởi tạo DB Schema (Tự động tạo bảng nếu chưa có, hữu ích cho môi trường dev/Free Tier)
 Base.metadata.create_all(bind=engine)
@@ -21,6 +25,14 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.get("/")
+def root():
+    return {"status": "ok", "service": "Pancake Lead API"}
+
+@app.get("/health")
+def health():
+    return {"status": "healthy"}
 
 def _strip_tz(dt: datetime) -> datetime:
     """Đảm bảo datetime luôn là naive (không timezone) để so sánh nhất quán."""
@@ -83,7 +95,8 @@ def auto_repair_contacted_dates():
 
 @app.on_event("startup")
 def startup_event():
-    auto_repair_contacted_dates()
+    # Chạy làm sạch dữ liệu trong background thread để không chặn port binding của Render
+    threading.Thread(target=auto_repair_contacted_dates, daemon=True).start()
 
 @app.get("/api/metrics/summary", response_model=LeadMetricsSummary)
 def get_summary(
