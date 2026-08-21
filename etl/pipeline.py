@@ -103,7 +103,7 @@ def upsert_lead_data(db: Session, raw_data: dict, page_id: str):
         contacted_at = None
         c_dates = set()
         
-        # 1. Thu thập ngày từ tất cả tin nhắn (cả Khách hàng và Admin)
+        # Thu thập ngày từ tất cả tin nhắn thực tế (cả Khách hàng gửi và Admin rep)
         for msg in raw_data.get('messages', []):
             cat = parse_pancake_date(msg.get('inserted_at'))
             if cat:
@@ -111,21 +111,6 @@ def upsert_lead_data(db: Session, raw_data: dict, page_id: str):
                 c_dates.add(cat.strftime("%Y-%m-%d"))
                 if not contacted_at or cat > contacted_at:
                     contacted_at = cat
-                    
-        # 2. Thu thập ngày từ inserted_at / updated_at của cuộc hội thoại
-        conv_inserted = parse_pancake_date(raw_data.get('inserted_at'))
-        if conv_inserted:
-            is_contacted = True
-            c_dates.add(conv_inserted.strftime("%Y-%m-%d"))
-            if not contacted_at or conv_inserted > contacted_at:
-                contacted_at = conv_inserted
-                
-        conv_updated = parse_pancake_date(raw_data.get('updated_at'))
-        if conv_updated:
-            is_contacted = True
-            c_dates.add(conv_updated.strftime("%Y-%m-%d"))
-            if not contacted_at or conv_updated > contacted_at:
-                contacted_at = conv_updated
                         
         contacted_dates_str = ",".join(sorted(list(c_dates))) if c_dates else None
 
