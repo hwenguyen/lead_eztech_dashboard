@@ -41,6 +41,7 @@ export interface Lead {
   assigned_users?: string;
   messages?: string;
   is_contacted: boolean;
+  is_new: boolean;
 }
 
 export const fetchSummary = async (startDate: string, endDate: string, pageId?: string, employee?: string) => {
