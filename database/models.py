@@ -22,7 +22,7 @@ class DimLead(Base):
     name = Column(String, nullable=True)
     phone_number = Column(String, index=True, nullable=True)
     page_id = Column(String, index=True, nullable=False)
-    first_created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    first_created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
     
     # Quan hệ 1-N với FactLeadActivity
     activities = relationship("FactLeadActivity", back_populates="lead")
@@ -32,10 +32,10 @@ class FactLeadActivity(Base):
     __tablename__ = "fact_lead_activities"
 
     id = Column(Integer, primary_key=True, index=True)
-    lead_id = Column(Integer, ForeignKey("dim_leads.id"), nullable=False)
+    lead_id = Column(Integer, ForeignKey("dim_leads.id"), nullable=False, index=True)
     conversation_id = Column(String, unique=True, index=True, nullable=False)
     status_tag = Column(String, nullable=True)  # VD: "Đang tư vấn", "Đã liên hệ"
-    assigned_users = Column(String, nullable=True) # Nhân viên phụ trách
+    assigned_users = Column(String, nullable=True, index=True) # Nhân viên phụ trách
     message_count = Column(Integer, default=0)
     is_contacted = Column(Boolean, default=False)
     contacted_at = Column(DateTime, nullable=True) # Last contacted at

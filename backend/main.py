@@ -60,10 +60,19 @@ def parse_pancake_date(date_str: str) -> Optional[datetime]:
         return None
 
 def auto_repair_contacted_dates():
-    """Tự động làm sạch và đồng bộ lại chính xác contacted_dates từ raw_conversations payload."""
+    """Tự động làm sạch và đồng bộ lại chính xác contacted_dates từ raw_conversations payload theo cách batch siêu nhanh."""
     try:
         db = SessionLocal()
         raws = db.query(RawConversation).all()
+        if not raws:
+            db.close()
+            return
+            
+        # Preload all activities and leads into memory in 2 fast queries instead of 10,000 queries
+        all_acts = {act.conversation_id: act for act in db.query(FactLeadActivity).all()}
+        all_leads = {l.id: l for l in db.query(DimLead).all()}
+        
+        has_changes = False
         for r in raws:
             if not r.payload or not isinstance(r.payload, dict):
                 continue
@@ -77,21 +86,24 @@ def auto_repair_contacted_dates():
             
             contacted_dates_str = ",".join(sorted(list(c_dates))) if c_dates else None
             
-            act = db.query(FactLeadActivity).filter_by(conversation_id=r.pancake_id).first()
+            act = all_acts.get(r.pancake_id)
             if act and act.contacted_dates != contacted_dates_str:
                 act.contacted_dates = contacted_dates_str
+                has_changes = True
                 
-            # Sửa lại first_created_at nếu có
             conv_inserted = parse_pancake_date(r.payload.get('inserted_at'))
             if conv_inserted and act and act.lead_id:
-                lead = db.query(DimLead).filter_by(id=act.lead_id).first()
+                lead = all_leads.get(act.lead_id)
                 if lead and (not lead.first_created_at or lead.first_created_at > conv_inserted):
                     lead.first_created_at = conv_inserted
+                    has_changes = True
                     
-        db.commit()
+        if has_changes:
+            db.commit()
         db.close()
+        logger.info("Auto repair completed successfully.")
     except Exception as e:
-        print(f"Auto repair error: {e}")
+        logger.error(f"Auto repair error: {e}")
 
 @app.on_event("startup")
 def startup_event():
@@ -115,8 +127,14 @@ def get_summary(
     start_date = _strip_tz(start_date).replace(hour=0, minute=0, second=0, microsecond=0)
     end_date = _strip_tz(end_date).replace(hour=23, minute=59, second=59, microsecond=0)
 
-    query = db.query(DimLead, FactLeadActivity)\
-        .outerjoin(FactLeadActivity, DimLead.id == FactLeadActivity.lead_id)
+    query = db.query(
+        DimLead.id,
+        DimLead.phone_number,
+        DimLead.first_created_at,
+        FactLeadActivity.status_tag,
+        FactLeadActivity.assigned_users,
+        FactLeadActivity.contacted_dates
+    ).outerjoin(FactLeadActivity, DimLead.id == FactLeadActivity.lead_id)
 
     if page_id:
         query = query.filter(DimLead.page_id == page_id)
@@ -133,39 +151,39 @@ def get_summary(
     phone_leads_employee_stats_sets = {}
     tag_stats_sets = {"HV Khác": set(), "HV TCKT": set()}
     
-    for lead, act in results:
+    for lead_id, phone_number, first_created_at, status_tag, assigned_users, contacted_dates in results:
         # Bỏ qua lead chưa được phân cho nhân viên nào
-        if not act or not act.assigned_users:
+        if not assigned_users:
             continue
 
-        created_at = _strip_tz(lead.first_created_at)
+        created_at = _strip_tz(first_created_at)
 
         is_new = False
         if created_at and start_date <= created_at <= end_date:
             is_new = True
-            new_leads_set.add(lead.id)
+            new_leads_set.add(lead_id)
                 
         is_contacted = False
-        if act.contacted_dates:
-            for d_str in act.contacted_dates.split(','):
+        if contacted_dates:
+            for d_str in contacted_dates.split(','):
                 d_date = _date_to_dt(d_str)
                 if start_date <= d_date <= end_date:
                     is_contacted = True
-                    contacted_leads_set.add(lead.id)
+                    contacted_leads_set.add(lead_id)
                     break
             
         has_phone = False
-        if lead.phone_number:
+        if phone_number:
             has_phone = True
-        elif act.status_tag and "đã add" in act.status_tag.lower():
+        elif status_tag and "đã add" in status_tag.lower():
             has_phone = True
             
         if (is_new or is_contacted) and has_phone:
-            phone_leads_set.add(lead.id)
+            phone_leads_set.add(lead_id)
 
         if is_new or is_contacted:
             # Thống kê nhân viên
-            emps = [e.strip() for e in act.assigned_users.split(',') if e.strip()]
+            emps = [e.strip() for e in assigned_users.split(',') if e.strip()]
             
             if not employee:
                 # Tránh lặp số lượng trên Pie Chart: Chỉ gán Lead cho nhân viên ĐẦU TIÊN (nhân viên chính)
@@ -178,21 +196,21 @@ def get_summary(
                 if is_new:
                     if emp not in new_leads_employee_stats_sets:
                         new_leads_employee_stats_sets[emp] = set()
-                    new_leads_employee_stats_sets[emp].add(lead.id)
+                    new_leads_employee_stats_sets[emp].add(lead_id)
                     
                 if has_phone:
                     if emp not in phone_leads_employee_stats_sets:
                         phone_leads_employee_stats_sets[emp] = set()
-                    phone_leads_employee_stats_sets[emp].add(lead.id)
+                    phone_leads_employee_stats_sets[emp].add(lead_id)
                     
             # Thống kê tag
-            if act.status_tag:
-                tags = [t.strip().lower() for t in act.status_tag.split(',')]
+            if status_tag:
+                tags = [t.strip().lower() for t in status_tag.split(',')]
                 for t in tags:
                     if "hv khác" in t or "hv khac" in t:
-                        tag_stats_sets["HV Khác"].add(lead.id)
+                        tag_stats_sets["HV Khác"].add(lead_id)
                     elif "hv tckt" in t:
-                        tag_stats_sets["HV TCKT"].add(lead.id)
+                        tag_stats_sets["HV TCKT"].add(lead_id)
 
     new_leads_employee_stats = {k: len(v) for k, v in new_leads_employee_stats_sets.items()}
     phone_leads_employee_stats = {k: len(v) for k, v in phone_leads_employee_stats_sets.items()}
@@ -219,8 +237,14 @@ def get_trend(
     start_date = _strip_tz(start_date).replace(hour=0, minute=0, second=0, microsecond=0)
     end_date = _strip_tz(end_date).replace(hour=23, minute=59, second=59, microsecond=0)
 
-    query = db.query(DimLead, FactLeadActivity)\
-        .outerjoin(FactLeadActivity, DimLead.id == FactLeadActivity.lead_id)
+    query = db.query(
+        DimLead.id,
+        DimLead.phone_number,
+        DimLead.first_created_at,
+        FactLeadActivity.status_tag,
+        FactLeadActivity.assigned_users,
+        FactLeadActivity.contacted_dates
+    ).outerjoin(FactLeadActivity, DimLead.id == FactLeadActivity.lead_id)
 
     if page_id:
         query = query.filter(DimLead.page_id == page_id)
@@ -230,35 +254,35 @@ def get_trend(
     results = query.all()
     trend_dict = {}
 
-    for lead, act in results:
+    for lead_id, phone_number, first_created_at, status_tag, assigned_users, contacted_dates in results:
         # Bỏ qua lead chưa được phân cho nhân viên nào
-        if not act or not act.assigned_users:
+        if not assigned_users:
             continue
 
         has_phone = False
-        if lead.phone_number:
+        if phone_number:
             has_phone = True
-        elif act.status_tag and "đã add" in act.status_tag.lower():
+        elif status_tag and "đã add" in status_tag.lower():
             has_phone = True
 
-        created_at = _strip_tz(lead.first_created_at)
+        created_at = _strip_tz(first_created_at)
         if created_at and start_date <= created_at <= end_date:
             dt_str = created_at.strftime("%Y-%m-%d")
             if dt_str not in trend_dict:
                 trend_dict[dt_str] = {"date": dt_str, "new_leads": set(), "phone_leads": set(), "contacted_leads": set()}
-            trend_dict[dt_str]["new_leads"].add(lead.id)
+            trend_dict[dt_str]["new_leads"].add(lead_id)
             if has_phone:
-                trend_dict[dt_str]["phone_leads"].add(lead.id)
+                trend_dict[dt_str]["phone_leads"].add(lead_id)
 
-        if act.contacted_dates:
-            for d_str in act.contacted_dates.split(','):
+        if contacted_dates:
+            for d_str in contacted_dates.split(','):
                 d_date = _date_to_dt(d_str)
                 if start_date <= d_date <= end_date:
                     if d_str not in trend_dict:
                         trend_dict[d_str] = {"date": d_str, "new_leads": set(), "phone_leads": set(), "contacted_leads": set()}
-                    trend_dict[d_str]["contacted_leads"].add(lead.id)
+                    trend_dict[d_str]["contacted_leads"].add(lead_id)
                     if has_phone:
-                        trend_dict[d_str]["phone_leads"].add(lead.id)
+                        trend_dict[d_str]["phone_leads"].add(lead_id)
 
     # Convert sets to length
     final_trend = []
@@ -313,8 +337,18 @@ def list_leads(
     start_date = _strip_tz(start_date).replace(hour=0, minute=0, second=0, microsecond=0)
     end_date = _strip_tz(end_date).replace(hour=23, minute=59, second=59, microsecond=0)
 
-    query = db.query(DimLead, FactLeadActivity)\
-        .outerjoin(FactLeadActivity, DimLead.id == FactLeadActivity.lead_id)
+    query = db.query(
+        DimLead.id,
+        DimLead.customer_id,
+        DimLead.name,
+        DimLead.phone_number,
+        DimLead.page_id,
+        DimLead.first_created_at,
+        FactLeadActivity.status_tag,
+        FactLeadActivity.assigned_users,
+        FactLeadActivity.contacted_dates,
+        FactLeadActivity.conversation_id
+    ).outerjoin(FactLeadActivity, DimLead.id == FactLeadActivity.lead_id)
 
     if page_id:
         query = query.filter(DimLead.page_id == page_id)
@@ -326,17 +360,17 @@ def list_leads(
 
     # Nhóm theo Customer (lọc trước khi lấy JSON raw)
     grouped = {}
-    for lead, act in results:
+    for lid, customer_id, name, phone_number, pg_id, first_created_at, status_tag, assigned_users, contacted_dates, conversation_id in results:
         # Bỏ qua lead chưa được phân cho nhân viên nào
-        if not act or not act.assigned_users:
+        if not assigned_users:
             continue
 
-        created_at = _strip_tz(lead.first_created_at)
+        created_at = _strip_tz(first_created_at)
         is_new_in_period = bool(created_at and start_date <= created_at <= end_date)
 
         is_contacted_in_period = False
-        if act.contacted_dates:
-            for d_str in act.contacted_dates.split(','):
+        if contacted_dates:
+            for d_str in contacted_dates.split(','):
                 d_date = _date_to_dt(d_str)
                 if start_date <= d_date <= end_date:
                     is_contacted_in_period = True
@@ -345,10 +379,14 @@ def list_leads(
         if not is_new_in_period and not is_contacted_in_period:
             continue
 
-        lid = lead.id
         if lid not in grouped:
             grouped[lid] = {
-                "lead": lead,
+                "id": lid,
+                "customer_id": customer_id,
+                "name": name,
+                "phone_number": phone_number,
+                "page_id": pg_id,
+                "first_created_at": first_created_at,
                 "assigned_users": set(),
                 "conversation_ids": [],
                 "is_contacted": is_contacted_in_period,
@@ -356,13 +394,12 @@ def list_leads(
                 "tags": set()
             }
         
-        if act:
-            if act.assigned_users:
-                grouped[lid]["assigned_users"].update([u.strip() for u in act.assigned_users.split(",") if u.strip()])
-            if act.status_tag:
-                grouped[lid]["tags"].update([t.strip() for t in act.status_tag.split(",") if t.strip()])
-            if act.conversation_id:
-                grouped[lid]["conversation_ids"].append(act.conversation_id)
+        if assigned_users:
+            grouped[lid]["assigned_users"].update([u.strip() for u in assigned_users.split(",") if u.strip()])
+        if status_tag:
+            grouped[lid]["tags"].update([t.strip() for t in status_tag.split(",") if t.strip()])
+        if conversation_id:
+            grouped[lid]["conversation_ids"].append(conversation_id)
 
     final_list = list(grouped.values())
     total = len(final_list)
@@ -382,7 +419,6 @@ def list_leads(
     
     data = []
     for item in paginated:
-        lead = item["lead"]
         messages = []
         for cid in item["conversation_ids"]:
             raw = raw_dict.get(cid)
@@ -397,12 +433,12 @@ def list_leads(
                         messages.append(f"[{sender}]: {clean_msg}")
                         
         data.append(LeadResponse(
-            id=lead.id,
-            customer_id=lead.customer_id,
-            name=lead.name,
-            phone_number=lead.phone_number,
-            page_id=lead.page_id,
-            first_created_at=lead.first_created_at,
+            id=item["id"],
+            customer_id=item["customer_id"],
+            name=item["name"],
+            phone_number=item["phone_number"],
+            page_id=item["page_id"],
+            first_created_at=item["first_created_at"],
             status_tag=", ".join(item["tags"]) if item.get("tags") else None,
             assigned_users=", ".join(item["assigned_users"]) if item["assigned_users"] else None,
             messages="\n".join(messages) if messages else None,
