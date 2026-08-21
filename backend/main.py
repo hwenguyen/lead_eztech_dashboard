@@ -87,8 +87,23 @@ def get_summary(
                 d_date = _date_to_dt(d_str)
                 if start_date <= d_date <= end_date:
                     is_contacted = True
-                    contacted_leads_set.add(lead.id)
                     break
+                    
+        # Nếu khách nhắn tạo lead trong kỳ, hoặc có contacted_at / updated_at trong kỳ
+        if not is_contacted:
+            if is_new:
+                is_contacted = True
+            elif act.contacted_at:
+                c_at = _strip_tz(act.contacted_at)
+                if start_date <= c_at <= end_date:
+                    is_contacted = True
+            elif act.updated_at:
+                u_at = _strip_tz(act.updated_at)
+                if start_date <= u_at <= end_date:
+                    is_contacted = True
+
+        if is_contacted:
+            contacted_leads_set.add(lead.id)
             
         has_phone = False
         if lead.phone_number:
@@ -183,6 +198,7 @@ def get_trend(
             if dt_str not in trend_dict:
                 trend_dict[dt_str] = {"date": dt_str, "new_leads": set(), "phone_leads": set(), "contacted_leads": set()}
             trend_dict[dt_str]["new_leads"].add(lead.id)
+            trend_dict[dt_str]["contacted_leads"].add(lead.id)
             if has_phone:
                 trend_dict[dt_str]["phone_leads"].add(lead.id)
 
@@ -277,6 +293,19 @@ def list_leads(
                 if start_date <= d_date <= end_date:
                     is_contacted_in_period = True
                     break
+                    
+        # Nếu khách nhắn tạo lead trong kỳ, hoặc có contacted_at / updated_at trong kỳ
+        if not is_contacted_in_period:
+            if is_new_in_period:
+                is_contacted_in_period = True
+            elif act.contacted_at:
+                c_at = _strip_tz(act.contacted_at)
+                if start_date <= c_at <= end_date:
+                    is_contacted_in_period = True
+            elif act.updated_at:
+                u_at = _strip_tz(act.updated_at)
+                if start_date <= u_at <= end_date:
+                    is_contacted_in_period = True
                         
         if not is_new_in_period and not is_contacted_in_period:
             continue

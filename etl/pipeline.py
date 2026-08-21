@@ -98,18 +98,34 @@ def upsert_lead_data(db: Session, raw_data: dict, page_id: str):
         
         assigned_users = raw_data.get('assigned_users')
         
-        # Determine is_contacted if any message from Admin
+        # Determine is_contacted if any message from Admin or Customer
         is_contacted = False
         contacted_at = None
         c_dates = set()
+        
+        # 1. Thu thập ngày từ tất cả tin nhắn (cả Khách hàng và Admin)
         for msg in raw_data.get('messages', []):
-            if msg.get('role') == 'Admin':
+            cat = parse_pancake_date(msg.get('inserted_at'))
+            if cat:
                 is_contacted = True
-                cat = parse_pancake_date(msg.get('inserted_at'))
-                if cat:
-                    c_dates.add(cat.strftime("%Y-%m-%d"))
-                    if not contacted_at or cat > contacted_at:
-                        contacted_at = cat
+                c_dates.add(cat.strftime("%Y-%m-%d"))
+                if not contacted_at or cat > contacted_at:
+                    contacted_at = cat
+                    
+        # 2. Thu thập ngày từ inserted_at / updated_at của cuộc hội thoại
+        conv_inserted = parse_pancake_date(raw_data.get('inserted_at'))
+        if conv_inserted:
+            is_contacted = True
+            c_dates.add(conv_inserted.strftime("%Y-%m-%d"))
+            if not contacted_at or conv_inserted > contacted_at:
+                contacted_at = conv_inserted
+                
+        conv_updated = parse_pancake_date(raw_data.get('updated_at'))
+        if conv_updated:
+            is_contacted = True
+            c_dates.add(conv_updated.strftime("%Y-%m-%d"))
+            if not contacted_at or conv_updated > contacted_at:
+                contacted_at = conv_updated
                         
         contacted_dates_str = ",".join(sorted(list(c_dates))) if c_dates else None
 
