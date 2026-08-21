@@ -339,9 +339,9 @@ def list_leads(
             phone_number=lead.phone_number,
             page_id=lead.page_id,
             first_created_at=lead.first_created_at,
-            status_tag=status_tag,
+            status_tag=", ".join(item["tags"]) if item.get("tags") else None,
             assigned_users=", ".join(item["assigned_users"]) if item["assigned_users"] else None,
-            messages=msg_str,
+            messages="\n".join(messages) if messages else None,
             is_contacted=item["is_contacted"],
             is_new=item["is_new"]
         ))

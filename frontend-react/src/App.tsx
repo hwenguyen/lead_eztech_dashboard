@@ -46,15 +46,26 @@ function App() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [sumRes, trRes, ldRes] = await Promise.all([
-        fetchSummary(startDate, endDate, pageId, employee),
-        fetchTrend(startDate, endDate, pageId, employee),
-        fetchLeads(pageId, employee, startDate, endDate, 1, pageSize)
-      ]);
-      setSummary(sumRes);
-      setTrend(trRes);
-      setLeads(ldRes.data);
-      setTotalLeads(ldRes.total);
+      const sumPromise = fetchSummary(startDate, endDate, pageId, employee).catch(err => {
+        console.error("Summary error:", err);
+        return null;
+      });
+      const trPromise = fetchTrend(startDate, endDate, pageId, employee).catch(err => {
+        console.error("Trend error:", err);
+        return [];
+      });
+      const ldPromise = fetchLeads(pageId, employee, startDate, endDate, 1, pageSize).catch(err => {
+        console.error("Leads error:", err);
+        return { data: [], total: 0, page: 1, size: pageSize };
+      });
+
+      const [sumRes, trRes, ldRes] = await Promise.all([sumPromise, trPromise, ldPromise]);
+      if (sumRes) setSummary(sumRes);
+      if (trRes) setTrend(trRes);
+      if (ldRes) {
+        setLeads(ldRes.data);
+        setTotalLeads(ldRes.total);
+      }
       setPage(1);
       setLastUpdated(new Date());
     } catch (error) {
