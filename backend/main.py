@@ -268,7 +268,7 @@ def list_leads(
             continue
 
         created_at = _strip_tz(lead.first_created_at)
-        is_new_in_period = created_at and start_date <= created_at <= end_date
+        is_new_in_period = bool(created_at and start_date <= created_at <= end_date)
 
         is_contacted_in_period = False
         if act.contacted_dates:
