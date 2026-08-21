@@ -21,6 +21,7 @@ class LeadResponse(BaseModel):
     assigned_users: Optional[str] = None
     messages: Optional[str] = None
     is_contacted: bool
+    is_new: bool
 
     class Config:
         from_attributes = True
