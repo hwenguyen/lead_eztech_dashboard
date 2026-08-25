@@ -1,7 +1,8 @@
 import re
 import os
 import logging
-from datetime import datetime
+from typing import Optional, List, Dict, Any
+from datetime import datetime, timedelta, timezone
 from dateutil.parser import parse
 from sqlalchemy.orm import Session
 from sqlalchemy.dialects.postgresql import insert # Dùng insert của PostgreSQL cho Upsert (nếu dùng SQLite thì cần handle thủ công)
@@ -19,8 +20,6 @@ def extract_phone_number(text: str) -> str:
         return None
     match = PHONE_REGEX.search(text)
     return match.group(0) if match else None
-
-from datetime import datetime, timedelta, timezone
 
 def parse_pancake_date(date_str: str) -> Optional[datetime]:
     if not date_str:
