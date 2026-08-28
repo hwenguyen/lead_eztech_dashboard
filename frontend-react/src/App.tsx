@@ -194,8 +194,8 @@ function App() {
           </div>
         ) : (
           <>
-            {/* KPIs row - 5 cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+            {/* KPIs row - 4 cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <KpiCard
                 title="Lead Mới"
                 value={newLeadsCount.toLocaleString()}
@@ -218,18 +218,11 @@ function App() {
                 color="amber"
               />
               <KpiCard
-                title="SĐT Liên Hệ Lại"
+                title="SĐT Contact Lại"
                 value={recontactPhoneCount.toLocaleString()}
-                subtitle="Khách cũ tương tác lại"
+                subtitle="Lead cũ contact lại trong kỳ"
                 icon={<PhoneForwarded className="w-5 h-5" />}
-                color="indigo"
-              />
-              <KpiCard
-                title="Chưa Liên Hệ"
-                value={uncontactedCount.toLocaleString()}
-                subtitle="Lead mới cần follow up"
-                icon={<UserX className="w-5 h-5" />}
-                color="rose"
+                color="purple"
               />
             </div>
 
