@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { format, subDays } from 'date-fns';
-import { Users, UserCheck, PhoneCall, PhoneForwarded, UserX, Filter, RefreshCw } from 'lucide-react';
+import { Users, UserCheck, PhoneCall, PhoneForwarded, Filter, RefreshCw } from 'lucide-react';
 import { KpiCard } from './components/KpiCard';
 import { TrendChart } from './components/TrendChart';
 import { LeadTable } from './components/LeadTable';
@@ -94,7 +94,6 @@ function App() {
   const contactedLeadsCount = summary?.contacted_leads || 0;
   const newPhoneCount = summary?.new_phone_leads || 0;
   const recontactPhoneCount = summary?.recontact_phone_leads || 0;
-  const uncontactedCount = summary?.uncontacted_new_leads ?? (newLeadsCount > contactedLeadsCount ? newLeadsCount - contactedLeadsCount : 0);
 
   const rateContact = newLeadsCount > 0 ? (contactedLeadsCount / newLeadsCount) * 100 : 0;
   const rateNewPhone = newLeadsCount > 0 ? (newPhoneCount / newLeadsCount) * 100 : 0;
