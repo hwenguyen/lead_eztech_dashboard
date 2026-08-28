@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { format, subDays } from 'date-fns';
-import { Users, UserCheck, PhoneCall, Filter, RefreshCw } from 'lucide-react';
+import { Users, UserCheck, PhoneCall, PhoneForwarded, UserX, Filter, RefreshCw } from 'lucide-react';
 import { KpiCard } from './components/KpiCard';
 import { TrendChart } from './components/TrendChart';
 import { LeadTable } from './components/LeadTable';
@@ -90,8 +90,14 @@ function App() {
     loadData();
   }, [startDate, endDate, pageId, employee]);
 
-  const rateContact = summary?.new_leads ? (summary.contacted_leads / summary.new_leads) * 100 : 0;
-  const ratePhone = summary?.new_leads ? (summary.phone_leads / summary.new_leads) * 100 : 0;
+  const newLeadsCount = summary?.new_leads || 0;
+  const contactedLeadsCount = summary?.contacted_leads || 0;
+  const newPhoneCount = summary?.new_phone_leads || 0;
+  const recontactPhoneCount = summary?.recontact_phone_leads || 0;
+  const uncontactedCount = summary?.uncontacted_new_leads ?? (newLeadsCount > contactedLeadsCount ? newLeadsCount - contactedLeadsCount : 0);
+
+  const rateContact = newLeadsCount > 0 ? (contactedLeadsCount / newLeadsCount) * 100 : 0;
+  const rateNewPhone = newLeadsCount > 0 ? (newPhoneCount / newLeadsCount) * 100 : 0;
 
   return (
     <div className="min-h-screen bg-bg-page text-[#111827]">
@@ -188,35 +194,42 @@ function App() {
           </div>
         ) : (
           <>
-            {/* KPIs row */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* KPIs row - 5 cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
               <KpiCard
                 title="Lead Mới"
-                value={summary?.new_leads?.toLocaleString() || '0'}
-                subtitle="Khách hàng mới trong kỳ"
+                value={newLeadsCount.toLocaleString()}
+                subtitle="Khách mới trong kỳ"
                 icon={<Users className="w-5 h-5" />}
                 color="blue"
               />
               <KpiCard
                 title="Lead Liên Hệ"
-                value={summary?.contacted_leads?.toLocaleString() || '0'}
-                subtitle={`${rateContact.toFixed(1)}% tỉ lệ contact`}
+                value={contactedLeadsCount.toLocaleString()}
+                subtitle={`${rateContact.toFixed(1)}% tỉ lệ liên hệ`}
                 icon={<UserCheck className="w-5 h-5" />}
                 color="green"
               />
               <KpiCard
-                title="Lead Có SĐT"
-                value={summary?.phone_leads?.toLocaleString() || '0'}
-                subtitle={`${ratePhone.toFixed(1)}% tỉ lệ để lại SĐT`}
+                title="SĐT Mới"
+                value={newPhoneCount.toLocaleString()}
+                subtitle={`${rateNewPhone.toFixed(1)}% tỉ lệ SĐT mới`}
                 icon={<PhoneCall className="w-5 h-5" />}
                 color="amber"
               />
               <KpiCard
+                title="SĐT Liên Hệ Lại"
+                value={recontactPhoneCount.toLocaleString()}
+                subtitle="Khách cũ tương tác lại"
+                icon={<PhoneForwarded className="w-5 h-5" />}
+                color="indigo"
+              />
+              <KpiCard
                 title="Chưa Liên Hệ"
-                value={summary ? (summary.new_leads - summary.contacted_leads).toLocaleString() : '0'}
-                subtitle="Cần follow up"
-                icon={<Users className="w-5 h-5" />}
-                color="purple"
+                value={uncontactedCount.toLocaleString()}
+                subtitle="Lead mới cần follow up"
+                icon={<UserX className="w-5 h-5" />}
+                color="rose"
               />
             </div>
 
@@ -227,9 +240,9 @@ function App() {
               </div>
               <div className="lg:col-span-1">
                 <RatioChart
-                  newLeads={summary?.new_leads || 0}
-                  contactedLeads={summary?.contacted_leads || 0}
-                  phoneLeads={summary?.phone_leads || 0}
+                  newLeads={newLeadsCount}
+                  contactedLeads={contactedLeadsCount}
+                  phoneLeads={summary?.phone_leads || (newPhoneCount + recontactPhoneCount)}
                 />
               </div>
             </div>

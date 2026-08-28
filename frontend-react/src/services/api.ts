@@ -18,6 +18,9 @@ export interface SummaryData {
   new_leads: number;
   contacted_leads: number;
   phone_leads: number;
+  new_phone_leads?: number;
+  recontact_phone_leads?: number;
+  uncontacted_new_leads?: number;
   new_leads_employee_stats?: Record<string, number>;
   phone_leads_employee_stats?: Record<string, number>;
   tag_stats?: Record<string, number>;

@@ -79,7 +79,7 @@ def auto_repair_contacted_dates():
             msgs = r.payload.get('messages', [])
             c_dates = set()
             for m in msgs:
-                if isinstance(m, dict) and m.get('role') == 'Admin' and m.get('inserted_at'):
+                if isinstance(m, dict) and m.get('inserted_at'):
                     dt = parse_pancake_date(m.get('inserted_at'))
                     if dt:
                         c_dates.add(dt.strftime("%Y-%m-%d"))
@@ -145,7 +145,10 @@ def get_summary(
     
     new_leads_set = set()
     phone_leads_set = set()
+    new_phone_leads_set = set()
+    recontact_phone_leads_set = set()
     contacted_leads_set = set()
+    uncontacted_new_leads_set = set()
     
     new_leads_employee_stats_sets = {}
     phone_leads_employee_stats_sets = {}
@@ -180,6 +183,13 @@ def get_summary(
             
         if (is_new or is_contacted) and has_phone:
             phone_leads_set.add(lead_id)
+            if is_new:
+                new_phone_leads_set.add(lead_id)
+            else:
+                recontact_phone_leads_set.add(lead_id)
+
+        if is_new and not is_contacted:
+            uncontacted_new_leads_set.add(lead_id)
 
         if is_new or is_contacted:
             # Thống kê nhân viên
@@ -220,6 +230,9 @@ def get_summary(
         new_leads=len(new_leads_set),
         contacted_leads=len(contacted_leads_set),
         phone_leads=len(phone_leads_set),
+        new_phone_leads=len(new_phone_leads_set),
+        recontact_phone_leads=len(recontact_phone_leads_set),
+        uncontacted_new_leads=len(uncontacted_new_leads_set),
         new_leads_employee_stats=new_leads_employee_stats,
         phone_leads_employee_stats=phone_leads_employee_stats,
         tag_stats=tag_stats

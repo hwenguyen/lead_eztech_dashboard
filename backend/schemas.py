@@ -6,6 +6,9 @@ class LeadMetricsSummary(BaseModel):
     new_leads: int
     contacted_leads: int
     phone_leads: int
+    new_phone_leads: int = 0
+    recontact_phone_leads: int = 0
+    uncontacted_new_leads: int = 0
     new_leads_employee_stats: dict
     phone_leads_employee_stats: dict
     tag_stats: dict

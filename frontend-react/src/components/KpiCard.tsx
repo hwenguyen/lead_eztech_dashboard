@@ -11,7 +11,7 @@ interface KpiCardProps {
   value: string | number;
   subtitle?: string;
   icon?: React.ReactNode;
-  color?: 'blue' | 'green' | 'amber' | 'purple';
+  color?: 'blue' | 'green' | 'amber' | 'purple' | 'indigo' | 'cyan' | 'rose' | 'teal';
   trend?: number; // percentage change
 }
 
@@ -20,6 +20,10 @@ const colorMap = {
   green: { bg: 'bg-emerald-50', icon: 'bg-emerald-100 text-emerald-600', text: 'text-emerald-600' },
   amber: { bg: 'bg-amber-50', icon: 'bg-amber-100 text-amber-600', text: 'text-amber-600' },
   purple: { bg: 'bg-purple-50', icon: 'bg-purple-100 text-purple-600', text: 'text-purple-600' },
+  indigo: { bg: 'bg-indigo-50', icon: 'bg-indigo-100 text-indigo-600', text: 'text-indigo-600' },
+  cyan: { bg: 'bg-cyan-50', icon: 'bg-cyan-100 text-cyan-600', text: 'text-cyan-600' },
+  rose: { bg: 'bg-rose-50', icon: 'bg-rose-100 text-rose-600', text: 'text-rose-600' },
+  teal: { bg: 'bg-teal-50', icon: 'bg-teal-100 text-teal-600', text: 'text-teal-600' },
 };
 
 export function KpiCard({ title, value, subtitle, icon, color = 'blue', trend }: KpiCardProps) {
