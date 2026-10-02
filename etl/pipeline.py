@@ -1,43 +1,13 @@
-import re
 import os
 import logging
-from typing import Optional, List, Dict, Any
-from datetime import datetime, timedelta, timezone
-from dateutil.parser import parse
 from sqlalchemy.orm import Session
-from sqlalchemy.dialects.postgresql import insert # Dùng insert của PostgreSQL cho Upsert (nếu dùng SQLite thì cần handle thủ công)
 from database.db import SessionLocal
 from database.models import RawConversation, DimLead, FactLeadActivity
 from etl.pancake_client import PancakeClient
+from etl.utils import parse_pancake_date, extract_customer_phone
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-PHONE_REGEX = re.compile(r"(0|\+84)(3[2-9]|5[6|8|9]|7[0|6-9]|8[1-5|8|9]|9[0-9])[0-9]{7}")
-
-def extract_phone_number(text: str) -> str:
-    if not text:
-        return None
-    match = PHONE_REGEX.search(text)
-    return match.group(0) if match else None
-
-def parse_pancake_date(date_str: str) -> Optional[datetime]:
-    if not date_str:
-        return None
-    try:
-        dt = parse(date_str)
-        # Nếu Pancake trả về không có múi giờ, ta ngầm định đó là UTC
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-            
-        # Chuyển đổi sang múi giờ Việt Nam (UTC+7)
-        vn_tz = timezone(timedelta(hours=7))
-        dt_vn = dt.astimezone(vn_tz)
-        
-        # Lưu vào DB dưới dạng naive datetime (bỏ tz đi để so sánh cho dễ)
-        return dt_vn.replace(tzinfo=None)
-    except Exception:
-        return None
 
 def upsert_lead_data(db: Session, raw_data: dict, page_id: str):
     """
@@ -67,14 +37,11 @@ def upsert_lead_data(db: Session, raw_data: dict, page_id: str):
 
         # 2. Extract DimLead
         phone = raw_data.get('phone_number')
-        # Tìm SĐT trong text tin nhắn nếu trường phone trống
-        if not phone and raw_data.get('messages'):
-            for msg in raw_data['messages']:
-                extracted = extract_phone_number(msg.get('message', ''))
-                if extracted:
-                    phone = extracted
-                    break
-                    
+        # Tìm SĐT trong tin nhắn của khách nếu trường phone trống (bỏ qua tin Admin để không dính hotline)
+        if not phone:
+            phone = extract_customer_phone(raw_data.get('messages', []))
+
+        conv_inserted = parse_pancake_date(raw_data.get('inserted_at'))
         lead = db.query(DimLead).filter_by(customer_id=customer_id).first()
         if not lead:
             lead = DimLead(
@@ -82,7 +49,7 @@ def upsert_lead_data(db: Session, raw_data: dict, page_id: str):
                 name=raw_data.get('customer_name', 'Unknown'),
                 phone_number=phone,
                 page_id=page_id,
-                first_created_at=parse_pancake_date(raw_data.get('inserted_at'))
+                first_created_at=conv_inserted
             )
             db.add(lead)
             db.flush() # Để lấy lead.id
@@ -90,6 +57,9 @@ def upsert_lead_data(db: Session, raw_data: dict, page_id: str):
             # Update info if available
             if phone and not lead.phone_number:
                 lead.phone_number = phone
+            # Lead Mới tính theo hội thoại SỚM NHẤT của khách
+            if conv_inserted and (not lead.first_created_at or conv_inserted < lead.first_created_at):
+                lead.first_created_at = conv_inserted
             db.flush()
 
         # 3. Extract FactActivity

@@ -16,11 +16,11 @@ const apiClient = axios.create({
 
 export interface SummaryData {
   new_leads: number;
-  contacted_leads: number;
+  recontact_leads: number;
+  total_leads: number;
   phone_leads: number;
-  new_phone_leads?: number;
-  recontact_phone_leads?: number;
-  uncontacted_new_leads?: number;
+  new_phone_leads: number;
+  recontact_phone_leads: number;
   new_leads_employee_stats?: Record<string, number>;
   phone_leads_employee_stats?: Record<string, number>;
   tag_stats?: Record<string, number>;
@@ -29,7 +29,7 @@ export interface SummaryData {
 export interface TrendData {
   date: string;
   new_leads: number;
-  contacted_leads: number;
+  recontact_leads: number;
   phone_leads: number;
 }
 
@@ -39,7 +39,7 @@ export interface Lead {
   name?: string;
   phone_number?: string;
   page_id: string;
-  first_created_at: string;
+  first_created_at: string | null;
   status_tag?: string;
   assigned_users?: string;
   messages?: string;

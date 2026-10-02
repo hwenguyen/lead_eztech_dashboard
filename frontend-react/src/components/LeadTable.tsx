@@ -52,7 +52,7 @@ export function LeadTable({ leads, totalLeads, page, pageSize, onPageChange }: L
                       <div>
                         <div className="font-medium text-navy">{lead.name || 'Khách từ CRM'}</div>
                         <div className="text-xs text-[#4B5563] mt-0.5 flex flex-col gap-1">
-                          <span className="text-[#6B7280]">{format(new Date(lead.first_created_at), 'dd/MM/yyyy HH:mm')}</span>
+                          <span className="text-[#6B7280]">{lead.first_created_at ? format(new Date(lead.first_created_at), 'dd/MM/yyyy HH:mm') : '—'}</span>
                           <div className="flex gap-1 mt-1">
                             {lead.is_new ? (
                               <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-green-100 text-green-800 border border-green-200">

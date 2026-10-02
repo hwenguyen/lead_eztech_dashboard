@@ -38,7 +38,7 @@ class FactLeadActivity(Base):
     assigned_users = Column(String, nullable=True, index=True) # Nhân viên phụ trách
     message_count = Column(Integer, default=0)
     is_contacted = Column(Boolean, default=False)
-    contacted_at = Column(DateTime, nullable=True) # Last contacted at
+    contacted_at = Column(DateTime, nullable=True, index=True) # Last contacted at
     contacted_dates = Column(String, nullable=True) # Comma separated dates like "2026-08-11,2026-08-12"
     
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
