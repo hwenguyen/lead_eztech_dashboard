@@ -4,11 +4,11 @@ from datetime import datetime
 
 class LeadMetricsSummary(BaseModel):
     new_leads: int
-    contacted_leads: int
+    recontact_leads: int
+    total_leads: int
     phone_leads: int
     new_phone_leads: int = 0
     recontact_phone_leads: int = 0
-    uncontacted_new_leads: int = 0
     new_leads_employee_stats: dict
     phone_leads_employee_stats: dict
     tag_stats: dict
@@ -19,7 +19,7 @@ class LeadResponse(BaseModel):
     name: Optional[str] = None
     phone_number: Optional[str] = None
     page_id: str
-    first_created_at: datetime
+    first_created_at: Optional[datetime] = None
     status_tag: Optional[str] = None
     assigned_users: Optional[str] = None
     messages: Optional[str] = None
@@ -32,7 +32,7 @@ class LeadResponse(BaseModel):
 class TrendDataPoint(BaseModel):
     date: str
     new_leads: int
-    contacted_leads: int
+    recontact_leads: int
     phone_leads: int
 
 class TrendResponse(BaseModel):

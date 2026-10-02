@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { format, subDays } from 'date-fns';
-import { Users, UserCheck, PhoneCall, PhoneForwarded, Filter, RefreshCw } from 'lucide-react';
+import { Users, UserPlus, UserCheck, PhoneCall, PhoneForwarded, Filter, RefreshCw } from 'lucide-react';
 import { KpiCard } from './components/KpiCard';
 import { TrendChart } from './components/TrendChart';
 import { LeadTable } from './components/LeadTable';
@@ -91,12 +91,12 @@ function App() {
   }, [startDate, endDate, pageId, employee]);
 
   const newLeadsCount = summary?.new_leads || 0;
-  const contactedLeadsCount = summary?.contacted_leads || 0;
+  const recontactLeadsCount = summary?.recontact_leads || 0;
+  const totalLeadsCount = summary?.total_leads || 0;
   const newPhoneCount = summary?.new_phone_leads || 0;
   const recontactPhoneCount = summary?.recontact_phone_leads || 0;
 
-  const rateContact = newLeadsCount > 0 ? (contactedLeadsCount / newLeadsCount) * 100 : 0;
-  const rateNewPhone = newLeadsCount > 0 ? (newPhoneCount / newLeadsCount) * 100 : 0;
+  const pct = (part: number, whole: number) => (whole > 0 ? (part / whole) * 100 : 0).toFixed(1);
 
   return (
     <div className="min-h-screen bg-bg-page text-[#111827]">
@@ -193,33 +193,40 @@ function App() {
           </div>
         ) : (
           <>
-            {/* KPIs row - 4 cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* KPIs row - 5 cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+              <KpiCard
+                title="Tổng Lead"
+                value={totalLeadsCount.toLocaleString()}
+                subtitle="Mới + Contact lại trong kỳ"
+                icon={<Users className="w-5 h-5" />}
+                color="indigo"
+              />
               <KpiCard
                 title="Lead Mới"
                 value={newLeadsCount.toLocaleString()}
-                subtitle="Khách mới trong kỳ"
-                icon={<Users className="w-5 h-5" />}
+                subtitle={`${pct(newLeadsCount, totalLeadsCount)}% tổng lead`}
+                icon={<UserPlus className="w-5 h-5" />}
                 color="blue"
               />
               <KpiCard
-                title="Lead Liên Hệ"
-                value={contactedLeadsCount.toLocaleString()}
-                subtitle={`${rateContact.toFixed(1)}% tỉ lệ liên hệ`}
+                title="Lead Contact Lại"
+                value={recontactLeadsCount.toLocaleString()}
+                subtitle={`${pct(recontactLeadsCount, totalLeadsCount)}% tổng lead`}
                 icon={<UserCheck className="w-5 h-5" />}
                 color="green"
               />
               <KpiCard
                 title="SĐT Mới"
                 value={newPhoneCount.toLocaleString()}
-                subtitle={`${rateNewPhone.toFixed(1)}% tỉ lệ SĐT mới`}
+                subtitle={`${pct(newPhoneCount, newLeadsCount)}% lead mới có SĐT`}
                 icon={<PhoneCall className="w-5 h-5" />}
                 color="amber"
               />
               <KpiCard
                 title="SĐT Contact Lại"
                 value={recontactPhoneCount.toLocaleString()}
-                subtitle="Lead cũ contact lại trong kỳ"
+                subtitle={`${pct(recontactPhoneCount, recontactLeadsCount)}% lead contact lại có SĐT`}
                 icon={<PhoneForwarded className="w-5 h-5" />}
                 color="purple"
               />
@@ -233,8 +240,9 @@ function App() {
               <div className="lg:col-span-1">
                 <RatioChart
                   newLeads={newLeadsCount}
-                  contactedLeads={contactedLeadsCount}
-                  phoneLeads={summary?.phone_leads || (newPhoneCount + recontactPhoneCount)}
+                  recontactLeads={recontactLeadsCount}
+                  totalLeads={totalLeadsCount}
+                  phoneLeads={summary?.phone_leads || 0}
                 />
               </div>
             </div>

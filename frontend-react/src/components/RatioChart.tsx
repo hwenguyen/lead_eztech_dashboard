@@ -3,7 +3,8 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
 
 interface RatioChartProps {
   newLeads: number;
-  contactedLeads: number;
+  recontactLeads: number;
+  totalLeads: number;
   phoneLeads: number;
 }
 
@@ -22,15 +23,15 @@ const CustomLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent }: an
   );
 };
 
-export function RatioChart({ newLeads, contactedLeads, phoneLeads }: RatioChartProps) {
+export function RatioChart({ newLeads, recontactLeads, totalLeads, phoneLeads }: RatioChartProps) {
+  // Lead Mới và Contact Lại không trùng nhau → cộng lại bằng Tổng Lead
   const data = [
     { name: 'Lead Mới', value: newLeads },
-    { name: 'Liên Hệ', value: contactedLeads },
-    { name: 'Có SĐT', value: phoneLeads },
+    { name: 'Contact Lại', value: recontactLeads },
   ].filter(d => d.value > 0);
 
-  const contactRate = newLeads > 0 ? ((contactedLeads / newLeads) * 100).toFixed(1) : '0';
-  const phoneRate = newLeads > 0 ? ((phoneLeads / newLeads) * 100).toFixed(1) : '0';
+  const recontactRate = totalLeads > 0 ? ((recontactLeads / totalLeads) * 100).toFixed(1) : '0';
+  const phoneRate = totalLeads > 0 ? ((phoneLeads / totalLeads) * 100).toFixed(1) : '0';
 
   return (
     <div className="bg-white rounded-2xl border border-[#E5E7EB] p-6 shadow-sm">
@@ -66,9 +67,9 @@ export function RatioChart({ newLeads, contactedLeads, phoneLeads }: RatioChartP
             <div className="flex items-center justify-between text-sm">
               <span className="flex items-center gap-2 text-[#4B5563]">
                 <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block" />
-                Tỉ lệ Contact
+                Tỉ lệ Contact Lại
               </span>
-              <span className="font-bold text-[#10B981]">{contactRate}%</span>
+              <span className="font-bold text-[#10B981]">{recontactRate}%</span>
             </div>
             <div className="flex items-center justify-between text-sm">
               <span className="flex items-center gap-2 text-[#4B5563]">
@@ -80,7 +81,7 @@ export function RatioChart({ newLeads, contactedLeads, phoneLeads }: RatioChartP
             <div className="h-px bg-gray-100 my-2" />
             <div className="flex items-center justify-between text-sm">
               <span className="text-[#4B5563]">Tổng Lead</span>
-              <span className="font-bold text-gray-800">{newLeads.toLocaleString()}</span>
+              <span className="font-bold text-gray-800">{totalLeads.toLocaleString()}</span>
             </div>
           </div>
         </>

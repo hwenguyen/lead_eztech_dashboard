@@ -35,11 +35,11 @@ export function TrendChart({ data }: TrendChartProps) {
         <div className="flex items-center justify-between mb-6">
           <div>
             <h3 className="text-base font-semibold text-navy">Xu hướng Lead theo thời gian</h3>
-            <p className="text-xs text-[#4B5563] mt-0.5">Biến động Lead Mới, Liên Hệ, Có SĐT</p>
+            <p className="text-xs text-[#4B5563] mt-0.5">Biến động Lead Mới, Contact Lại, Có SĐT</p>
           </div>
           <div className="flex items-center gap-4 text-xs text-[#4B5563]">
             <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-blue-500 inline-block" />Lead Mới</span>
-            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-emerald-500 inline-block" />Liên Hệ</span>
+            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-emerald-500 inline-block" />Contact Lại</span>
             <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-amber-500 inline-block" />Có SĐT</span>
           </div>
         </div>
@@ -64,7 +64,7 @@ export function TrendChart({ data }: TrendChartProps) {
             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
             <Tooltip content={<CustomTooltip />} />
             <Area type="monotone" name="Lead Mới" dataKey="new_leads" stroke="#1E5BD6" strokeWidth={2} fillOpacity={1} fill="url(#colorNew)" dot={false} />
-            <Area type="monotone" name="Lead Liên Hệ" dataKey="contacted_leads" stroke="#10b981" strokeWidth={2} fillOpacity={1} fill="url(#colorContact)" dot={false} />
+            <Area type="monotone" name="Lead Contact Lại" dataKey="recontact_leads" stroke="#10b981" strokeWidth={2} fillOpacity={1} fill="url(#colorContact)" dot={false} />
             <Area type="monotone" name="Lead Có SĐT" dataKey="phone_leads" stroke="#f59e0b" strokeWidth={2} fillOpacity={1} fill="url(#colorPhone)" dot={false} />
           </AreaChart>
         </ResponsiveContainer>
@@ -74,7 +74,7 @@ export function TrendChart({ data }: TrendChartProps) {
       <div className="bg-white rounded-2xl border border-[#E5E7EB] p-6 shadow-sm">
         <div className="mb-6">
           <h3 className="text-base font-semibold text-navy">So sánh theo ngày</h3>
-          <p className="text-xs text-[#4B5563] mt-0.5">Tổng Lead Mới vs Liên Hệ</p>
+          <p className="text-xs text-[#4B5563] mt-0.5">Lead Mới vs Contact Lại</p>
         </div>
         <ResponsiveContainer width="100%" height={260}>
           <BarChart data={data} margin={{ top: 5, right: 5, left: -20, bottom: 0 }} barSize={10}>
@@ -83,7 +83,7 @@ export function TrendChart({ data }: TrendChartProps) {
             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
             <Tooltip content={<CustomTooltip />} />
             <Bar name="Lead Mới" dataKey="new_leads" fill="#1E5BD6" radius={[4,4,0,0]} />
-            <Bar name="Liên Hệ" dataKey="contacted_leads" fill="#10b981" radius={[4,4,0,0]} />
+            <Bar name="Contact Lại" dataKey="recontact_leads" fill="#10b981" radius={[4,4,0,0]} />
           </BarChart>
         </ResponsiveContainer>
       </div>
