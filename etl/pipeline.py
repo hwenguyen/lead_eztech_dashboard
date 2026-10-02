@@ -147,7 +147,10 @@ def run_etl_pipeline():
             else:
                 logger.info(f"⚡ DAILY RUN DETECTED! Kéo 500 hội thoại mới/cập nhật gần nhất cho Page {page_id}...")
                 client.limit = 500
-                
+
+            # Trả connection về pool trước khi cào (có thể >1 giờ) — Neon sẽ đóng kết nối idle,
+            # giữ transaction mở qua lúc cào gây lỗi "SSL connection has been closed unexpectedly"
+            db.close()
             conversations = client.get_conversations(page_id=page_id)
             total = len(conversations)
             for idx, conv in enumerate(conversations):
