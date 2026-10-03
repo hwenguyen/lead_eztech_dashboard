@@ -21,6 +21,8 @@ class DimLead(Base):
     customer_id = Column(String, unique=True, index=True, nullable=False)
     name = Column(String, nullable=True)
     phone_number = Column(String, index=True, nullable=True)
+    # Thời điểm khách gửi SĐT lần đầu. NULL = không rõ (số lấy từ hồ sơ Pancake/Zalo) → khi tính dùng first_created_at
+    phone_at = Column(DateTime, nullable=True, index=True)
     page_id = Column(String, index=True, nullable=False)
     first_created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
     

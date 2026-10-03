@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { format, subDays } from 'date-fns';
-import { Users, UserPlus, UserCheck, PhoneCall, PhoneForwarded, Filter, RefreshCw } from 'lucide-react';
+import { Users, UserPlus, UserCheck, PhoneCall, PhoneForwarded, Percent, Filter, RefreshCw } from 'lucide-react';
 import { KpiCard } from './components/KpiCard';
 import { TrendChart } from './components/TrendChart';
 import { LeadTable } from './components/LeadTable';
@@ -15,6 +15,7 @@ function App() {
   const [employee, setEmployee] = useState('');
   const [employeesList, setEmployeesList] = useState<string[]>([]);
   const [pagesList, setPagesList] = useState<string[]>([]);
+  const [zaloPages, setZaloPages] = useState<string[]>([]);
 
   const [summary, setSummary] = useState<SummaryData | null>(null);
   const [trend, setTrend] = useState<TrendData[]>([]);
@@ -29,7 +30,8 @@ function App() {
     const loadPages = async () => {
       try {
         const pgRes = await fetchPages();
-        setPagesList(pgRes);
+        setPagesList(pgRes.pages);
+        setZaloPages(pgRes.zaloPages);
       } catch (error) {
         console.error("Error fetching pages:", error);
       }
@@ -169,10 +171,19 @@ function App() {
                   onChange={e => setPageId(e.target.value)}
                   className="px-3 py-2 border border-[#E5E7EB] rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-eztech/20 focus:border-eztech transition-all text-[#111827] cursor-pointer"
                 >
-                  <option value="">Tất cả Page</option>
-                  {pagesList.map(pg => (
-                    <option key={pg} value={pg}>{pg}</option>
-                  ))}
+                  <option value="">Tất cả page nguồn lead (trừ Zalo)</option>
+                  <optgroup label="Nguồn lead">
+                    {pagesList.filter(pg => !zaloPages.includes(pg)).map(pg => (
+                      <option key={pg} value={pg}>{pg}</option>
+                    ))}
+                  </optgroup>
+                  {zaloPages.length > 0 && (
+                    <optgroup label="Zalo (chăm sóc)">
+                      {zaloPages.map(pg => (
+                        <option key={pg} value={pg}>{pg}</option>
+                      ))}
+                    </optgroup>
+                  )}
                 </select>
               </div>
             <div className="flex flex-col gap-1 min-w-[200px]">
@@ -200,8 +211,8 @@ function App() {
           </div>
         ) : (
           <>
-            {/* KPIs row - 5 cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+            {/* KPIs - 6 cards: hàng Lead, hàng SĐT */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               <KpiCard
                 title="Tổng Lead"
                 value={totalLeadsCount.toLocaleString()}
@@ -226,16 +237,23 @@ function App() {
               <KpiCard
                 title="SĐT Mới"
                 value={newPhoneCount.toLocaleString()}
-                subtitle={`${pct(newPhoneCount, newLeadsCount)}% lead mới có SĐT`}
+                subtitle="SĐT thu từ lead tạo trong kỳ"
                 icon={<PhoneCall className="w-5 h-5" />}
                 color="amber"
               />
               <KpiCard
                 title="SĐT Contact Lại"
                 value={recontactPhoneCount.toLocaleString()}
-                subtitle={`${pct(recontactPhoneCount, recontactLeadsCount)}% lead contact lại có SĐT`}
+                subtitle="SĐT thu từ lead cũ trong kỳ"
                 icon={<PhoneForwarded className="w-5 h-5" />}
                 color="purple"
+              />
+              <KpiCard
+                title="SĐT / Tạo mới"
+                value={`${pct(newPhoneCount, newLeadsCount)}%`}
+                subtitle={`${newPhoneCount.toLocaleString()} SĐT / ${newLeadsCount.toLocaleString()} lead mới`}
+                icon={<Percent className="w-5 h-5" />}
+                color="teal"
               />
             </div>
 
@@ -249,7 +267,7 @@ function App() {
                   newLeads={newLeadsCount}
                   recontactLeads={recontactLeadsCount}
                   totalLeads={totalLeadsCount}
-                  phoneLeads={summary?.phone_leads || 0}
+                  newPhoneLeads={newPhoneCount}
                 />
               </div>
             </div>
@@ -262,8 +280,8 @@ function App() {
                 stats={summary?.new_leads_employee_stats}
               />
               <StatsPieChart
-                title="Lead Có SĐT / Nhân viên"
-                subtitle="Phân bổ Lead Có SĐT"
+                title="SĐT thu được / Nhân viên"
+                subtitle="Phân bổ SĐT thu được trong kỳ"
                 stats={summary?.phone_leads_employee_stats}
               />
               <StatsPieChart

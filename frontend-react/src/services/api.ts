@@ -82,7 +82,13 @@ export const fetchEmployees = async (startDate?: string, endDate?: string, pageI
   return response.data.data;
 };
 
-export const fetchPages = async (): Promise<string[]> => {
-  const response = await apiClient.get<{data: string[]}>('/pages/list');
-  return response.data.data;
+export interface PagesData {
+  pages: string[];
+  // Page Zalo (kênh chăm sóc): không được cộng vào "Tất cả Page", chỉ xem khi chọn riêng
+  zaloPages: string[];
+}
+
+export const fetchPages = async (): Promise<PagesData> => {
+  const response = await apiClient.get<{data: string[], zalo_pages?: string[]}>('/pages/list');
+  return { pages: response.data.data, zaloPages: response.data.zalo_pages ?? [] };
 };

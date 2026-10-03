@@ -5,8 +5,9 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from database.db import SessionLocal
 from database.models import RawConversation, DimLead, FactLeadActivity
+from database.schema import ensure_schema
 from etl.pancake_client import PancakeClient
-from etl.utils import parse_pancake_date, extract_customer_phone, is_page_id, resolve_canonical_page_name
+from etl.utils import parse_pancake_date, resolve_phone, normalize_phone, is_page_id, resolve_canonical_page_name
 import re
 
 logging.basicConfig(level=logging.INFO)
@@ -39,10 +40,8 @@ def upsert_lead_data(db: Session, raw_data: dict, page_id: str, commit: bool = T
                 raw_record.page_id = page_id
 
         # 2. Extract DimLead
-        phone = raw_data.get('phone_number')
-        # Tìm SĐT trong tin nhắn của khách nếu trường phone trống (bỏ qua tin Admin để không dính hotline)
-        if not phone:
-            phone = extract_customer_phone(raw_data.get('messages', []))
+        # SĐT: ưu tiên số Pancake đã thu thập, sau đó tìm trong tin nhắn của khách (bỏ qua tin Admin để không dính hotline)
+        phone, phone_at = resolve_phone(raw_data)
 
         conv_inserted = parse_pancake_date(raw_data.get('inserted_at'))
         lead = db.query(DimLead).filter_by(customer_id=customer_id).first()
@@ -51,6 +50,7 @@ def upsert_lead_data(db: Session, raw_data: dict, page_id: str, commit: bool = T
                 customer_id=customer_id,
                 name=raw_data.get('customer_name', 'Unknown'),
                 phone_number=phone,
+                phone_at=phone_at,
                 page_id=page_id,
                 first_created_at=conv_inserted
             )
@@ -58,8 +58,16 @@ def upsert_lead_data(db: Session, raw_data: dict, page_id: str, commit: bool = T
             db.flush() # Để lấy lead.id
         else:
             # Update info if available
-            if phone and not lead.phone_number:
+            if lead.phone_number:
+                lead.phone_number = normalize_phone(lead.phone_number) or lead.phone_number
+            elif phone:
                 lead.phone_number = phone
+                # Lead đã có từ trước nay mới có số mà không thấy tin chứa số → coi như vừa thu được
+                phone_at = phone_at or parse_pancake_date(raw_data.get('updated_at'))
+            # Giữ thời điểm SỚM NHẤT khách gửi đúng số đang lưu. Payload chỉ có 30 tin gần nhất nên
+            # khi không còn thấy tin chứa số (phone_at = None) thì giữ nguyên giá trị đã lưu.
+            if phone_at and phone == lead.phone_number and (not lead.phone_at or phone_at < lead.phone_at):
+                lead.phone_at = phone_at
             # Chuẩn hoá page_id về tên chữ nếu trước đó lưu ID số / pzl_ ID
             if not lead.page_id or is_page_id(lead.page_id):
                 lead.page_id = page_id
@@ -130,7 +138,9 @@ def upsert_lead_data(db: Session, raw_data: dict, page_id: str, commit: bool = T
 
 def run_etl_pipeline():
     logger.info("Starting Fast ETL Pipeline...")
-    
+    # ETL có thể chạy trước khi Backend kịp thêm cột mới → tự đồng bộ schema
+    ensure_schema()
+
     pages_to_process: List[Dict[str, Any]] = []
 
     # 1. Hỗ trợ cấu hình dạng JSON / Dict qua secret PANCAKE_PAGES_JSON, PANCAKE_CONFIG hoặc PANCAKE_API_TOKENS

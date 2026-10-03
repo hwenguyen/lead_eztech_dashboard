@@ -5,7 +5,7 @@ interface RatioChartProps {
   newLeads: number;
   recontactLeads: number;
   totalLeads: number;
-  phoneLeads: number;
+  newPhoneLeads: number;
 }
 
 const COLORS = ['#1E5BD6', '#10B981', '#F59E0B'];
@@ -23,7 +23,7 @@ const CustomLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent }: an
   );
 };
 
-export function RatioChart({ newLeads, recontactLeads, totalLeads, phoneLeads }: RatioChartProps) {
+export function RatioChart({ newLeads, recontactLeads, totalLeads, newPhoneLeads }: RatioChartProps) {
   // Lead Mới và Contact Lại không trùng nhau → cộng lại bằng Tổng Lead
   const data = [
     { name: 'Lead Mới', value: newLeads },
@@ -31,7 +31,8 @@ export function RatioChart({ newLeads, recontactLeads, totalLeads, phoneLeads }:
   ].filter(d => d.value > 0);
 
   const recontactRate = totalLeads > 0 ? ((recontactLeads / totalLeads) * 100).toFixed(1) : '0';
-  const phoneRate = totalLeads > 0 ? ((phoneLeads / totalLeads) * 100).toFixed(1) : '0';
+  // Cùng công thức với thẻ KPI "SĐT / Tạo mới"
+  const phoneRate = newLeads > 0 ? ((newPhoneLeads / newLeads) * 100).toFixed(1) : '0';
 
   return (
     <div className="bg-white rounded-2xl border border-[#E5E7EB] p-6 shadow-sm">
@@ -74,7 +75,7 @@ export function RatioChart({ newLeads, recontactLeads, totalLeads, phoneLeads }:
             <div className="flex items-center justify-between text-sm">
               <span className="flex items-center gap-2 text-[#4B5563]">
                 <span className="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block" />
-                Tỉ lệ Có SĐT
+                SĐT / Tạo mới
               </span>
               <span className="font-bold text-[#F59E0B]">{phoneRate}%</span>
             </div>

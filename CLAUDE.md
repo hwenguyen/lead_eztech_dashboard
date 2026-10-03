@@ -2,34 +2,47 @@
 
 FastAPI backend (`backend/`) + React frontend (`frontend-react/`) trên Render (free tier), DB Neon Postgres, ETL Pancake chạy GitHub Actions (`.github/workflows/pancake-etl.yml`, Python 3.10). Logic đếm lead nằm duy nhất ở `backend/lead_metrics.py`.
 
-## Định nghĩa chỉ số (đã chốt với user 2026-10-02)
+## Định nghĩa chỉ số (đã chốt với user 2026-10-03)
 | Chỉ số | Định nghĩa |
 |---|---|
 | Lead Mới | `first_created_at` trong kỳ |
 | Lead Contact Lại | Lead tạo TRƯỚC kỳ, có tin nhắn (khách hoặc nhân viên) trong kỳ |
 | Tổng Lead | Mới + Contact Lại (không trùng) |
-| SĐT Mới / Contact Lại | Lead tương ứng có SĐT bất kỳ lúc nào (phone_number hoặc tag "Đã add"), đếm theo lead, không dedup số |
+| SĐT thu được | Mỗi số tính 1 lần, vào thời điểm khách gửi số lần đầu (`dim_leads.phone_at`; NULL thì dùng `first_created_at`), gộp trùng theo số đã chuẩn hoá giữa các page đang chọn |
+| SĐT Mới / SĐT Contact Lại | SĐT thu được trong kỳ từ lead tạo trong kỳ / từ lead cũ |
+| SĐT / Tạo mới | SĐT Mới / Lead Mới (%) |
+| Lead Other / Đào tạo | Khớp chính xác tên tag: Lead Other = Lead Other + Support Other + HV Khác; Đào tạo = Đào tạo + HV TCKT |
 
-- Chỉ xét hội thoại đã phân nhân viên; cờ gộp theo LEAD, không theo hội thoại.
-- SĐT chỉ trích từ tin nhắn của khách (bỏ tin Admin để không dính hotline).
-- Trend: phân loại Mới/Contact Lại theo cả kỳ để tổng theo ngày khớp KPI.
+- **Phạm vi page**: không chọn page ("Tất cả page nguồn lead") → mọi page TRỪ page Zalo. Page Zalo (kênh chăm sóc sau khi có SĐT) chỉ xem khi chọn riêng. Page Zalo nhận diện qua key `pzl_` trong `KNOWN_PAGE_NAMES` (`etl/utils.py`) → **page Zalo mới phải khai báo ở đó**.
+- Hội thoại chưa phân nhân viên tính cho "Chưa phân công"; cờ gộp theo LEAD, không theo hội thoại.
+- SĐT: ưu tiên số Pancake thu thập (`recent_phone_numbers`), sau đó regex trên tin nhắn của khách (bỏ tin Admin). Lead chỉ có tag "Đã add" (không có số) tính theo ngày tạo lead, không gộp trùng được.
+- Trend: phân loại Mới/Contact Lại theo cả kỳ để tổng theo ngày khớp KPI; `phone_leads` theo ngày = SĐT thu được ngày đó.
+- Thay đổi schema DB đi qua `database/schema.py::ensure_schema()` (gọi ở backend startup và đầu ETL).
 
 ## Session
 
-### 2026-10-02 — Đã hoàn thành
-- PR #1: gom logic đếm vào `backend/lead_metrics.py`, tách "Lead Liên Hệ" thành Contact Lại + Tổng Lead (5 KPI card), sửa regex/nguồn trích SĐT, lọc nhân viên khớp chính xác, trend điền ngày trống, prefilter SQL + index `contacted_at`, auto_repair đồng bộ `contacted_at`/`phone_number`. Thêm `.gitignore`, commit `package-lock.json`.
-- PR #2: deploy backend lỗi do Render cài SQLAlchemy 2.1 (driver mặc định `psycopg` v3) → ép `postgresql+psycopg2://` + `pool_pre_ping`. ETL lỗi 30/09–01/10 do giữ connection qua >1h cào (Neon đóng) → `db.close()` trước khi cào.
-- Đã xác nhận API live trả schema mới (25/09–02/10: Mới 297, Contact Lại 277, Tổng 574).
+### 2026-10-03 — Đã hoàn thành
+- Đổi cách tính SĐT sang "thu được trong kỳ" (thêm cột `phone_at`, chuẩn hoá số, gộp trùng), loại page Zalo khỏi tổng, tag khớp chính xác, thêm thẻ KPI "SĐT / Tạo mới" (6 thẻ, 3×2).
+- `auto_repair_contacted_dates`: phần SĐT không còn xoá/ghi đè số (payload chỉ còn 30 tin gần nhất), chỉ chuẩn hoá + backfill `phone_at`.
+- ETL: tin nhắn lấy từ cache không bị format lại (trước đó mất role → tin Admin bị quét SĐT như tin khách); regex SĐT bỏ qua chuỗi ngày giờ.
 
-### Bước tiếp
-- User kiểm tra UI (Ctrl+F5) với filter page/nhân viên.
-- Chạy tay workflow "Pancake ETL Pipeline" để bù dữ liệu page "Eztech Phân Tích Dữ Liệu" (chưa cập nhật từ 30/09); theo dõi lần chạy schedule kế tiếp có pass không.
-- So sánh số SĐT trước/sau auto_repair (repair chạy nền lúc startup, có thể xoá SĐT dính hotline).
-- Cân nhắc pin version trong `requirements.txt` (Render đang dùng Python 3.14, deps không pin) và tách deps ETL/Streamlit khỏi backend.
-- ETL Playwright gần đây mất >1h (trước ~25 phút), có warning timeout filter "Tin nhắn cá nhân" → điều tra.
+### 2026-10-02 — Đã hoàn thành
+- PR #1: gom logic đếm vào `backend/lead_metrics.py`, tách Contact Lại + Tổng Lead, lọc nhân viên khớp chính xác, trend điền ngày trống.
+- PR #2: ép driver `postgresql+psycopg2://` (SQLAlchemy 2.1 đổi mặc định) + `pool_pre_ping`; ETL đóng session trước khi cào.
+
+### Bước tiếp / tồn đọng (chưa xử lý, chờ user quyết)
+- **Token Pancake**: run ETL 03/10 04:54Z báo `Invalid access_token (102)` cho page "Anh Kế toán làm Data" → kéo 0 hội thoại nhưng job vẫn xanh. Cần tạo lại token; nên cho job fail khi một page lỗi.
+- `contacted_dates` cộng cả ngày `updated_at` của hội thoại (`etl/pipeline.py`) → Contact Lại có thể gồm hội thoại chỉ đổi tag.
+- ETL chỉ lưu 30 tin gần nhất và ghi đè `contacted_dates` mỗi lần tải lại → lịch sử contact của hội thoại dài mất dần (chủ yếu page Zalo). Lỗi tải tin nhắn trả `[]` cũng xoá tin đã lưu.
+- `etl/pancake_client.py` thiếu `import re` (dòng tra tên page qua `/pages` luôn NameError; page chưa có trong `KNOWN_PAGE_NAMES` sẽ lỗi cả page). Chưa sửa vì không test được với token thật.
+- `customer_id = 'unknown'` gộp mọi hội thoại thiếu id khách vào 1 lead; nhóm chat Zalo (`pzl_g_…`) bị tính là lead; giới hạn 500/2000 hội thoại áp trước khi lọc COMMENT.
+- Page "user5025817249978" chưa có tên chuẩn; hai page TikTok "Anh Gà Kế Toán" và page này chưa gắn tag Lead Other/Đào tạo.
 - `auto_repair_contacted_dates` load toàn bộ raw payload vào RAM mỗi lần startup (512MB) → rủi ro khi data lớn.
+- Deps trong `requirements.txt` chưa pin (Render dùng Python 3.14).
 
 ### Quyết định & lý do
-- Định nghĩa chỉ số ở bảng trên: user chọn tách Contact Lại/Tổng để tỉ lệ không >100%; giữ "bất kỳ ai nhắn" và "lead có SĐT bất kỳ lúc nào".
+- SĐT "thu được trong kỳ" thay cho "lead có SĐT bất kỳ lúc nào": cách cũ ra 2.839 SĐT cho tháng 9 vì đếm lại số cũ mỗi khi lead được nhắn (tin hàng loạt trên Zalo) và đếm trùng TikTok–Zalo.
+- Page Zalo không cộng vào tổng: cùng một người vừa là lead TikTok vừa là bạn Zalo → đếm 2 lần.
+- Gom tag cũ vào Lead Other/Đào tạo để số liệu trước cuối tháng 9 vẫn có ý nghĩa.
 - Ghi rõ driver psycopg2 trong URL thay vì pin SQLAlchemy: chạy được cả 2.0 (Actions, Py3.10) lẫn 2.1 (Render, Py3.14).
-- Ghi chú môi trường test local: venv trong Temp bị Application Control chặn DLL → chạy với `DISABLE_SQLALCHEMY_CEXT_RUNTIME=1`.
+- Test local: venv trong Temp bị Application Control chặn DLL → chạy với `DISABLE_SQLALCHEMY_CEXT_RUNTIME=1 PYTHONUTF8=1`.
