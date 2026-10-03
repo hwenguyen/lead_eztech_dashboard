@@ -5,16 +5,36 @@ import time
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 logger = logging.getLogger(__name__)
+
+def create_http_session() -> requests.Session:
+    """Tạo requests.Session có connection pooling và keep-alive để tái sử dụng TLS connection."""
+    session = requests.Session()
+    adapter = HTTPAdapter(
+        pool_connections=15,
+        pool_maxsize=15,
+        max_retries=Retry(
+            total=2,
+            backoff_factor=0.5,
+            status_forcelist=[500, 502, 503, 504],
+            raise_on_status=False
+        )
+    )
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    return session
 
 class PancakeClient:
     def __init__(self, api_token: Optional[str] = None):
         self.api_token = api_token or os.getenv("PANCAKE_API_TOKEN")
         self.limit = int(os.getenv("CRAWL_LIMIT", "300")) 
         self.base_url = "https://pages.fm/api/v1"
+        self.session = create_http_session()
 
-    def _get_page_access_token(self, page_id_or_name: str) -> Optional[tuple]:
+    def _get_page_access_token(self, page_id_or_name: str) -> tuple:
         """
         Lấy page_access_token và page_id chính xác.
         Hỗ trợ cả User Access Token (tự sinh page_access_token) và Page Access Token truyền trực tiếp.
@@ -32,7 +52,7 @@ class PancakeClient:
         # 1. Thử phân giải page_id nếu truyền vào tên hoặc ID
         resolved_page_id = page_id_or_name
         try:
-            res = requests.get(
+            res = self.session.get(
                 f"{self.base_url}/pages",
                 params={"access_token": self.api_token},
                 headers=headers,
@@ -52,7 +72,7 @@ class PancakeClient:
 
         # 2. Thử tạo page_access_token qua User Access Token
         try:
-            res_token = requests.post(
+            res_token = self.session.post(
                 f"{self.base_url}/pages/{resolved_page_id}/generate_page_access_token",
                 params={"access_token": self.api_token},
                 timeout=10
@@ -68,9 +88,14 @@ class PancakeClient:
         # 3. Fallback: Bản thân token cấu hình có thể chính là Page Access Token
         return self.api_token, resolved_page_id
 
-    def get_conversations(self, page_id: str) -> List[Dict[str, Any]]:
-        """Lấy danh sách hội thoại và tin nhắn trực tiếp qua Pancake Public API v2."""
+    def get_conversations(self, page_id: str, existing_cache: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+        """
+        Lấy danh sách hội thoại qua Pancake Public API v2 với cơ chế Incremental Caching:
+        - Bỏ qua tải messages đối với các hội thoại đã có trong DB và không có thay đổi (updated_at trùng khớp).
+        - Đối với hội thoại mới hoặc có cập nhật, chỉ lấy 1 trang tin nhắn mới nhất thay vì quét toàn bộ lịch sử.
+        """
         logger.info(f"--- BẮT ĐẦU CÀO DỮ LIỆU QUA API CHO PAGE: {page_id} ---")
+        existing_cache = existing_cache or {}
         
         ptoken, resolved_page_id = self._get_page_access_token(page_id)
         if not ptoken:
@@ -80,7 +105,6 @@ class PancakeClient:
         page_id = resolved_page_id
         url_convs = f"https://pages.fm/api/public_api/v2/pages/{page_id}/conversations"
         
-        # Pancake API yêu cầu timestamp dạng số nguyên (integer Unix timestamp in seconds)
         now_ts = int(datetime.utcnow().timestamp())
         since_ts = int((datetime.utcnow() - timedelta(days=365 * 2)).timestamp())
         
@@ -100,12 +124,12 @@ class PancakeClient:
             clean_params = {k: v for k, v in params.items() if v is not None}
             
             try:
-                resp = requests.get(url_convs, params=clean_params, timeout=30)
+                resp = self.session.get(url_convs, params=clean_params, timeout=30)
             except Exception as e:
                 logger.error(f"Lỗi kết nối khi gọi /conversations: {e}")
                 retry_count += 1
                 if retry_count <= max_retries:
-                    time.sleep(5 * retry_count)
+                    time.sleep(3 * retry_count)
                     continue
                 else:
                     break
@@ -118,16 +142,16 @@ class PancakeClient:
                     break
                 all_convs.extend(convs)
                 last_id = convs[-1].get('id')
-                time.sleep(0.5)
+                time.sleep(0.2)
             elif resp.status_code == 429:
-                logger.warning("Pancake API Rate limit (429)! Nghỉ 15s...")
-                time.sleep(15)
+                logger.warning("Pancake API Rate limit (429)! Nghỉ 10s...")
+                time.sleep(10)
                 continue
             elif resp.status_code >= 500:
                 retry_count += 1
                 logger.warning(f"Lỗi server Pancake (HTTP {resp.status_code}), thử lại lần {retry_count}/{max_retries}...")
                 if retry_count <= max_retries:
-                    time.sleep(5 * retry_count)
+                    time.sleep(3 * retry_count)
                     continue
                 else:
                     break
@@ -136,62 +160,63 @@ class PancakeClient:
                 break
 
         all_convs = all_convs[:self.limit]
-        logger.info(f"Đã lấy {len(all_convs)} hội thoại. Bắt đầu tải tin nhắn chi tiết (đa luồng)...")
         
-        messages_by_conv = {}
+        # 1. Tận dụng Cache: Chỉ tải tin nhắn cho các hội thoại MỚI hoặc có updated_at THAY ĐỔI
+        messages_by_conv: Dict[str, list] = {}
+        convs_to_fetch = []
 
-        def fetch_conversation_messages(cid):
-            url = f"https://pages.fm/api/public_api/v1/pages/{page_id}/conversations/{cid}/messages"
-            current_count = 0
-            rc = 0
-            local_msgs = []
-            while True:
+        for conv in all_convs:
+            cid = str(conv.get('id', ''))
+            conv_updated = conv.get('updated_at')
+            cached_data = existing_cache.get(cid)
+
+            # Nếu đã có trong DB, updated_at không đổi và đã có tin nhắn -> dùng lại cache, không tốn request
+            if cached_data and cached_data.get('updated_at') == conv_updated and cached_data.get('messages'):
+                messages_by_conv[cid] = cached_data.get('messages', [])
+            else:
+                convs_to_fetch.append(cid)
+
+        cached_hits = len(all_convs) - len(convs_to_fetch)
+        logger.info(f"Tổng số hội thoại: {len(all_convs)}. Dùng cache không cần tải lại: {cached_hits}, Cần tải tin nhắn mới: {len(convs_to_fetch)}.")
+
+        # 2. Tải tin nhắn mới (chỉ lấy 30 tin nhắn mới nhất thay vì loop vô tận qua toàn bộ lịch sử)
+        if convs_to_fetch:
+            def fetch_single_conversation_messages(cid):
+                url = f"https://pages.fm/api/public_api/v1/pages/{page_id}/conversations/{cid}/messages"
                 try:
-                    resp = requests.get(
+                    resp = self.session.get(
                         url,
-                        params={"page_access_token": ptoken, "current_count": current_count},
+                        params={"page_access_token": ptoken},
                         timeout=10
                     )
                     if resp.status_code == 200:
-                        rc = 0
-                        msgs = resp.json().get('messages', [])
-                        if not msgs:
-                            break
-                        local_msgs.extend(msgs)
-                        current_count += len(msgs)
-                        time.sleep(0.1)
+                        return cid, resp.json().get('messages', [])
                     elif resp.status_code == 429:
                         time.sleep(3)
-                        continue
-                    elif resp.status_code >= 500:
-                        rc += 1
-                        if rc <= max_retries:
-                            time.sleep(2 * rc)
-                            continue
-                        else:
-                            break
-                    else:
-                        break
-                except Exception:
-                    time.sleep(2)
-                    continue
-            return cid, local_msgs
-
-        with ThreadPoolExecutor(max_workers=5) as executor:
-            future_to_conv = {executor.submit(fetch_conversation_messages, conv.get('id')): conv.get('id') for conv in all_convs}
-            for future in as_completed(future_to_conv):
-                try:
-                    cid, msgs = future.result()
-                    messages_by_conv[cid] = msgs
+                        resp2 = self.session.get(url, params={"page_access_token": ptoken}, timeout=10)
+                        if resp2.status_code == 200:
+                            return cid, resp2.json().get('messages', [])
                 except Exception as e:
-                    logger.error(f"Lỗi khi tải messages cho conversation {cid}: {e}")
+                    logger.debug(f"Lỗi khi tải messages cho conversation {cid}: {e}")
+                return cid, []
 
+            # Sử dụng 8 workers để tải song song cực nhanh
+            with ThreadPoolExecutor(max_workers=8) as executor:
+                future_to_conv = {executor.submit(fetch_single_conversation_messages, cid): cid for cid in convs_to_fetch}
+                for future in as_completed(future_to_conv):
+                    try:
+                        cid, msgs = future.result()
+                        messages_by_conv[cid] = msgs
+                    except Exception as e:
+                        logger.error(f"Lỗi future messages cid {cid}: {e}")
+
+        # 3. Tổng hợp kết quả
         results = []
         for conv in all_convs:
-            conv_id = conv.get('id')
+            conv_id = str(conv.get('id', ''))
             customers = conv.get('customers', [])
-            customer_id = customers[0].get('id') if customers else 'unknown'
-            customer_name = customers[0].get('name') if customers else 'Unknown'
+            customer_id = str(customers[0].get('id')) if customers and customers[0].get('id') else 'unknown'
+            customer_name = customers[0].get('name') if customers and customers[0].get('name') else 'Unknown'
             
             raw_tags = conv.get('tags', [])
             tags = [t['text'] for t in raw_tags if isinstance(t, dict) and 'text' in t]
@@ -199,10 +224,18 @@ class PancakeClient:
             assignees_raw = conv.get('current_assign_users', [])
             assigned_users = ", ".join([item['name'] for item in assignees_raw if isinstance(item, dict) and 'name' in item])
 
+            # Tìm SĐT trực tiếp từ đối tượng conversation nếu Pancake đã thu thập
+            phone = None
+            recent_phones = conv.get('recent_phone_numbers', [])
+            if recent_phones and isinstance(recent_phones, list):
+                phone = recent_phones[0].get('phone_number')
+            if not phone and customers and isinstance(customers, list):
+                phone = customers[0].get('phone_number')
+
             messages_data = messages_by_conv.get(conv_id, [])
             formatted_msgs = []
             for m in messages_data:
-                if m.get("message"):
+                if isinstance(m, dict) and m.get("message"):
                     m_from = m.get('from', {})
                     is_admin = False
                     if m_from:
@@ -220,14 +253,19 @@ class PancakeClient:
                         "sender_name": m_from.get('name') or m_from.get('username') or m_from.get('admin_name') or "Unknown"
                     })
             
+            # Ưu tiên message_count có sẵn trong conversation
+            msg_count = conv.get("message_count")
+            if msg_count is None:
+                msg_count = len(messages_data)
+
             results.append({
                 "id": conv_id,
                 "pancake_id": conv_id,
                 "type": conv.get("type"),
                 "customer_id": customer_id,
                 "customer_name": customer_name,
-                "phone_number": None,
-                "message_count": len(messages_data),
+                "phone_number": phone,
+                "message_count": msg_count,
                 "tags": tags,
                 "assigned_users": assigned_users,
                 "messages": formatted_msgs,

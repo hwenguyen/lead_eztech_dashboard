@@ -1,5 +1,6 @@
 import os
 import logging
+from typing import Optional, Dict, Any
 from sqlalchemy.orm import Session
 from database.db import SessionLocal
 from database.models import RawConversation, DimLead, FactLeadActivity
@@ -9,11 +10,9 @@ from etl.utils import parse_pancake_date, extract_customer_phone
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def upsert_lead_data(db: Session, raw_data: dict, page_id: str):
+def upsert_lead_data(db: Session, raw_data: dict, page_id: str, commit: bool = True):
     """
-    Logic upsert Lead và Activity.
-    Vì SQLite không support sẵn postgresql.insert on_conflict_do_update dễ dàng trong SQLAlchemy < 2.0 (hoặc nếu không setup đúng dialect),
-    Ta dùng query before insert/update cho dễ tương thích mọi DB.
+    Logic upsert Lead và Activity với hỗ trợ batch commit.
     """
     try:
         # 1. Lưu Raw
@@ -83,6 +82,14 @@ def upsert_lead_data(db: Session, raw_data: dict, page_id: str):
                 if not contacted_at or cat > contacted_at:
                     contacted_at = cat
                         
+        # Fallback lấy thời điểm hoạt động gần nhất từ updated_at nếu tin nhắn chưa bao quát
+        conv_updated = parse_pancake_date(raw_data.get('updated_at'))
+        if conv_updated:
+            is_contacted = True
+            if not contacted_at or conv_updated > contacted_at:
+                contacted_at = conv_updated
+            c_dates.add(conv_updated.strftime("%Y-%m-%d"))
+
         contacted_dates_str = ",".join(sorted(list(c_dates))) if c_dates else None
 
         activity = db.query(FactLeadActivity).filter_by(conversation_id=conv_id).first()
@@ -107,13 +114,15 @@ def upsert_lead_data(db: Session, raw_data: dict, page_id: str):
             if contacted_at:
                 activity.contacted_at = contacted_at
 
-        db.commit()
+        if commit:
+            db.commit()
     except Exception as e:
-        db.rollback()
+        if commit:
+            db.rollback()
         logger.error(f"Error upserting conversation {raw_data.get('id')}: {e}")
 
 def run_etl_pipeline():
-    logger.info("Starting ETL Pipeline...")
+    logger.info("Starting Fast ETL Pipeline...")
     page_ids_env = os.getenv("PAGE_IDS", "")
     page_ids = [p.strip() for p in page_ids_env.split(",") if p.strip()]
     
@@ -129,43 +138,66 @@ def run_etl_pipeline():
         # Fallback dùng chung 1 token
         tokens = [os.getenv("PANCAKE_API_TOKEN")] * len(page_ids)
 
+    first_run_limit = int(os.getenv("FIRST_RUN_LIMIT", "2000"))
+    daily_run_limit = int(os.getenv("DAILY_RUN_LIMIT", "500"))
+
     db = SessionLocal()
     
     try:
         for i, page_id in enumerate(page_ids):
             logger.info(f"Processing Page ID: {page_id}")
             
-            # Lấy token tương ứng với page, nếu thiếu thì dùng None (sẽ fallback trong class)
             page_token = tokens[i] if i < len(tokens) else None
             client = PancakeClient(api_token=page_token)
             
-            # Kiểm tra xem đã có dữ liệu cho Page này chưa
-            existing_count = db.query(RawConversation).filter_by(page_id=page_id).count()
+            # 1. Kiểm tra số lượng và xây dựng cache từ DB để skip tải lại tin nhắn không đổi
+            existing_cache: Dict[str, Any] = {}
+            try:
+                raw_rows = db.query(RawConversation.pancake_id, RawConversation.payload).filter_by(page_id=page_id).all()
+                existing_count = len(raw_rows)
+                for p_id, payload in raw_rows:
+                    if payload and isinstance(payload, dict):
+                        existing_cache[str(p_id)] = {
+                            "updated_at": payload.get("updated_at"),
+                            "messages": payload.get("messages", []),
+                            "phone_number": payload.get("phone_number")
+                        }
+                logger.info(f"Đã nạp {len(existing_cache)} hội thoại từ cache DB của Page {page_id}.")
+            except Exception as e:
+                logger.warning(f"Không thể đọc cache DB: {e}")
+                existing_count = db.query(RawConversation).filter_by(page_id=page_id).count()
+
             if existing_count == 0:
-                logger.info(f"🔔 FIRST RUN DETECTED! Kéo toàn bộ lịch sử cho Page {page_id} (giới hạn an toàn 10,000 hội thoại). Sẽ mất một lúc...")
-                client.limit = 10000 
+                logger.info(f"🔔 FIRST RUN DETECTED! Kéo {first_run_limit} hội thoại lịch sử cho Page {page_id}...")
+                client.limit = first_run_limit 
             else:
-                logger.info(f"⚡ DAILY RUN DETECTED! Kéo 500 hội thoại mới/cập nhật gần nhất cho Page {page_id}...")
-                client.limit = 500
+                logger.info(f"⚡ DAILY RUN DETECTED! Kéo {daily_run_limit} hội thoại mới/cập nhật gần nhất cho Page {page_id}...")
+                client.limit = daily_run_limit
 
             # Đóng session trước khi cào dữ liệu qua API để không giữ idle connection trên Neon
             db.close()
-            conversations = client.get_conversations(page_id=page_id)
+            conversations = client.get_conversations(page_id=page_id, existing_cache=existing_cache)
             total = len(conversations)
 
-            # Mở session mới để lưu dữ liệu an toàn
+            # 2. Mở session mới và lưu dữ liệu vào DB theo Batch (50 items/commit)
             db = SessionLocal()
             try:
                 for idx, conv in enumerate(conversations):
-                    upsert_lead_data(db, conv, page_id)
+                    upsert_lead_data(db, conv, page_id, commit=False)
                     if (idx + 1) % 50 == 0:
+                        db.commit()
                         logger.info(f"Đã lưu vào DB: {idx + 1}/{total} hội thoại...")
+                db.commit()
+                logger.info(f"Hoàn tất lưu DB: {total}/{total} hội thoại.")
+            except Exception as e:
+                db.rollback()
+                logger.error(f"Lỗi khi lưu dữ liệu theo batch: {e}")
             finally:
                 db.close()
     finally:
         db.close()
         
-    logger.info("ETL Pipeline completed successfully.")
+    logger.info("ETL Pipeline completed successfully in record time.")
 
 if __name__ == "__main__":
     # Test chạy trực tiếp
