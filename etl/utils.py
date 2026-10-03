@@ -12,12 +12,20 @@ PHONE_CANDIDATE_REGEX = re.compile(r"(?<!\d)(?:\+?84|0)(?:[\s.\-]?\d){9}(?!\d)")
 VN_MOBILE_REGEX = re.compile(r"^0(3[2-9]|5[689]|7[06-9]|8[1-9]|9\d)\d{7}$")
 
 
-def parse_pancake_date(date_str: str) -> Optional[datetime]:
+def parse_pancake_date(date_val: Any) -> Optional[datetime]:
     """Parse thời gian Pancake, đổi sang giờ Việt Nam (UTC+7) và trả về naive datetime."""
-    if not date_str:
+    if not date_val:
         return None
     try:
-        dt = parse(date_str)
+        if isinstance(date_val, (int, float)):
+            ts = date_val / 1000 if date_val > 1e11 else date_val
+            return datetime.fromtimestamp(ts, tz=VN_TZ).replace(tzinfo=None)
+        val_str = str(date_val).strip()
+        if val_str.isdigit():
+            ts = float(val_str)
+            ts = ts / 1000 if ts > 1e11 else ts
+            return datetime.fromtimestamp(ts, tz=VN_TZ).replace(tzinfo=None)
+        dt = parse(val_str)
         # Nếu Pancake trả về không có múi giờ, ta ngầm định đó là UTC
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)

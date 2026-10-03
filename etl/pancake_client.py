@@ -86,6 +86,11 @@ class PancakeClient:
             logger.debug(f"Lỗi khi gọi generate_page_access_token: {e}")
 
         # 3. Fallback: Bản thân token cấu hình có thể chính là Page Access Token
+        if not str(resolved_page_id).isdigit():
+            logger.warning(
+                f"Page ID '{resolved_page_id}' không phải là chuỗi số. "
+                f"Nếu Pancake API trả về lỗi, vui lòng cấu hình ID dạng số của Fanpage trong secret PAGE_IDS."
+            )
         return self.api_token, resolved_page_id
 
     def get_conversations(self, page_id: str, existing_cache: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
@@ -120,6 +125,7 @@ class PancakeClient:
                 "until": now_ts,
                 "order_by": "updated_at",
                 "last_conversation_id": last_id,
+                "current_count": 60,
             }
             clean_params = {k: v for k, v in params.items() if v is not None}
             
@@ -141,7 +147,10 @@ class PancakeClient:
                     logger.info("Không còn hội thoại mới nào từ API.")
                     break
                 all_convs.extend(convs)
-                last_id = convs[-1].get('id')
+                new_last_id = convs[-1].get('id')
+                if new_last_id == last_id:
+                    break
+                last_id = new_last_id
                 time.sleep(0.2)
             elif resp.status_code == 429:
                 logger.warning("Pancake API Rate limit (429)! Nghỉ 10s...")
@@ -221,8 +230,13 @@ class PancakeClient:
             raw_tags = conv.get('tags', [])
             tags = [t['text'] for t in raw_tags if isinstance(t, dict) and 'text' in t]
             
-            assignees_raw = conv.get('current_assign_users', [])
-            assigned_users = ", ".join([item['name'] for item in assignees_raw if isinstance(item, dict) and 'name' in item])
+            assignees_raw = conv.get('current_assign_users') or conv.get('assignees') or conv.get('assigned_users') or []
+            if isinstance(assignees_raw, list):
+                assigned_users = ", ".join([item['name'] for item in assignees_raw if isinstance(item, dict) and 'name' in item])
+            elif isinstance(assignees_raw, str):
+                assigned_users = assignees_raw
+            else:
+                assigned_users = None
 
             # Tìm SĐT trực tiếp từ đối tượng conversation nếu Pancake đã thu thập
             phone = None
