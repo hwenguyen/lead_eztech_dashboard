@@ -130,18 +130,63 @@ def upsert_lead_data(db: Session, raw_data: dict, page_id: str, commit: bool = T
 
 def run_etl_pipeline():
     logger.info("Starting Fast ETL Pipeline...")
-    page_ids_env = os.getenv("PAGE_IDS", "")
-    page_ids = [p.strip() for p in page_ids_env.split(",") if p.strip()]
     
-    if not page_ids:
-        logger.warning("No PAGE_IDS found in environment variables.")
-        return
+    pages_to_process: List[Dict[str, Any]] = []
 
-    # Hỗ trợ nhiều token cho nhiều page với fallback linh hoạt
-    tokens_env = os.getenv("PANCAKE_API_TOKENS", "").strip()
-    single_token = os.getenv("PANCAKE_API_TOKEN", "").strip()
-    tokens = [t.strip() for t in tokens_env.split(",") if t.strip()] if tokens_env else []
-    default_token = single_token or (tokens[0] if tokens else None)
+    # 1. Hỗ trợ cấu hình dạng JSON / Dict qua secret PANCAKE_PAGES_JSON hoặc PANCAKE_CONFIG
+    pages_json_env = os.getenv("PANCAKE_PAGES_JSON") or os.getenv("PANCAKE_CONFIG")
+    if pages_json_env and pages_json_env.strip():
+        try:
+            import json, ast
+            raw_cfg = pages_json_env.strip()
+            try:
+                cfg_data = json.loads(raw_cfg)
+            except Exception:
+                cfg_data = ast.literal_eval(raw_cfg)
+            
+            if isinstance(cfg_data, dict):
+                for pid, pdata in cfg_data.items():
+                    if isinstance(pdata, dict):
+                        pages_to_process.append({
+                            "page_id": str(pid).strip(),
+                            "page_name": pdata.get("name"),
+                            "token": pdata.get("token")
+                        })
+                    elif isinstance(pdata, str):
+                        pages_to_process.append({
+                            "page_id": str(pid).strip(),
+                            "page_name": None,
+                            "token": pdata.strip()
+                        })
+            elif isinstance(cfg_data, list):
+                for item in cfg_data:
+                    if isinstance(item, dict) and "page_id" in item:
+                        pages_to_process.append(item)
+            logger.info(f"Đã nạp {len(pages_to_process)} Fanpage từ cấu hình PANCAKE_PAGES_JSON.")
+        except Exception as e:
+            logger.warning(f"Không thể parse PANCAKE_PAGES_JSON: {e}")
+
+    # 2. Nếu không có hoặc parse lỗi, fallback sang PAGE_IDS và PANCAKE_API_TOKENS
+    if not pages_to_process:
+        page_ids_env = os.getenv("PAGE_IDS", "")
+        page_ids = [p.strip() for p in page_ids_env.split(",") if p.strip()]
+        
+        if not page_ids:
+            logger.warning("No PAGE_IDS found in environment variables.")
+            return
+
+        tokens_env = os.getenv("PANCAKE_API_TOKENS", "").strip()
+        single_token = os.getenv("PANCAKE_API_TOKEN", "").strip()
+        tokens = [t.strip() for t in tokens_env.split(",") if t.strip()] if tokens_env else []
+        default_token = single_token or (tokens[0] if tokens else None)
+
+        for i, page_id in enumerate(page_ids):
+            token = tokens[i] if i < len(tokens) and tokens[i] else default_token
+            pages_to_process.append({
+                "page_id": page_id,
+                "page_name": None,
+                "token": token
+            })
 
     first_run_limit = int(os.getenv("FIRST_RUN_LIMIT", "2000"))
     daily_run_limit = int(os.getenv("DAILY_RUN_LIMIT", "500"))
@@ -149,10 +194,12 @@ def run_etl_pipeline():
     db = SessionLocal()
     
     try:
-        for i, page_id in enumerate(page_ids):
-            logger.info(f"Processing Page ID: {page_id}")
+        for p_info in pages_to_process:
+            page_id = p_info["page_id"]
+            page_token = p_info.get("token")
+            preset_name = p_info.get("page_name")
+            logger.info(f"Processing Page ID: {page_id} (Tên cấu hình: {preset_name or 'Auto'})")
             try:
-                page_token = tokens[i] if i < len(tokens) and tokens[i] else default_token
                 client = PancakeClient(api_token=page_token)
                 
                 # 1. Kiểm tra số lượng và xây dựng cache từ DB để skip tải lại tin nhắn không đổi
@@ -203,15 +250,16 @@ def run_etl_pipeline():
                 conversations = client.get_conversations(page_id=page_id, existing_cache=existing_cache)
                 total = len(conversations)
 
-                # Tên chuẩn của riêng Page này (ưu tiên tên API trả về -> tên cấu hình chuẩn -> tên DB)
+                # Tên chuẩn của riêng Page này (ưu tiên tên API trả về -> tên cấu hình preset -> tên cấu hình chuẩn -> tên DB)
                 canonical_page_name = (
                     getattr(client, 'page_name', None)
+                    or preset_name
                     or resolve_canonical_page_name(page_id, fallback=None)
                     or known_page_name
                     or (page_id if not is_page_id(page_id) else None)
                 )
                 if not canonical_page_name or is_page_id(canonical_page_name):
-                    canonical_page_name = known_page_name or resolve_canonical_page_name(page_id, fallback=page_id)
+                    canonical_page_name = preset_name or known_page_name or resolve_canonical_page_name(page_id, fallback=page_id)
 
                 # 2. Mở session mới và lưu dữ liệu vào DB theo Batch (50 items/commit)
                 db = SessionLocal()

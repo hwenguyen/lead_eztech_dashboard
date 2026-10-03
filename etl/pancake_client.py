@@ -171,8 +171,18 @@ class PancakeClient:
                     break
 
             if resp.status_code == 200:
+                data = resp.json()
+                if isinstance(data, dict) and data.get("success") is False:
+                    err_msg = data.get("message", "Không rõ nguyên nhân")
+                    err_code = data.get("error_code", "N/A")
+                    logger.error(
+                        f"❌ Pancake API từ chối Page '{page_id}': {err_msg} (error_code: {err_code}). "
+                        f"Vui lòng kiểm tra hoặc tạo lại Page Access Token mới trên Pancake!"
+                    )
+                    break
+
                 retry_count = 0
-                convs = resp.json().get('conversations', [])
+                convs = data.get("conversations", []) if isinstance(data, dict) else []
                 if not convs:
                     logger.info("Không còn hội thoại mới nào từ API.")
                     break

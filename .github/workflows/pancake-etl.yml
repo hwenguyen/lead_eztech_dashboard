@@ -30,5 +30,6 @@ jobs:
         PANCAKE_API_TOKEN: ${{ secrets.PANCAKE_API_TOKEN }}
         PANCAKE_API_TOKENS: ${{ secrets.PANCAKE_API_TOKENS }}
         PAGE_IDS: ${{ secrets.PAGE_IDS }}
+        PANCAKE_PAGES_JSON: ${{ secrets.PANCAKE_PAGES_JSON }}
       run: |
         python -m etl.pipeline

@@ -67,9 +67,19 @@ def extract_customer_phone(messages: List[Dict[str, Any]]) -> Optional[str]:
 
 # Bản đồ tên Fanpage chuẩn hóa dùng chung toàn hệ thống
 KNOWN_PAGE_NAMES: Dict[str, str] = {
+    # 1. Eztech Phân Tích Dữ Liệu
     "629476615535063343": "Eztech Phân Tích Dữ Liệu",
     "pzl_629476615535063343": "Eztech Phân Tích Dữ Liệu",
+    # 2. Anh Kế toán làm Data
     "7196601676597871618": "Anh Kế toán làm Data",
+    "tt_7196601676597871618": "Anh Kế toán làm Data",
+    # 3. Anh Gà Kế Toán
+    "7456003523327919120": "Anh Gà Kế Toán",
+    "tt_7456003523327919120": "Anh Gà Kế Toán",
+    # 4. Hiền Minh Eztech
+    "131986891507252646": "Hiền Minh Eztech",
+    "pzl_131986891507252646": "Hiền Minh Eztech",
+    # 5. Tuấn Anh Data
     "788602135347404973": "Tuấn Anh Data",
     "pzl_788602135347404973": "Tuấn Anh Data",
 }
