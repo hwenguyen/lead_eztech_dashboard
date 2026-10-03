@@ -73,6 +73,9 @@ def auto_repair_contacted_dates():
 
             msgs = r.payload.get('messages') or []
             msg_times = [dt for dt in (parse_pancake_date(m.get('inserted_at')) for m in msgs if isinstance(m, dict)) if dt]
+            conv_updated = parse_pancake_date(r.payload.get('updated_at'))
+            if conv_updated:
+                msg_times.append(conv_updated)
             contacted_dates_str = ",".join(sorted({dt.strftime("%Y-%m-%d") for dt in msg_times})) or None
             if act.contacted_dates != contacted_dates_str:
                 act.contacted_dates = contacted_dates_str
@@ -86,6 +89,10 @@ def auto_repair_contacted_dates():
             lead = all_leads.get(act.lead_id)
             if not lead:
                 continue
+
+            if r.page_id and not lead.page_id:
+                lead.page_id = r.page_id
+                has_changes = True
 
             conv_inserted = parse_pancake_date(r.payload.get('inserted_at'))
             if conv_inserted and (not lead.first_created_at or lead.first_created_at > conv_inserted):
