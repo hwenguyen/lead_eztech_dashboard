@@ -35,12 +35,12 @@ export function TrendChart({ data }: TrendChartProps) {
         <div className="flex items-center justify-between mb-6">
           <div>
             <h3 className="text-base font-semibold text-navy">Xu hướng Lead theo thời gian</h3>
-            <p className="text-xs text-[#4B5563] mt-0.5">Biến động Lead Mới, Contact Lại, Có SĐT</p>
+            <p className="text-xs text-[#4B5563] mt-0.5">Biến động Lead Mới, Contact Lại, SĐT thu được</p>
           </div>
           <div className="flex items-center gap-4 text-xs text-[#4B5563]">
             <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-blue-500 inline-block" />Lead Mới</span>
             <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-emerald-500 inline-block" />Contact Lại</span>
-            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-amber-500 inline-block" />Có SĐT</span>
+            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-amber-500 inline-block" />SĐT thu được</span>
           </div>
         </div>
         <ResponsiveContainer width="100%" height={260}>
@@ -65,7 +65,7 @@ export function TrendChart({ data }: TrendChartProps) {
             <Tooltip content={<CustomTooltip />} />
             <Area type="monotone" name="Lead Mới" dataKey="new_leads" stroke="#1E5BD6" strokeWidth={2} fillOpacity={1} fill="url(#colorNew)" dot={false} />
             <Area type="monotone" name="Lead Contact Lại" dataKey="recontact_leads" stroke="#10b981" strokeWidth={2} fillOpacity={1} fill="url(#colorContact)" dot={false} />
-            <Area type="monotone" name="Lead Có SĐT" dataKey="phone_leads" stroke="#f59e0b" strokeWidth={2} fillOpacity={1} fill="url(#colorPhone)" dot={false} />
+            <Area type="monotone" name="SĐT thu được" dataKey="phone_leads" stroke="#f59e0b" strokeWidth={2} fillOpacity={1} fill="url(#colorPhone)" dot={false} />
           </AreaChart>
         </ResponsiveContainer>
       </div>

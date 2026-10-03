@@ -314,7 +314,12 @@ class PancakeClient:
             formatted_msgs = []
             for m in messages_data:
                 if isinstance(m, dict) and m.get("message"):
-                    m_from = m.get('from', {})
+                    # Tin lấy lại từ cache đã được format sẵn (không còn 'from') → giữ nguyên role / sender_name,
+                    # nếu format lại thì mọi tin sẽ thành "Khách hàng" và tin Admin bị quét SĐT như tin khách
+                    if "role" in m and "from" not in m:
+                        formatted_msgs.append(m)
+                        continue
+                    m_from = m.get('from') or {}
                     is_admin = False
                     if m_from:
                         if 'admin' in str(m_from).lower() or m_from.get('admin_name'):

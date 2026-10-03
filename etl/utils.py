@@ -1,6 +1,6 @@
 """Hàm tiện ích dùng chung cho ETL và Backend (không import PancakeClient)."""
 import re
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple, Set
 from datetime import datetime, timedelta, timezone
 from dateutil.parser import parse
 
@@ -10,6 +10,8 @@ VN_TZ = timezone(timedelta(hours=7))
 PHONE_CANDIDATE_REGEX = re.compile(r"(?<!\d)(?:\+?84|0)(?:[\s.\-]?\d){9}(?!\d)")
 # Đầu số di động Việt Nam hợp lệ (sau khi chuẩn hoá về dạng 0xxxxxxxxx)
 VN_MOBILE_REGEX = re.compile(r"^0(3[2-9]|5[689]|7[06-9]|8[1-9]|9\d)\d{7}$")
+# Ngày giờ kiểu "09-10-2026 08:30" cũng đủ 10 chữ số → không được nhận nhầm là SĐT
+DATE_LIKE_REGEX = re.compile(r"^\d{1,2}[.\-]\d{1,2}[.\-](19|20)\d{2}")
 
 
 def parse_pancake_date(date_val: Any) -> Optional[datetime]:
@@ -40,6 +42,8 @@ def extract_phone_number(text: str) -> Optional[str]:
     if not text:
         return None
     for match in PHONE_CANDIDATE_REGEX.finditer(text):
+        if DATE_LIKE_REGEX.match(match.group(0)):
+            continue
         digits = re.sub(r"\D", "", match.group(0))
         if digits.startswith("84"):
             digits = "0" + digits[2:]
@@ -48,21 +52,43 @@ def extract_phone_number(text: str) -> Optional[str]:
     return None
 
 
-def extract_customer_phone(messages: List[Dict[str, Any]]) -> Optional[str]:
-    """SĐT đầu tiên (theo thời gian) trong tin nhắn của khách. Bỏ qua tin của Admin để không dính hotline công ty."""
-    found = []
+def normalize_phone(raw: Any) -> Optional[str]:
+    """Chuẩn hoá SĐT về chuỗi chỉ gồm chữ số, đầu số quốc tế 84 → 0 (vd +84912345678 → 0912345678)."""
+    digits = re.sub(r"\D", "", str(raw or ""))
+    if digits.startswith("84") and len(digits) in (11, 12):
+        rest = digits[2:]
+        digits = rest if rest.startswith("0") else "0" + rest
+    return digits if 8 <= len(digits) <= 15 else None
+
+
+def customer_phone_hits(messages: Optional[List[Dict[str, Any]]]) -> List[Tuple[Optional[datetime], str]]:
+    """(thời điểm, SĐT) của các tin nhắn do KHÁCH gửi có chứa SĐT, sắp theo thời gian.
+    Bỏ qua tin của Admin để không dính hotline công ty."""
+    hits = []
     for msg in messages or []:
         if not isinstance(msg, dict) or msg.get("role") == "Admin":
             continue
         phone = extract_phone_number(str(msg.get("message") or ""))
         if phone:
-            found.append((msg.get("inserted_at"), phone))
-    if not found:
-        return None
-    # Chỉ parse ngày để sắp xếp khi khách gửi nhiều SĐT khác nhau
-    if len({phone for _, phone in found}) > 1:
-        found.sort(key=lambda item: parse_pancake_date(item[0]) or datetime.max)
-    return found[0][1]
+            hits.append((parse_pancake_date(msg.get("inserted_at")), phone))
+    hits.sort(key=lambda hit: hit[0] or datetime.max)
+    return hits
+
+
+def resolve_phone(raw_data: Dict[str, Any]) -> Tuple[Optional[str], Optional[datetime]]:
+    """Trả về (SĐT đã chuẩn hoá, thời điểm khách gửi số đó lần đầu) của một hội thoại.
+
+    Ưu tiên số Pancake đã thu thập (raw_data['phone_number']). Thời điểm là None khi số không xuất hiện
+    trong tin nhắn của khách (vd số lấy từ hồ sơ Zalo) → lúc tính chỉ số sẽ dùng ngày tạo lead.
+    """
+    hits = customer_phone_hits(raw_data.get("messages"))
+    phone = normalize_phone(raw_data.get("phone_number"))
+    if phone:
+        dates = [dt for dt, hit_phone in hits if hit_phone == phone and dt]
+        return phone, (dates[0] if dates else None)
+    if hits:
+        return hits[0][1], hits[0][0]
+    return None, None
 
 
 # Bản đồ tên Fanpage chuẩn hóa dùng chung toàn hệ thống
@@ -83,6 +109,15 @@ KNOWN_PAGE_NAMES: Dict[str, str] = {
     "788602135347404973": "Tuấn Anh Data",
     "pzl_788602135347404973": "Tuấn Anh Data",
 }
+
+# Page Zalo cá nhân (ID prefix pzl_) là kênh chăm sóc sau khi đã có SĐT → không cộng vào "Tất cả Page".
+# Page Zalo mới PHẢI được khai báo trong KNOWN_PAGE_NAMES với prefix pzl_ để được nhận diện.
+ZALO_PAGE_NAMES: Set[str] = {name for pid, name in KNOWN_PAGE_NAMES.items() if pid.startswith("pzl_")}
+
+
+def zalo_page_keys() -> Set[str]:
+    """Mọi giá trị page_id có thể đang lưu trong DB của các page Zalo (tên hiển thị + ID số + ID pzl_)."""
+    return ZALO_PAGE_NAMES | {pid for pid, name in KNOWN_PAGE_NAMES.items() if name in ZALO_PAGE_NAMES}
 
 
 def is_page_id(val: Any) -> bool:

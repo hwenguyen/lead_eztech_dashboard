@@ -1,42 +1,31 @@
 from fastapi import FastAPI, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
-from sqlalchemy import text
 from collections import Counter
 from datetime import datetime, timedelta
-from typing import Optional, Dict
+from typing import Optional, Dict, List, Tuple
 import re
 import threading
 import logging
-from database.db import get_db, engine, Base, SessionLocal
+from database.db import get_db, SessionLocal
 from database.models import DimLead, FactLeadActivity, RawConversation
+from database.schema import ensure_schema
 from backend.schemas import LeadMetricsSummary, TrendResponse, TrendDataPoint, LeadListResponse, LeadResponse
 from backend.lead_metrics import classify_leads, resolve_period, normalize_text
 from etl.utils import (
     parse_pancake_date,
-    extract_customer_phone,
+    resolve_phone,
+    normalize_phone,
     is_page_id,
     resolve_canonical_page_name,
     KNOWN_PAGE_NAMES,
+    ZALO_PAGE_NAMES,
 )
 
 logger = logging.getLogger(__name__)
 
-# Khởi tạo DB Schema (Tự động tạo bảng nếu chưa có, hữu ích cho môi trường dev/Free Tier)
-Base.metadata.create_all(bind=engine)
-
-# create_all không thêm index cho bảng đã tồn tại → tạo thủ công các index phục vụ lọc theo kỳ
-INDEX_DDL = [
-    "CREATE INDEX IF NOT EXISTS ix_dim_leads_first_created_at ON dim_leads (first_created_at)",
-    "CREATE INDEX IF NOT EXISTS ix_fact_lead_activities_lead_id ON fact_lead_activities (lead_id)",
-    "CREATE INDEX IF NOT EXISTS ix_fact_lead_activities_contacted_at ON fact_lead_activities (contacted_at)",
-]
-try:
-    with engine.begin() as conn:
-        for ddl in INDEX_DDL:
-            conn.execute(text(ddl))
-except Exception as e:
-    logger.error(f"Create index error: {e}")
+# Khởi tạo DB Schema: tạo bảng nếu chưa có, thêm cột / index còn thiếu cho bảng đã tồn tại
+ensure_schema()
 
 app = FastAPI(title="Pancake Lead Reporting API")
 
@@ -57,7 +46,7 @@ def health():
     return {"status": "healthy"}
 
 def auto_repair_contacted_dates():
-    """Đồng bộ lại contacted_dates, contacted_at, first_created_at, phone_number và chuẩn hoá page_id cho từng Fanpage riêng biệt."""
+    """Đồng bộ lại contacted_dates, contacted_at, first_created_at, SĐT (phone_number, phone_at) và chuẩn hoá page_id cho từng Fanpage riêng biệt."""
     db = SessionLocal()
     try:
         raws = db.query(RawConversation).order_by(RawConversation.id).all()
@@ -67,7 +56,8 @@ def auto_repair_contacted_dates():
 
         all_acts = {act.conversation_id: act for act in db.query(FactLeadActivity).all()}
         lead_dict = {l.id: l for l in all_leads}
-        lead_phones: Dict[int, Optional[str]] = {}
+        # lead id -> [(SĐT, thời điểm khách gửi số)] tìm thấy trong payload các hội thoại của lead
+        lead_phones: Dict[int, List[Tuple[str, Optional[datetime]]]] = {}
 
         # 1. Khởi tạo và xây dựng bản đồ ánh xạ (Mapping) từ Page ID (số / pzl_) sang Page Name (chữ) cho TỪNG PAGE
         id_to_name_map: Dict[str, str] = KNOWN_PAGE_NAMES.copy()
@@ -138,9 +128,9 @@ def auto_repair_contacted_dates():
                 lead.first_created_at = conv_inserted
                 has_changes = True
 
-            phone = payload.get('phone_number') or extract_customer_phone(msgs)
-            if not lead_phones.get(lead.id):
-                lead_phones[lead.id] = phone
+            phone, phone_at = resolve_phone(payload)
+            if phone:
+                lead_phones.setdefault(lead.id, []).append((phone, phone_at))
 
         # 3. Chuẩn hoá DimLead.page_id theo đúng page của hội thoại của lead đó
         for act in all_acts.values():
@@ -158,10 +148,19 @@ def auto_repair_contacted_dates():
                     lead.page_id = page_for_lead
                     has_changes = True
 
-        for lead_id, phone in lead_phones.items():
-            lead = lead_dict[lead_id]
-            if lead.phone_number != phone:
+        # 4. SĐT: chỉ chuẩn hoá, điền số còn thiếu và lùi phone_at về thời điểm sớm nhất tìm thấy.
+        # Không xoá / ghi đè số đã lưu vì payload chỉ còn 30 tin gần nhất của mỗi hội thoại.
+        for lead in all_leads:
+            found = lead_phones.get(lead.id, [])
+            phone = normalize_phone(lead.phone_number) or lead.phone_number
+            if not phone and found:
+                phone = min(found, key=lambda item: item[1] or datetime.max)[0]
+            if phone != lead.phone_number:
                 lead.phone_number = phone
+                has_changes = True
+            dates = [at for found_phone, at in found if found_phone == phone and at]
+            if dates and (not lead.phone_at or min(dates) < lead.phone_at):
+                lead.phone_at = min(dates)
                 has_changes = True
 
         if has_changes:
@@ -178,17 +177,20 @@ def startup_event():
     # Chạy làm sạch dữ liệu trong background thread để không chặn port binding của Render
     threading.Thread(target=auto_repair_contacted_dates, daemon=True).start()
 
-TAG_CATEGORIES = [
-    ("Lead Other", ("lead other", "other")),
-    ("Đào tạo", ("đào tạo", "dao tao", "daotao")),
-]
+# Tag phân loại lead: khớp CHÍNH XÁC tên tag (không dùng chuỗi con, tránh dính "TikTok HV other"...).
+# Gom cả bộ tag cũ đội sale dùng trước cuối tháng 9/2026.
+TAG_CATEGORIES = {
+    "Lead Other": ("Lead Other", "Support Other", "HV Khác"),
+    "Đào tạo": ("Đào tạo", "HV TCKT"),
+}
+
+def _tag_key(tag: str) -> str:
+    return " ".join(normalize_text(tag).split())
+
+TAG_TO_CATEGORY = {_tag_key(tag): label for label, tags in TAG_CATEGORIES.items() for tag in tags}
 
 def _categorize_tag(tag: str) -> Optional[str]:
-    t = normalize_text(tag)
-    for label, keywords in TAG_CATEGORIES:
-        if any(k in t for k in keywords):
-            return label
-    return None
+    return TAG_TO_CATEGORY.get(_tag_key(tag))
 
 @app.get("/api/metrics/summary", response_model=LeadMetricsSummary)
 def get_summary(
@@ -209,16 +211,18 @@ def get_summary(
     for lead in leads.values():
         # Pie Chart: mỗi lead chỉ gán cho 1 nhân viên chính để tổng không bị lặp
         emp = lead.primary_employee
+        # SĐT chỉ tính khi số được thu trong kỳ (phone_event_at), không tính số lead đã có từ trước
+        has_new_phone = lead.phone_event_at is not None
         if lead.is_new:
             new_leads += 1
             new_leads_employee_stats[emp] += 1
-            if lead.has_phone:
+            if has_new_phone:
                 new_phone_leads += 1
         else:
             recontact_leads += 1
-            if lead.has_phone:
+            if has_new_phone:
                 recontact_phone_leads += 1
-        if lead.has_phone:
+        if has_new_phone:
             phone_leads_employee_stats[emp] += 1
 
         for label in {_categorize_tag(t) for t in lead.tags} - {None}:
@@ -245,7 +249,8 @@ def get_trend(
     db: Session = Depends(get_db)
 ):
     """Theo ngày. Mới/Contact Lại được phân loại theo CẢ KỲ để cộng dồn khớp KPI:
-    lead tạo trong kỳ chỉ được tính ở ngày tạo, kể cả khi nhắn lại vào ngày sau."""
+    lead tạo trong kỳ chỉ được tính ở ngày tạo, kể cả khi nhắn lại vào ngày sau.
+    phone_leads = số SĐT thu được trong ngày (cộng các ngày = SĐT Mới + SĐT Contact Lại)."""
     start, end = resolve_period(start_date, end_date)
     leads = classify_leads(db, start, end, page_id, employee)
 
@@ -257,13 +262,12 @@ def get_trend(
 
     for lead in leads.values():
         if lead.is_new:
-            key, days = "new_leads", [lead.first_created_at.strftime("%Y-%m-%d")]
+            trend[lead.first_created_at.strftime("%Y-%m-%d")]["new_leads"] += 1
         else:
-            key, days = "recontact_leads", lead.contact_days
-        for d in days:
-            trend[d][key] += 1
-            if lead.has_phone:
-                trend[d]["phone_leads"] += 1
+            for d in lead.contact_days:
+                trend[d]["recontact_leads"] += 1
+        if lead.phone_event_at:
+            trend[lead.phone_event_at.strftime("%Y-%m-%d")]["phone_leads"] += 1
 
     return TrendResponse(data=[TrendDataPoint(date=d, **counts) for d, counts in trend.items()])
 
@@ -293,7 +297,8 @@ def get_pages(db: Session = Depends(get_db)):
     # Luôn đưa các kênh đã cấu hình sẵn vào danh sách lựa chọn trên dashboard
     for known_name in set(KNOWN_PAGE_NAMES.values()):
         pages.add(known_name)
-    return {"data": sorted(list(pages))}
+    # zalo_pages: các page không được cộng vào "Tất cả Page" (kênh chăm sóc), dashboard hiển thị thành nhóm riêng
+    return {"data": sorted(list(pages)), "zalo_pages": sorted(p for p in pages if p in ZALO_PAGE_NAMES)}
 
 @app.get("/api/leads/list", response_model=LeadListResponse)
 def list_leads(
