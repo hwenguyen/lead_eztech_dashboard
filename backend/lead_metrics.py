@@ -107,14 +107,7 @@ def classify_leads(
     )
     if page_id:
         clean_pid = page_id.strip()
-        if not clean_pid.isdigit():
-            query = query.filter(or_(
-                DimLead.page_id == clean_pid,
-                DimLead.page_id.is_(None),
-                DimLead.page_id == ""
-            ))
-        else:
-            query = query.filter(DimLead.page_id == clean_pid)
+        query = query.filter(DimLead.page_id == clean_pid)
     if employee:
         emp_clean = employee.strip()
         if normalize_text(emp_clean) in ("chua phan cong", "chưa phân công"):

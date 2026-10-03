@@ -89,6 +89,23 @@ class PancakeClient:
         except Exception as e:
             logger.debug(f"Lỗi khi gọi generate_page_access_token: {e}")
 
+        # Fallback thử lấy thông tin page đơn lẻ nếu là Page Access Token
+        if not resolved_page_name and str(resolved_page_id).isdigit():
+            try:
+                res_single = self.session.get(
+                    f"{self.base_url}/pages/{resolved_page_id}",
+                    params={"access_token": self.api_token},
+                    headers=headers,
+                    timeout=5
+                )
+                if res_single.status_code == 200:
+                    p_info = res_single.json()
+                    p_data = p_info.get("data") or p_info.get("page") or p_info
+                    if isinstance(p_data, dict) and p_data.get("name"):
+                        resolved_page_name = p_data.get("name")
+            except Exception as e:
+                logger.debug(f"Không thể tra cứu tên page từ /pages/{resolved_page_id}: {e}")
+
         # 3. Fallback: Bản thân token cấu hình có thể chính là Page Access Token
         if not str(resolved_page_id).isdigit():
             logger.warning(
@@ -111,8 +128,8 @@ class PancakeClient:
             logger.error(f"Không lấy được access token cho Page {page_id}. Dừng cào.")
             return []
 
-        # Tên chuẩn hiển thị trên dashboard (mặc định 'Anh Kế toán làm Data' nếu cấu hình ID số)
-        self.page_name = resolved_page_name or ("Anh Kế toán làm Data" if str(page_id).isdigit() else page_id)
+        # Tên chuẩn hiển thị trên dashboard của Page này
+        self.page_name = resolved_page_name or (page_id if not str(page_id).isdigit() else None)
         page_id = resolved_page_id
         url_convs = f"https://pages.fm/api/public_api/v2/pages/{page_id}/conversations"
         
@@ -224,6 +241,20 @@ class PancakeClient:
                         messages_by_conv[cid] = msgs
                     except Exception as e:
                         logger.error(f"Lỗi future messages cid {cid}: {e}")
+
+        # Trích xuất tên Page từ tin nhắn gửi đi nếu chưa có tên chữ
+        if not self.page_name:
+            for msgs in messages_by_conv.values():
+                for m in msgs:
+                    if isinstance(m, dict):
+                        m_from = m.get('from') or {}
+                        if str(m_from.get('id')) == str(page_id) and m_from.get('name') and not str(m_from.get('name')).strip().isdigit():
+                            self.page_name = str(m_from.get('name')).strip()
+                            break
+                if self.page_name:
+                    break
+        if not self.page_name:
+            self.page_name = str(page_id)
 
         # 3. Tổng hợp kết quả
         results = []

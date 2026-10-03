@@ -51,55 +51,70 @@ def health():
     return {"status": "healthy"}
 
 def auto_repair_contacted_dates():
-    """Đồng bộ lại contacted_dates, contacted_at, first_created_at, phone_number và chuẩn hoá page_id về tên Fanpage."""
+    """Đồng bộ lại contacted_dates, contacted_at, first_created_at, phone_number và chuẩn hoá page_id cho từng Fanpage riêng biệt."""
     db = SessionLocal()
     try:
-        all_leads = db.query(DimLead).all()
-        # 1. Tìm tên Page chữ chuẩn trong database (ưu tiên tên đã có như 'Anh Kế toán làm Data')
-        text_pages = [l.page_id.strip() for l in all_leads if l.page_id and not l.page_id.strip().isdigit()]
-        canonical_page_name = text_pages[0] if text_pages else "Anh Kế toán làm Data"
-
-        has_changes = False
-
-        # 2. Chuẩn hoá DimLead: Đổi tất cả ID dạng số hoặc trống về tên Fanpage chuẩn
-        for lead in all_leads:
-            if not lead.page_id or lead.page_id.strip().isdigit():
-                lead.page_id = canonical_page_name
-                has_changes = True
-
         raws = db.query(RawConversation).order_by(RawConversation.id).all()
-        if not raws:
-            if has_changes:
-                db.commit()
+        all_leads = db.query(DimLead).all()
+        if not all_leads and not raws:
             return
 
-        # Preload all activities and leads into memory in 2 fast queries
         all_acts = {act.conversation_id: act for act in db.query(FactLeadActivity).all()}
         lead_dict = {l.id: l for l in all_leads}
         lead_phones: Dict[int, Optional[str]] = {}
 
+        # 1. Xây dựng bản đồ ánh xạ (Mapping) từ Page ID (số) sang Page Name (chữ) cho TỪNG PAGE
+        id_to_name_map: Dict[str, str] = {}
         for r in raws:
-            # Chuẩn hoá RawConversation.page_id
-            if not r.page_id or r.page_id.strip().isdigit():
-                r.page_id = canonical_page_name
-                has_changes = True
+            payload = r.payload if isinstance(r.payload, dict) else {}
+            pid = str(payload.get('page_id') or (r.page_id if r.page_id and r.page_id.strip().isdigit() else '') or '')
 
-            if not r.payload or not isinstance(r.payload, dict):
-                continue
+            # Nếu r.page_id là tên chữ và pid là số -> map pid -> tên chữ đó
+            if r.page_id and not r.page_id.strip().isdigit() and pid and pid.isdigit():
+                id_to_name_map[pid] = r.page_id.strip()
+
+            # Tìm tên Fanpage từ tin nhắn do Page gửi đi (m_from.id == pid)
+            if pid and pid.isdigit() and pid not in id_to_name_map:
+                for m in payload.get('messages', []):
+                    if isinstance(m, dict):
+                        m_from = m.get('from') or {}
+                        sender_id = str(m_from.get('id') or '')
+                        sender_name = str(m_from.get('name') or '').strip()
+                        if sender_id == pid and sender_name and not sender_name.isdigit():
+                            id_to_name_map[pid] = sender_name
+                            break
+
+        has_changes = False
+
+        # 2. Cập nhật RawConversation.page_id nếu đang là ID số sang tên chữ tương ứng của page đó
+        conv_to_page: Dict[str, str] = {}
+        for r in raws:
+            payload = r.payload if isinstance(r.payload, dict) else {}
+            pid = str(payload.get('page_id') or (r.page_id if r.page_id and r.page_id.strip().isdigit() else '') or '')
+
+            target_name = id_to_name_map.get(pid)
+            if not target_name and r.page_id and not r.page_id.strip().isdigit():
+                target_name = r.page_id.strip()
+
+            if target_name:
+                conv_to_page[r.pancake_id] = target_name
+                if r.page_id != target_name:
+                    r.page_id = target_name
+                    has_changes = True
+
             act = all_acts.get(r.pancake_id)
             if not act:
                 continue
 
-            msgs = r.payload.get('messages') or []
+            msgs = payload.get('messages') or []
             msg_times = [dt for dt in (parse_pancake_date(m.get('inserted_at')) for m in msgs if isinstance(m, dict)) if dt]
-            conv_updated = parse_pancake_date(r.payload.get('updated_at'))
+            conv_updated = parse_pancake_date(payload.get('updated_at'))
             if conv_updated:
                 msg_times.append(conv_updated)
             contacted_dates_str = ",".join(sorted({dt.strftime("%Y-%m-%d") for dt in msg_times})) or None
             if act.contacted_dates != contacted_dates_str:
                 act.contacted_dates = contacted_dates_str
                 has_changes = True
-            # contacted_at (tin nhắn gần nhất) dùng để prefilter theo kỳ → phải khớp contacted_dates
             contacted_at = max(msg_times) if msg_times else None
             if contacted_at and act.contacted_at != contacted_at:
                 act.contacted_at = contacted_at
@@ -109,15 +124,26 @@ def auto_repair_contacted_dates():
             if not lead:
                 continue
 
-            conv_inserted = parse_pancake_date(r.payload.get('inserted_at'))
+            conv_inserted = parse_pancake_date(payload.get('inserted_at'))
             if conv_inserted and (not lead.first_created_at or lead.first_created_at > conv_inserted):
                 lead.first_created_at = conv_inserted
                 has_changes = True
 
-            # SĐT: ưu tiên phone_number trong payload, sau đó SĐT trong tin nhắn của khách (bỏ hotline của Admin)
-            phone = r.payload.get('phone_number') or extract_customer_phone(msgs)
+            phone = payload.get('phone_number') or extract_customer_phone(msgs)
             if not lead_phones.get(lead.id):
                 lead_phones[lead.id] = phone
+
+        # 3. Chuẩn hoá DimLead.page_id theo đúng page của hội thoại của lead đó
+        for act in all_acts.values():
+            lead = lead_dict.get(act.lead_id)
+            if not lead:
+                continue
+            # Nếu lead.page_id là ID số hoặc rỗng, gán theo tên page của hội thoại thuộc lead đó
+            if not lead.page_id or lead.page_id.strip().isdigit():
+                page_for_lead = conv_to_page.get(act.conversation_id) or id_to_name_map.get(str(lead.page_id or ''))
+                if page_for_lead:
+                    lead.page_id = page_for_lead
+                    has_changes = True
 
         for lead_id, phone in lead_phones.items():
             lead = lead_dict[lead_id]
@@ -127,7 +153,7 @@ def auto_repair_contacted_dates():
 
         if has_changes:
             db.commit()
-        logger.info(f"Auto repair completed successfully. Standardized page_id to '{canonical_page_name}'.")
+        logger.info(f"Auto repair completed successfully. Page mappings: {id_to_name_map}")
     except Exception as e:
         db.rollback()
         logger.error(f"Auto repair error: {e}")
@@ -249,8 +275,6 @@ def get_pages(db: Session = Depends(get_db)):
     for (page,) in results:
         if page and not page.strip().isdigit():
             pages.add(page.strip())
-    if not pages:
-        pages.add("Anh Kế toán làm Data")
     return {"data": sorted(list(pages))}
 
 @app.get("/api/leads/list", response_model=LeadListResponse)

@@ -159,9 +159,12 @@ def run_etl_pipeline():
             # 1. Kiểm tra số lượng và xây dựng cache từ DB để skip tải lại tin nhắn không đổi
             existing_cache: Dict[str, Any] = {}
             try:
-                raw_rows = db.query(RawConversation.pancake_id, RawConversation.payload).filter(
-                    or_(RawConversation.page_id == page_id, RawConversation.page_id == "Anh Kế toán làm Data")
-                ).all()
+                raw_rows = db.query(RawConversation.pancake_id, RawConversation.payload).filter_by(page_id=page_id).all()
+                if not raw_rows and str(page_id).isdigit():
+                    # Thử tìm theo các bản ghi có payload trùng page_id
+                    raw_rows = db.query(RawConversation.pancake_id, RawConversation.payload).filter(
+                        RawConversation.page_id == page_id
+                    ).all()
                 existing_count = len(raw_rows)
                 for p_id, payload in raw_rows:
                     if payload and isinstance(payload, dict):
@@ -173,9 +176,7 @@ def run_etl_pipeline():
                 logger.info(f"Đã nạp {len(existing_cache)} hội thoại từ cache DB của Page {page_id}.")
             except Exception as e:
                 logger.warning(f"Không thể đọc cache DB: {e}")
-                existing_count = db.query(RawConversation).filter(
-                    or_(RawConversation.page_id == page_id, RawConversation.page_id == "Anh Kế toán làm Data")
-                ).count()
+                existing_count = db.query(RawConversation).filter_by(page_id=page_id).count()
 
             if existing_count == 0:
                 logger.info(f"🔔 FIRST RUN DETECTED! Kéo {first_run_limit} hội thoại lịch sử cho Page {page_id}...")
@@ -189,8 +190,8 @@ def run_etl_pipeline():
             conversations = client.get_conversations(page_id=page_id, existing_cache=existing_cache)
             total = len(conversations)
 
-            # Tên chuẩn của Page để lưu vào DB (ví dụ 'Anh Kế toán làm Data')
-            canonical_page_name = getattr(client, 'page_name', None) or "Anh Kế toán làm Data"
+            # Tên chuẩn của riêng Page này (ví dụ 'Anh Kế toán làm Data', 'EZTech Academy', ...)
+            canonical_page_name = getattr(client, 'page_name', None) or page_id
 
             # 2. Mở session mới và lưu dữ liệu vào DB theo Batch (50 items/commit)
             db = SessionLocal()
