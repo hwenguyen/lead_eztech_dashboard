@@ -49,8 +49,9 @@ class PancakeClient:
             "Accept": "application/json"
         }
 
-        # 1. Thử phân giải page_id nếu truyền vào tên hoặc ID
+        # 1. Thử phân giải page_id và tên page
         resolved_page_id = page_id_or_name
+        resolved_page_name = None if str(page_id_or_name).isdigit() else page_id_or_name
         try:
             res = self.session.get(
                 f"{self.base_url}/pages",
@@ -64,11 +65,14 @@ class PancakeClient:
                 if not pages and "categorized" in data:
                     pages = data["categorized"].get("activated", [])
                 for p in pages:
-                    if str(p.get("id")) == str(page_id_or_name) or p.get("name") == page_id_or_name:
-                        resolved_page_id = str(p.get("id"))
+                    p_id = str(p.get("id"))
+                    p_name = p.get("name")
+                    if p_id == str(page_id_or_name) or p_name == page_id_or_name:
+                        resolved_page_id = p_id
+                        resolved_page_name = p_name
                         break
         except Exception as e:
-            logger.debug(f"Không thể tra cứu danh sách page qua /pages (có thể do dùng Page Access Token): {e}")
+            logger.debug(f"Không thể tra cứu danh sách page qua /pages: {e}")
 
         # 2. Thử tạo page_access_token qua User Access Token
         try:
@@ -79,7 +83,7 @@ class PancakeClient:
             )
             token_data = res_token.json()
             if token_data.get("success") and token_data.get("page_access_token"):
-                return token_data["page_access_token"], resolved_page_id
+                return token_data["page_access_token"], resolved_page_id, resolved_page_name
             else:
                 logger.info(f"API generate_page_access_token phản hồi: {token_data.get('message', 'Không thành công')}. Thử dùng token cấu hình làm Page Access Token trực tiếp...")
         except Exception as e:
@@ -91,7 +95,7 @@ class PancakeClient:
                 f"Page ID '{resolved_page_id}' không phải là chuỗi số. "
                 f"Nếu Pancake API trả về lỗi, vui lòng cấu hình ID dạng số của Fanpage trong secret PAGE_IDS."
             )
-        return self.api_token, resolved_page_id
+        return self.api_token, resolved_page_id, resolved_page_name
 
     def get_conversations(self, page_id: str, existing_cache: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         """
@@ -102,11 +106,13 @@ class PancakeClient:
         logger.info(f"--- BẮT ĐẦU CÀO DỮ LIỆU QUA API CHO PAGE: {page_id} ---")
         existing_cache = existing_cache or {}
         
-        ptoken, resolved_page_id = self._get_page_access_token(page_id)
+        ptoken, resolved_page_id, resolved_page_name = self._get_page_access_token(page_id)
         if not ptoken:
             logger.error(f"Không lấy được access token cho Page {page_id}. Dừng cào.")
             return []
 
+        # Tên chuẩn hiển thị trên dashboard (mặc định 'Anh Kế toán làm Data' nếu cấu hình ID số)
+        self.page_name = resolved_page_name or ("Anh Kế toán làm Data" if str(page_id).isdigit() else page_id)
         page_id = resolved_page_id
         url_convs = f"https://pages.fm/api/public_api/v2/pages/{page_id}/conversations"
         

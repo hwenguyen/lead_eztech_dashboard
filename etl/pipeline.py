@@ -1,6 +1,7 @@
 import os
 import logging
 from typing import Optional, Dict, Any
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from database.db import SessionLocal
 from database.models import RawConversation, DimLead, FactLeadActivity
@@ -33,6 +34,8 @@ def upsert_lead_data(db: Session, raw_data: dict, page_id: str, commit: bool = T
             db.add(raw_record)
         else:
             raw_record.payload = raw_data
+            if not raw_record.page_id or raw_record.page_id.strip().isdigit():
+                raw_record.page_id = page_id
 
         # 2. Extract DimLead
         phone = raw_data.get('phone_number')
@@ -56,6 +59,9 @@ def upsert_lead_data(db: Session, raw_data: dict, page_id: str, commit: bool = T
             # Update info if available
             if phone and not lead.phone_number:
                 lead.phone_number = phone
+            # Chuẩn hoá page_id về tên chữ nếu trước đó lưu ID số
+            if not lead.page_id or lead.page_id.strip().isdigit():
+                lead.page_id = page_id
             # Lead Mới tính theo hội thoại SỚM NHẤT của khách
             if conv_inserted and (not lead.first_created_at or conv_inserted < lead.first_created_at):
                 lead.first_created_at = conv_inserted
@@ -153,7 +159,9 @@ def run_etl_pipeline():
             # 1. Kiểm tra số lượng và xây dựng cache từ DB để skip tải lại tin nhắn không đổi
             existing_cache: Dict[str, Any] = {}
             try:
-                raw_rows = db.query(RawConversation.pancake_id, RawConversation.payload).filter_by(page_id=page_id).all()
+                raw_rows = db.query(RawConversation.pancake_id, RawConversation.payload).filter(
+                    or_(RawConversation.page_id == page_id, RawConversation.page_id == "Anh Kế toán làm Data")
+                ).all()
                 existing_count = len(raw_rows)
                 for p_id, payload in raw_rows:
                     if payload and isinstance(payload, dict):
@@ -165,7 +173,9 @@ def run_etl_pipeline():
                 logger.info(f"Đã nạp {len(existing_cache)} hội thoại từ cache DB của Page {page_id}.")
             except Exception as e:
                 logger.warning(f"Không thể đọc cache DB: {e}")
-                existing_count = db.query(RawConversation).filter_by(page_id=page_id).count()
+                existing_count = db.query(RawConversation).filter(
+                    or_(RawConversation.page_id == page_id, RawConversation.page_id == "Anh Kế toán làm Data")
+                ).count()
 
             if existing_count == 0:
                 logger.info(f"🔔 FIRST RUN DETECTED! Kéo {first_run_limit} hội thoại lịch sử cho Page {page_id}...")
@@ -179,11 +189,14 @@ def run_etl_pipeline():
             conversations = client.get_conversations(page_id=page_id, existing_cache=existing_cache)
             total = len(conversations)
 
+            # Tên chuẩn của Page để lưu vào DB (ví dụ 'Anh Kế toán làm Data')
+            canonical_page_name = getattr(client, 'page_name', None) or "Anh Kế toán làm Data"
+
             # 2. Mở session mới và lưu dữ liệu vào DB theo Batch (50 items/commit)
             db = SessionLocal()
             try:
                 for idx, conv in enumerate(conversations):
-                    upsert_lead_data(db, conv, page_id, commit=False)
+                    upsert_lead_data(db, conv, canonical_page_name, commit=False)
                     if (idx + 1) % 50 == 0:
                         db.commit()
                         logger.info(f"Đã lưu vào DB: {idx + 1}/{total} hội thoại...")

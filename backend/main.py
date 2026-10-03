@@ -51,20 +51,39 @@ def health():
     return {"status": "healthy"}
 
 def auto_repair_contacted_dates():
-    """Đồng bộ lại contacted_dates, contacted_at, first_created_at và phone_number từ raw_conversations payload (batch)."""
+    """Đồng bộ lại contacted_dates, contacted_at, first_created_at, phone_number và chuẩn hoá page_id về tên Fanpage."""
     db = SessionLocal()
     try:
-        raws = db.query(RawConversation).order_by(RawConversation.id).all()
-        if not raws:
-            return
-
-        # Preload all activities and leads into memory in 2 fast queries instead of 10,000 queries
-        all_acts = {act.conversation_id: act for act in db.query(FactLeadActivity).all()}
-        all_leads = {l.id: l for l in db.query(DimLead).all()}
-        lead_phones: Dict[int, Optional[str]] = {}
+        all_leads = db.query(DimLead).all()
+        # 1. Tìm tên Page chữ chuẩn trong database (ưu tiên tên đã có như 'Anh Kế toán làm Data')
+        text_pages = [l.page_id.strip() for l in all_leads if l.page_id and not l.page_id.strip().isdigit()]
+        canonical_page_name = text_pages[0] if text_pages else "Anh Kế toán làm Data"
 
         has_changes = False
+
+        # 2. Chuẩn hoá DimLead: Đổi tất cả ID dạng số hoặc trống về tên Fanpage chuẩn
+        for lead in all_leads:
+            if not lead.page_id or lead.page_id.strip().isdigit():
+                lead.page_id = canonical_page_name
+                has_changes = True
+
+        raws = db.query(RawConversation).order_by(RawConversation.id).all()
+        if not raws:
+            if has_changes:
+                db.commit()
+            return
+
+        # Preload all activities and leads into memory in 2 fast queries
+        all_acts = {act.conversation_id: act for act in db.query(FactLeadActivity).all()}
+        lead_dict = {l.id: l for l in all_leads}
+        lead_phones: Dict[int, Optional[str]] = {}
+
         for r in raws:
+            # Chuẩn hoá RawConversation.page_id
+            if not r.page_id or r.page_id.strip().isdigit():
+                r.page_id = canonical_page_name
+                has_changes = True
+
             if not r.payload or not isinstance(r.payload, dict):
                 continue
             act = all_acts.get(r.pancake_id)
@@ -86,13 +105,9 @@ def auto_repair_contacted_dates():
                 act.contacted_at = contacted_at
                 has_changes = True
 
-            lead = all_leads.get(act.lead_id)
+            lead = lead_dict.get(act.lead_id)
             if not lead:
                 continue
-
-            if r.page_id and not lead.page_id:
-                lead.page_id = r.page_id
-                has_changes = True
 
             conv_inserted = parse_pancake_date(r.payload.get('inserted_at'))
             if conv_inserted and (not lead.first_created_at or lead.first_created_at > conv_inserted):
@@ -105,14 +120,14 @@ def auto_repair_contacted_dates():
                 lead_phones[lead.id] = phone
 
         for lead_id, phone in lead_phones.items():
-            lead = all_leads[lead_id]
+            lead = lead_dict[lead_id]
             if lead.phone_number != phone:
                 lead.phone_number = phone
                 has_changes = True
 
         if has_changes:
             db.commit()
-        logger.info("Auto repair completed successfully.")
+        logger.info(f"Auto repair completed successfully. Standardized page_id to '{canonical_page_name}'.")
     except Exception as e:
         db.rollback()
         logger.error(f"Auto repair error: {e}")
@@ -232,8 +247,10 @@ def get_pages(db: Session = Depends(get_db)):
     results = db.query(DimLead.page_id).distinct().all()
     pages = set()
     for (page,) in results:
-        if page:
+        if page and not page.strip().isdigit():
             pages.add(page.strip())
+    if not pages:
+        pages.add("Anh Kế toán làm Data")
     return {"data": sorted(list(pages))}
 
 @app.get("/api/leads/list", response_model=LeadListResponse)

@@ -163,7 +163,7 @@ function App() {
             </div>
             <div className="h-9 w-px bg-[#E5E7EB] mx-1" />
               <div className="flex flex-col gap-1 flex-1 min-w-[180px]">
-                <label className="text-xs font-medium text-[#4B5563]">Page ID</label>
+                <label className="text-xs font-medium text-[#4B5563]">Page</label>
                 <select
                   value={pageId}
                   onChange={e => setPageId(e.target.value)}
