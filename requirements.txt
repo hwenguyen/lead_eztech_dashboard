@@ -18,7 +18,3 @@ streamlit>=1.26.0
 pandas>=2.0.0
 plotly>=5.16.0
 
-# Cào dữ liệu nâng cao
-playwright>=1.37.0
-beautifulsoup4>=4.12.0
-nest_asyncio>=1.5.0

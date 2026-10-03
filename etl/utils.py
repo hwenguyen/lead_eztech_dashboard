@@ -1,4 +1,4 @@
-"""Hàm tiện ích dùng chung cho ETL và Backend (không import playwright/PancakeClient)."""
+"""Hàm tiện ích dùng chung cho ETL và Backend (không import PancakeClient)."""
 import re
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta, timezone

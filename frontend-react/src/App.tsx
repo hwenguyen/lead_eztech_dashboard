@@ -26,13 +26,7 @@ function App() {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   useEffect(() => {
-    const loadFilters = async () => {
-      try {
-        const empRes = await fetchEmployees();
-        setEmployeesList(empRes);
-      } catch (error) {
-        console.error("Error fetching employees:", error);
-      }
+    const loadPages = async () => {
       try {
         const pgRes = await fetchPages();
         setPagesList(pgRes);
@@ -40,8 +34,21 @@ function App() {
         console.error("Error fetching pages:", error);
       }
     };
-    loadFilters();
+    loadPages();
   }, []);
+
+  useEffect(() => {
+    const updateEmployees = async () => {
+      try {
+        const empRes = await fetchEmployees(startDate, endDate, pageId);
+        setEmployeesList(empRes);
+        setEmployee(prev => (prev && !empRes.includes(prev) ? '' : prev));
+      } catch (error) {
+        console.error("Error fetching employees:", error);
+      }
+    };
+    updateEmployees();
+  }, [startDate, endDate, pageId]);
 
   const loadData = async () => {
     setLoading(true);
@@ -260,8 +267,8 @@ function App() {
                 stats={summary?.phone_leads_employee_stats}
               />
               <StatsPieChart
-                title="Lead theo Khoá học"
-                subtitle="Thống kê Tag quan tâm"
+                title="Lead Other & Đào tạo"
+                subtitle="Thống kê Tag phân loại"
                 stats={summary?.tag_stats}
               />
             </div>

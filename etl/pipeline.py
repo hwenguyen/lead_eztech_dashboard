@@ -148,15 +148,20 @@ def run_etl_pipeline():
                 logger.info(f"⚡ DAILY RUN DETECTED! Kéo 500 hội thoại mới/cập nhật gần nhất cho Page {page_id}...")
                 client.limit = 500
 
-            # Trả connection về pool trước khi cào (có thể >1 giờ) — Neon sẽ đóng kết nối idle,
-            # giữ transaction mở qua lúc cào gây lỗi "SSL connection has been closed unexpectedly"
+            # Đóng session trước khi cào dữ liệu qua API để không giữ idle connection trên Neon
             db.close()
             conversations = client.get_conversations(page_id=page_id)
             total = len(conversations)
-            for idx, conv in enumerate(conversations):
-                upsert_lead_data(db, conv, page_id)
-                if (idx + 1) % 50 == 0:
-                    logger.info(f"Đã lưu vào DB: {idx + 1}/{total} hội thoại...")
+
+            # Mở session mới để lưu dữ liệu an toàn
+            db = SessionLocal()
+            try:
+                for idx, conv in enumerate(conversations):
+                    upsert_lead_data(db, conv, page_id)
+                    if (idx + 1) % 50 == 0:
+                        logger.info(f"Đã lưu vào DB: {idx + 1}/{total} hội thoại...")
+            finally:
+                db.close()
     finally:
         db.close()
         

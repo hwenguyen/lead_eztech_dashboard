@@ -117,11 +117,14 @@ def startup_event():
     # Chạy làm sạch dữ liệu trong background thread để không chặn port binding của Render
     threading.Thread(target=auto_repair_contacted_dates, daemon=True).start()
 
-COURSE_TAGS = [("HV Khác", ("hv khác", "hv khac")), ("HV TCKT", ("hv tckt",))]
+TAG_CATEGORIES = [
+    ("Lead Other", ("lead other", "other")),
+    ("Đào tạo", ("đào tạo", "dao tao", "daotao")),
+]
 
-def _course_tag(tag: str) -> Optional[str]:
+def _categorize_tag(tag: str) -> Optional[str]:
     t = normalize_text(tag)
-    for label, keywords in COURSE_TAGS:
+    for label, keywords in TAG_CATEGORIES:
         if any(k in t for k in keywords):
             return label
     return None
@@ -157,7 +160,7 @@ def get_summary(
         if lead.has_phone:
             phone_leads_employee_stats[emp] += 1
 
-        for label in {_course_tag(t) for t in lead.tags} - {None}:
+        for label in {_categorize_tag(t) for t in lead.tags} - {None}:
             tag_stats[label] += 1
 
     return LeadMetricsSummary(
@@ -204,15 +207,17 @@ def get_trend(
     return TrendResponse(data=[TrendDataPoint(date=d, **counts) for d, counts in trend.items()])
 
 @app.get("/api/employees/list")
-def get_employees(db: Session = Depends(get_db)):
-    results = db.query(FactLeadActivity.assigned_users).distinct().all()
+def get_employees(
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None,
+    page_id: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    start, end = resolve_period(start_date, end_date)
+    leads = classify_leads(db, start, end, page_id=page_id)
     employees = set()
-    for (users_str,) in results:
-        if users_str:
-            for u in users_str.split(","):
-                u = u.strip()
-                if u:
-                    employees.add(u)
+    for lead in leads.values():
+        employees.update(lead.employees)
     return {"data": sorted(list(employees))}
 
 @app.get("/api/pages/list")

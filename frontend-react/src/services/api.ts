@@ -73,8 +73,12 @@ export const fetchLeads = async (pageId?: string, employee?: string, startDate?:
   return res.data;
 };
 
-export const fetchEmployees = async (): Promise<string[]> => {
-  const response = await apiClient.get<{data: string[]}>('/employees/list');
+export const fetchEmployees = async (startDate?: string, endDate?: string, pageId?: string): Promise<string[]> => {
+  const params: any = {};
+  if (startDate) params.start_date = startDate;
+  if (endDate) params.end_date = endDate;
+  if (pageId) params.page_id = pageId;
+  const response = await apiClient.get<{data: string[]}>('/employees/list', { params });
   return response.data.data;
 };
 

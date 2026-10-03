@@ -1,4 +1,4 @@
-name: Pancake ETL Pipeline (Playwright)
+name: Pancake ETL Pipeline
 
 on:
   schedule:
@@ -23,15 +23,12 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-        playwright install chromium
 
     - name: Chạy ETL Pipeline (Cào qua API nhanh)
       env:
         DATABASE_URL: ${{ secrets.DATABASE_URL }}
         PANCAKE_API_TOKEN: ${{ secrets.PANCAKE_API_TOKEN }}
         PANCAKE_API_TOKENS: ${{ secrets.PANCAKE_API_TOKENS }}
-        PANCAKE_EMAIL: ${{ secrets.PANCAKE_EMAIL }}
-        PANCAKE_PASSWORD: ${{ secrets.PANCAKE_PASSWORD }}
         PAGE_IDS: ${{ secrets.PAGE_IDS }}
       run: |
         python -m etl.pipeline
