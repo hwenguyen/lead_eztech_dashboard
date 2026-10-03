@@ -40,8 +40,8 @@ class PancakeClient:
         Hỗ trợ cả User Access Token (tự sinh page_access_token) và Page Access Token truyền trực tiếp.
         """
         if not self.api_token:
-            logger.error("Không có PANCAKE_API_TOKEN để kết nối Pancake API.")
-            return None, None
+            logger.error(f"Không có PANCAKE_API_TOKEN để kết nối Pancake API cho Page '{page_id_or_name}'.")
+            return None, None, None
 
         headers = {
             "Authorization": f"Bearer {self.api_token}",
@@ -148,7 +148,6 @@ class PancakeClient:
                 "until": now_ts,
                 "order_by": "updated_at",
                 "last_conversation_id": last_id,
-                "current_count": 60,
             }
             clean_params = {k: v for k, v in params.items() if v is not None}
             

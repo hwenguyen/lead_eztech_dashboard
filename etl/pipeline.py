@@ -136,13 +136,11 @@ def run_etl_pipeline():
         logger.warning("No PAGE_IDS found in environment variables.")
         return
 
-    # Hỗ trợ nhiều token cho nhiều page
-    tokens_env = os.getenv("PANCAKE_API_TOKENS")
-    if tokens_env:
-        tokens = [t.strip() for t in tokens_env.split(",")]
-    else:
-        # Fallback dùng chung 1 token
-        tokens = [os.getenv("PANCAKE_API_TOKEN")] * len(page_ids)
+    # Hỗ trợ nhiều token cho nhiều page với fallback linh hoạt
+    tokens_env = os.getenv("PANCAKE_API_TOKENS", "").strip()
+    single_token = os.getenv("PANCAKE_API_TOKEN", "").strip()
+    tokens = [t.strip() for t in tokens_env.split(",") if t.strip()] if tokens_env else []
+    default_token = single_token or (tokens[0] if tokens else None)
 
     first_run_limit = int(os.getenv("FIRST_RUN_LIMIT", "2000"))
     daily_run_limit = int(os.getenv("DAILY_RUN_LIMIT", "500"))
@@ -152,62 +150,73 @@ def run_etl_pipeline():
     try:
         for i, page_id in enumerate(page_ids):
             logger.info(f"Processing Page ID: {page_id}")
-            
-            page_token = tokens[i] if i < len(tokens) else None
-            client = PancakeClient(api_token=page_token)
-            
-            # 1. Kiểm tra số lượng và xây dựng cache từ DB để skip tải lại tin nhắn không đổi
-            existing_cache: Dict[str, Any] = {}
             try:
-                raw_rows = db.query(RawConversation.pancake_id, RawConversation.payload).filter_by(page_id=page_id).all()
-                if not raw_rows and str(page_id).isdigit():
-                    # Thử tìm theo các bản ghi có payload trùng page_id
-                    raw_rows = db.query(RawConversation.pancake_id, RawConversation.payload).filter(
-                        RawConversation.page_id == page_id
+                page_token = tokens[i] if i < len(tokens) and tokens[i] else default_token
+                client = PancakeClient(api_token=page_token)
+                
+                # 1. Kiểm tra số lượng và xây dựng cache từ DB để skip tải lại tin nhắn không đổi
+                existing_cache: Dict[str, Any] = {}
+                known_page_name = None
+                try:
+                    raw_rows = db.query(
+                        RawConversation.pancake_id,
+                        RawConversation.payload,
+                        RawConversation.page_id
+                    ).filter(
+                        or_(
+                            RawConversation.page_id == page_id,
+                            RawConversation.pancake_id.contains(str(page_id))
+                        )
                     ).all()
-                existing_count = len(raw_rows)
-                for p_id, payload in raw_rows:
-                    if payload and isinstance(payload, dict):
-                        existing_cache[str(p_id)] = {
-                            "updated_at": payload.get("updated_at"),
-                            "messages": payload.get("messages", []),
-                            "phone_number": payload.get("phone_number")
-                        }
-                logger.info(f"Đã nạp {len(existing_cache)} hội thoại từ cache DB của Page {page_id}.")
-            except Exception as e:
-                logger.warning(f"Không thể đọc cache DB: {e}")
-                existing_count = db.query(RawConversation).filter_by(page_id=page_id).count()
+                    existing_count = len(raw_rows)
+                    for p_id, payload, pg_name in raw_rows:
+                        if pg_name and not str(pg_name).strip().isdigit() and not known_page_name:
+                            known_page_name = str(pg_name).strip()
+                        if payload and isinstance(payload, dict):
+                            existing_cache[str(p_id)] = {
+                                "updated_at": payload.get("updated_at"),
+                                "messages": payload.get("messages", []),
+                                "phone_number": payload.get("phone_number")
+                            }
+                    logger.info(f"Đã nạp {len(existing_cache)} hội thoại từ cache DB của Page {page_id} (Tên đã biết: '{known_page_name or 'Chưa rõ'}').")
+                except Exception as e:
+                    logger.warning(f"Không thể đọc cache DB: {e}")
+                    existing_count = 0
 
-            if existing_count == 0:
-                logger.info(f"🔔 FIRST RUN DETECTED! Kéo {first_run_limit} hội thoại lịch sử cho Page {page_id}...")
-                client.limit = first_run_limit 
-            else:
-                logger.info(f"⚡ DAILY RUN DETECTED! Kéo {daily_run_limit} hội thoại mới/cập nhật gần nhất cho Page {page_id}...")
-                client.limit = daily_run_limit
+                if existing_count == 0:
+                    logger.info(f"🔔 FIRST RUN DETECTED! Kéo {first_run_limit} hội thoại lịch sử cho Page {page_id}...")
+                    client.limit = first_run_limit 
+                else:
+                    logger.info(f"⚡ DAILY RUN DETECTED! Kéo {daily_run_limit} hội thoại mới/cập nhật gần nhất cho Page {page_id}...")
+                    client.limit = daily_run_limit
 
-            # Đóng session trước khi cào dữ liệu qua API để không giữ idle connection trên Neon
-            db.close()
-            conversations = client.get_conversations(page_id=page_id, existing_cache=existing_cache)
-            total = len(conversations)
-
-            # Tên chuẩn của riêng Page này (ví dụ 'Anh Kế toán làm Data', 'EZTech Academy', ...)
-            canonical_page_name = getattr(client, 'page_name', None) or page_id
-
-            # 2. Mở session mới và lưu dữ liệu vào DB theo Batch (50 items/commit)
-            db = SessionLocal()
-            try:
-                for idx, conv in enumerate(conversations):
-                    upsert_lead_data(db, conv, canonical_page_name, commit=False)
-                    if (idx + 1) % 50 == 0:
-                        db.commit()
-                        logger.info(f"Đã lưu vào DB: {idx + 1}/{total} hội thoại...")
-                db.commit()
-                logger.info(f"Hoàn tất lưu DB: {total}/{total} hội thoại.")
-            except Exception as e:
-                db.rollback()
-                logger.error(f"Lỗi khi lưu dữ liệu theo batch: {e}")
-            finally:
+                # Đóng session trước khi cào dữ liệu qua API để không giữ idle connection trên Neon
                 db.close()
+                conversations = client.get_conversations(page_id=page_id, existing_cache=existing_cache)
+                total = len(conversations)
+
+                # Tên chuẩn của riêng Page này (ưu tiên tên API trả về -> tên đã lưu trong DB -> fallback)
+                canonical_page_name = getattr(client, 'page_name', None) or known_page_name or (page_id if not str(page_id).isdigit() else None)
+                if not canonical_page_name or str(canonical_page_name).isdigit():
+                    canonical_page_name = known_page_name or page_id
+
+                # 2. Mở session mới và lưu dữ liệu vào DB theo Batch (50 items/commit)
+                db = SessionLocal()
+                try:
+                    for idx, conv in enumerate(conversations):
+                        upsert_lead_data(db, conv, canonical_page_name, commit=False)
+                        if (idx + 1) % 50 == 0:
+                            db.commit()
+                            logger.info(f"Đã lưu vào DB: {idx + 1}/{total} hội thoại...")
+                    db.commit()
+                    logger.info(f"Hoàn tất lưu DB: {total}/{total} hội thoại.")
+                except Exception as e:
+                    db.rollback()
+                    logger.error(f"Lỗi khi lưu dữ liệu theo batch cho Page {page_id}: {e}")
+            except Exception as page_err:
+                logger.error(f"Lỗi khi cào dữ liệu cho Page {page_id}: {page_err}", exc_info=True)
+                # Đảm bảo session db mở lại cho lượt loop tiếp theo
+                db = SessionLocal()
     finally:
         db.close()
         
