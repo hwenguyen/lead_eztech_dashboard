@@ -63,3 +63,37 @@ def extract_customer_phone(messages: List[Dict[str, Any]]) -> Optional[str]:
     if len({phone for _, phone in found}) > 1:
         found.sort(key=lambda item: parse_pancake_date(item[0]) or datetime.max)
     return found[0][1]
+
+
+# Bản đồ tên Fanpage chuẩn hóa dùng chung toàn hệ thống
+KNOWN_PAGE_NAMES: Dict[str, str] = {
+    "629476615535063343": "Eztech Phân Tích Dữ Liệu",
+    "pzl_629476615535063343": "Eztech Phân Tích Dữ Liệu",
+    "7196601676597871618": "Anh Kế toán làm Data",
+    "788602135347404973": "Tuấn Anh Data",
+    "pzl_788602135347404973": "Tuấn Anh Data",
+}
+
+
+def is_page_id(val: Any) -> bool:
+    """Kiểm tra xem giá trị là ID của page (dạng số hoặc prefix pzl_/tt_/fb_) hay là tên hiển thị."""
+    if not val:
+        return False
+    s = str(val).strip()
+    return s.isdigit() or s.startswith("pzl_") or s.startswith("tt_") or s.startswith("fb_")
+
+
+def resolve_canonical_page_name(page_id_or_name: Any, fallback: Optional[str] = None) -> str:
+    """Chuẩn hoá ID / Tên Fanpage về tên hiển thị chuẩn (Ưu tiên KNOWN_PAGE_NAMES)."""
+    if not page_id_or_name:
+        return fallback or ""
+    s = str(page_id_or_name).strip()
+    if s in KNOWN_PAGE_NAMES:
+        return KNOWN_PAGE_NAMES[s]
+    clean_num = re.sub(r"^(pzl_|tt_|fb_)", "", s)
+    if clean_num in KNOWN_PAGE_NAMES:
+        return KNOWN_PAGE_NAMES[clean_num]
+    if not is_page_id(s):
+        return s
+    return fallback or s
+

@@ -16,7 +16,7 @@ from sqlalchemy import select, or_, and_
 from sqlalchemy.orm import Session
 
 from database.models import DimLead, FactLeadActivity
-from etl.utils import VN_TZ
+from etl.utils import VN_TZ, resolve_canonical_page_name, KNOWN_PAGE_NAMES
 
 PHONE_TAG = "đã add"
 
@@ -107,7 +107,13 @@ def classify_leads(
     )
     if page_id:
         clean_pid = page_id.strip()
-        query = query.filter(DimLead.page_id == clean_pid)
+        canonical_name = resolve_canonical_page_name(clean_pid, fallback=clean_pid)
+        possible_pids = {clean_pid, canonical_name}
+        for k, v in KNOWN_PAGE_NAMES.items():
+            if v == canonical_name or k == clean_pid:
+                possible_pids.add(k)
+                possible_pids.add(v)
+        query = query.filter(DimLead.page_id.in_(list(possible_pids)))
     if employee:
         emp_clean = employee.strip()
         if normalize_text(emp_clean) in ("chua phan cong", "chưa phân công"):
@@ -134,12 +140,13 @@ def classify_leads(
         agg = leads.get(lid)
         if agg is None:
             created_at = _strip_tz(first_created_at)
+            canonical_pg = resolve_canonical_page_name(pg_id, fallback=pg_id)
             agg = leads[lid] = LeadAgg(
                 id=lid,
                 customer_id=customer_id,
                 name=name,
                 phone_number=phone_number,
-                page_id=pg_id,
+                page_id=canonical_pg,
                 first_created_at=created_at,
                 is_new=bool(created_at and start <= created_at <= end),
                 has_phone=bool(phone_number),

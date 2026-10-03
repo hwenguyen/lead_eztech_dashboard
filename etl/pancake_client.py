@@ -7,6 +7,7 @@ from typing import List, Dict, Any, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+from etl.utils import is_page_id, resolve_canonical_page_name, KNOWN_PAGE_NAMES
 
 logger = logging.getLogger(__name__)
 
@@ -50,8 +51,11 @@ class PancakeClient:
         }
 
         # 1. Thử phân giải page_id và tên page
-        resolved_page_id = page_id_or_name
-        resolved_page_name = None if str(page_id_or_name).isdigit() else page_id_or_name
+        resolved_page_id = str(page_id_or_name).strip()
+        resolved_page_name = resolve_canonical_page_name(page_id_or_name, fallback=None)
+        if resolved_page_name == resolved_page_id and is_page_id(resolved_page_id):
+            resolved_page_name = None
+
         try:
             res = self.session.get(
                 f"{self.base_url}/pages",
@@ -64,12 +68,14 @@ class PancakeClient:
                 pages = data.get("data", [])
                 if not pages and "categorized" in data:
                     pages = data["categorized"].get("activated", [])
+                target = str(page_id_or_name).strip()
+                target_num = re.sub(r"^(pzl_|tt_|fb_)", "", target)
                 for p in pages:
                     p_id = str(p.get("id"))
                     p_name = p.get("name")
-                    if p_id == str(page_id_or_name) or p_name == page_id_or_name:
+                    if p_id in (target, target_num) or (p_name and p_name in (target, resolved_page_name)):
                         resolved_page_id = p_id
-                        resolved_page_name = p_name
+                        resolved_page_name = p_name or resolved_page_name
                         break
         except Exception as e:
             logger.debug(f"Không thể tra cứu danh sách page qua /pages: {e}")
@@ -90,28 +96,28 @@ class PancakeClient:
             logger.debug(f"Lỗi khi gọi generate_page_access_token: {e}")
 
         # Fallback thử lấy thông tin page đơn lẻ nếu là Page Access Token
-        if not resolved_page_name and str(resolved_page_id).isdigit():
-            try:
-                res_single = self.session.get(
-                    f"{self.base_url}/pages/{resolved_page_id}",
-                    params={"access_token": self.api_token},
-                    headers=headers,
-                    timeout=5
-                )
-                if res_single.status_code == 200:
-                    p_info = res_single.json()
-                    p_data = p_info.get("data") or p_info.get("page") or p_info
-                    if isinstance(p_data, dict) and p_data.get("name"):
-                        resolved_page_name = p_data.get("name")
-            except Exception as e:
-                logger.debug(f"Không thể tra cứu tên page từ /pages/{resolved_page_id}: {e}")
+        if not resolved_page_name and is_page_id(resolved_page_id):
+            clean_num = re.sub(r"^(pzl_|tt_|fb_)", "", str(resolved_page_id))
+            for candidate_id in (resolved_page_id, clean_num):
+                try:
+                    res_single = self.session.get(
+                        f"{self.base_url}/pages/{candidate_id}",
+                        params={"access_token": self.api_token},
+                        headers=headers,
+                        timeout=5
+                    )
+                    if res_single.status_code == 200:
+                        p_info = res_single.json()
+                        p_data = p_info.get("data") or p_info.get("page") or p_info
+                        if isinstance(p_data, dict) and p_data.get("name"):
+                            resolved_page_name = p_data.get("name")
+                            resolved_page_id = candidate_id
+                            break
+                except Exception as e:
+                    logger.debug(f"Không thể tra cứu tên page từ /pages/{candidate_id}: {e}")
 
         # 3. Fallback: Bản thân token cấu hình có thể chính là Page Access Token
-        if not str(resolved_page_id).isdigit():
-            logger.warning(
-                f"Page ID '{resolved_page_id}' không phải là chuỗi số. "
-                f"Nếu Pancake API trả về lỗi, vui lòng cấu hình ID dạng số của Fanpage trong secret PAGE_IDS."
-            )
+        resolved_page_name = resolved_page_name or resolve_canonical_page_name(resolved_page_id, fallback=None)
         return self.api_token, resolved_page_id, resolved_page_name
 
     def get_conversations(self, page_id: str, existing_cache: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
@@ -129,7 +135,9 @@ class PancakeClient:
             return []
 
         # Tên chuẩn hiển thị trên dashboard của Page này
-        self.page_name = resolved_page_name or (page_id if not str(page_id).isdigit() else None)
+        self.page_name = resolved_page_name or resolve_canonical_page_name(page_id, fallback=None)
+        if not self.page_name and not is_page_id(page_id):
+            self.page_name = page_id
         page_id = resolved_page_id
         url_convs = f"https://pages.fm/api/public_api/v2/pages/{page_id}/conversations"
         
@@ -174,6 +182,16 @@ class PancakeClient:
                     break
                 last_id = new_last_id
                 time.sleep(0.2)
+            elif resp.status_code in (400, 404) and len(all_convs) == 0:
+                alt_id = page_id.replace("pzl_", "") if page_id.startswith("pzl_") else f"pzl_{page_id}"
+                if alt_id != page_id:
+                    logger.info(f"API trả về HTTP {resp.status_code} với Page ID '{page_id}'. Thử lại với ID: '{alt_id}'...")
+                    page_id = alt_id
+                    url_convs = f"https://pages.fm/api/public_api/v2/pages/{page_id}/conversations"
+                    continue
+                else:
+                    logger.error(f"Lỗi Pancake API (HTTP {resp.status_code}): {resp.text}")
+                    break
             elif resp.status_code == 429:
                 logger.warning("Pancake API Rate limit (429)! Nghỉ 10s...")
                 time.sleep(10)

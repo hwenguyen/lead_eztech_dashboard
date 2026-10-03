@@ -6,7 +6,8 @@ from sqlalchemy.orm import Session
 from database.db import SessionLocal
 from database.models import RawConversation, DimLead, FactLeadActivity
 from etl.pancake_client import PancakeClient
-from etl.utils import parse_pancake_date, extract_customer_phone
+from etl.utils import parse_pancake_date, extract_customer_phone, is_page_id, resolve_canonical_page_name
+import re
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -34,7 +35,7 @@ def upsert_lead_data(db: Session, raw_data: dict, page_id: str, commit: bool = T
             db.add(raw_record)
         else:
             raw_record.payload = raw_data
-            if not raw_record.page_id or raw_record.page_id.strip().isdigit():
+            if not raw_record.page_id or is_page_id(raw_record.page_id):
                 raw_record.page_id = page_id
 
         # 2. Extract DimLead
@@ -59,8 +60,8 @@ def upsert_lead_data(db: Session, raw_data: dict, page_id: str, commit: bool = T
             # Update info if available
             if phone and not lead.phone_number:
                 lead.phone_number = phone
-            # Chuẩn hoá page_id về tên chữ nếu trước đó lưu ID số
-            if not lead.page_id or lead.page_id.strip().isdigit():
+            # Chuẩn hoá page_id về tên chữ nếu trước đó lưu ID số / pzl_ ID
+            if not lead.page_id or is_page_id(lead.page_id):
                 lead.page_id = page_id
             # Lead Mới tính theo hội thoại SỚM NHẤT của khách
             if conv_inserted and (not lead.first_created_at or conv_inserted < lead.first_created_at):
@@ -156,7 +157,12 @@ def run_etl_pipeline():
                 
                 # 1. Kiểm tra số lượng và xây dựng cache từ DB để skip tải lại tin nhắn không đổi
                 existing_cache: Dict[str, Any] = {}
-                known_page_name = None
+                known_page_name = resolve_canonical_page_name(page_id, fallback=None)
+                if known_page_name == str(page_id).strip() and is_page_id(page_id):
+                    known_page_name = None
+
+                clean_id = str(page_id).strip()
+                clean_num = re.sub(r"^(pzl_|tt_|fb_)", "", clean_id)
                 try:
                     raw_rows = db.query(
                         RawConversation.pancake_id,
@@ -165,12 +171,14 @@ def run_etl_pipeline():
                     ).filter(
                         or_(
                             RawConversation.page_id == page_id,
-                            RawConversation.pancake_id.contains(str(page_id))
+                            RawConversation.page_id == clean_num,
+                            RawConversation.page_id == known_page_name,
+                            RawConversation.pancake_id.contains(clean_num)
                         )
                     ).all()
                     existing_count = len(raw_rows)
                     for p_id, payload, pg_name in raw_rows:
-                        if pg_name and not str(pg_name).strip().isdigit() and not known_page_name:
+                        if pg_name and not is_page_id(pg_name) and not known_page_name:
                             known_page_name = str(pg_name).strip()
                         if payload and isinstance(payload, dict):
                             existing_cache[str(p_id)] = {
@@ -195,10 +203,15 @@ def run_etl_pipeline():
                 conversations = client.get_conversations(page_id=page_id, existing_cache=existing_cache)
                 total = len(conversations)
 
-                # Tên chuẩn của riêng Page này (ưu tiên tên API trả về -> tên đã lưu trong DB -> fallback)
-                canonical_page_name = getattr(client, 'page_name', None) or known_page_name or (page_id if not str(page_id).isdigit() else None)
-                if not canonical_page_name or str(canonical_page_name).isdigit():
-                    canonical_page_name = known_page_name or page_id
+                # Tên chuẩn của riêng Page này (ưu tiên tên API trả về -> tên cấu hình chuẩn -> tên DB)
+                canonical_page_name = (
+                    getattr(client, 'page_name', None)
+                    or resolve_canonical_page_name(page_id, fallback=None)
+                    or known_page_name
+                    or (page_id if not is_page_id(page_id) else None)
+                )
+                if not canonical_page_name or is_page_id(canonical_page_name):
+                    canonical_page_name = known_page_name or resolve_canonical_page_name(page_id, fallback=page_id)
 
                 # 2. Mở session mới và lưu dữ liệu vào DB theo Batch (50 items/commit)
                 db = SessionLocal()
