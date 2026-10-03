@@ -1,19 +1,20 @@
 import os
 import logging
+from typing import Optional, Dict, Any
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from database.db import SessionLocal
 from database.models import RawConversation, DimLead, FactLeadActivity
 from etl.pancake_client import PancakeClient
-from etl.utils import parse_pancake_date, extract_customer_phone
+from etl.utils import parse_pancake_date, extract_customer_phone, is_page_id, resolve_canonical_page_name
+import re
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def upsert_lead_data(db: Session, raw_data: dict, page_id: str):
+def upsert_lead_data(db: Session, raw_data: dict, page_id: str, commit: bool = True):
     """
-    Logic upsert Lead và Activity.
-    Vì SQLite không support sẵn postgresql.insert on_conflict_do_update dễ dàng trong SQLAlchemy < 2.0 (hoặc nếu không setup đúng dialect),
-    Ta dùng query before insert/update cho dễ tương thích mọi DB.
+    Logic upsert Lead và Activity với hỗ trợ batch commit.
     """
     try:
         # 1. Lưu Raw
@@ -34,6 +35,8 @@ def upsert_lead_data(db: Session, raw_data: dict, page_id: str):
             db.add(raw_record)
         else:
             raw_record.payload = raw_data
+            if not raw_record.page_id or is_page_id(raw_record.page_id):
+                raw_record.page_id = page_id
 
         # 2. Extract DimLead
         phone = raw_data.get('phone_number')
@@ -57,6 +60,9 @@ def upsert_lead_data(db: Session, raw_data: dict, page_id: str):
             # Update info if available
             if phone and not lead.phone_number:
                 lead.phone_number = phone
+            # Chuẩn hoá page_id về tên chữ nếu trước đó lưu ID số / pzl_ ID
+            if not lead.page_id or is_page_id(lead.page_id):
+                lead.page_id = page_id
             # Lead Mới tính theo hội thoại SỚM NHẤT của khách
             if conv_inserted and (not lead.first_created_at or conv_inserted < lead.first_created_at):
                 lead.first_created_at = conv_inserted
@@ -83,6 +89,14 @@ def upsert_lead_data(db: Session, raw_data: dict, page_id: str):
                 if not contacted_at or cat > contacted_at:
                     contacted_at = cat
                         
+        # Fallback lấy thời điểm hoạt động gần nhất từ updated_at nếu tin nhắn chưa bao quát
+        conv_updated = parse_pancake_date(raw_data.get('updated_at'))
+        if conv_updated:
+            is_contacted = True
+            if not contacted_at or conv_updated > contacted_at:
+                contacted_at = conv_updated
+            c_dates.add(conv_updated.strftime("%Y-%m-%d"))
+
         contacted_dates_str = ",".join(sorted(list(c_dates))) if c_dates else None
 
         activity = db.query(FactLeadActivity).filter_by(conversation_id=conv_id).first()
@@ -107,60 +121,172 @@ def upsert_lead_data(db: Session, raw_data: dict, page_id: str):
             if contacted_at:
                 activity.contacted_at = contacted_at
 
-        db.commit()
+        if commit:
+            db.commit()
     except Exception as e:
-        db.rollback()
+        if commit:
+            db.rollback()
         logger.error(f"Error upserting conversation {raw_data.get('id')}: {e}")
 
 def run_etl_pipeline():
-    logger.info("Starting ETL Pipeline...")
-    page_ids_env = os.getenv("PAGE_IDS", "")
-    page_ids = [p.strip() for p in page_ids_env.split(",") if p.strip()]
+    logger.info("Starting Fast ETL Pipeline...")
     
-    if not page_ids:
-        logger.warning("No PAGE_IDS found in environment variables.")
-        return
+    pages_to_process: List[Dict[str, Any]] = []
 
-    # Hỗ trợ nhiều token cho nhiều page
-    tokens_env = os.getenv("PANCAKE_API_TOKENS")
-    if tokens_env:
-        tokens = [t.strip() for t in tokens_env.split(",")]
-    else:
-        # Fallback dùng chung 1 token
-        tokens = [os.getenv("PANCAKE_API_TOKEN")] * len(page_ids)
+    # 1. Hỗ trợ cấu hình dạng JSON / Dict qua secret PANCAKE_PAGES_JSON, PANCAKE_CONFIG hoặc PANCAKE_API_TOKENS
+    pages_json_env = os.getenv("PANCAKE_PAGES_JSON") or os.getenv("PANCAKE_CONFIG")
+    
+    pancake_api_tokens_env = os.getenv("PANCAKE_API_TOKENS", "").strip()
+    if not pages_json_env and (pancake_api_tokens_env.startswith("{") or pancake_api_tokens_env.startswith("[")):
+        pages_json_env = pancake_api_tokens_env
+
+    if pages_json_env and pages_json_env.strip():
+        try:
+            import json, ast
+            raw_cfg = pages_json_env.strip()
+            try:
+                cfg_data = json.loads(raw_cfg)
+            except Exception:
+                cfg_data = ast.literal_eval(raw_cfg)
+            
+            if isinstance(cfg_data, dict):
+                for pid, pdata in cfg_data.items():
+                    if isinstance(pdata, dict):
+                        pages_to_process.append({
+                            "page_id": str(pid).strip(),
+                            "page_name": pdata.get("name"),
+                            "token": pdata.get("token")
+                        })
+                    elif isinstance(pdata, str):
+                        pages_to_process.append({
+                            "page_id": str(pid).strip(),
+                            "page_name": None,
+                            "token": pdata.strip()
+                        })
+            elif isinstance(cfg_data, list):
+                for item in cfg_data:
+                    if isinstance(item, dict) and "page_id" in item:
+                        pages_to_process.append(item)
+            logger.info(f"Đã nạp {len(pages_to_process)} Fanpage từ cấu hình JSON/Dict.")
+        except Exception as e:
+            logger.warning(f"Không thể parse cấu hình JSON/Dict: {e}")
+
+    # 2. Nếu không có hoặc parse lỗi, fallback sang PAGE_IDS và PANCAKE_API_TOKENS
+    if not pages_to_process:
+        page_ids_env = os.getenv("PAGE_IDS", "")
+        page_ids = [p.strip() for p in page_ids_env.split(",") if p.strip()]
+        
+        if not page_ids:
+            logger.warning("No PAGE_IDS found in environment variables.")
+            return
+
+        tokens_env = os.getenv("PANCAKE_API_TOKENS", "").strip()
+        single_token = os.getenv("PANCAKE_API_TOKEN", "").strip()
+        tokens = [t.strip() for t in tokens_env.split(",") if t.strip()] if tokens_env else []
+        default_token = single_token or (tokens[0] if tokens else None)
+
+        for i, page_id in enumerate(page_ids):
+            token = tokens[i] if i < len(tokens) and tokens[i] else default_token
+            pages_to_process.append({
+                "page_id": page_id,
+                "page_name": None,
+                "token": token
+            })
+
+    first_run_limit = int(os.getenv("FIRST_RUN_LIMIT", "2000"))
+    daily_run_limit = int(os.getenv("DAILY_RUN_LIMIT", "500"))
 
     db = SessionLocal()
     
     try:
-        for i, page_id in enumerate(page_ids):
-            logger.info(f"Processing Page ID: {page_id}")
-            
-            # Lấy token tương ứng với page, nếu thiếu thì dùng None (sẽ fallback trong class)
-            page_token = tokens[i] if i < len(tokens) else None
-            client = PancakeClient(api_token=page_token)
-            
-            # Kiểm tra xem đã có dữ liệu cho Page này chưa
-            existing_count = db.query(RawConversation).filter_by(page_id=page_id).count()
-            if existing_count == 0:
-                logger.info(f"🔔 FIRST RUN DETECTED! Kéo toàn bộ lịch sử cho Page {page_id} (giới hạn an toàn 10,000 hội thoại). Sẽ mất một lúc...")
-                client.limit = 10000 
-            else:
-                logger.info(f"⚡ DAILY RUN DETECTED! Kéo 500 hội thoại mới/cập nhật gần nhất cho Page {page_id}...")
-                client.limit = 500
+        for p_info in pages_to_process:
+            page_id = p_info["page_id"]
+            page_token = p_info.get("token")
+            preset_name = p_info.get("page_name")
+            logger.info(f"Processing Page ID: {page_id} (Tên cấu hình: {preset_name or 'Auto'})")
+            try:
+                client = PancakeClient(api_token=page_token)
+                
+                # 1. Kiểm tra số lượng và xây dựng cache từ DB để skip tải lại tin nhắn không đổi
+                existing_cache: Dict[str, Any] = {}
+                known_page_name = resolve_canonical_page_name(page_id, fallback=None)
+                if known_page_name == str(page_id).strip() and is_page_id(page_id):
+                    known_page_name = None
 
-            # Trả connection về pool trước khi cào (có thể >1 giờ) — Neon sẽ đóng kết nối idle,
-            # giữ transaction mở qua lúc cào gây lỗi "SSL connection has been closed unexpectedly"
-            db.close()
-            conversations = client.get_conversations(page_id=page_id)
-            total = len(conversations)
-            for idx, conv in enumerate(conversations):
-                upsert_lead_data(db, conv, page_id)
-                if (idx + 1) % 50 == 0:
-                    logger.info(f"Đã lưu vào DB: {idx + 1}/{total} hội thoại...")
+                clean_id = str(page_id).strip()
+                clean_num = re.sub(r"^(pzl_|tt_|fb_)", "", clean_id)
+                try:
+                    raw_rows = db.query(
+                        RawConversation.pancake_id,
+                        RawConversation.payload,
+                        RawConversation.page_id
+                    ).filter(
+                        or_(
+                            RawConversation.page_id == page_id,
+                            RawConversation.page_id == clean_num,
+                            RawConversation.page_id == known_page_name,
+                            RawConversation.pancake_id.contains(clean_num)
+                        )
+                    ).all()
+                    existing_count = len(raw_rows)
+                    for p_id, payload, pg_name in raw_rows:
+                        if pg_name and not is_page_id(pg_name) and not known_page_name:
+                            known_page_name = str(pg_name).strip()
+                        if payload and isinstance(payload, dict):
+                            existing_cache[str(p_id)] = {
+                                "updated_at": payload.get("updated_at"),
+                                "messages": payload.get("messages", []),
+                                "phone_number": payload.get("phone_number")
+                            }
+                    logger.info(f"Đã nạp {len(existing_cache)} hội thoại từ cache DB của Page {page_id} (Tên đã biết: '{known_page_name or 'Chưa rõ'}').")
+                except Exception as e:
+                    logger.warning(f"Không thể đọc cache DB: {e}")
+                    existing_count = 0
+
+                if existing_count == 0:
+                    logger.info(f"🔔 FIRST RUN DETECTED! Kéo {first_run_limit} hội thoại lịch sử cho Page {page_id}...")
+                    client.limit = first_run_limit 
+                else:
+                    logger.info(f"⚡ DAILY RUN DETECTED! Kéo {daily_run_limit} hội thoại mới/cập nhật gần nhất cho Page {page_id}...")
+                    client.limit = daily_run_limit
+
+                # Đóng session trước khi cào dữ liệu qua API để không giữ idle connection trên Neon
+                db.close()
+                conversations = client.get_conversations(page_id=page_id, existing_cache=existing_cache)
+                total = len(conversations)
+
+                # Tên chuẩn của riêng Page này (ưu tiên tên API trả về -> tên cấu hình preset -> tên cấu hình chuẩn -> tên DB)
+                canonical_page_name = (
+                    getattr(client, 'page_name', None)
+                    or preset_name
+                    or resolve_canonical_page_name(page_id, fallback=None)
+                    or known_page_name
+                    or (page_id if not is_page_id(page_id) else None)
+                )
+                if not canonical_page_name or is_page_id(canonical_page_name):
+                    canonical_page_name = preset_name or known_page_name or resolve_canonical_page_name(page_id, fallback=page_id)
+
+                # 2. Mở session mới và lưu dữ liệu vào DB theo Batch (50 items/commit)
+                db = SessionLocal()
+                try:
+                    for idx, conv in enumerate(conversations):
+                        upsert_lead_data(db, conv, canonical_page_name, commit=False)
+                        if (idx + 1) % 50 == 0:
+                            db.commit()
+                            logger.info(f"Đã lưu vào DB: {idx + 1}/{total} hội thoại...")
+                    db.commit()
+                    logger.info(f"Hoàn tất lưu DB: {total}/{total} hội thoại.")
+                except Exception as e:
+                    db.rollback()
+                    logger.error(f"Lỗi khi lưu dữ liệu theo batch cho Page {page_id}: {e}")
+            except Exception as page_err:
+                logger.error(f"Lỗi khi cào dữ liệu cho Page {page_id}: {page_err}", exc_info=True)
+                # Đảm bảo session db mở lại cho lượt loop tiếp theo
+                db = SessionLocal()
     finally:
         db.close()
         
-    logger.info("ETL Pipeline completed successfully.")
+    logger.info("ETL Pipeline completed successfully in record time.")
 
 if __name__ == "__main__":
     # Test chạy trực tiếp

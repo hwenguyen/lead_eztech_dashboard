@@ -1,4 +1,4 @@
-"""Hàm tiện ích dùng chung cho ETL và Backend (không import playwright/PancakeClient)."""
+"""Hàm tiện ích dùng chung cho ETL và Backend (không import PancakeClient)."""
 import re
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta, timezone
@@ -12,12 +12,20 @@ PHONE_CANDIDATE_REGEX = re.compile(r"(?<!\d)(?:\+?84|0)(?:[\s.\-]?\d){9}(?!\d)")
 VN_MOBILE_REGEX = re.compile(r"^0(3[2-9]|5[689]|7[06-9]|8[1-9]|9\d)\d{7}$")
 
 
-def parse_pancake_date(date_str: str) -> Optional[datetime]:
+def parse_pancake_date(date_val: Any) -> Optional[datetime]:
     """Parse thời gian Pancake, đổi sang giờ Việt Nam (UTC+7) và trả về naive datetime."""
-    if not date_str:
+    if not date_val:
         return None
     try:
-        dt = parse(date_str)
+        if isinstance(date_val, (int, float)):
+            ts = date_val / 1000 if date_val > 1e11 else date_val
+            return datetime.fromtimestamp(ts, tz=VN_TZ).replace(tzinfo=None)
+        val_str = str(date_val).strip()
+        if val_str.isdigit():
+            ts = float(val_str)
+            ts = ts / 1000 if ts > 1e11 else ts
+            return datetime.fromtimestamp(ts, tz=VN_TZ).replace(tzinfo=None)
+        dt = parse(val_str)
         # Nếu Pancake trả về không có múi giờ, ta ngầm định đó là UTC
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
@@ -55,3 +63,47 @@ def extract_customer_phone(messages: List[Dict[str, Any]]) -> Optional[str]:
     if len({phone for _, phone in found}) > 1:
         found.sort(key=lambda item: parse_pancake_date(item[0]) or datetime.max)
     return found[0][1]
+
+
+# Bản đồ tên Fanpage chuẩn hóa dùng chung toàn hệ thống
+KNOWN_PAGE_NAMES: Dict[str, str] = {
+    # 1. Eztech Phân Tích Dữ Liệu
+    "629476615535063343": "Eztech Phân Tích Dữ Liệu",
+    "pzl_629476615535063343": "Eztech Phân Tích Dữ Liệu",
+    # 2. Anh Kế toán làm Data
+    "7196601676597871618": "Anh Kế toán làm Data",
+    "tt_7196601676597871618": "Anh Kế toán làm Data",
+    # 3. Anh Gà Kế Toán
+    "7456003523327919120": "Anh Gà Kế Toán",
+    "tt_7456003523327919120": "Anh Gà Kế Toán",
+    # 4. Hiền Minh Eztech
+    "131986891507252646": "Hiền Minh Eztech",
+    "pzl_131986891507252646": "Hiền Minh Eztech",
+    # 5. Tuấn Anh Data
+    "788602135347404973": "Tuấn Anh Data",
+    "pzl_788602135347404973": "Tuấn Anh Data",
+}
+
+
+def is_page_id(val: Any) -> bool:
+    """Kiểm tra xem giá trị là ID của page (dạng số hoặc prefix pzl_/tt_/fb_) hay là tên hiển thị."""
+    if not val:
+        return False
+    s = str(val).strip()
+    return s.isdigit() or s.startswith("pzl_") or s.startswith("tt_") or s.startswith("fb_")
+
+
+def resolve_canonical_page_name(page_id_or_name: Any, fallback: Optional[str] = None) -> str:
+    """Chuẩn hoá ID / Tên Fanpage về tên hiển thị chuẩn (Ưu tiên KNOWN_PAGE_NAMES)."""
+    if not page_id_or_name:
+        return fallback or ""
+    s = str(page_id_or_name).strip()
+    if s in KNOWN_PAGE_NAMES:
+        return KNOWN_PAGE_NAMES[s]
+    clean_num = re.sub(r"^(pzl_|tt_|fb_)", "", s)
+    if clean_num in KNOWN_PAGE_NAMES:
+        return KNOWN_PAGE_NAMES[clean_num]
+    if not is_page_id(s):
+        return s
+    return fallback or s
+

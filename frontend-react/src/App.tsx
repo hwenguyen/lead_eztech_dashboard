@@ -26,13 +26,7 @@ function App() {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   useEffect(() => {
-    const loadFilters = async () => {
-      try {
-        const empRes = await fetchEmployees();
-        setEmployeesList(empRes);
-      } catch (error) {
-        console.error("Error fetching employees:", error);
-      }
+    const loadPages = async () => {
       try {
         const pgRes = await fetchPages();
         setPagesList(pgRes);
@@ -40,8 +34,21 @@ function App() {
         console.error("Error fetching pages:", error);
       }
     };
-    loadFilters();
+    loadPages();
   }, []);
+
+  useEffect(() => {
+    const updateEmployees = async () => {
+      try {
+        const empRes = await fetchEmployees(startDate, endDate, pageId);
+        setEmployeesList(empRes);
+        setEmployee(prev => (prev && !empRes.includes(prev) ? '' : prev));
+      } catch (error) {
+        console.error("Error fetching employees:", error);
+      }
+    };
+    updateEmployees();
+  }, [startDate, endDate, pageId]);
 
   const loadData = async () => {
     setLoading(true);
@@ -156,7 +163,7 @@ function App() {
             </div>
             <div className="h-9 w-px bg-[#E5E7EB] mx-1" />
               <div className="flex flex-col gap-1 flex-1 min-w-[180px]">
-                <label className="text-xs font-medium text-[#4B5563]">Page ID</label>
+                <label className="text-xs font-medium text-[#4B5563]">Page</label>
                 <select
                   value={pageId}
                   onChange={e => setPageId(e.target.value)}
@@ -260,8 +267,8 @@ function App() {
                 stats={summary?.phone_leads_employee_stats}
               />
               <StatsPieChart
-                title="Lead theo Khoá học"
-                subtitle="Thống kê Tag quan tâm"
+                title="Lead Other & Đào tạo"
+                subtitle="Thống kê Tag phân loại"
                 stats={summary?.tag_stats}
               />
             </div>

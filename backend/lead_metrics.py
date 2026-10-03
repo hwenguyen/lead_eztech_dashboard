@@ -16,7 +16,7 @@ from sqlalchemy import select, or_, and_
 from sqlalchemy.orm import Session
 
 from database.models import DimLead, FactLeadActivity
-from etl.utils import VN_TZ
+from etl.utils import VN_TZ, resolve_canonical_page_name, KNOWN_PAGE_NAMES
 
 PHONE_TAG = "đã add"
 
@@ -103,15 +103,24 @@ def classify_leads(
         FactLeadActivity.contacted_dates,
         FactLeadActivity.contacted_at,
     ).join(FactLeadActivity, DimLead.id == FactLeadActivity.lead_id).filter(
-        FactLeadActivity.assigned_users.isnot(None),
-        FactLeadActivity.assigned_users != "",
         or_(DimLead.first_created_at.between(start, end), DimLead.id.in_(active_lead_ids)),
     )
     if page_id:
-        query = query.filter(DimLead.page_id == page_id)
+        clean_pid = page_id.strip()
+        canonical_name = resolve_canonical_page_name(clean_pid, fallback=clean_pid)
+        possible_pids = {clean_pid, canonical_name}
+        for k, v in KNOWN_PAGE_NAMES.items():
+            if v == canonical_name or k == clean_pid:
+                possible_pids.add(k)
+                possible_pids.add(v)
+        query = query.filter(DimLead.page_id.in_(list(possible_pids)))
     if employee:
-        # Lọc thô ở SQL, so khớp chính xác tên ở dưới (tránh "An" dính "Lan Anh")
-        query = query.filter(FactLeadActivity.assigned_users.ilike(f"%{employee.strip()}%"))
+        emp_clean = employee.strip()
+        if normalize_text(emp_clean) in ("chua phan cong", "chưa phân công"):
+            query = query.filter(or_(FactLeadActivity.assigned_users.is_(None), FactLeadActivity.assigned_users == ""))
+        else:
+            # Lọc thô ở SQL, so khớp chính xác tên ở dưới (tránh "An" dính "Lan Anh")
+            query = query.filter(FactLeadActivity.assigned_users.ilike(f"%{emp_clean}%"))
 
     employee_key = normalize_text(employee) if employee else None
     leads: Dict[int, LeadAgg] = {}
@@ -119,21 +128,25 @@ def classify_leads(
     for (lid, customer_id, name, phone_number, pg_id, first_created_at,
          conversation_id, status_tag, assigned_users, contacted_dates, contacted_at) in query.all():
         emps = split_csv(assigned_users)
+        if not emps:
+            emps = ["Chưa phân công"]
+
         if employee_key:
             emps = [e for e in emps if normalize_text(e) == employee_key]
-        # Bỏ qua hội thoại chưa được phân cho nhân viên (hoặc không thuộc NV đang lọc)
-        if not emps:
-            continue
+            # Nếu đang lọc theo 1 nhân viên cụ thể mà hội thoại không thuộc NV này thì bỏ qua
+            if not emps:
+                continue
 
         agg = leads.get(lid)
         if agg is None:
             created_at = _strip_tz(first_created_at)
+            canonical_pg = resolve_canonical_page_name(pg_id, fallback=pg_id)
             agg = leads[lid] = LeadAgg(
                 id=lid,
                 customer_id=customer_id,
                 name=name,
                 phone_number=phone_number,
-                page_id=pg_id,
+                page_id=canonical_pg,
                 first_created_at=created_at,
                 is_new=bool(created_at and start <= created_at <= end),
                 has_phone=bool(phone_number),
