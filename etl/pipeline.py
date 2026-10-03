@@ -133,8 +133,13 @@ def run_etl_pipeline():
     
     pages_to_process: List[Dict[str, Any]] = []
 
-    # 1. Hỗ trợ cấu hình dạng JSON / Dict qua secret PANCAKE_PAGES_JSON hoặc PANCAKE_CONFIG
+    # 1. Hỗ trợ cấu hình dạng JSON / Dict qua secret PANCAKE_PAGES_JSON, PANCAKE_CONFIG hoặc PANCAKE_API_TOKENS
     pages_json_env = os.getenv("PANCAKE_PAGES_JSON") or os.getenv("PANCAKE_CONFIG")
+    
+    pancake_api_tokens_env = os.getenv("PANCAKE_API_TOKENS", "").strip()
+    if not pages_json_env and (pancake_api_tokens_env.startswith("{") or pancake_api_tokens_env.startswith("[")):
+        pages_json_env = pancake_api_tokens_env
+
     if pages_json_env and pages_json_env.strip():
         try:
             import json, ast
@@ -162,9 +167,9 @@ def run_etl_pipeline():
                 for item in cfg_data:
                     if isinstance(item, dict) and "page_id" in item:
                         pages_to_process.append(item)
-            logger.info(f"Đã nạp {len(pages_to_process)} Fanpage từ cấu hình PANCAKE_PAGES_JSON.")
+            logger.info(f"Đã nạp {len(pages_to_process)} Fanpage từ cấu hình JSON/Dict.")
         except Exception as e:
-            logger.warning(f"Không thể parse PANCAKE_PAGES_JSON: {e}")
+            logger.warning(f"Không thể parse cấu hình JSON/Dict: {e}")
 
     # 2. Nếu không có hoặc parse lỗi, fallback sang PAGE_IDS và PANCAKE_API_TOKENS
     if not pages_to_process:
