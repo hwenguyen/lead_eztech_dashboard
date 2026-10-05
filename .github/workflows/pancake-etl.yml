@@ -2,9 +2,10 @@ name: Pancake ETL Pipeline
 
 on:
   schedule:
-    # Chạy mỗi ngày 1 lần vào lúc 0:00 sáng giờ VN (17:00 UTC)
-    - cron: '0 17 * * *'
-  workflow_dispatch: # Cho phép bấm chạy thủ công trên giao diện GitHub
+    # Chạy 5 lần mỗi ngày theo giờ Việt Nam:
+    # 08:00 (01:00 UTC), 12:00 (05:00 UTC), 16:00 (09:00 UTC), 20:00 (13:00 UTC), 00:00 (17:00 UTC)
+    - cron: '0 1,5,9,13,17 * * *'
+  workflow_dispatch: # Cho phép bấm chạy thủ công trên giao diện GitHub bất cứ lúc nào
 
 jobs:
   run-etl:
@@ -12,17 +13,19 @@ jobs:
     
     steps:
     - name: Kiểm tra mã nguồn
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
 
-    - name: Cài đặt Python 3.10
-      uses: actions/setup-python@v4
+    - name: Cài đặt Python 3.10 & Kích hoạt Pip Cache
+      uses: actions/setup-python@v5
       with:
         python-version: '3.10'
+        cache: 'pip'
+        cache-dependency-path: 'requirements-etl.txt'
 
-    - name: Cài đặt thư viện Python
+    - name: Cài đặt thư viện Python (ETL Tối ưu)
       run: |
         python -m pip install --upgrade pip
-        pip install -r requirements.txt
+        pip install -r requirements-etl.txt
 
     - name: Chạy ETL Pipeline (Cào qua API nhanh)
       env:
@@ -31,5 +34,7 @@ jobs:
         PANCAKE_API_TOKENS: ${{ secrets.PANCAKE_API_TOKENS }}
         PAGE_IDS: ${{ secrets.PAGE_IDS }}
         PANCAKE_PAGES_JSON: ${{ secrets.PANCAKE_PAGES_JSON }}
+        DAILY_RUN_LIMIT: 1000
+        DAILY_DAYS_BACK: 3
       run: |
         python -m etl.pipeline

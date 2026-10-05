@@ -1,0 +1,11 @@
+# Thư viện tối giản cho ETL Pipeline trên GitHub Actions
+# Tránh cài streamlit, plotly, fastapi để tiết kiệm băng thông và giảm 90% thời gian chạy
+
+# Database & ORM
+sqlalchemy>=2.0.0
+psycopg2-binary>=2.9.0
+python-dotenv>=1.0.0
+
+# API & Time utilities
+requests>=2.31.0
+python-dateutil>=2.8.2

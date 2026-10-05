@@ -1,4 +1,5 @@
 import os
+import re
 import logging
 import requests
 import time
@@ -7,7 +8,8 @@ from typing import List, Dict, Any, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
-from etl.utils import is_page_id, resolve_canonical_page_name, KNOWN_PAGE_NAMES
+from etl.utils import is_page_id, resolve_canonical_page_name, KNOWN_PAGE_NAMES, parse_pancake_date, VN_TZ
+
 
 logger = logging.getLogger(__name__)
 
@@ -120,13 +122,20 @@ class PancakeClient:
         resolved_page_name = resolved_page_name or resolve_canonical_page_name(resolved_page_id, fallback=None)
         return self.api_token, resolved_page_id, resolved_page_name
 
-    def get_conversations(self, page_id: str, existing_cache: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    def get_conversations(
+        self,
+        page_id: str,
+        existing_cache: Optional[Dict[str, Any]] = None,
+        days_back: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
         """
-        Lấy danh sách hội thoại qua Pancake Public API v2 với cơ chế Incremental Caching:
+        Lấy danh sách hội thoại qua Pancake Public API v2 với cơ chế Incremental Caching & Early Stopping:
+        - Nếu days_back được chỉ định (vd 3 ngày): chỉ cào dữ liệu mới cập nhật gần đây và dừng ngay (early break)
+          khi gặp hội thoại cũ hơn, tránh duyệt thừa 500 bản ghi.
         - Bỏ qua tải messages đối với các hội thoại đã có trong DB và không có thay đổi (updated_at trùng khớp).
         - Đối với hội thoại mới hoặc có cập nhật, chỉ lấy 1 trang tin nhắn mới nhất thay vì quét toàn bộ lịch sử.
         """
-        logger.info(f"--- BẮT ĐẦU CÀO DỮ LIỆU QUA API CHO PAGE: {page_id} ---")
+        logger.info(f"--- BẮT ĐẦU CÀO DỮ LIỆU QUA API CHO PAGE: {page_id} (Giới hạn: {self.limit}, Ngày quét: {days_back or 'Tất cả'}) ---")
         existing_cache = existing_cache or {}
         
         ptoken, resolved_page_id, resolved_page_name = self._get_page_access_token(page_id)
@@ -142,7 +151,12 @@ class PancakeClient:
         url_convs = f"https://pages.fm/api/public_api/v2/pages/{page_id}/conversations"
         
         now_ts = int(datetime.utcnow().timestamp())
-        since_ts = int((datetime.utcnow() - timedelta(days=365 * 2)).timestamp())
+        if days_back and days_back > 0:
+            since_ts = int((datetime.utcnow() - timedelta(days=days_back)).timestamp())
+            cutoff_dt = datetime.now(VN_TZ).replace(tzinfo=None) - timedelta(days=days_back)
+        else:
+            since_ts = int((datetime.utcnow() - timedelta(days=365 * 2)).timestamp())
+            cutoff_dt = None
         
         all_convs = []
         last_id = None
@@ -186,7 +200,23 @@ class PancakeClient:
                 if not convs:
                     logger.info("Không còn hội thoại mới nào từ API.")
                     break
-                all_convs.extend(convs)
+
+                reached_cutoff = False
+                valid_convs = []
+                for conv in convs:
+                    if cutoff_dt:
+                        conv_dt = parse_pancake_date(conv.get("updated_at") or conv.get("inserted_at"))
+                        if conv_dt and conv_dt < cutoff_dt:
+                            reached_cutoff = True
+                            break
+                    valid_convs.append(conv)
+
+                all_convs.extend(valid_convs)
+
+                if reached_cutoff:
+                    logger.info(f"⚡ Đã quét đến mốc {days_back} ngày trước ({cutoff_dt.strftime('%d/%m/%Y %H:%M')}). Dừng cào sớm (Early Stopping) để tối ưu thời gian và quota!")
+                    break
+
                 new_last_id = convs[-1].get('id')
                 if new_last_id == last_id:
                     break

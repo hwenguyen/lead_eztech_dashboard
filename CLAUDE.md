@@ -21,6 +21,14 @@ FastAPI backend (`backend/`) + React frontend (`frontend-react/`) trên Render (
 
 ## Session
 
+### 2026-10-05 — Đã hoàn thành
+- Tối ưu GitHub Actions ETL & Quota:
+  - Tạo `requirements-etl.txt` (loại bỏ streamlit, plotly, fastapi, pandas khỏi workflow ETL), bật cache `cache: 'pip'`.
+  - Fix thiếu `import re` trong `etl/pancake_client.py`.
+  - Thêm cơ chế Early Stopping (`days_back=3`, `DAILY_RUN_LIMIT=1000`) trong `PancakeClient.get_conversations`: dừng cào ngay khi gặp hội thoại cũ hơn 3 ngày thay vì quét cố định 500 bản ghi.
+  - Tối ưu cache DB: giới hạn 1.500 bản ghi gần nhất và dùng `count()` để check first run thay vì kéo toàn bộ payload vào RAM.
+  - Tăng tần suất cập nhật dữ liệu lên 5 lần/ngày (08:00, 12:00, 16:00, 20:00, 00:00 VN) với tổng thời gian chạy mỗi tháng chỉ ~150 phút (< 8% quota GitHub Free 2.000 phút).
+
 ### 2026-10-03 — Đã hoàn thành
 - Đổi cách tính SĐT sang "thu được trong kỳ" (thêm cột `phone_at`, chuẩn hoá số, gộp trùng), loại page Zalo khỏi tổng, tag khớp chính xác, thêm thẻ KPI "SĐT / Tạo mới" (6 thẻ, 3×2).
 - `auto_repair_contacted_dates`: phần SĐT không còn xoá/ghi đè số (payload chỉ còn 30 tin gần nhất), chỉ chuẩn hoá + backfill `phone_at`.
@@ -34,7 +42,6 @@ FastAPI backend (`backend/`) + React frontend (`frontend-react/`) trên Render (
 - **Token Pancake**: run ETL 03/10 04:54Z báo `Invalid access_token (102)` cho page "Anh Kế toán làm Data" → kéo 0 hội thoại nhưng job vẫn xanh. Cần tạo lại token; nên cho job fail khi một page lỗi.
 - `contacted_dates` cộng cả ngày `updated_at` của hội thoại (`etl/pipeline.py`) → Contact Lại có thể gồm hội thoại chỉ đổi tag.
 - ETL chỉ lưu 30 tin gần nhất và ghi đè `contacted_dates` mỗi lần tải lại → lịch sử contact của hội thoại dài mất dần (chủ yếu page Zalo). Lỗi tải tin nhắn trả `[]` cũng xoá tin đã lưu.
-- `etl/pancake_client.py` thiếu `import re` (dòng tra tên page qua `/pages` luôn NameError; page chưa có trong `KNOWN_PAGE_NAMES` sẽ lỗi cả page). Chưa sửa vì không test được với token thật.
 - `customer_id = 'unknown'` gộp mọi hội thoại thiếu id khách vào 1 lead; nhóm chat Zalo (`pzl_g_…`) bị tính là lead; giới hạn 500/2000 hội thoại áp trước khi lọc COMMENT.
 - Page "user5025817249978" chưa có tên chuẩn; hai page TikTok "Anh Gà Kế Toán" và page này chưa gắn tag Lead Other/Đào tạo.
 - `auto_repair_contacted_dates` load toàn bộ raw payload vào RAM mỗi lần startup (512MB) → rủi ro khi data lớn.

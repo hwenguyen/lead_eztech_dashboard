@@ -204,7 +204,8 @@ def run_etl_pipeline():
             })
 
     first_run_limit = int(os.getenv("FIRST_RUN_LIMIT", "2000"))
-    daily_run_limit = int(os.getenv("DAILY_RUN_LIMIT", "500"))
+    daily_run_limit = int(os.getenv("DAILY_RUN_LIMIT", "1000"))
+    daily_days_back = int(os.getenv("DAILY_DAYS_BACK", "3"))
 
     db = SessionLocal()
     
@@ -226,19 +227,21 @@ def run_etl_pipeline():
                 clean_id = str(page_id).strip()
                 clean_num = re.sub(r"^(pzl_|tt_|fb_)", "", clean_id)
                 try:
+                    page_filter = or_(
+                        RawConversation.page_id == page_id,
+                        RawConversation.page_id == clean_num,
+                        RawConversation.page_id == known_page_name,
+                        RawConversation.pancake_id.contains(clean_num)
+                    )
+                    existing_count = db.query(RawConversation.id).filter(page_filter).count()
+
+                    # Nạp tối đa 1.500 hội thoại gần nhất làm cache so khớp để tiết kiệm RAM và mạng
                     raw_rows = db.query(
                         RawConversation.pancake_id,
                         RawConversation.payload,
                         RawConversation.page_id
-                    ).filter(
-                        or_(
-                            RawConversation.page_id == page_id,
-                            RawConversation.page_id == clean_num,
-                            RawConversation.page_id == known_page_name,
-                            RawConversation.pancake_id.contains(clean_num)
-                        )
-                    ).all()
-                    existing_count = len(raw_rows)
+                    ).filter(page_filter).order_by(RawConversation.id.desc()).limit(1500).all()
+
                     for p_id, payload, pg_name in raw_rows:
                         if pg_name and not is_page_id(pg_name) and not known_page_name:
                             known_page_name = str(pg_name).strip()
@@ -256,13 +259,19 @@ def run_etl_pipeline():
                 if existing_count == 0:
                     logger.info(f"🔔 FIRST RUN DETECTED! Kéo {first_run_limit} hội thoại lịch sử cho Page {page_id}...")
                     client.limit = first_run_limit 
+                    days_back_param = None
                 else:
-                    logger.info(f"⚡ DAILY RUN DETECTED! Kéo {daily_run_limit} hội thoại mới/cập nhật gần nhất cho Page {page_id}...")
+                    logger.info(f"⚡ DAILY RUN DETECTED! Kéo hội thoại {daily_days_back} ngày gần nhất (tối đa {daily_run_limit}) cho Page {page_id}...")
                     client.limit = daily_run_limit
+                    days_back_param = daily_days_back
 
                 # Đóng session trước khi cào dữ liệu qua API để không giữ idle connection trên Neon
                 db.close()
-                conversations = client.get_conversations(page_id=page_id, existing_cache=existing_cache)
+                conversations = client.get_conversations(
+                    page_id=page_id,
+                    existing_cache=existing_cache,
+                    days_back=days_back_param
+                )
                 total = len(conversations)
 
                 # Tên chuẩn của riêng Page này (ưu tiên tên API trả về -> tên cấu hình preset -> tên cấu hình chuẩn -> tên DB)
