@@ -37,6 +37,12 @@ FastAPI backend (`backend/`) + React frontend (`frontend-react/`) trên Render (
   - Tải tin nhắn lỗi → giữ tin cũ + `updated_at` cũ (lần sau tải lại), không ghi đè `[]`.
   - Lịch chạy mới: Mỗi 15 phút trong giờ làm việc (08:00 - 18:00 VN) + 1 lần chốt số lúc 00:00 VN (~42 lần/ngày = ~1.260 phút/tháng, còn dư ~740 phút trên tổng 2.000 phút quota GitHub Free).
   - Log thời gian từng bước (liệt kê / cache / tải tin / ghi DB); workflow `timeout-minutes: 10` + `concurrency`.
+- Tối ưu Backend & In-Memory TTL Cache (Tăng tốc tải trang Web):
+  - Khắc phục nghẽn RAM/CPU lúc khởi động trên Render: bỏ `ensure_schema()` ở cấp top-level import (chuyển vào `startup_event()` try/catch).
+  - Ngừng chạy mặc định `auto_repair_contacted_dates()` mỗi lần Render bật dậy: chỉ chạy khi có biến môi trường `RUN_AUTO_REPAIR=true` hoặc gọi thủ công qua API `POST /api/admin/repair`.
+  - In-memory TTL Cache cho `classify_leads` (45 giây, thread-safe): Khi React Dashboard mở lên gọi đồng thời 4 API (`/api/metrics/summary`, `/api/metrics/trend`, `/api/leads/list`, `/api/employees/list`), API đầu tiên tính toán và lưu cache, 3 API sau trả về ngay lập tức từ RAM (< 1ms), giảm 75% tải truy vấn lên Neon DB.
+  - Caching 5 phút cho `/api/pages/list`: Giảm thiểu query distinct page_id liên tục.
+  - Bổ sung admin endpoints: `POST /api/admin/clear-cache` và `POST /api/admin/repair`.
 
 ### 2026-10-03 — Đã hoàn thành
 - Đổi cách tính SĐT sang "thu được trong kỳ" (thêm cột `phone_at`, chuẩn hoá số, gộp trùng), loại page Zalo khỏi tổng, tag khớp chính xác, thêm thẻ KPI "SĐT / Tạo mới" (6 thẻ, 3×2).

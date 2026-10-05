@@ -3,7 +3,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from collections import Counter
 from datetime import datetime, timedelta
-from typing import Optional, Dict, List, Tuple
+from typing import Optional, Dict, List, Tuple, Any
+import os
+import time
 import re
 import threading
 import logging
@@ -11,7 +13,7 @@ from database.db import get_db, SessionLocal
 from database.models import DimLead, FactLeadActivity, RawConversation
 from database.schema import ensure_schema
 from backend.schemas import LeadMetricsSummary, TrendResponse, TrendDataPoint, LeadListResponse, LeadResponse
-from backend.lead_metrics import classify_leads, resolve_period, normalize_text
+from backend.lead_metrics import classify_leads, resolve_period, normalize_text, clear_metrics_cache
 from etl.utils import (
     parse_pancake_date,
     resolve_phone,
@@ -23,9 +25,6 @@ from etl.utils import (
 )
 
 logger = logging.getLogger(__name__)
-
-# Khởi tạo DB Schema: tạo bảng nếu chưa có, thêm cột / index còn thiếu cho bảng đã tồn tại
-ensure_schema()
 
 app = FastAPI(title="Pancake Lead Reporting API")
 
@@ -174,8 +173,17 @@ def auto_repair_contacted_dates():
 
 @app.on_event("startup")
 def startup_event():
-    # Chạy làm sạch dữ liệu trong background thread để không chặn port binding của Render
-    threading.Thread(target=auto_repair_contacted_dates, daemon=True).start()
+    # Khởi tạo DB Schema khi server khởi động (không chặn module import)
+    try:
+        ensure_schema()
+        logger.info("Database schema verified on startup.")
+    except Exception as e:
+        logger.error(f"Error ensuring database schema on startup: {e}")
+
+    # Chỉ chạy sửa dữ liệu nặng nếu được bật qua biến môi trường (tránh nghẽn RAM và CPU trên Render Free 512MB)
+    if os.getenv("RUN_AUTO_REPAIR", "false").lower() == "true":
+        logger.info("RUN_AUTO_REPAIR is true, starting auto_repair_contacted_dates thread...")
+        threading.Thread(target=auto_repair_contacted_dates, daemon=True).start()
 
 # Tag phân loại lead: khớp CHÍNH XÁC tên tag (không dùng chuỗi con, tránh dính "TikTok HV other"...).
 # Gom cả bộ tag cũ đội sale dùng trước cuối tháng 9/2026.
@@ -285,8 +293,17 @@ def get_employees(
         employees.update(lead.employees)
     return {"data": sorted(list(employees))}
 
+_PAGES_CACHE: Dict[str, Any] = {}
+_PAGES_CACHE_TTL = 300.0  # 5 phút cache cho danh sách page
+_PAGES_LOCK = threading.Lock()
+
 @app.get("/api/pages/list")
 def get_pages(db: Session = Depends(get_db)):
+    now = time.time()
+    with _PAGES_LOCK:
+        if "data" in _PAGES_CACHE and (now - _PAGES_CACHE.get("time", 0) < _PAGES_CACHE_TTL):
+            return _PAGES_CACHE["data"]
+
     results = db.query(DimLead.page_id).distinct().all()
     pages = set()
     for (page,) in results:
@@ -298,7 +315,25 @@ def get_pages(db: Session = Depends(get_db)):
     for known_name in set(KNOWN_PAGE_NAMES.values()):
         pages.add(known_name)
     # zalo_pages: các page không được cộng vào "Tất cả Page" (kênh chăm sóc), dashboard hiển thị thành nhóm riêng
-    return {"data": sorted(list(pages)), "zalo_pages": sorted(p for p in pages if p in ZALO_PAGE_NAMES)}
+    result = {"data": sorted(list(pages)), "zalo_pages": sorted(p for p in pages if p in ZALO_PAGE_NAMES)}
+    with _PAGES_LOCK:
+        _PAGES_CACHE["data"] = result
+        _PAGES_CACHE["time"] = now
+    return result
+
+@app.post("/api/admin/clear-cache")
+def clear_cache():
+    """Xoá toàn bộ cache metrics & page list."""
+    clear_metrics_cache()
+    with _PAGES_LOCK:
+        _PAGES_CACHE.clear()
+    return {"status": "ok", "message": "All metrics and pages caches have been cleared."}
+
+@app.post("/api/admin/repair")
+def trigger_manual_repair():
+    """Kích hoạt chạy auto_repair_contacted_dates thủ công trong background."""
+    threading.Thread(target=auto_repair_contacted_dates, daemon=True).start()
+    return {"status": "ok", "message": "Auto repair background job has been triggered."}
 
 @app.get("/api/leads/list", response_model=LeadListResponse)
 def list_leads(

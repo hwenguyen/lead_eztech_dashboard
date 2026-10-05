@@ -11,9 +11,11 @@
 Hội thoại chưa phân nhân viên được tính cho "Chưa phân công". Mọi cờ được gộp theo LEAD (không theo từng hội thoại).
 """
 import unicodedata
+import time
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Optional, Dict, List, Set, Tuple
+from typing import Optional, Dict, List, Set, Tuple, Any
 
 from sqlalchemy import select, or_, and_
 from sqlalchemy.orm import Session
@@ -22,6 +24,18 @@ from database.models import DimLead, FactLeadActivity
 from etl.utils import VN_TZ, resolve_canonical_page_name, KNOWN_PAGE_NAMES, normalize_phone, zalo_page_keys
 
 PHONE_TAG = "đã add"
+
+# In-memory TTL Cache cho classify_leads: tránh việc frontend gọi cùng lúc 4 API (summary, trend, leads, employees)
+# đều phải tính toán lại và query DB 4 lần giống hệt nhau
+_CACHE_LOCK = threading.Lock()
+_CLASSIFY_CACHE: Dict[Tuple[str, str, Optional[str], Optional[str]], Tuple[float, Dict[int, Any]]] = {}
+CACHE_TTL = 45.0  # 45 giây
+
+def clear_metrics_cache():
+    """Xoá cache số liệu phân loại lead."""
+    with _CACHE_LOCK:
+        _CLASSIFY_CACHE.clear()
+
 
 
 @dataclass
@@ -128,9 +142,23 @@ def classify_leads(
     end: datetime,
     page_id: Optional[str] = None,
     employee: Optional[str] = None,
+    bypass_cache: bool = False,
 ) -> Dict[int, LeadAgg]:
     """Trả về các lead thuộc Tổng Lead (Mới hoặc Contact Lại) trong kỳ, key = lead id."""
     start_day, end_day = start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")
+    page_key = page_id.strip() if page_id else None
+    emp_key = employee.strip() if employee else None
+    cache_key = (start.strftime("%Y-%m-%d %H:%M:%S"), end.strftime("%Y-%m-%d %H:%M:%S"), page_key, emp_key)
+
+    # 1. Trả ngay từ Cache nếu còn hạn (giảm tải 100% cho các request đồng thời từ frontend)
+    if not bypass_cache:
+        now = time.time()
+        with _CACHE_LOCK:
+            if cache_key in _CLASSIFY_CACHE:
+                cached_time, cached_data = _CLASSIFY_CACHE[cache_key]
+                if now - cached_time < CACHE_TTL:
+                    return cached_data
+
     scope = _page_scope(page_id)
 
     # Prefilter theo LEAD: chỉ lấy lead tạo trong kỳ, gửi SĐT trong kỳ, hoặc có hội thoại nhắn tin từ start trở đi.
@@ -224,4 +252,15 @@ def classify_leads(
         if not agg.phone_number or agg.id in owner_ids:
             agg.phone_event_at = obtained_at
 
-    return {lid: agg for lid, agg in leads.items() if agg.is_new or agg.is_recontact}
+    result = {lid: agg for lid, agg in leads.items() if agg.is_new or agg.is_recontact}
+
+    # 2. Lưu vào Cache và dọn dẹp các cache quá hạn
+    now = time.time()
+    with _CACHE_LOCK:
+        if len(_CLASSIFY_CACHE) > 50:
+            expired = [k for k, (t, _) in _CLASSIFY_CACHE.items() if now - t > CACHE_TTL]
+            for k in expired:
+                _CLASSIFY_CACHE.pop(k, None)
+        _CLASSIFY_CACHE[cache_key] = (now, result)
+
+    return result
