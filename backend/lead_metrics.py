@@ -235,6 +235,8 @@ def classify_leads(
                 agg.has_phone = True
         # contacted_dates là chuỗi "YYYY-MM-DD,..." nên so sánh chuỗi là đủ
         agg.contact_days.update(d for d in split_csv(contacted_dates) if start_day <= d <= end_day)
+        if contacted_at and start <= contacted_at <= end:
+            agg.contact_days.add(contacted_at.strftime("%Y-%m-%d"))
 
         if agg.primary_employee is None or (
             contacted_at and (agg.primary_contacted_at is None or contacted_at > agg.primary_contacted_at)

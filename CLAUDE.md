@@ -9,14 +9,14 @@ FastAPI backend (`backend/`) + React frontend (`frontend-react/`) trên Render (
 | Lead Contact Lại | Lead tạo TRƯỚC kỳ, có tin nhắn (khách hoặc nhân viên) trong kỳ |
 | Tổng Lead | Mới + Contact Lại (không trùng) |
 | SĐT thu được | Mỗi số tính 1 lần, vào thời điểm khách gửi số lần đầu (`dim_leads.phone_at`; NULL thì dùng `first_created_at`), gộp trùng theo số đã chuẩn hoá giữa các page đang chọn |
-| SĐT Mới / SĐT Contact Lại | SĐT thu được trong kỳ từ lead tạo trong kỳ / từ lead cũ |
+| SĐT Mới / SĐT Contact Lại | SĐT từ Lead Mới (tạo trong kỳ có SĐT hoặc tag "đã add") / SĐT từ Lead Contact Lại (lead cũ tương tác lại trong kỳ và có SĐT/tag) |
 | SĐT / Tạo mới | SĐT Mới / Lead Mới (%) |
 | Lead Other / Đào tạo | Khớp chính xác tên tag: Lead Other = Lead Other + Support Other + HV Khác; Đào tạo = Đào tạo + HV TCKT |
 
 - **Phạm vi page**: không chọn page ("Tất cả page nguồn lead") → mọi page TRỪ page Zalo. Page Zalo (kênh chăm sóc sau khi có SĐT) chỉ xem khi chọn riêng. Page Zalo nhận diện qua key `pzl_` trong `KNOWN_PAGE_NAMES` (`etl/utils.py`) → **page Zalo mới phải khai báo ở đó**.
 - Hội thoại chưa phân nhân viên tính cho "Chưa phân công"; cờ gộp theo LEAD, không theo hội thoại.
-- SĐT: ưu tiên số Pancake thu thập (`recent_phone_numbers`), sau đó regex trên tin nhắn của khách (bỏ tin Admin). Lead chỉ có tag "Đã add" (không có số) tính theo ngày tạo lead, không gộp trùng được.
-- Trend: phân loại Mới/Contact Lại theo cả kỳ để tổng theo ngày khớp KPI; `phone_leads` theo ngày = SĐT thu được ngày đó.
+- SĐT: tính cho mọi lead có `has_phone` (có số điện thoại lưu trong `phone_number` hoặc gắn tag "đã add"). SĐT Mới tính cho Lead Mới trong kỳ; SĐT Contact Lại tính cho mọi Lead Contact Lại có SĐT trong kỳ.
+- Trend: phân loại Mới/Contact Lại theo cả kỳ để tổng theo ngày khớp KPI; `phone_leads` theo ngày = số lead có SĐT hoạt động ngày đó.
 - Thay đổi schema DB đi qua `database/schema.py::ensure_schema()` (gọi ở backend startup và đầu ETL).
 
 ## Session

@@ -244,7 +244,7 @@ function App() {
               <KpiCard
                 title="SĐT Contact Lại"
                 value={recontactPhoneCount.toLocaleString()}
-                subtitle="SĐT thu từ lead cũ trong kỳ"
+                subtitle="SĐT từ lead cũ tương tác lại"
                 icon={<PhoneForwarded className="w-5 h-5" />}
                 color="purple"
               />

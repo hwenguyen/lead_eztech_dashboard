@@ -219,18 +219,16 @@ def get_summary(
     for lead in leads.values():
         # Pie Chart: mỗi lead chỉ gán cho 1 nhân viên chính để tổng không bị lặp
         emp = lead.primary_employee
-        # SĐT chỉ tính khi số được thu trong kỳ (phone_event_at), không tính số lead đã có từ trước
-        has_new_phone = lead.phone_event_at is not None
         if lead.is_new:
             new_leads += 1
             new_leads_employee_stats[emp] += 1
-            if has_new_phone:
+            if lead.has_phone:
                 new_phone_leads += 1
         else:
             recontact_leads += 1
-            if has_new_phone:
+            if lead.has_phone:
                 recontact_phone_leads += 1
-        if has_new_phone:
+        if lead.has_phone:
             phone_leads_employee_stats[emp] += 1
 
         for label in {_categorize_tag(t) for t in lead.tags} - {None}:
@@ -258,7 +256,7 @@ def get_trend(
 ):
     """Theo ngày. Mới/Contact Lại được phân loại theo CẢ KỲ để cộng dồn khớp KPI:
     lead tạo trong kỳ chỉ được tính ở ngày tạo, kể cả khi nhắn lại vào ngày sau.
-    phone_leads = số SĐT thu được trong ngày (cộng các ngày = SĐT Mới + SĐT Contact Lại)."""
+    phone_leads = số Lead có SĐT thu được/tương tác trong ngày."""
     start, end = resolve_period(start_date, end_date)
     leads = classify_leads(db, start, end, page_id, employee)
 
@@ -270,12 +268,20 @@ def get_trend(
 
     for lead in leads.values():
         if lead.is_new:
-            trend[lead.first_created_at.strftime("%Y-%m-%d")]["new_leads"] += 1
+            day_str = lead.first_created_at.strftime("%Y-%m-%d") if lead.first_created_at else None
+            if day_str and day_str in trend:
+                trend[day_str]["new_leads"] += 1
+                if lead.has_phone:
+                    trend[day_str]["phone_leads"] += 1
         else:
-            for d in lead.contact_days:
-                trend[d]["recontact_leads"] += 1
-        if lead.phone_event_at:
-            trend[lead.phone_event_at.strftime("%Y-%m-%d")]["phone_leads"] += 1
+            days = set(lead.contact_days)
+            if not days and lead.phone_event_at:
+                days.add(lead.phone_event_at.strftime("%Y-%m-%d"))
+            for d in days:
+                if d in trend:
+                    trend[d]["recontact_leads"] += 1
+                    if lead.has_phone:
+                        trend[d]["phone_leads"] += 1
 
     return TrendResponse(data=[TrendDataPoint(date=d, **counts) for d, counts in trend.items()])
 
