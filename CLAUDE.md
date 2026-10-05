@@ -27,7 +27,15 @@ FastAPI backend (`backend/`) + React frontend (`frontend-react/`) trên Render (
   - Fix thiếu `import re` trong `etl/pancake_client.py`.
   - Thêm cơ chế Early Stopping (`days_back=3`, `DAILY_RUN_LIMIT=1000`) trong `PancakeClient.get_conversations`: dừng cào ngay khi gặp hội thoại cũ hơn 3 ngày thay vì quét cố định 500 bản ghi.
   - Tối ưu cache DB: giới hạn 1.500 bản ghi gần nhất và dùng `count()` để check first run thay vì kéo toàn bộ payload vào RAM.
-  - Tăng tần suất cập nhật dữ liệu lên 5 lần/ngày (08:00, 12:00, 16:00, 20:00, 00:00 VN) với tổng thời gian chạy mỗi tháng chỉ ~150 phút (< 8% quota GitHub Free 2.000 phút).
+  - Tăng tần suất lên 5 lần/ngày (08:00, 12:00, 16:00, 20:00, 00:00 VN). Ước tính ban đầu ~1 phút/lần là SAI: run thực tế 37m27s.
+- Tối ưu lần 2 & Lọc tin nhắn mỗi ngày:
+  - Lọc bỏ `COMMENT` ngay tại `pancake_client.py`: Pancake trả về cả comment bài viết; trước đây code kéo cả trăm comment, gọi API tải messages cho từng comment rồi qua `pipeline.py` mới vứt đi → lãng phí hàng nghìn request và gây nghẽn 37 phút. Giờ chỉ lấy đúng TIN NHẮN (Message/Inbox).
+  - Giới hạn tin nhắn mỗi ngày: `DAILY_DAYS_BACK = 1` (chỉ lấy tin nhắn phát sinh trong 24h gần nhất thay vì 3 ngày), `DAILY_RUN_LIMIT = 200` (đủ cho số lượng khách nhắn trong ngày của 1 page).
+  - Ghi DB theo lô: `prefetch_records()` nạp sẵn raw/lead/activity bằng `IN (...)`, bỏ 3 SELECT + flush mỗi hội thoại.
+  - Bỏ qua hội thoại có payload giống hệt bản đã lưu → không ghi DB.
+  - Cache DB chỉ nạp cho đúng ID API trả về (`cache_loader`), không kéo 1.500 payload/page.
+  - Tải tin nhắn lỗi → giữ tin cũ + `updated_at` cũ (lần sau tải lại), không ghi đè `[]`.
+  - Log thời gian từng bước (liệt kê / cache / tải tin / ghi DB); workflow `timeout-minutes: 20` + `concurrency`.
 
 ### 2026-10-03 — Đã hoàn thành
 - Đổi cách tính SĐT sang "thu được trong kỳ" (thêm cột `phone_at`, chuẩn hoá số, gộp trùng), loại page Zalo khỏi tổng, tag khớp chính xác, thêm thẻ KPI "SĐT / Tạo mới" (6 thẻ, 3×2).

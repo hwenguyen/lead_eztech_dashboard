@@ -1,6 +1,7 @@
 import os
+import time
 import logging
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List, Iterable
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from database.db import SessionLocal
@@ -13,9 +14,37 @@ import re
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def upsert_lead_data(db: Session, raw_data: dict, page_id: str, commit: bool = True):
+IN_CHUNK = 500  # Số phần tử tối đa trong 1 câu IN (...) khi nạp sẵn dữ liệu
+DB_BATCH = 200  # Số hội thoại mỗi lô ghi DB (1 lần prefetch + 1 commit)
+
+
+def _chunks(items: List[str], size: int = IN_CHUNK) -> Iterable[List[str]]:
+    for i in range(0, len(items), size):
+        yield items[i:i + size]
+
+
+def prefetch_records(db: Session, conversations: List[dict]) -> Dict[str, Dict[str, Any]]:
+    """Nạp sẵn RawConversation / DimLead / FactLeadActivity của cả lô bằng vài câu IN (...).
+    Thay cho 3 câu SELECT + flush cho MỖI hội thoại — mỗi câu là 1 round trip từ runner GitHub tới Neon."""
+    conv_ids = list({str(c.get('id')) for c in conversations if c.get('id')})
+    cust_ids = list({str(c.get('customer_id')) for c in conversations if c.get('customer_id')})
+    maps: Dict[str, Dict[str, Any]] = {"raw": {}, "lead": {}, "activity": {}}
+    for chunk in _chunks(conv_ids):
+        for r in db.query(RawConversation).filter(RawConversation.pancake_id.in_(chunk)):
+            maps["raw"][r.pancake_id] = r
+        for a in db.query(FactLeadActivity).filter(FactLeadActivity.conversation_id.in_(chunk)):
+            maps["activity"][a.conversation_id] = a
+    for chunk in _chunks(cust_ids):
+        for lead in db.query(DimLead).filter(DimLead.customer_id.in_(chunk)):
+            maps["lead"][lead.customer_id] = lead
+    return maps
+
+
+def upsert_lead_data(db: Session, raw_data: dict, page_id: str, commit: bool = True,
+                     prefetched: Optional[Dict[str, Dict[str, Any]]] = None):
     """
     Logic upsert Lead và Activity với hỗ trợ batch commit.
+    prefetched: kết quả prefetch_records() → không query/flush từng dòng (nhanh hơn nhiều trên Neon).
     """
     try:
         # 1. Lưu Raw
@@ -30,10 +59,15 @@ def upsert_lead_data(db: Session, raw_data: dict, page_id: str, commit: bool = T
         if not conv_id or not customer_id:
             return
 
-        raw_record = db.query(RawConversation).filter_by(pancake_id=conv_id).first()
+        if prefetched is not None:
+            raw_record = prefetched["raw"].get(conv_id)
+        else:
+            raw_record = db.query(RawConversation).filter_by(pancake_id=conv_id).first()
         if not raw_record:
             raw_record = RawConversation(pancake_id=conv_id, page_id=page_id, payload=raw_data)
             db.add(raw_record)
+            if prefetched is not None:
+                prefetched["raw"][conv_id] = raw_record
         else:
             raw_record.payload = raw_data
             if not raw_record.page_id or is_page_id(raw_record.page_id):
@@ -44,7 +78,10 @@ def upsert_lead_data(db: Session, raw_data: dict, page_id: str, commit: bool = T
         phone, phone_at = resolve_phone(raw_data)
 
         conv_inserted = parse_pancake_date(raw_data.get('inserted_at'))
-        lead = db.query(DimLead).filter_by(customer_id=customer_id).first()
+        if prefetched is not None:
+            lead = prefetched["lead"].get(customer_id)
+        else:
+            lead = db.query(DimLead).filter_by(customer_id=customer_id).first()
         if not lead:
             lead = DimLead(
                 customer_id=customer_id,
@@ -55,7 +92,11 @@ def upsert_lead_data(db: Session, raw_data: dict, page_id: str, commit: bool = T
                 first_created_at=conv_inserted
             )
             db.add(lead)
-            db.flush() # Để lấy lead.id
+            if prefetched is not None:
+                # Activity gắn qua relationship → không cần flush lấy lead.id ngay
+                prefetched["lead"][customer_id] = lead
+            else:
+                db.flush() # Để lấy lead.id
         else:
             # Update info if available
             if lead.phone_number:
@@ -74,7 +115,8 @@ def upsert_lead_data(db: Session, raw_data: dict, page_id: str, commit: bool = T
             # Lead Mới tính theo hội thoại SỚM NHẤT của khách
             if conv_inserted and (not lead.first_created_at or conv_inserted < lead.first_created_at):
                 lead.first_created_at = conv_inserted
-            db.flush()
+            if prefetched is None:
+                db.flush()
 
         # 3. Extract FactActivity
         msg_count = raw_data.get('message_count', 0)
@@ -107,10 +149,13 @@ def upsert_lead_data(db: Session, raw_data: dict, page_id: str, commit: bool = T
 
         contacted_dates_str = ",".join(sorted(list(c_dates))) if c_dates else None
 
-        activity = db.query(FactLeadActivity).filter_by(conversation_id=conv_id).first()
+        if prefetched is not None:
+            activity = prefetched["activity"].get(conv_id)
+        else:
+            activity = db.query(FactLeadActivity).filter_by(conversation_id=conv_id).first()
         if not activity:
             activity = FactLeadActivity(
-                lead_id=lead.id,
+                lead=lead,
                 conversation_id=conv_id,
                 status_tag=status_tag,
                 assigned_users=assigned_users,
@@ -120,6 +165,8 @@ def upsert_lead_data(db: Session, raw_data: dict, page_id: str, commit: bool = T
                 contacted_dates=contacted_dates_str
             )
             db.add(activity)
+            if prefetched is not None:
+                prefetched["activity"][conv_id] = activity
         else:
             activity.status_tag = status_tag
             activity.assigned_users = assigned_users
@@ -137,6 +184,7 @@ def upsert_lead_data(db: Session, raw_data: dict, page_id: str, commit: bool = T
         logger.error(f"Error upserting conversation {raw_data.get('id')}: {e}")
 
 def run_etl_pipeline():
+    t_start = time.perf_counter()
     logger.info("Starting Fast ETL Pipeline...")
     # ETL có thể chạy trước khi Backend kịp thêm cột mới → tự đồng bộ schema
     ensure_schema()
@@ -204,8 +252,8 @@ def run_etl_pipeline():
             })
 
     first_run_limit = int(os.getenv("FIRST_RUN_LIMIT", "2000"))
-    daily_run_limit = int(os.getenv("DAILY_RUN_LIMIT", "1000"))
-    daily_days_back = int(os.getenv("DAILY_DAYS_BACK", "3"))
+    daily_run_limit = int(os.getenv("DAILY_RUN_LIMIT", "200"))
+    daily_days_back = int(os.getenv("DAILY_DAYS_BACK", "1"))
 
     db = SessionLocal()
     
@@ -218,8 +266,8 @@ def run_etl_pipeline():
             try:
                 client = PancakeClient(api_token=page_token)
                 
-                # 1. Kiểm tra số lượng và xây dựng cache từ DB để skip tải lại tin nhắn không đổi
-                existing_cache: Dict[str, Any] = {}
+                # 1. Kiểm tra page đã có dữ liệu chưa (first run) — chỉ cần 1 dòng, không kéo payload
+                t_page = time.perf_counter()
                 known_page_name = resolve_canonical_page_name(page_id, fallback=None)
                 if known_page_name == str(page_id).strip() and is_page_id(page_id):
                     known_page_name = None
@@ -233,30 +281,17 @@ def run_etl_pipeline():
                         RawConversation.page_id == known_page_name,
                         RawConversation.pancake_id.contains(clean_num)
                     )
-                    existing_count = db.query(RawConversation.id).filter(page_filter).count()
-
-                    # Nạp tối đa 1.500 hội thoại gần nhất làm cache so khớp để tiết kiệm RAM và mạng
-                    raw_rows = db.query(
-                        RawConversation.pancake_id,
-                        RawConversation.payload,
-                        RawConversation.page_id
-                    ).filter(page_filter).order_by(RawConversation.id.desc()).limit(1500).all()
-
-                    for p_id, payload, pg_name in raw_rows:
-                        if pg_name and not is_page_id(pg_name) and not known_page_name:
-                            known_page_name = str(pg_name).strip()
-                        if payload and isinstance(payload, dict):
-                            existing_cache[str(p_id)] = {
-                                "updated_at": payload.get("updated_at"),
-                                "messages": payload.get("messages", []),
-                                "phone_number": payload.get("phone_number")
-                            }
-                    logger.info(f"Đã nạp {len(existing_cache)} hội thoại từ cache DB của Page {page_id} (Tên đã biết: '{known_page_name or 'Chưa rõ'}').")
+                    has_existing = db.query(RawConversation.id).filter(page_filter).first() is not None
+                    if has_existing and not known_page_name:
+                        for (pg_name,) in db.query(RawConversation.page_id).filter(page_filter).distinct().limit(20):
+                            if pg_name and not is_page_id(pg_name):
+                                known_page_name = str(pg_name).strip()
+                                break
                 except Exception as e:
-                    logger.warning(f"Không thể đọc cache DB: {e}")
-                    existing_count = 0
+                    logger.warning(f"Không thể kiểm tra dữ liệu cũ trong DB: {e}")
+                    has_existing = False
 
-                if existing_count == 0:
+                if not has_existing:
                     logger.info(f"🔔 FIRST RUN DETECTED! Kéo {first_run_limit} hội thoại lịch sử cho Page {page_id}...")
                     client.limit = first_run_limit 
                     days_back_param = None
@@ -265,14 +300,32 @@ def run_etl_pipeline():
                     client.limit = daily_run_limit
                     days_back_param = daily_days_back
 
+                # Cache chỉ nạp cho đúng các hội thoại API vừa trả về (thay vì 1.500 payload gần nhất)
+                stored_payloads: Dict[str, dict] = {}
+
+                def load_cache(conv_ids: List[str]) -> Dict[str, dict]:
+                    s = SessionLocal()
+                    try:
+                        for chunk in _chunks(conv_ids):
+                            rows = s.query(RawConversation.pancake_id, RawConversation.payload).filter(
+                                RawConversation.pancake_id.in_(chunk)
+                            )
+                            for pid, payload in rows:
+                                if isinstance(payload, dict):
+                                    stored_payloads[str(pid)] = payload
+                    finally:
+                        s.close()
+                    return stored_payloads
+
                 # Đóng session trước khi cào dữ liệu qua API để không giữ idle connection trên Neon
                 db.close()
+                t_api = time.perf_counter()
                 conversations = client.get_conversations(
                     page_id=page_id,
-                    existing_cache=existing_cache,
+                    cache_loader=load_cache,
                     days_back=days_back_param
                 )
-                total = len(conversations)
+                api_secs = time.perf_counter() - t_api
 
                 # Tên chuẩn của riêng Page này (ưu tiên tên API trả về -> tên cấu hình preset -> tên cấu hình chuẩn -> tên DB)
                 canonical_page_name = (
@@ -285,16 +338,33 @@ def run_etl_pipeline():
                 if not canonical_page_name or is_page_id(canonical_page_name):
                     canonical_page_name = preset_name or known_page_name or resolve_canonical_page_name(page_id, fallback=page_id)
 
-                # 2. Mở session mới và lưu dữ liệu vào DB theo Batch (50 items/commit)
+                # Bỏ qua hội thoại giống hệt bản đã lưu (không đổi gì) → không ghi DB
+                changed = [
+                    c for c in conversations
+                    if str(c.get('type', '')).upper() != 'COMMENT'
+                    and stored_payloads.get(str(c.get('id'))) != c
+                ]
+                total = len(changed)
+                logger.info(
+                    f"Page {page_id}: API trả {len(conversations)} hội thoại ({api_secs:.1f}s), "
+                    f"thay đổi cần ghi DB: {total}, giữ nguyên: {len(conversations) - total}."
+                )
+
+                # 2. Mở session mới và ghi DB theo lô: mỗi lô nạp sẵn bản ghi bằng vài câu IN rồi commit 1 lần
+                t_db = time.perf_counter()
                 db = SessionLocal()
                 try:
-                    for idx, conv in enumerate(conversations):
-                        upsert_lead_data(db, conv, canonical_page_name, commit=False)
-                        if (idx + 1) % 50 == 0:
-                            db.commit()
-                            logger.info(f"Đã lưu vào DB: {idx + 1}/{total} hội thoại...")
-                    db.commit()
-                    logger.info(f"Hoàn tất lưu DB: {total}/{total} hội thoại.")
+                    for start in range(0, total, DB_BATCH):
+                        batch = changed[start:start + DB_BATCH]
+                        prefetched = prefetch_records(db, batch)
+                        for conv in batch:
+                            upsert_lead_data(db, conv, canonical_page_name, commit=False, prefetched=prefetched)
+                        db.commit()
+                        logger.info(f"Đã lưu vào DB: {min(start + DB_BATCH, total)}/{total} hội thoại...")
+                    logger.info(
+                        f"Hoàn tất Page {page_id}: ghi {total} hội thoại trong {time.perf_counter() - t_db:.1f}s, "
+                        f"tổng {time.perf_counter() - t_page:.1f}s."
+                    )
                 except Exception as e:
                     db.rollback()
                     logger.error(f"Lỗi khi lưu dữ liệu theo batch cho Page {page_id}: {e}")
@@ -305,7 +375,7 @@ def run_etl_pipeline():
     finally:
         db.close()
         
-    logger.info("ETL Pipeline completed successfully in record time.")
+    logger.info(f"ETL Pipeline hoàn tất trong {time.perf_counter() - t_start:.1f}s.")
 
 if __name__ == "__main__":
     # Test chạy trực tiếp

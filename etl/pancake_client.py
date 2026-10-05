@@ -4,7 +4,7 @@ import logging
 import requests
 import time
 from datetime import datetime, timedelta
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
@@ -126,17 +126,20 @@ class PancakeClient:
         self,
         page_id: str,
         existing_cache: Optional[Dict[str, Any]] = None,
-        days_back: Optional[int] = None
+        days_back: Optional[int] = None,
+        cache_loader: Optional[Callable[[List[str]], Dict[str, Any]]] = None
     ) -> List[Dict[str, Any]]:
         """
         Lấy danh sách hội thoại qua Pancake Public API v2 với cơ chế Incremental Caching & Early Stopping:
         - Nếu days_back được chỉ định (vd 3 ngày): chỉ cào dữ liệu mới cập nhật gần đây và dừng ngay (early break)
           khi gặp hội thoại cũ hơn, tránh duyệt thừa 500 bản ghi.
+        - cache_loader(ids) -> {id: payload đã lưu}: chỉ nạp cache DB cho đúng các hội thoại vừa liệt kê.
         - Bỏ qua tải messages đối với các hội thoại đã có trong DB và không có thay đổi (updated_at trùng khớp).
         - Đối với hội thoại mới hoặc có cập nhật, chỉ lấy 1 trang tin nhắn mới nhất thay vì quét toàn bộ lịch sử.
         """
         logger.info(f"--- BẮT ĐẦU CÀO DỮ LIỆU QUA API CHO PAGE: {page_id} (Giới hạn: {self.limit}, Ngày quét: {days_back or 'Tất cả'}) ---")
-        existing_cache = existing_cache or {}
+        existing_cache = existing_cache if existing_cache is not None else {}
+        failed_msg_ids: set = set()
         
         ptoken, resolved_page_id, resolved_page_name = self._get_page_access_token(page_id)
         if not ptoken:
@@ -151,13 +154,15 @@ class PancakeClient:
         url_convs = f"https://pages.fm/api/public_api/v2/pages/{page_id}/conversations"
         
         now_ts = int(datetime.utcnow().timestamp())
+        # Giữ since rộng: nếu Pancake lọc since theo ngày TẠO hội thoại thì thu hẹp sẽ mất lead cũ nhắn lại.
+        # Việc cắt bớt do early stopping theo updated_at bên dưới đảm nhiệm.
+        since_ts = int((datetime.utcnow() - timedelta(days=365 * 2)).timestamp())
         if days_back and days_back > 0:
-            since_ts = int((datetime.utcnow() - timedelta(days=days_back)).timestamp())
             cutoff_dt = datetime.now(VN_TZ).replace(tzinfo=None) - timedelta(days=days_back)
         else:
-            since_ts = int((datetime.utcnow() - timedelta(days=365 * 2)).timestamp())
             cutoff_dt = None
         
+        t_list = time.perf_counter()
         all_convs = []
         last_id = None
         retry_count = 0
@@ -204,6 +209,11 @@ class PancakeClient:
                 reached_cutoff = False
                 valid_convs = []
                 for conv in convs:
+                    # Bỏ qua Comment ngay từ đầu — chỉ lấy tin nhắn (Message/Inbox)
+                    conv_type = str(conv.get("type", "")).upper()
+                    if conv_type == "COMMENT":
+                        continue
+
                     if cutoff_dt:
                         conv_dt = parse_pancake_date(conv.get("updated_at") or conv.get("inserted_at"))
                         if conv_dt and conv_dt < cutoff_dt:
@@ -249,6 +259,16 @@ class PancakeClient:
                 break
 
         all_convs = all_convs[:self.limit]
+        logger.info(f"Đã liệt kê {len(all_convs)} hội thoại trong {time.perf_counter() - t_list:.1f}s.")
+
+        # Chỉ nạp cache DB cho đúng các hội thoại vừa liệt kê
+        if cache_loader and all_convs:
+            t_cache = time.perf_counter()
+            try:
+                existing_cache.update(cache_loader([str(c.get('id')) for c in all_convs if c.get('id')]))
+            except Exception as e:
+                logger.warning(f"Không nạp được cache DB: {e}")
+            logger.info(f"Nạp cache DB cho {len(existing_cache)} hội thoại trong {time.perf_counter() - t_cache:.1f}s.")
         
         # 1. Tận dụng Cache: Chỉ tải tin nhắn cho các hội thoại MỚI hoặc có updated_at THAY ĐỔI
         messages_by_conv: Dict[str, list] = {}
@@ -270,6 +290,8 @@ class PancakeClient:
 
         # 2. Tải tin nhắn mới (chỉ lấy 30 tin nhắn mới nhất thay vì loop vô tận qua toàn bộ lịch sử)
         if convs_to_fetch:
+            t_msgs = time.perf_counter()
+
             def fetch_single_conversation_messages(cid):
                 url = f"https://pages.fm/api/public_api/v1/pages/{page_id}/conversations/{cid}/messages"
                 try:
@@ -287,17 +309,29 @@ class PancakeClient:
                             return cid, resp2.json().get('messages', [])
                 except Exception as e:
                     logger.debug(f"Lỗi khi tải messages cho conversation {cid}: {e}")
-                return cid, []
+                return cid, None  # None = tải lỗi (khác với hội thoại thật sự không có tin)
 
+            failed = 0
             # Sử dụng 8 workers để tải song song cực nhanh
             with ThreadPoolExecutor(max_workers=8) as executor:
                 future_to_conv = {executor.submit(fetch_single_conversation_messages, cid): cid for cid in convs_to_fetch}
                 for future in as_completed(future_to_conv):
+                    cid = future_to_conv[future]
                     try:
-                        cid, msgs = future.result()
-                        messages_by_conv[cid] = msgs
+                        _, msgs = future.result()
                     except Exception as e:
                         logger.error(f"Lỗi future messages cid {cid}: {e}")
+                        msgs = None
+                    if msgs is None:
+                        # Tải lỗi → giữ tin nhắn đã lưu thay vì ghi đè bằng danh sách rỗng
+                        failed += 1
+                        failed_msg_ids.add(cid)
+                        msgs = (existing_cache.get(cid) or {}).get('messages', [])
+                    messages_by_conv[cid] = msgs
+            logger.info(
+                f"Tải tin nhắn {len(convs_to_fetch)} hội thoại trong {time.perf_counter() - t_msgs:.1f}s "
+                f"(lỗi: {failed})."
+            )
 
         # Trích xuất tên Page từ tin nhắn gửi đi nếu chưa có tên chữ
         if not self.page_name:
@@ -371,6 +405,11 @@ class PancakeClient:
             if msg_count is None:
                 msg_count = len(messages_data)
 
+            updated_at = conv.get("updated_at")
+            if conv_id in failed_msg_ids and existing_cache.get(conv_id):
+                # Giữ updated_at cũ → lần chạy sau thấy lệch và tải lại tin nhắn
+                updated_at = existing_cache[conv_id].get("updated_at") or updated_at
+
             results.append({
                 "id": conv_id,
                 "pancake_id": conv_id,
@@ -383,7 +422,7 @@ class PancakeClient:
                 "assigned_users": assigned_users,
                 "messages": formatted_msgs,
                 "inserted_at": conv.get("inserted_at"),
-                "updated_at": conv.get("updated_at")
+                "updated_at": updated_at
             })
             
         logger.info(f"Hoàn tất lấy dữ liệu qua API! Tổng cộng: {len(results)} hội thoại.")
