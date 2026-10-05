@@ -35,7 +35,8 @@ FastAPI backend (`backend/`) + React frontend (`frontend-react/`) trên Render (
   - Bỏ qua hội thoại có payload giống hệt bản đã lưu → không ghi DB.
   - Cache DB chỉ nạp cho đúng ID API trả về (`cache_loader`), không kéo 1.500 payload/page.
   - Tải tin nhắn lỗi → giữ tin cũ + `updated_at` cũ (lần sau tải lại), không ghi đè `[]`.
-  - Log thời gian từng bước (liệt kê / cache / tải tin / ghi DB); workflow `timeout-minutes: 20` + `concurrency`.
+  - Lịch chạy mới: Mỗi 15 phút trong giờ làm việc (08:00 - 18:00 VN) + 1 lần chốt số lúc 00:00 VN (~42 lần/ngày = ~1.260 phút/tháng, còn dư ~740 phút trên tổng 2.000 phút quota GitHub Free).
+  - Log thời gian từng bước (liệt kê / cache / tải tin / ghi DB); workflow `timeout-minutes: 10` + `concurrency`.
 
 ### 2026-10-03 — Đã hoàn thành
 - Đổi cách tính SĐT sang "thu được trong kỳ" (thêm cột `phone_at`, chuẩn hoá số, gộp trùng), loại page Zalo khỏi tổng, tag khớp chính xác, thêm thẻ KPI "SĐT / Tạo mới" (6 thẻ, 3×2).
