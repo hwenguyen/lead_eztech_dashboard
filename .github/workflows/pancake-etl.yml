@@ -1,14 +1,6 @@
 name: Pancake ETL Pipeline
 
 on:
-  schedule:
-    # Chạy mỗi 15 phút trong giờ làm việc (08:00 đến 18:00 giờ VN = 01:00 đến 11:00 UTC):
-    # - Từ 08:00 đến 17:45 VN (01:00 đến 10:45 UTC): mỗi 15 phút
-    - cron: '*/15 1-10 * * *'
-    # - Lúc 18:00 VN (11:00 UTC): chốt kết thúc giờ hành chính
-    - cron: '0 11 * * *'
-    # - Lúc 00:00 VN (17:00 UTC): chốt số liệu cuối ngày (thu thập tin nhắn ca tối)
-    - cron: '0 17 * * *'
   workflow_dispatch: # Cho phép bấm chạy thủ công trên giao diện GitHub bất cứ lúc nào
 
 concurrency:
