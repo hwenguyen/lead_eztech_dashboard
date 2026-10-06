@@ -279,9 +279,10 @@ class PancakeClient:
             conv_updated = conv.get('updated_at')
             cached_data = existing_cache.get(cid)
 
-            # Nếu đã có trong DB, updated_at không đổi và đã có tin nhắn -> dùng lại cache, không tốn request
-            if cached_data and cached_data.get('updated_at') == conv_updated and cached_data.get('messages'):
-                messages_by_conv[cid] = cached_data.get('messages', [])
+            # Nếu đã có trong DB, updated_at không đổi -> dùng lại cache, không tốn request tải lại
+            if cached_data and cached_data.get('updated_at') == conv_updated:
+                # Dummy list so it evaluates to True but produces empty formatted_msgs
+                messages_by_conv[cid] = [{"is_cached": True}]
             else:
                 convs_to_fetch.append(cid)
 
