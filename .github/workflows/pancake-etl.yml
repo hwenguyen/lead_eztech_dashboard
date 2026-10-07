@@ -9,7 +9,7 @@ on:
     - cron: '0 11 * * *'
     # - Lúc 00:00 VN (17:00 UTC): chốt số liệu cuối ngày (thu thập tin nhắn ca tối)
     - cron: '0 17 * * *'
-  workflow_dispatch:
+  workflow_dispatch: # Cho phép bấm chạy thủ công trên giao diện GitHub bất cứ lúc nào
     inputs:
       days_back:
         description: 'Số ngày quét ngược về trước (Nhập 30 hoặc 60 nếu muốn cập nhật lịch sử tag cho các dòng cũ)'

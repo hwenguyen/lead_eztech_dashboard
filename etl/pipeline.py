@@ -2,7 +2,7 @@ import os
 import time
 import logging
 from typing import Optional, Dict, Any, List, Iterable
-from sqlalchemy import or_
+from sqlalchemy import or_, func
 from sqlalchemy.orm import Session
 from database.db import SessionLocal
 from database.models import RawConversation, DimLead, FactLeadActivity
@@ -69,6 +69,10 @@ def upsert_lead_data(db: Session, raw_data: dict, page_id: str, commit: bool = T
             if prefetched is not None:
                 prefetched["raw"][conv_id] = raw_record
         else:
+            # Preserve old messages if new payload is from cache and empty
+            if not raw_data.get('messages') and raw_record.payload and raw_record.payload.get('messages'):
+                raw_data['messages'] = raw_record.payload.get('messages')
+                
             raw_record.payload = raw_data
             if not raw_record.page_id or is_page_id(raw_record.page_id):
                 raw_record.page_id = page_id
@@ -312,12 +316,23 @@ def run_etl_pipeline():
                     s = SessionLocal()
                     try:
                         for chunk in _chunks(conv_ids):
-                            rows = s.query(RawConversation.pancake_id, RawConversation.payload).filter(
+                            rows = s.query(
+                                RawConversation.pancake_id,
+                                func.json_extract_path_text(RawConversation.payload, 'updated_at').label('updated_at'),
+                                func.json_extract_path_text(RawConversation.payload, 'message_count').label('message_count'),
+                                func.json_extract_path_text(RawConversation.payload, 'tags').label('tags'),
+                                func.json_extract_path_text(RawConversation.payload, 'assigned_users').label('assigned_users')
+                            ).filter(
                                 RawConversation.pancake_id.in_(chunk)
                             )
-                            for pid, payload in rows:
-                                if isinstance(payload, dict):
-                                    stored_payloads[str(pid)] = payload
+                            for r in rows:
+                                pid = str(r.pancake_id)
+                                stored_payloads[pid] = {
+                                    'updated_at': r.updated_at,
+                                    'message_count': r.message_count,
+                                    'tags': r.tags,
+                                    'assigned_users': r.assigned_users
+                                }
                     finally:
                         s.close()
                     return stored_payloads
@@ -344,11 +359,31 @@ def run_etl_pipeline():
                     canonical_page_name = preset_name or known_page_name or resolve_canonical_page_name(page_id, fallback=page_id)
 
                 # Bỏ qua hội thoại giống hệt bản đã lưu (không đổi gì) → không ghi DB
-                changed = [
-                    c for c in conversations
-                    if str(c.get('type', '')).upper() != 'COMMENT'
-                    and stored_payloads.get(str(c.get('id'))) != c
-                ]
+                import json
+                def sort_tags(t):
+                    if not t: return "[]"
+                    if isinstance(t, str):
+                        try:
+                            t = json.loads(t)
+                        except Exception:
+                            return t
+                    return json.dumps(sorted(t)) if isinstance(t, list) else str(t)
+
+                changed = []
+                for c in conversations:
+                    if str(c.get('type', '')).upper() == 'COMMENT':
+                        continue
+                    cid = str(c.get('id'))
+                    cached = stored_payloads.get(cid)
+                    if not cached:
+                        changed.append(c)
+                        continue
+                    
+                    if str(cached.get('updated_at')) != str(c.get('updated_at')) \
+                       or str(cached.get('message_count')) != str(c.get('message_count')) \
+                       or sort_tags(cached.get('tags')) != sort_tags(c.get('tags')) \
+                       or str(cached.get('assigned_users') or '') != str(c.get('assigned_users') or ''):
+                        changed.append(c)
                 total = len(changed)
                 logger.info(
                     f"Page {page_id}: API trả {len(conversations)} hội thoại ({api_secs:.1f}s), "
