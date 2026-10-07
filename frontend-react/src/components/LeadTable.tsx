@@ -101,12 +101,42 @@ export function LeadTable({ leads, totalLeads, page, pageSize, onPageChange }: L
                   {/* Tags */}
                   <td className="px-6 py-4 align-top">
                     {lead.status_tag ? (
-                      <div className="flex flex-wrap gap-1">
-                        {lead.status_tag.split(',').map((tag, i) => (
-                          <span key={i} className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-purple-50 text-purple-700 border border-purple-100 whitespace-nowrap">
-                            {tag.trim()}
-                          </span>
-                        ))}
+                      <div className="flex flex-wrap gap-1.5">
+                        {lead.status_tag.split(',').map((tag, i) => {
+                          const tagTrimmed = tag.trim();
+                          const event = lead.tag_timeline?.find(
+                            t => t.tag.trim().toLowerCase() === tagTrimmed.toLowerCase()
+                          );
+                          let formattedTime: string | null = null;
+                          let fullTimeStr: string | null = null;
+                          if (event?.tagged_at) {
+                            try {
+                              const d = new Date(event.tagged_at);
+                              if (!isNaN(d.getTime())) {
+                                formattedTime = format(d, 'dd/MM HH:mm');
+                                fullTimeStr = format(d, 'dd/MM/yyyy HH:mm');
+                              }
+                            } catch (_) {}
+                          }
+                          const tooltip = fullTimeStr
+                            ? `Gắn lúc: ${fullTimeStr}${event?.editor ? ` bởi ${event.editor}` : ''}`
+                            : tagTrimmed;
+
+                          return (
+                            <span
+                              key={i}
+                              title={tooltip}
+                              className="inline-flex flex-col px-2 py-0.5 rounded-lg text-xs font-medium bg-purple-50 text-purple-700 border border-purple-100 whitespace-nowrap cursor-help hover:bg-purple-100 transition-colors"
+                            >
+                              <span>{tagTrimmed}</span>
+                              {formattedTime && (
+                                <span className="text-[10px] text-purple-400 font-normal leading-tight">
+                                  {formattedTime}
+                                </span>
+                              )}
+                            </span>
+                          );
+                        })}
                       </div>
                     ) : (
                       <span className="text-[#4B5563] text-xs">—</span>

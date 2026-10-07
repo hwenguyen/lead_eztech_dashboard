@@ -21,6 +21,14 @@ FastAPI backend (`backend/`) + React frontend (`frontend-react/`) trên Render (
 
 ## Session
 
+### 2026-10-07 — Đã hoàn thành
+- Lưu thời gian gắn tag của từng lead (`tag_timeline`):
+  - Lấy trường `tag_histories` từ Pancake API v2 (`/pages/{page_id}/conversations`), bóc tách danh sách sự kiện gắn/gỡ tag: `tag`, `action`, `tagged_at`, `editor`.
+  - Thêm cột `tag_timeline` (JSON / JSONB) vào model `FactLeadActivity` và auto-migration trong `database/schema.py`.
+  - Cập nhật ETL `etl/pipeline.py` để lưu `tag_timeline` vào DB.
+  - Cập nhật backend `backend/schemas.py`, `backend/lead_metrics.py`, `backend/main.py` trả về `tag_timeline` trong API `/api/leads/list`.
+  - Cập nhật Frontend `LeadTable.tsx` hiển thị thời gian gắn tag (ví dụ: `05/10 09:32`) và hover tooltip (`Gắn lúc: 05/10/2026 09:32 bởi Nguyen Gia Huy`).
+
 ### 2026-10-05 — Đã hoàn thành
 - Tối ưu GitHub Actions ETL & Quota:
   - Tạo `requirements-etl.txt` (loại bỏ streamlit, plotly, fastapi, pandas khỏi workflow ETL), bật cache `cache: 'pip'`.

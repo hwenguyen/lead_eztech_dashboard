@@ -42,6 +42,7 @@ class FactLeadActivity(Base):
     is_contacted = Column(Boolean, default=False)
     contacted_at = Column(DateTime, nullable=True, index=True) # Last contacted at
     contacted_dates = Column(String, nullable=True) # Comma separated dates like "2026-08-11,2026-08-12"
+    tag_timeline = Column(JSON, nullable=True) # Danh sách lịch sử gắn tag [{"tag": "...", "action": "add", "tagged_at": "...", "editor": "..."}]
     
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 

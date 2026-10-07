@@ -25,13 +25,24 @@ def _run_ddl(statements):
 
 
 def _add_missing_columns():
-    existing = {col["name"] for col in inspect(engine).get_columns("dim_leads")}
-    if "phone_at" in existing:
-        return
-    # Backend và ETL có thể cùng chạy → Postgres dùng IF NOT EXISTS để không lỗi khi bên kia thêm trước
+    inspector = inspect(engine)
     if_not_exists = "IF NOT EXISTS " if engine.dialect.name == "postgresql" else ""
-    _run_ddl([f"ALTER TABLE dim_leads ADD COLUMN {if_not_exists}phone_at TIMESTAMP"])
-    logger.info("Đã thêm cột dim_leads.phone_at.")
+    ddl_statements = []
+
+    existing_dim = {col["name"] for col in inspector.get_columns("dim_leads")}
+    if "phone_at" not in existing_dim:
+        ddl_statements.append(f"ALTER TABLE dim_leads ADD COLUMN {if_not_exists}phone_at TIMESTAMP")
+        logger.info("Đã lên kế hoạch thêm cột dim_leads.phone_at.")
+
+    existing_fact = {col["name"] for col in inspector.get_columns("fact_lead_activities")}
+    if "tag_timeline" not in existing_fact:
+        col_type = "JSONB" if engine.dialect.name == "postgresql" else "JSON"
+        ddl_statements.append(f"ALTER TABLE fact_lead_activities ADD COLUMN {if_not_exists}tag_timeline {col_type}")
+        logger.info("Đã lên kế hoạch thêm cột fact_lead_activities.tag_timeline.")
+
+    if ddl_statements:
+        _run_ddl(ddl_statements)
+        logger.info("Đã cập nhật các cột mới vào database schema.")
 
 
 def ensure_schema(retries: int = 5):

@@ -33,6 +33,13 @@ export interface TrendData {
   phone_leads: number;
 }
 
+export interface TagEvent {
+  tag: string;
+  action: string;
+  tagged_at: string;
+  editor?: string;
+}
+
 export interface Lead {
   id: number;
   customer_id: string;
@@ -41,6 +48,7 @@ export interface Lead {
   page_id: string;
   first_created_at: string | null;
   status_tag?: string;
+  tag_timeline?: TagEvent[];
   assigned_users?: string;
   messages?: string;
   is_contacted: boolean;

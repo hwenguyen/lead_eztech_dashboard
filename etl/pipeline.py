@@ -149,6 +149,8 @@ def upsert_lead_data(db: Session, raw_data: dict, page_id: str, commit: bool = T
 
         contacted_dates_str = ",".join(sorted(list(c_dates))) if c_dates else None
 
+        tag_timeline = raw_data.get('tag_timeline')
+
         if prefetched is not None:
             activity = prefetched["activity"].get(conv_id)
         else:
@@ -162,7 +164,8 @@ def upsert_lead_data(db: Session, raw_data: dict, page_id: str, commit: bool = T
                 message_count=msg_count,
                 is_contacted=is_contacted,
                 contacted_at=contacted_at,
-                contacted_dates=contacted_dates_str
+                contacted_dates=contacted_dates_str,
+                tag_timeline=tag_timeline
             )
             db.add(activity)
             if prefetched is not None:
@@ -173,6 +176,8 @@ def upsert_lead_data(db: Session, raw_data: dict, page_id: str, commit: bool = T
             activity.message_count = msg_count
             activity.is_contacted = is_contacted
             activity.contacted_dates = contacted_dates_str
+            if tag_timeline:
+                activity.tag_timeline = tag_timeline
             if contacted_at:
                 activity.contacted_at = contacted_at
 

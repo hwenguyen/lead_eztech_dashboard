@@ -21,6 +21,7 @@ class LeadResponse(BaseModel):
     page_id: str
     first_created_at: Optional[datetime] = None
     status_tag: Optional[str] = None
+    tag_timeline: Optional[List[dict]] = None
     assigned_users: Optional[str] = None
     messages: Optional[str] = None
     is_contacted: bool

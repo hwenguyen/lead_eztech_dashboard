@@ -358,6 +358,33 @@ class PancakeClient:
             raw_tags = conv.get('tags', [])
             tags = [t['text'] for t in raw_tags if isinstance(t, dict) and 'text' in t]
             
+            # Trích xuất lịch sử gắn/gỡ tag từ tag_histories của Pancake API
+            tag_histories_raw = conv.get('tag_histories', [])
+            tag_timeline = []
+            if isinstance(tag_histories_raw, list):
+                for th in tag_histories_raw:
+                    if isinstance(th, dict):
+                        p = th.get('payload', {})
+                        t_obj = p.get('tag', {}) if isinstance(p, dict) else {}
+                        t_text = t_obj.get('text') if isinstance(t_obj, dict) else None
+                        if t_text:
+                            tag_timeline.append({
+                                "tag": t_text,
+                                "action": p.get('action', 'add'),
+                                "tagged_at": th.get('inserted_at'),
+                                "editor": p.get('editor_name')
+                            })
+            # Nếu có tag nhưng tag_histories không trả về, gán thời điểm hội thoại
+            if not tag_timeline and tags:
+                conv_ts = conv.get('updated_at') or conv.get('inserted_at')
+                for tag_name in tags:
+                    tag_timeline.append({
+                        "tag": tag_name,
+                        "action": "add",
+                        "tagged_at": conv_ts,
+                        "editor": None
+                    })
+            
             assignees_raw = conv.get('current_assign_users') or conv.get('assignees') or conv.get('assigned_users') or []
             if isinstance(assignees_raw, list):
                 assigned_users = ", ".join([item['name'] for item in assignees_raw if isinstance(item, dict) and 'name' in item])
@@ -419,6 +446,7 @@ class PancakeClient:
                 "phone_number": phone,
                 "message_count": msg_count,
                 "tags": tags,
+                "tag_timeline": tag_timeline,
                 "assigned_users": assigned_users,
                 "messages": formatted_msgs,
                 "inserted_at": conv.get("inserted_at"),

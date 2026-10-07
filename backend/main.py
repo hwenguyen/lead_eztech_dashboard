@@ -387,6 +387,7 @@ def list_leads(
             page_id=lead.page_id,
             first_created_at=lead.first_created_at,
             status_tag=", ".join(sorted(lead.tags)) if lead.tags else None,
+            tag_timeline=lead.tag_timeline if lead.tag_timeline else None,
             assigned_users=", ".join(sorted(lead.employees)) if lead.employees else None,
             messages="\n".join(messages) if messages else None,
             is_contacted=lead.is_contacted,

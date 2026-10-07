@@ -52,6 +52,7 @@ class LeadAgg:
     phone_event_at: Optional[datetime] = None  # Thời điểm thu SĐT, chỉ có khi số này được TÍNH trong kỳ
     contact_days: Set[str] = field(default_factory=set)  # Các ngày "YYYY-MM-DD" có tin nhắn trong kỳ
     tags: Set[str] = field(default_factory=set)
+    tag_timeline: List[dict] = field(default_factory=list)
     employees: Set[str] = field(default_factory=set)
     primary_employee: Optional[str] = None  # NV của hội thoại có tin nhắn gần nhất, dùng cho Pie Chart
     primary_contacted_at: Optional[datetime] = None
@@ -180,6 +181,7 @@ def classify_leads(
         FactLeadActivity.assigned_users,
         FactLeadActivity.contacted_dates,
         FactLeadActivity.contacted_at,
+        FactLeadActivity.tag_timeline,
     ).join(FactLeadActivity, DimLead.id == FactLeadActivity.lead_id).filter(
         scope,
         or_(
@@ -200,7 +202,7 @@ def classify_leads(
     leads: Dict[int, LeadAgg] = {}
 
     for (lid, customer_id, name, phone_number, phone_at, pg_id, first_created_at,
-         conversation_id, status_tag, assigned_users, contacted_dates, contacted_at) in query.all():
+         conversation_id, status_tag, assigned_users, contacted_dates, contacted_at, tag_timeline) in query.all():
         emps = split_csv(assigned_users)
         if not emps:
             emps = ["Chưa phân công"]
@@ -233,6 +235,10 @@ def classify_leads(
             agg.tags.update(split_csv(status_tag))
             if PHONE_TAG in normalize_text(status_tag):
                 agg.has_phone = True
+        if tag_timeline and isinstance(tag_timeline, list):
+            for t_item in tag_timeline:
+                if t_item not in agg.tag_timeline:
+                    agg.tag_timeline.append(t_item)
         # contacted_dates là chuỗi "YYYY-MM-DD,..." nên so sánh chuỗi là đủ
         agg.contact_days.update(d for d in split_csv(contacted_dates) if start_day <= d <= end_day)
         if contacted_at and start <= contacted_at <= end:
