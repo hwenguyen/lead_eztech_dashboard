@@ -9,7 +9,16 @@ on:
     - cron: '0 11 * * *'
     # - Lúc 00:00 VN (17:00 UTC): chốt số liệu cuối ngày (thu thập tin nhắn ca tối)
     - cron: '0 17 * * *'
-  workflow_dispatch: # Cho phép bấm chạy thủ công trên giao diện GitHub bất cứ lúc nào
+  workflow_dispatch:
+    inputs:
+      days_back:
+        description: 'Số ngày quét ngược về trước (Nhập 30 hoặc 60 nếu muốn cập nhật lịch sử tag cho các dòng cũ)'
+        required: false
+        default: '1'
+      run_limit:
+        description: 'Giới hạn số hội thoại mỗi page (Mặc định: 200, nhập 1000 nếu quét lịch sử)'
+        required: false
+        default: '200'
 
 concurrency:
   group: pancake-etl
@@ -43,7 +52,7 @@ jobs:
         PANCAKE_API_TOKENS: ${{ secrets.PANCAKE_API_TOKENS }}
         PAGE_IDS: ${{ secrets.PAGE_IDS }}
         PANCAKE_PAGES_JSON: ${{ secrets.PANCAKE_PAGES_JSON }}
-        DAILY_RUN_LIMIT: 200
-        DAILY_DAYS_BACK: 1
+        DAILY_RUN_LIMIT: ${{ github.event.inputs.run_limit || '200' }}
+        DAILY_DAYS_BACK: ${{ github.event.inputs.days_back || '1' }}
       run: |
         python -m etl.pipeline
