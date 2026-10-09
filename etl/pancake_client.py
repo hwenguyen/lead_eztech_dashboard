@@ -369,20 +369,24 @@ class PancakeClient:
                         t_obj = p.get('tag', {}) if isinstance(p, dict) else {}
                         t_text = t_obj.get('text') if isinstance(t_obj, dict) else None
                         if t_text:
+                            tagged_dt = parse_pancake_date(th.get('inserted_at'))
+                            tagged_at_str = tagged_dt.strftime("%Y-%m-%d %H:%M:%S") if tagged_dt else th.get('inserted_at')
                             tag_timeline.append({
                                 "tag": t_text,
                                 "action": p.get('action', 'add'),
-                                "tagged_at": th.get('inserted_at'),
+                                "tagged_at": tagged_at_str,
                                 "editor": p.get('editor_name')
                             })
-            # Nếu có tag nhưng tag_histories không trả về, gán thời điểm hội thoại
+            # Nếu có tag nhưng tag_histories không trả về, gán thời điểm hội thoại (chuẩn giờ VN)
             if not tag_timeline and tags:
-                conv_ts = conv.get('updated_at') or conv.get('inserted_at')
+                conv_ts_raw = conv.get('updated_at') or conv.get('inserted_at')
+                conv_ts_dt = parse_pancake_date(conv_ts_raw)
+                conv_ts_str = conv_ts_dt.strftime("%Y-%m-%d %H:%M:%S") if conv_ts_dt else conv_ts_raw
                 for tag_name in tags:
                     tag_timeline.append({
                         "tag": tag_name,
                         "action": "add",
-                        "tagged_at": conv_ts,
+                        "tagged_at": conv_ts_str,
                         "editor": None
                     })
             

@@ -118,6 +118,25 @@ def auto_repair_contacted_dates():
                 act.contacted_at = contacted_at
                 has_changes = True
 
+            # Chuẩn hoá thời gian gắn tag (tag_timeline) sang giờ Việt Nam
+            tl = act.tag_timeline or payload.get('tag_timeline')
+            if tl and isinstance(tl, list):
+                tl_updated = False
+                new_tl = []
+                for item in tl:
+                    if isinstance(item, dict):
+                        tagged_at = item.get('tagged_at')
+                        if tagged_at and isinstance(tagged_at, str) and 'T' in tagged_at:
+                            dt = parse_pancake_date(tagged_at)
+                            if dt:
+                                item = dict(item)
+                                item['tagged_at'] = dt.strftime("%Y-%m-%d %H:%M:%S")
+                                tl_updated = True
+                        new_tl.append(item)
+                if tl_updated or (not act.tag_timeline and new_tl):
+                    act.tag_timeline = new_tl
+                    has_changes = True
+
             lead = lead_dict.get(act.lead_id)
             if not lead:
                 continue
