@@ -1,6 +1,6 @@
 import type { Lead } from '../services/api';
 import { format } from 'date-fns';
-import { Phone, MessageSquare, User, CheckCircle, XCircle, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Phone, MessageSquare, User, CheckCircle, XCircle, ChevronLeft, ChevronRight, ExternalLink } from 'lucide-react';
 
 interface LeadTableProps {
   leads: Lead[];
@@ -50,7 +50,21 @@ export function LeadTable({ leads, totalLeads, page, pageSize, onPageChange }: L
                         {(lead.name || 'K').charAt(0).toUpperCase()}
                       </div>
                       <div>
-                        <div className="font-medium text-navy">{lead.name || 'Khách từ CRM'}</div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-navy">{lead.name || 'Khách từ CRM'}</span>
+                          {lead.pancake_url && (
+                            <a
+                              href={lead.pancake_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-[11px] font-medium text-eztech hover:text-navy bg-light-blue/80 hover:bg-light-blue px-1.5 py-0.5 rounded border border-eztech/20 transition-colors"
+                              title={`Mở Pancake: ${lead.pancake_url}`}
+                            >
+                              <ExternalLink className="w-2.5 h-2.5" />
+                              <span>Pancake</span>
+                            </a>
+                          )}
+                        </div>
                         <div className="text-xs text-[#4B5563] mt-0.5 flex flex-col gap-1">
                           <span className="text-[#6B7280]">{lead.first_created_at ? format(new Date(lead.first_created_at), 'dd/MM/yyyy HH:mm') : '—'}</span>
                           <div className="flex gap-1 mt-1">

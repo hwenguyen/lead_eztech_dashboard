@@ -32,6 +32,7 @@ from etl.utils import (
     KNOWN_PAGE_NAMES,
     ZALO_PAGE_NAMES,
     VN_TZ,
+    build_pancake_url,
 )
 
 logger = logging.getLogger(__name__)
@@ -420,7 +421,12 @@ def list_leads(
             assigned_users=", ".join(sorted(lead.employees)) if lead.employees else None,
             messages="\n".join(messages) if messages else None,
             is_contacted=lead.is_contacted,
-            is_new=lead.is_new
+            is_new=lead.is_new,
+            pancake_url=build_pancake_url(
+                conversation_id=lead.conversation_ids[0] if lead.conversation_ids else None,
+                customer_id=lead.customer_id,
+                page_name_or_id=lead.page_id,
+            ),
         ))
 
     return LeadListResponse(total=total, page=page, size=size, data=data)
@@ -553,7 +559,12 @@ def get_remind_leads(
                 contacted_at=r.contacted_at,
                 days_since_last_contact=days_float,
                 days_int=days_int,
-                conversation_id=r.conversation_id
+                conversation_id=r.conversation_id,
+                pancake_url=build_pancake_url(
+                    conversation_id=r.conversation_id,
+                    customer_id=r.customer_id,
+                    page_name_or_id=r.page_id,
+                ),
             )
         )
 

@@ -11,7 +11,8 @@ import {
   AlertTriangle,
   Flame,
   CheckCircle2,
-  RefreshCw
+  RefreshCw,
+  ExternalLink
 } from 'lucide-react';
 import {
   fetchRemindLeads,
@@ -360,7 +361,7 @@ export function RemindLeadTable({ pagesList, zaloPages }: RemindLeadTableProps) 
                         <div className="font-semibold text-[#111827]">
                           {item.name || 'Khách hàng chưa đặt tên'}
                         </div>
-                        <div className="flex items-center gap-2 mt-1 text-xs">
+                        <div className="flex flex-wrap items-center gap-2 mt-1.5 text-xs">
                           {item.phone_number ? (
                             <span className="inline-flex items-center gap-1 font-mono text-[#1E5BD6] font-medium bg-blue-50 px-2 py-0.5 rounded-md border border-blue-100">
                               <Phone className="w-3 h-3" />
@@ -379,6 +380,19 @@ export function RemindLeadTable({ pagesList, zaloPages }: RemindLeadTableProps) 
                             </span>
                           ) : (
                             <span className="text-gray-400 italic">Chưa có SĐT</span>
+                          )}
+
+                          {item.pancake_url && (
+                            <a
+                              href={item.pancake_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 font-medium text-[#1E5BD6] hover:text-[#0C2B64] hover:bg-blue-100/70 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-200 transition-colors shadow-2xs"
+                              title={`Mở Pancake: ${item.pancake_url}`}
+                            >
+                              <ExternalLink className="w-3 h-3" />
+                              <span>Mở Pancake</span>
+                            </a>
                           )}
                         </div>
                       </td>

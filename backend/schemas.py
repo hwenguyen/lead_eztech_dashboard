@@ -26,6 +26,7 @@ class LeadResponse(BaseModel):
     messages: Optional[str] = None
     is_contacted: bool
     is_new: bool
+    pancake_url: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -66,6 +67,7 @@ class RemindLeadItem(BaseModel):
     days_since_last_contact: float
     days_int: int
     conversation_id: Optional[str] = None
+    pancake_url: Optional[str] = None
 
 class RemindLeadResponse(BaseModel):
     total: int

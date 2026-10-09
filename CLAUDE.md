@@ -21,6 +21,17 @@ FastAPI backend (`backend/`) + React frontend (`frontend-react/`) trên Render (
 
 ## Session
 
+### 2026-10-09 — Đã hoàn thành
+- Trang thống kê chăm sóc Lead Remind (`/api/leads/remind` + `RemindLeadTable.tsx`):
+  - Lọc theo từng nhân viên phụ trách, Fanpage, từ khóa tên/SĐT.
+  - Lấy các lead có tag `Remind`, tính số ngày cách thời điểm tin nhắn cuối cùng (`contacted_at`), phân nhóm ngày (`Hôm nay`, `1-3 ngày`, `4-7 ngày`, `> 7 ngày`).
+  - Sắp xếp mặc định từ khoảng cách ngày gần nhất đến xa nhất (0 ngày -> 1 ngày -> 2 ngày...).
+  - Thêm thẻ KPI tổng quan số lượng Remind theo từng nhóm thời gian.
+- Tích hợp link mở trực tiếp hội thoại Pancake:
+  - Format: `https://pancake.vn/[id page]?c_id=[customer id]`.
+  - Hàm `build_pancake_url` trong `etl/utils.py` hỗ trợ trích xuất page ID từ `conversation_id` hoặc map qua `PAGE_NAME_TO_PANCAKE_ID` (Zalo: prefix `pzl_`, TikTok: prefix `tt_`).
+  - Hiển thị nút "Mở Pancake" (`ExternalLink`) ở cả bảng Remind Lead và bảng Danh sách Lead (`LeadTable.tsx`).
+
 ### 2026-10-07 — Đã hoàn thành
 - Lưu thời gian gắn tag của từng lead (`tag_timeline`):
   - Lấy trường `tag_histories` từ Pancake API v2 (`/pages/{page_id}/conversations`), bóc tách danh sách sự kiện gắn/gỡ tag: `tag`, `action`, `tagged_at`, `editor`.

@@ -53,6 +53,7 @@ export interface Lead {
   messages?: string;
   is_contacted: boolean;
   is_new: boolean;
+  pancake_url?: string;
 }
 
 export const fetchSummary = async (startDate: string, endDate: string, pageId?: string, employee?: string) => {
@@ -115,6 +116,7 @@ export interface RemindLeadItem {
   days_since_last_contact: number;
   days_int: number;
   conversation_id?: string;
+  pancake_url?: string;
 }
 
 export interface RemindSummary {

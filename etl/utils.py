@@ -128,7 +128,56 @@ KNOWN_PAGE_NAMES: Dict[str, str] = {
     # 5. Tuấn Anh Data
     "788602135347404973": "Tuấn Anh Data",
     "pzl_788602135347404973": "Tuấn Anh Data",
+    # 6. Chị Kế Toán GenZ
+    "7661860189083943944": "Chị Kế Toán GenZ",
+    "tt_7661860189083943944": "Chị Kế Toán GenZ",
 }
+
+# Bản đồ ánh xạ từ Tên Page sang Page ID trên Pancake (dùng để sinh link https://pancake.vn/[id page]?c_id=[customer id])
+PAGE_NAME_TO_PANCAKE_ID: Dict[str, str] = {
+    "Eztech Phân Tích Dữ Liệu": "pzl_629476615535063343",
+    "Hiền Minh Eztech": "pzl_131986891507252646",
+    "Tuấn Anh Data": "pzl_788602135347404973",
+    "Anh Kế toán làm Data": "tt_7196601676597871618",
+    "Anh Gà Kế Toán": "tt_7456003523327919120",
+    "Chị Kế Toán GenZ": "tt_7661860189083943944",
+}
+
+
+def build_pancake_url(
+    conversation_id: Optional[str] = None,
+    customer_id: Optional[str] = None,
+    page_name_or_id: Optional[str] = None,
+) -> Optional[str]:
+    """Sinh link trực tiếp mở hội thoại Pancake: https://pancake.vn/[id page]?c_id=[customer id]"""
+    if not customer_id:
+        return None
+    pid = None
+    if conversation_id:
+        if conversation_id.startswith("pzl_"):
+            parts = conversation_id.split("_")
+            if len(parts) >= 4:
+                pid = f"pzl_{parts[2]}"
+        elif conversation_id.startswith("tt_"):
+            parts = conversation_id.split(":")
+            if len(parts) >= 4:
+                pid = f"tt_{parts[-1]}"
+        elif conversation_id.startswith("fb_"):
+            parts = conversation_id.split("_")
+            if len(parts) >= 3:
+                pid = parts[-1]
+    if not pid and page_name_or_id:
+        clean_p = str(page_name_or_id).strip()
+        pid = PAGE_NAME_TO_PANCAKE_ID.get(clean_p)
+        if not pid and clean_p in KNOWN_PAGE_NAMES:
+            cname = KNOWN_PAGE_NAMES[clean_p]
+            pid = PAGE_NAME_TO_PANCAKE_ID.get(cname)
+        if not pid:
+            pid = clean_p
+    if not pid:
+        return None
+    return f"https://pancake.vn/{pid}?c_id={customer_id}"
+
 
 # Page Zalo cá nhân (ID prefix pzl_) là kênh chăm sóc sau khi đã có SĐT → không cộng vào "Tất cả Page".
 # Page Zalo mới PHẢI được khai báo trong KNOWN_PAGE_NAMES với prefix pzl_ để được nhận diện.
