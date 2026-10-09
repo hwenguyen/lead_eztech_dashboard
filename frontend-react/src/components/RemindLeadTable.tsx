@@ -28,6 +28,7 @@ interface RemindLeadTableProps {
 export function RemindLeadTable({ pagesList, zaloPages }: RemindLeadTableProps) {
   const [employee, setEmployee] = useState('');
   const [pageId, setPageId] = useState('');
+  const [tag, setTag] = useState('all');
   const [search, setSearch] = useState('');
   const [daysBucket, setDaysBucket] = useState('all');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
@@ -39,6 +40,7 @@ export function RemindLeadTable({ pagesList, zaloPages }: RemindLeadTableProps) 
   const [totalPages, setTotalPages] = useState(1);
   const [summary, setSummary] = useState<RemindSummary | null>(null);
   const [employeesList, setEmployeesList] = useState<string[]>([]);
+  const [tagsList, setTagsList] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [copiedPhone, setCopiedPhone] = useState<string | null>(null);
 
@@ -48,6 +50,7 @@ export function RemindLeadTable({ pagesList, zaloPages }: RemindLeadTableProps) 
       const res = await fetchRemindLeads(
         employee || undefined,
         pageId || undefined,
+        tag || undefined,
         search || undefined,
         daysBucket,
         sortOrder,
@@ -61,6 +64,9 @@ export function RemindLeadTable({ pagesList, zaloPages }: RemindLeadTableProps) 
       if (res.employees && res.employees.length > 0) {
         setEmployeesList(res.employees);
       }
+      if (res.tags && res.tags.length > 0) {
+        setTagsList(res.tags);
+      }
     } catch (err) {
       console.error('Error fetching remind leads:', err);
     } finally {
@@ -70,7 +76,7 @@ export function RemindLeadTable({ pagesList, zaloPages }: RemindLeadTableProps) 
 
   useEffect(() => {
     loadData();
-  }, [employee, pageId, search, daysBucket, sortOrder, page, pageSize]);
+  }, [employee, pageId, tag, search, daysBucket, sortOrder, page, pageSize]);
 
   // Reset về page 1 khi thay đổi bộ lọc
   const handleFilterChange = (setter: (val: any) => void, val: any) => {
@@ -228,9 +234,17 @@ export function RemindLeadTable({ pagesList, zaloPages }: RemindLeadTableProps) 
               <Clock className="w-4 h-4" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-navy">Bảng Remind Lead</h2>
+              <h2 className="text-base font-bold text-navy">
+                {tag === 'remind'
+                  ? 'Bảng Remind Lead (Chỉ thẻ Remind)'
+                  : tag === 'all'
+                  ? 'Bảng Chăm Sóc Lead (Toàn Bộ Lead)'
+                  : `Bảng Chăm Sóc Lead (Thẻ: ${tag})`}
+              </h2>
               <p className="text-xs text-[#4B5563]">
-                Chỉ hiển thị các lead có tag Remind, sắp xếp theo số ngày từ tin nhắn cuối cùng
+                {tag === 'remind'
+                  ? 'Theo dõi danh sách khách hàng có tag Remind, sắp xếp theo số ngày từ tin nhắn cuối cùng'
+                  : 'Theo dõi tiến độ tương tác và thời gian từ tin nhắn cuối cùng của khách hàng'}
               </p>
             </div>
           </div>
@@ -303,6 +317,26 @@ export function RemindLeadTable({ pagesList, zaloPages }: RemindLeadTableProps) 
                   ))}
                 </optgroup>
               )}
+            </select>
+          </div>
+
+          {/* Lọc theo Thẻ Tag */}
+          <div className="flex flex-col gap-1 min-w-[200px]">
+            <label className="text-xs font-medium text-[#4B5563]">Thẻ Phân Loại (Tag)</label>
+            <select
+              value={tag}
+              onChange={e => handleFilterChange(setTag, e.target.value)}
+              className="px-3 py-2 border border-[#E5E7EB] rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-eztech/20 focus:border-eztech transition-all text-[#111827] cursor-pointer"
+            >
+              <option value="all">-- Tất cả thẻ (Mọi Lead) --</option>
+              <option value="remind">⭐ Chỉ tag Remind</option>
+              {tagsList
+                .filter(t => t.toLowerCase() !== 'remind')
+                .map((t, idx) => (
+                  <option key={idx} value={t}>
+                    {t}
+                  </option>
+                ))}
             </select>
           </div>
 
@@ -414,30 +448,36 @@ export function RemindLeadTable({ pagesList, zaloPages }: RemindLeadTableProps) 
                       {/* Thẻ Tag */}
                       <td className="px-6 py-4 align-top">
                         <div className="flex flex-wrap gap-1">
-                          <span
-                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-amber-100 text-amber-800 border border-amber-300"
-                            title={
-                              item.remind_tagged_at
-                                ? `Gắn tag Remind lúc: ${item.remind_tagged_at}`
-                                : 'Tag Remind'
-                            }
-                          >
-                            <Clock className="w-3 h-3" />
-                            Remind
-                          </span>
-                          {item.status_tag
-                            ?.split(',')
-                            .map(t => t.trim())
-                            .filter(t => t.toLowerCase() !== 'remind')
-                            .slice(0, 2)
-                            .map((tag, idx) => (
-                              <span
-                                key={idx}
-                                className="px-2 py-0.5 rounded text-xs text-gray-600 bg-gray-100 border border-gray-200"
-                              >
-                                {tag}
-                              </span>
-                            ))}
+                          {item.status_tag?.toLowerCase().includes('remind') && (
+                            <span
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-bold bg-amber-100 text-amber-800 border border-amber-300"
+                              title={
+                                item.remind_tagged_at
+                                  ? `Gắn tag Remind lúc: ${item.remind_tagged_at}`
+                                  : 'Tag Remind'
+                              }
+                            >
+                              <Clock className="w-3 h-3" />
+                              Remind
+                            </span>
+                          )}
+                          {item.status_tag ? (
+                            item.status_tag
+                              .split(',')
+                              .map(t => t.trim())
+                              .filter(t => t.toLowerCase() !== 'remind')
+                              .slice(0, 3)
+                              .map((tName, idx) => (
+                                <span
+                                  key={idx}
+                                  className="px-2 py-0.5 rounded-lg text-xs text-gray-700 bg-gray-100 border border-gray-200"
+                                >
+                                  {tName}
+                                </span>
+                              ))
+                          ) : (
+                            <span className="text-gray-400 italic text-xs">Chưa có tag</span>
+                          )}
                         </div>
                       </td>
 

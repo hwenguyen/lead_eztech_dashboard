@@ -76,4 +76,5 @@ class RemindLeadResponse(BaseModel):
     total_pages: int
     summary: RemindSummary
     employees: List[str]
+    tags: List[str] = []
     items: List[RemindLeadItem]

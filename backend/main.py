@@ -357,13 +357,19 @@ def get_pages(db: Session = Depends(get_db)):
         _PAGES_CACHE["time"] = now
     return result
 
+_REMIND_CACHE: Dict[str, Tuple[float, Any]] = {}
+_REMIND_LOCK = threading.Lock()
+_REMIND_TTL = 60  # 60 giây TTL cache
+
 @app.post("/api/admin/clear-cache")
 def clear_cache():
-    """Xoá toàn bộ cache metrics & page list."""
+    """Xoá toàn bộ cache metrics, page list & remind leads."""
     clear_metrics_cache()
     with _PAGES_LOCK:
         _PAGES_CACHE.clear()
-    return {"status": "ok", "message": "All metrics and pages caches have been cleared."}
+    with _REMIND_LOCK:
+        _REMIND_CACHE.clear()
+    return {"status": "ok", "message": "All metrics, pages, and remind caches have been cleared."}
 
 @app.post("/api/admin/repair")
 def trigger_manual_repair():
@@ -436,6 +442,7 @@ def list_leads(
 def get_remind_leads(
     employee: Optional[str] = None,
     page_id: Optional[str] = None,
+    tag: Optional[str] = None,
     search: Optional[str] = None,
     days_bucket: Optional[str] = None,
     sort_order: Optional[str] = "asc",
@@ -443,72 +450,103 @@ def get_remind_leads(
     size: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db)
 ):
-    """Bảng Remind Lead: lấy các lead có tag 'Remind', tính khoảng cách ngày đến tin nhắn cuối và sắp xếp từ thấp nhất lên xa nhất."""
+    """Bảng Chăm sóc Lead: lấy lead theo tag (hoặc tất cả lead nếu tag='all'), tính khoảng cách ngày đến tin nhắn cuối và sắp xếp từ thấp nhất lên xa nhất."""
     from sqlalchemy import or_
 
     now_vn = datetime.now(VN_TZ).replace(tzinfo=None)
 
-    # 1. Truy vấn các hội thoại/lead có tag 'remind'
-    query = db.query(
-        FactLeadActivity.id.label('activity_id'),
-        FactLeadActivity.conversation_id,
-        FactLeadActivity.status_tag,
-        FactLeadActivity.assigned_users,
-        FactLeadActivity.contacted_at,
-        FactLeadActivity.tag_timeline,
-        DimLead.id.label('lead_id'),
-        DimLead.customer_id,
-        DimLead.name,
-        DimLead.phone_number,
-        DimLead.page_id,
-        DimLead.first_created_at
-    ).join(DimLead, FactLeadActivity.lead_id == DimLead.id).filter(
-        FactLeadActivity.status_tag.ilike('%remind%')
-    )
+    # 1. Kiểm tra cache in-memory TTL (60s) theo bộ lọc chính
+    cache_key = f"{page_id or ''}|{employee or ''}|{tag or ''}"
+    now_ts = time.time()
+    rows = None
 
-    # Lọc theo Page nếu có
-    if page_id and page_id.strip():
-        clean_pid = page_id.strip()
-        canonical_name = resolve_canonical_page_name(clean_pid, fallback=clean_pid)
-        possible_pids = {clean_pid, canonical_name}
-        for k, v in KNOWN_PAGE_NAMES.items():
-            if v == canonical_name or k == clean_pid:
-                possible_pids.add(k)
-                possible_pids.add(v)
-        query = query.filter(DimLead.page_id.in_(list(possible_pids)))
+    with _REMIND_LOCK:
+        if cache_key in _REMIND_CACHE:
+            ts, cached_rows = _REMIND_CACHE[cache_key]
+            if now_ts - ts < _REMIND_TTL:
+                rows = cached_rows
 
-    # Lọc theo Nhân viên nếu có
-    if employee and employee.strip():
-        emp_clean = employee.strip()
-        if normalize_text(emp_clean) in ("chua phan cong", "chưa phân công"):
-            query = query.filter(or_(FactLeadActivity.assigned_users.is_(None), FactLeadActivity.assigned_users == ""))
-        else:
-            query = query.filter(FactLeadActivity.assigned_users.ilike(f"%{emp_clean}%"))
+    if rows is None:
+        query = db.query(
+            FactLeadActivity.id.label('activity_id'),
+            FactLeadActivity.conversation_id,
+            FactLeadActivity.status_tag,
+            FactLeadActivity.assigned_users,
+            FactLeadActivity.contacted_at,
+            FactLeadActivity.tag_timeline,
+            DimLead.id.label('lead_id'),
+            DimLead.customer_id,
+            DimLead.name,
+            DimLead.phone_number,
+            DimLead.page_id,
+            DimLead.first_created_at
+        ).join(DimLead, FactLeadActivity.lead_id == DimLead.id)
 
-    # Lọc tìm kiếm theo Tên khách / SĐT
-    if search and search.strip():
-        s_clean = search.strip()
-        query = query.filter(or_(DimLead.name.ilike(f"%{s_clean}%"), DimLead.phone_number.ilike(f"%{s_clean}%")))
+        # Lọc theo Tag nếu có và không phải 'all'
+        if tag and tag.strip() and tag.strip().lower() != 'all':
+            clean_tag = tag.strip()
+            query = query.filter(FactLeadActivity.status_tag.ilike(f"%{clean_tag}%"))
 
-    rows = query.all()
+        # Lọc theo Page nếu có
+        if page_id and page_id.strip():
+            clean_pid = page_id.strip()
+            canonical_name = resolve_canonical_page_name(clean_pid, fallback=clean_pid)
+            possible_pids = {clean_pid, canonical_name}
+            for k, v in KNOWN_PAGE_NAMES.items():
+                if v == canonical_name or k == clean_pid:
+                    possible_pids.add(k)
+                    possible_pids.add(v)
+            query = query.filter(DimLead.page_id.in_(list(possible_pids)))
 
-    # Thu thập danh sách nhân viên có remind leads (để hiển thị filter)
+        # Lọc theo Nhân viên nếu có
+        if employee and employee.strip():
+            emp_clean = employee.strip()
+            if normalize_text(emp_clean) in ("chua phan cong", "chưa phân công"):
+                query = query.filter(or_(FactLeadActivity.assigned_users.is_(None), FactLeadActivity.assigned_users == ""))
+            else:
+                query = query.filter(FactLeadActivity.assigned_users.ilike(f"%{emp_clean}%"))
+
+        rows = query.all()
+        with _REMIND_LOCK:
+            _REMIND_CACHE[cache_key] = (now_ts, rows)
+
+    # Thu thập danh sách nhân viên & toàn bộ thẻ (tags) có trong hệ thống
     all_remind_employees = set()
+    all_system_tags = set()
     for r in rows:
         emps = [x.strip() for x in (r.assigned_users or '').split(',') if x.strip()]
         if not emps:
             all_remind_employees.add("Chưa phân công")
         else:
             all_remind_employees.update(emps)
+        if r.status_tag:
+            for t in r.status_tag.split(','):
+                t_clean = t.strip()
+                if t_clean:
+                    all_system_tags.add(t_clean)
+
+    sorted_tags = sorted(list(all_system_tags))
+    if "Remind" in sorted_tags:
+        sorted_tags.remove("Remind")
+        sorted_tags = ["Remind"] + sorted_tags
+
+    # Lọc tìm kiếm theo Tên khách / SĐT trong RAM
+    filtered_rows = rows
+    if search and search.strip():
+        s_clean = search.strip().lower()
+        filtered_rows = [
+            r for r in rows
+            if (r.name and s_clean in r.name.lower()) or (r.phone_number and s_clean in r.phone_number.lower())
+        ]
 
     items = []
-    summary_total = len(rows)
+    summary_total = len(filtered_rows)
     cnt_under_1 = 0
     cnt_1_to_3 = 0
     cnt_3_to_7 = 0
     cnt_over_7 = 0
 
-    for r in rows:
+    for r in filtered_rows:
         last_contact = r.contacted_at or r.first_created_at or now_vn
         diff_sec = max(0.0, (now_vn - last_contact).total_seconds())
         days_float = round(diff_sec / 86400.0, 1)
@@ -535,14 +573,19 @@ def get_remind_leads(
             elif days_bucket == "over_7" and days_int <= 7:
                 continue
 
-        # Tìm thời điểm gắn tag Remind từ tag_timeline
+        # Tìm thời điểm gắn tag từ tag_timeline
         remind_tagged_at = None
         for t_item in r.tag_timeline or []:
             if isinstance(t_item, dict):
                 t_name = str(t_item.get('tag') or '').strip().lower()
-                if 'remind' in t_name and t_item.get('action') == 'add':
+                target_check = (tag.strip().lower() if tag and tag.lower() != 'all' else 'remind')
+                if target_check in t_name and t_item.get('action') == 'add':
                     remind_tagged_at = t_item.get('tagged_at')
                     break
+
+        # Xác định thẻ chính hiển thị
+        lead_tags = [t.strip() for t in (r.status_tag or '').split(',') if t.strip()]
+        display_tag = "Remind" if any("remind" in t.lower() for t in lead_tags) else (lead_tags[0] if lead_tags else "Không có tag")
 
         canonical_pg = resolve_canonical_page_name(r.page_id, fallback=r.page_id)
         items.append(
@@ -554,7 +597,7 @@ def get_remind_leads(
                 page_id=canonical_pg,
                 assigned_users=r.assigned_users or "Chưa phân công",
                 status_tag=r.status_tag,
-                remind_tag="Remind",
+                remind_tag=display_tag,
                 remind_tagged_at=remind_tagged_at,
                 contacted_at=r.contacted_at,
                 days_since_last_contact=days_float,
@@ -589,6 +632,7 @@ def get_remind_leads(
             over_7_days=cnt_over_7
         ),
         employees=sorted(list(all_remind_employees)),
+        tags=sorted_tags,
         items=paginated
     )
 

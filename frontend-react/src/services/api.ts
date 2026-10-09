@@ -134,12 +134,14 @@ export interface RemindLeadResponse {
   total_pages: number;
   summary: RemindSummary;
   employees: string[];
+  tags?: string[];
   items: RemindLeadItem[];
 }
 
 export const fetchRemindLeads = async (
   employee?: string,
   pageId?: string,
+  tag?: string,
   search?: string,
   daysBucket?: string,
   sortOrder: 'asc' | 'desc' = 'asc',
@@ -149,6 +151,7 @@ export const fetchRemindLeads = async (
   const params: any = { page, size, sort_order: sortOrder };
   if (employee) params.employee = employee;
   if (pageId) params.page_id = pageId;
+  if (tag && tag !== 'all') params.tag = tag;
   if (search) params.search = search;
   if (daysBucket && daysBucket !== 'all') params.days_bucket = daysBucket;
   const res = await apiClient.get<RemindLeadResponse>('/leads/remind', { params });

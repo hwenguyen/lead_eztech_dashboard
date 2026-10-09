@@ -23,10 +23,12 @@ FastAPI backend (`backend/`) + React frontend (`frontend-react/`) trên Render (
 
 ### 2026-10-09 — Đã hoàn thành
 - Trang thống kê chăm sóc Lead Remind (`/api/leads/remind` + `RemindLeadTable.tsx`):
-  - Lọc theo từng nhân viên phụ trách, Fanpage, từ khóa tên/SĐT.
-  - Lấy các lead có tag `Remind`, tính số ngày cách thời điểm tin nhắn cuối cùng (`contacted_at`), phân nhóm ngày (`Hôm nay`, `1-3 ngày`, `4-7 ngày`, `> 7 ngày`).
+  - Hỗ trợ xem **Tất cả Lead** (8.700 khách) hoặc lọc riêng theo bất kỳ **Thẻ (Tag)** nào (`Remind`, `Có thông tin`, `Quan tâm sâu`,...).
+  - Thêm dropdown chọn Thẻ (Tag) tự động quét toàn bộ 49 tags thực tế từ hệ thống.
+  - Lọc theo từng nhân viên phụ trách, Fanpage, nhóm ngày cách tin nhắn cuối (`Hôm nay`, `1-3 ngày`, `4-7 ngày`, `> 7 ngày`), tìm kiếm Tên/SĐT.
+  - Thêm In-Memory TTL Cache (60s) trên backend: các thao tác chuyển trang, lọc phụ đọc trực tiếp từ RAM (< 5ms), tốn 0 câu query phát sinh vào Neon DB.
   - Sắp xếp mặc định từ khoảng cách ngày gần nhất đến xa nhất (0 ngày -> 1 ngày -> 2 ngày...).
-  - Thêm thẻ KPI tổng quan số lượng Remind theo từng nhóm thời gian.
+  - Thêm thẻ KPI tổng quan số lượng lead theo từng nhóm thời gian tương tác.
 - Tích hợp link mở trực tiếp hội thoại Pancake (`https://pancake.vn/[page_slug]?c_id=[conversation_id]`):
   - Tham số `?c_id=` là mã hội thoại `conversation_id` (`RawConversation.pancake_id` / `FactLeadActivity.conversation_id`) để Pancake tự động cuộn đến hội thoại của khách.
   - Ánh xạ chuẩn xác toàn bộ 6 Fanpage sang Pancake slug:
