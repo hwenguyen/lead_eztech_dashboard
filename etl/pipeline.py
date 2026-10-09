@@ -240,27 +240,33 @@ def run_etl_pipeline():
         except Exception as e:
             logger.warning(f"Không thể parse cấu hình JSON/Dict: {e}")
 
-    # 2. Nếu không có hoặc parse lỗi, fallback sang PAGE_IDS và PANCAKE_API_TOKENS
-    if not pages_to_process:
-        page_ids_env = os.getenv("PAGE_IDS", "")
-        page_ids = [p.strip() for p in page_ids_env.split(",") if p.strip()]
-        
-        if not page_ids:
-            logger.warning("No PAGE_IDS found in environment variables.")
-            return
+    # 2. Bổ sung các page từ PAGE_IDS nếu chưa có trong danh sách (hoặc nạp toàn bộ nếu chưa có JSON)
+    page_ids_env = os.getenv("PAGE_IDS", "")
+    page_ids = [p.strip() for p in page_ids_env.split(",") if p.strip()]
+    
+    if page_ids:
+        existing_pids = {str(p.get("page_id", "")).strip() for p in pages_to_process}
+        existing_pids |= {re.sub(r"^(pzl_|tt_|fb_)", "", pid) for pid in existing_pids}
 
-        tokens_env = os.getenv("PANCAKE_API_TOKENS", "").strip()
         single_token = os.getenv("PANCAKE_API_TOKEN", "").strip()
-        tokens = [t.strip() for t in tokens_env.split(",") if t.strip()] if tokens_env else []
+        tokens_env = os.getenv("PANCAKE_API_TOKENS", "").strip()
+        tokens = [t.strip() for t in tokens_env.split(",") if t.strip()] if (tokens_env and not tokens_env.startswith(("{", "["))) else []
         default_token = single_token or (tokens[0] if tokens else None)
 
         for i, page_id in enumerate(page_ids):
-            token = tokens[i] if i < len(tokens) and tokens[i] else default_token
-            pages_to_process.append({
-                "page_id": page_id,
-                "page_name": None,
-                "token": token
-            })
+            clean_pid = re.sub(r"^(pzl_|tt_|fb_)", "", page_id)
+            if page_id not in existing_pids and clean_pid not in existing_pids:
+                token = tokens[i] if i < len(tokens) and tokens[i] else default_token
+                pages_to_process.append({
+                    "page_id": page_id,
+                    "page_name": None,
+                    "token": token
+                })
+                logger.info(f"Bổ sung Page ID '{page_id}' từ PAGE_IDS vào danh sách cào.")
+
+    if not pages_to_process:
+        logger.warning("No pages found in environment variables (PANCAKE_PAGES_JSON or PAGE_IDS).")
+        return
 
     first_run_limit = int(os.getenv("FIRST_RUN_LIMIT", "2000"))
     daily_run_limit = int(os.getenv("DAILY_RUN_LIMIT", "200"))
