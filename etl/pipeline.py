@@ -70,18 +70,42 @@ def upsert_lead_data(db: Session, raw_data: dict, page_id: str, commit: bool = T
                 prefetched["raw"][conv_id] = raw_record
         else:
             # Preserve old messages if new payload is from cache and empty
-            if not raw_data.get('messages') and raw_record.payload and raw_record.payload.get('messages'):
-                raw_data['messages'] = raw_record.payload.get('messages')
+            old_payload = raw_record.payload or {}
+            if not raw_data.get('messages') and old_payload.get('messages'):
+                raw_data['messages'] = old_payload.get('messages')
+                
+            # Kế thừa true_created_at từ lần chạy trước để không bị mất khi số tin nhắn vượt quá 30
+            if old_payload.get('true_created_at'):
+                raw_data['true_created_at'] = old_payload.get('true_created_at')
                 
             raw_record.payload = raw_data
             if not raw_record.page_id or is_page_id(raw_record.page_id):
                 raw_record.page_id = page_id
 
         # 2. Extract DimLead
-        # SĐT: ưu tiên số Pancake đã thu thập, sau đó tìm trong tin nhắn của khách (bỏ qua tin Admin để không dính hotline)
+        # SĐT: ưu tiên số Pancake đã thu thập, sau đó tìm trong tin nhắn của khách
         phone, phone_at = resolve_phone(raw_data)
 
-        conv_inserted = parse_pancake_date(raw_data.get('inserted_at'))
+        # Bỏ qua mốc thời gian ảo của Pancake (khi khách click quảng cáo nhưng chưa chat)
+        # Bằng cách khoá mốc thời gian của tin nhắn THỰC SỰ đầu tiên.
+        conv_inserted_raw = parse_pancake_date(raw_data.get('inserted_at'))
+        conv_inserted = conv_inserted_raw
+        
+        if raw_data.get('true_created_at'):
+            conv_inserted = parse_pancake_date(raw_data.get('true_created_at'))
+        else:
+            messages = raw_data.get('messages', [])
+            msg_count = raw_data.get('message_count', len(messages))
+            if messages:
+                # Lấy tin nhắn thực tế của khách hàng (bỏ qua Admin)
+                first_msg_dts = [parse_pancake_date(m.get('inserted_at')) for m in messages if m.get('inserted_at') and m.get('role') != 'Admin']
+                if first_msg_dts:
+                    first_msg_dt = min(d for d in first_msg_dts if d)
+                    # Nếu có đủ lịch sử (chưa bị Pancake cắt do >30 tin), đây CHẮC CHẮN là tin nhắn đầu tiên
+                    if len(messages) >= msg_count:
+                        conv_inserted = first_msg_dt
+                        raw_data['true_created_at'] = first_msg_dt.isoformat()
+
         if prefetched is not None:
             lead = prefetched["lead"].get(customer_id)
         else:
