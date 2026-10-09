@@ -252,6 +252,11 @@ def run_etl_pipeline():
         tokens_env = os.getenv("PANCAKE_API_TOKENS", "").strip()
         tokens = [t.strip() for t in tokens_env.split(",") if t.strip()] if (tokens_env and not tokens_env.startswith(("{", "["))) else []
         default_token = single_token or (tokens[0] if tokens else None)
+        if not default_token and pages_to_process:
+            for p in pages_to_process:
+                if p.get("token"):
+                    default_token = p.get("token")
+                    break
 
         for i, page_id in enumerate(page_ids):
             clean_pid = re.sub(r"^(pzl_|tt_|fb_)", "", page_id)
