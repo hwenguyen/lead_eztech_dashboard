@@ -19,6 +19,10 @@ def parse_pancake_date(date_val: Any) -> Optional[datetime]:
     if not date_val:
         return None
     try:
+        if isinstance(date_val, datetime):
+            if date_val.tzinfo is None:
+                return date_val
+            return date_val.astimezone(VN_TZ).replace(tzinfo=None)
         if isinstance(date_val, (int, float)):
             ts = date_val / 1000 if date_val > 1e11 else date_val
             return datetime.fromtimestamp(ts, tz=VN_TZ).replace(tzinfo=None)
