@@ -27,9 +27,15 @@ FastAPI backend (`backend/`) + React frontend (`frontend-react/`) trên Render (
   - Lấy các lead có tag `Remind`, tính số ngày cách thời điểm tin nhắn cuối cùng (`contacted_at`), phân nhóm ngày (`Hôm nay`, `1-3 ngày`, `4-7 ngày`, `> 7 ngày`).
   - Sắp xếp mặc định từ khoảng cách ngày gần nhất đến xa nhất (0 ngày -> 1 ngày -> 2 ngày...).
   - Thêm thẻ KPI tổng quan số lượng Remind theo từng nhóm thời gian.
-- Tích hợp link mở trực tiếp hội thoại Pancake:
-  - Format: `https://pancake.vn/[id page]?c_id=[customer id]`.
-  - Hàm `build_pancake_url` trong `etl/utils.py` hỗ trợ trích xuất page ID từ `conversation_id` hoặc map qua `PAGE_NAME_TO_PANCAKE_ID` (Zalo: prefix `pzl_`, TikTok: prefix `tt_`).
+- Tích hợp link mở trực tiếp hội thoại Pancake (`https://pancake.vn/[page_slug]?c_id=[conversation_id]`):
+  - Tham số `?c_id=` là mã hội thoại `conversation_id` (`RawConversation.pancake_id` / `FactLeadActivity.conversation_id`) để Pancake tự động cuộn đến hội thoại của khách.
+  - Ánh xạ chuẩn xác toàn bộ 6 Fanpage sang Pancake slug:
+    1. `Eztech Phân Tích Dữ Liệu`: `pzl_84377024368` (Zalo cá nhân SĐT +84377024368)
+    2. `Anh Kế toán làm Data`: `tt_tuananhdata` (TikTok @tuananhdata)
+    3. `Hiền Minh Eztech`: `pzl_84898276368` (Zalo cá nhân SĐT +84898276368)
+    4. `Tuấn Anh Data`: `pzl_84389528224` (Zalo cá nhân SĐT +84389528224)
+    5. `Hành trang cho kế toán`: `tt_anhgadata` (TikTok @anhgadata, chuẩn hoá thống nhất "Anh Gà Kế Toán" về "Hành trang cho kế toán")
+    6. `Chị Kế Toán GenZ`: `tt_chiketoangenz` (TikTok @chiketoangenz)
   - Hiển thị nút "Mở Pancake" (`ExternalLink`) ở cả bảng Remind Lead và bảng Danh sách Lead (`LeadTable.tsx`).
 
 ### 2026-10-07 — Đã hoàn thành

@@ -119,9 +119,10 @@ KNOWN_PAGE_NAMES: Dict[str, str] = {
     # 2. Anh Kế toán làm Data
     "7196601676597871618": "Anh Kế toán làm Data",
     "tt_7196601676597871618": "Anh Kế toán làm Data",
-    # 3. Anh Gà Kế Toán
-    "7456003523327919120": "Anh Gà Kế Toán",
-    "tt_7456003523327919120": "Anh Gà Kế Toán",
+    # 3. Hành trang cho kế toán (Chuẩn hoá về 1 page Hành trang cho kế toán)
+    "7456003523327919120": "Hành trang cho kế toán",
+    "tt_7456003523327919120": "Hành trang cho kế toán",
+    "Anh Gà Kế Toán": "Hành trang cho kế toán",
     # 4. Hiền Minh Eztech
     "131986891507252646": "Hiền Minh Eztech",
     "pzl_131986891507252646": "Hiền Minh Eztech",
@@ -145,26 +146,26 @@ PAGE_NAME_TO_PANCAKE_ID: Dict[str, str] = {
     "7196601676597871618": "tt_tuananhdata",
     "tt_7196601676597871618": "tt_tuananhdata",
 
-    # 3. Hiền Minh Eztech: Zalo cá nhân
-    "Hiền Minh Eztech": "pzl_131986891507252646",
-    "131986891507252646": "pzl_131986891507252646",
-    "pzl_131986891507252646": "pzl_131986891507252646",
+    # 3. Hiền Minh Eztech: Zalo cá nhân SĐT +84898276368
+    "Hiền Minh Eztech": "pzl_84898276368",
+    "131986891507252646": "pzl_84898276368",
+    "pzl_131986891507252646": "pzl_84898276368",
 
-    # 4. Anh Gà Kế Toán / Hành trang cho kế toán: Kênh TikTok
-    "Anh Gà Kế Toán": "tt_7456003523327919120",
-    "Hành trang cho kế toán": "tt_7456003523327919120",
-    "7456003523327919120": "tt_7456003523327919120",
-    "tt_7456003523327919120": "tt_7456003523327919120",
+    # 4. Hành trang cho kế toán / Anh Gà Kế Toán: Kênh TikTok @anhgadata
+    "Hành trang cho kế toán": "tt_anhgadata",
+    "Anh Gà Kế Toán": "tt_anhgadata",
+    "7456003523327919120": "tt_anhgadata",
+    "tt_7456003523327919120": "tt_anhgadata",
 
-    # 5. Tuấn Anh Data: Zalo cá nhân
-    "Tuấn Anh Data": "pzl_788602135347404973",
-    "788602135347404973": "pzl_788602135347404973",
-    "pzl_788602135347404973": "pzl_788602135347404973",
+    # 5. Tuấn Anh Data: Zalo cá nhân SĐT +84389528224
+    "Tuấn Anh Data": "pzl_84389528224",
+    "788602135347404973": "pzl_84389528224",
+    "pzl_788602135347404973": "pzl_84389528224",
 
-    # 6. Chị Kế Toán GenZ: Kênh TikTok
-    "Chị Kế Toán GenZ": "tt_7661860189083943944",
-    "7661860189083943944": "tt_7661860189083943944",
-    "tt_7661860189083943944": "tt_7661860189083943944",
+    # 6. Chị Kế Toán GenZ: Kênh TikTok @chiketoangenz
+    "Chị Kế Toán GenZ": "tt_chiketoangenz",
+    "7661860189083943944": "tt_chiketoangenz",
+    "tt_7661860189083943944": "tt_chiketoangenz",
 }
 
 
