@@ -116,20 +116,26 @@ KNOWN_PAGE_NAMES: Dict[str, str] = {
     # 1. Eztech Phân Tích Dữ Liệu
     "629476615535063343": "Eztech Phân Tích Dữ Liệu",
     "pzl_629476615535063343": "Eztech Phân Tích Dữ Liệu",
-    # 2. Anh Kế toán làm Data
-    "7196601676597871618": "Anh Kế toán làm Data",
-    "tt_7196601676597871618": "Anh Kế toán làm Data",
-    # 3. Hành trang cho kế toán (Chuẩn hoá về 1 page Hành trang cho kế toán)
+    # 2. Anh Kế toán làm Data (TikTok)
+    "7196601676597871618": "Anh Kế toán làm Data (TikTok)",
+    "tt_7196601676597871618": "Anh Kế toán làm Data (TikTok)",
+    "Anh Kế toán làm Data": "Anh Kế toán làm Data (TikTok)",
+    "Anh Kế toán làm Data (TikTok)": "Anh Kế toán làm Data (TikTok)",
+    # 3. Anh Kế toán làm Data (Facebook)
+    "514400205095512": "Anh Kế toán làm Data (Facebook)",
+    "fb_514400205095512": "Anh Kế toán làm Data (Facebook)",
+    "Anh Kế toán làm Data (Facebook)": "Anh Kế toán làm Data (Facebook)",
+    # 4. Hành trang cho kế toán (Chuẩn hoá về 1 page Hành trang cho kế toán)
     "7456003523327919120": "Hành trang cho kế toán",
     "tt_7456003523327919120": "Hành trang cho kế toán",
     "Anh Gà Kế Toán": "Hành trang cho kế toán",
-    # 4. Hiền Minh Eztech
+    # 5. Hiền Minh Eztech
     "131986891507252646": "Hiền Minh Eztech",
     "pzl_131986891507252646": "Hiền Minh Eztech",
-    # 5. Tuấn Anh Data
+    # 6. Tuấn Anh Data
     "788602135347404973": "Tuấn Anh Data",
     "pzl_788602135347404973": "Tuấn Anh Data",
-    # 6. Chị Kế Toán GenZ
+    # 7. Chị Kế Toán GenZ
     "7661860189083943944": "Chị Kế Toán GenZ",
     "tt_7661860189083943944": "Chị Kế Toán GenZ",
 }
@@ -141,28 +147,34 @@ PAGE_NAME_TO_PANCAKE_ID: Dict[str, str] = {
     "629476615535063343": "pzl_84377024368",
     "pzl_629476615535063343": "pzl_84377024368",
 
-    # 2. Anh Kế toán làm Data: Kênh TikTok @tuananhdata
+    # 2. Anh Kế toán làm Data (TikTok): Kênh TikTok @tuananhdata
+    "Anh Kế toán làm Data (TikTok)": "tt_tuananhdata",
     "Anh Kế toán làm Data": "tt_tuananhdata",
     "7196601676597871618": "tt_tuananhdata",
     "tt_7196601676597871618": "tt_tuananhdata",
 
-    # 3. Hiền Minh Eztech: Zalo cá nhân SĐT +84898276368
+    # 3. Anh Kế toán làm Data (Facebook): Kênh Facebook Fanpage
+    "Anh Kế toán làm Data (Facebook)": "514400205095512",
+    "514400205095512": "514400205095512",
+    "fb_514400205095512": "514400205095512",
+
+    # 4. Hiền Minh Eztech: Zalo cá nhân SĐT +84898276368
     "Hiền Minh Eztech": "pzl_84898276368",
     "131986891507252646": "pzl_84898276368",
     "pzl_131986891507252646": "pzl_84898276368",
 
-    # 4. Hành trang cho kế toán / Anh Gà Kế Toán: Kênh TikTok @anhgadata
+    # 5. Hành trang cho kế toán / Anh Gà Kế Toán: Kênh TikTok @anhgadata
     "Hành trang cho kế toán": "tt_anhgadata",
     "Anh Gà Kế Toán": "tt_anhgadata",
     "7456003523327919120": "tt_anhgadata",
     "tt_7456003523327919120": "tt_anhgadata",
 
-    # 5. Tuấn Anh Data: Zalo cá nhân SĐT +84389528224
+    # 6. Tuấn Anh Data: Zalo cá nhân SĐT +84389528224
     "Tuấn Anh Data": "pzl_84389528224",
     "788602135347404973": "pzl_84389528224",
     "pzl_788602135347404973": "pzl_84389528224",
 
-    # 6. Chị Kế Toán GenZ: Kênh TikTok @chiketoangenz
+    # 7. Chị Kế Toán GenZ: Kênh TikTok @chiketoangenz
     "Chị Kế Toán GenZ": "tt_chiketoangenz",
     "7661860189083943944": "tt_chiketoangenz",
     "tt_7661860189083943944": "tt_chiketoangenz",
@@ -204,8 +216,12 @@ def build_pancake_url(
                 pid = PAGE_NAME_TO_PANCAKE_ID.get(parts[2]) or PAGE_NAME_TO_PANCAKE_ID.get(f"tt_{parts[2]}") or f"tt_{parts[2]}"
         elif conversation_id.startswith("fb_"):
             parts = conversation_id.split("_")
-            if len(parts) >= 3:
-                pid = parts[-1]
+            if len(parts) >= 2:
+                pid = PAGE_NAME_TO_PANCAKE_ID.get(parts[1]) or PAGE_NAME_TO_PANCAKE_ID.get(parts[-1]) or parts[1]
+        elif "_" in conversation_id and not conversation_id.startswith(("pzl_", "tt_")):
+            parts = conversation_id.split("_")
+            if len(parts) >= 2 and parts[0].isdigit():
+                pid = PAGE_NAME_TO_PANCAKE_ID.get(parts[0]) or parts[0]
 
     # 3. Fallback lấy chính page_name_or_id
     if not pid and page_name_or_id:

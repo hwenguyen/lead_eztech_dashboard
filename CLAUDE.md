@@ -31,13 +31,14 @@ FastAPI backend (`backend/`) + React frontend (`frontend-react/`) trên Render (
   - Thêm thẻ KPI tổng quan số lượng lead theo từng nhóm thời gian tương tác.
 - Tích hợp link mở trực tiếp hội thoại Pancake (`https://pancake.vn/[page_slug]?c_id=[conversation_id]`):
   - Tham số `?c_id=` là mã hội thoại `conversation_id` (`RawConversation.pancake_id` / `FactLeadActivity.conversation_id`) để Pancake tự động cuộn đến hội thoại của khách.
-  - Ánh xạ chuẩn xác toàn bộ 6 Fanpage sang Pancake slug:
+  - Ánh xạ chuẩn xác toàn bộ 7 Fanpage sang Pancake slug:
     1. `Eztech Phân Tích Dữ Liệu`: `pzl_84377024368` (Zalo cá nhân SĐT +84377024368)
-    2. `Anh Kế toán làm Data`: `tt_tuananhdata` (TikTok @tuananhdata)
-    3. `Hiền Minh Eztech`: `pzl_84898276368` (Zalo cá nhân SĐT +84898276368)
-    4. `Tuấn Anh Data`: `pzl_84389528224` (Zalo cá nhân SĐT +84389528224)
-    5. `Hành trang cho kế toán`: `tt_anhgadata` (TikTok @anhgadata, chuẩn hoá thống nhất "Anh Gà Kế Toán" về "Hành trang cho kế toán")
-    6. `Chị Kế Toán GenZ`: `tt_chiketoangenz` (TikTok @chiketoangenz)
+    2. `Anh Kế toán làm Data (TikTok)`: `tt_tuananhdata` (TikTok @tuananhdata)
+    3. `Anh Kế toán làm Data (Facebook)`: `514400205095512` (Fanpage Facebook ID: 514400205095512)
+    4. `Hiền Minh Eztech`: `pzl_84898276368` (Zalo cá nhân SĐT +84898276368)
+    5. `Tuấn Anh Data`: `pzl_84389528224` (Zalo cá nhân SĐT +84389528224)
+    6. `Hành trang cho kế toán`: `tt_anhgadata` (TikTok @anhgadata, chuẩn hoá thống nhất "Anh Gà Kế Toán" về "Hành trang cho kế toán")
+    7. `Chị Kế Toán GenZ`: `tt_chiketoangenz` (TikTok @chiketoangenz)
   - Hiển thị nút "Mở Pancake" (`ExternalLink`) ở cả bảng Remind Lead và bảng Danh sách Lead (`LeadTable.tsx`).
 
 ### 2026-10-07 — Đã hoàn thành
