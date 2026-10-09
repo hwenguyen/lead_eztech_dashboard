@@ -133,14 +133,38 @@ KNOWN_PAGE_NAMES: Dict[str, str] = {
     "tt_7661860189083943944": "Chị Kế Toán GenZ",
 }
 
-# Bản đồ ánh xạ từ Tên Page sang Page ID trên Pancake (dùng để sinh link https://pancake.vn/[id page]?c_id=[customer id])
+# Bản đồ ánh xạ từ Tên/ID Page sang Page Slug hiển thị trên Pancake URL (https://pancake.vn/[slug]?c_id=[conversation_id])
 PAGE_NAME_TO_PANCAKE_ID: Dict[str, str] = {
-    "Eztech Phân Tích Dữ Liệu": "pzl_629476615535063343",
+    # 1. Eztech Phân Tích Dữ Liệu: Zalo cá nhân SĐT +84377024368
+    "Eztech Phân Tích Dữ Liệu": "pzl_84377024368",
+    "629476615535063343": "pzl_84377024368",
+    "pzl_629476615535063343": "pzl_84377024368",
+
+    # 2. Anh Kế toán làm Data: Kênh TikTok @tuananhdata
+    "Anh Kế toán làm Data": "tt_tuananhdata",
+    "7196601676597871618": "tt_tuananhdata",
+    "tt_7196601676597871618": "tt_tuananhdata",
+
+    # 3. Hiền Minh Eztech: Zalo cá nhân
     "Hiền Minh Eztech": "pzl_131986891507252646",
-    "Tuấn Anh Data": "pzl_788602135347404973",
-    "Anh Kế toán làm Data": "tt_7196601676597871618",
+    "131986891507252646": "pzl_131986891507252646",
+    "pzl_131986891507252646": "pzl_131986891507252646",
+
+    # 4. Anh Gà Kế Toán / Hành trang cho kế toán: Kênh TikTok
     "Anh Gà Kế Toán": "tt_7456003523327919120",
+    "Hành trang cho kế toán": "tt_7456003523327919120",
+    "7456003523327919120": "tt_7456003523327919120",
+    "tt_7456003523327919120": "tt_7456003523327919120",
+
+    # 5. Tuấn Anh Data: Zalo cá nhân
+    "Tuấn Anh Data": "pzl_788602135347404973",
+    "788602135347404973": "pzl_788602135347404973",
+    "pzl_788602135347404973": "pzl_788602135347404973",
+
+    # 6. Chị Kế Toán GenZ: Kênh TikTok
     "Chị Kế Toán GenZ": "tt_7661860189083943944",
+    "7661860189083943944": "tt_7661860189083943944",
+    "tt_7661860189083943944": "tt_7661860189083943944",
 }
 
 
@@ -149,34 +173,47 @@ def build_pancake_url(
     customer_id: Optional[str] = None,
     page_name_or_id: Optional[str] = None,
 ) -> Optional[str]:
-    """Sinh link trực tiếp mở hội thoại Pancake: https://pancake.vn/[id page]?c_id=[customer id]"""
-    if not customer_id:
+    """Sinh link trực tiếp mở hội thoại Pancake: https://pancake.vn/[id page]?c_id=[conversation id]"""
+    # Trên Pancake Web UI, tham số c_id nhận mã hội thoại (conversation_id) để tự cuộn vào tin nhắn
+    target_cid = conversation_id or customer_id
+    if not target_cid:
         return None
+
     pid = None
-    if conversation_id:
-        if conversation_id.startswith("pzl_"):
-            parts = conversation_id.split("_")
-            if len(parts) >= 4:
-                pid = f"pzl_{parts[2]}"
-        elif conversation_id.startswith("tt_"):
-            parts = conversation_id.split(":")
-            if len(parts) >= 4:
-                pid = f"tt_{parts[-1]}"
-        elif conversation_id.startswith("fb_"):
-            parts = conversation_id.split("_")
-            if len(parts) >= 3:
-                pid = parts[-1]
-    if not pid and page_name_or_id:
+
+    # 1. Tra cứu slug theo Tên hoặc ID page
+    if page_name_or_id:
         clean_p = str(page_name_or_id).strip()
         pid = PAGE_NAME_TO_PANCAKE_ID.get(clean_p)
         if not pid and clean_p in KNOWN_PAGE_NAMES:
             cname = KNOWN_PAGE_NAMES[clean_p]
             pid = PAGE_NAME_TO_PANCAKE_ID.get(cname)
-        if not pid:
-            pid = clean_p
+
+    # 2. Nếu chưa có slug từ tên page, tra cứu qua ID bóc tách từ conversation_id
+    if not pid and conversation_id:
+        if conversation_id.startswith("pzl_"):
+            parts = conversation_id.split("_")
+            if len(parts) >= 4:
+                pid = PAGE_NAME_TO_PANCAKE_ID.get(parts[2]) or PAGE_NAME_TO_PANCAKE_ID.get(f"pzl_{parts[2]}") or f"pzl_{parts[2]}"
+        elif conversation_id.startswith("tt_"):
+            parts = conversation_id.split(":")
+            if len(parts) >= 4:
+                pid = PAGE_NAME_TO_PANCAKE_ID.get(parts[-1]) or PAGE_NAME_TO_PANCAKE_ID.get(f"tt_{parts[-1]}") or f"tt_{parts[-1]}"
+            elif len(parts) >= 3:
+                pid = PAGE_NAME_TO_PANCAKE_ID.get(parts[2]) or PAGE_NAME_TO_PANCAKE_ID.get(f"tt_{parts[2]}") or f"tt_{parts[2]}"
+        elif conversation_id.startswith("fb_"):
+            parts = conversation_id.split("_")
+            if len(parts) >= 3:
+                pid = parts[-1]
+
+    # 3. Fallback lấy chính page_name_or_id
+    if not pid and page_name_or_id:
+        pid = str(page_name_or_id).strip()
+
     if not pid:
         return None
-    return f"https://pancake.vn/{pid}?c_id={customer_id}"
+
+    return f"https://pancake.vn/{pid}?c_id={target_cid}"
 
 
 # Page Zalo cá nhân (ID prefix pzl_) là kênh chăm sóc sau khi đã có SĐT → không cộng vào "Tất cả Page".
