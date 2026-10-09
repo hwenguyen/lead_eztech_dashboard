@@ -110,11 +110,10 @@ def upsert_lead_data(db: Session, raw_data: dict, page_id: str, commit: bool = T
                 lead.phone_number = normalize_phone(lead.phone_number) or lead.phone_number
             elif phone:
                 lead.phone_number = phone
-                # Lead đã có từ trước nay mới có số mà không thấy tin chứa số → coi như vừa thu được
+                # Lead đã có từ trước nay mới có số mà không thấy tin chứa số hay tag -> coi như vừa thu được
                 phone_at = phone_at or parse_pancake_date(raw_data.get('updated_at'))
-            # Giữ thời điểm SỚM NHẤT khách gửi đúng số đang lưu. Payload chỉ có 30 tin gần nhất nên
-            # khi không còn thấy tin chứa số (phone_at = None) thì giữ nguyên giá trị đã lưu.
-            if phone_at and phone == lead.phone_number and (not lead.phone_at or phone_at < lead.phone_at):
+            # Giữ thời điểm SỚM NHẤT thu được số (từ tin nhắn hoặc tag "Đã add")
+            if phone_at and (not lead.phone_at or phone_at < lead.phone_at):
                 lead.phone_at = phone_at
             # Chuẩn hoá page_id về tên chữ nếu trước đó lưu ID số / pzl_ ID
             if not lead.page_id or is_page_id(lead.page_id):

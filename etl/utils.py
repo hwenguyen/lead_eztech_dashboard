@@ -80,19 +80,35 @@ def customer_phone_hits(messages: Optional[List[Dict[str, Any]]]) -> List[Tuple[
 
 
 def resolve_phone(raw_data: Dict[str, Any]) -> Tuple[Optional[str], Optional[datetime]]:
-    """Trả về (SĐT đã chuẩn hoá, thời điểm khách gửi số đó lần đầu) của một hội thoại.
+    """Trả về (SĐT đã chuẩn hoá, thời điểm thu được số) của một hội thoại.
 
-    Ưu tiên số Pancake đã thu thập (raw_data['phone_number']). Thời điểm là None khi số không xuất hiện
-    trong tin nhắn của khách (vd số lấy từ hồ sơ Zalo) → lúc tính chỉ số sẽ dùng ngày tạo lead.
+    1. Ưu tiên Mốc 1: thời điểm khách gửi số lần đầu trong tin nhắn.
+    2. Nếu không có mốc 1 (khách không nhắn số trong chat), lấy Mốc 2: thời điểm gắn tag "Đã add" từ tag_timeline.
     """
     hits = customer_phone_hits(raw_data.get("messages"))
     phone = normalize_phone(raw_data.get("phone_number"))
+    phone_at = None
     if phone:
         dates = [dt for dt, hit_phone in hits if hit_phone == phone and dt]
-        return phone, (dates[0] if dates else None)
-    if hits:
-        return hits[0][1], hits[0][0]
-    return None, None
+        phone_at = dates[0] if dates else None
+    elif hits:
+        phone, phone_at = hits[0][1], hits[0][0]
+
+    # Nếu không có mốc 1 (khách không chat số), lấy mốc 2 nếu có tag "Đã add"
+    if not phone_at and raw_data.get("tag_timeline"):
+        import unicodedata
+        add_tag_times = []
+        for t_item in raw_data.get("tag_timeline") or []:
+            if isinstance(t_item, dict):
+                t_name = unicodedata.normalize("NFC", str(t_item.get("tag") or "")).strip().lower()
+                if ("đã add" in t_name or "da add" in t_name) and t_item.get("action") == "add":
+                    dt = parse_pancake_date(t_item.get("tagged_at"))
+                    if dt:
+                        add_tag_times.append(dt)
+        if add_tag_times:
+            phone_at = min(add_tag_times)
+
+    return phone, phone_at
 
 
 # Bản đồ tên Fanpage chuẩn hóa dùng chung toàn hệ thống

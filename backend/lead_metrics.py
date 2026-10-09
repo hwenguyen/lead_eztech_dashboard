@@ -21,7 +21,7 @@ from sqlalchemy import select, or_, and_
 from sqlalchemy.orm import Session
 
 from database.models import DimLead, FactLeadActivity
-from etl.utils import VN_TZ, resolve_canonical_page_name, KNOWN_PAGE_NAMES, normalize_phone, zalo_page_keys
+from etl.utils import VN_TZ, resolve_canonical_page_name, KNOWN_PAGE_NAMES, normalize_phone, zalo_page_keys, parse_pancake_date
 
 PHONE_TAG = "đã add"
 
@@ -253,10 +253,28 @@ def classify_leads(
     # SĐT thu được trong kỳ: thời điểm thu nằm trong kỳ và lead là chủ của số đó
     owner_ids = _phone_owner_ids(db, start, end, scope)
     for agg in leads.values():
-        obtained_at = agg.phone_at or agg.first_created_at
+        # Mốc 1: Khách nhắn số (agg.phone_at)
+        obtained_at = agg.phone_at
+        
+        # Mốc 2: Nếu không có mốc 1, lấy thời gian gắn tag "Đã add" (từ tag_timeline)
+        if not obtained_at and agg.tag_timeline:
+            add_times = []
+            for t_item in agg.tag_timeline:
+                if isinstance(t_item, dict) and PHONE_TAG in normalize_text(t_item.get('tag', '')):
+                    if t_item.get('action') == 'add':
+                        dt = parse_pancake_date(t_item.get('tagged_at'))
+                        if dt:
+                            add_times.append(dt)
+            if add_times:
+                obtained_at = min(add_times)
+
+        # Mốc 3: Dự phòng ngày tạo lead
+        if not obtained_at:
+            obtained_at = agg.first_created_at
+
         if not agg.has_phone or not obtained_at or not (start <= obtained_at <= end):
             continue
-        # Lead chỉ có tag "Đã add" (không có số) thì không gộp trùng được → tính theo ngày tạo lead
+        # Lead chỉ có tag "Đã add" (không có số) thì không gộp trùng được → tính theo ngày gắn tag / tạo lead
         if not agg.phone_number or agg.id in owner_ids:
             agg.phone_event_at = obtained_at
 
