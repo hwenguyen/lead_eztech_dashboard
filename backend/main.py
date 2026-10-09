@@ -12,7 +12,16 @@ import logging
 from database.db import get_db, SessionLocal
 from database.models import DimLead, FactLeadActivity, RawConversation
 from database.schema import ensure_schema
-from backend.schemas import LeadMetricsSummary, TrendResponse, TrendDataPoint, LeadListResponse, LeadResponse
+from backend.schemas import (
+    LeadMetricsSummary,
+    TrendResponse,
+    TrendDataPoint,
+    LeadListResponse,
+    LeadResponse,
+    RemindLeadResponse,
+    RemindLeadItem,
+    RemindSummary
+)
 from backend.lead_metrics import classify_leads, resolve_period, normalize_text, clear_metrics_cache
 from etl.utils import (
     parse_pancake_date,
@@ -22,6 +31,7 @@ from etl.utils import (
     resolve_canonical_page_name,
     KNOWN_PAGE_NAMES,
     ZALO_PAGE_NAMES,
+    VN_TZ,
 )
 
 logger = logging.getLogger(__name__)
@@ -414,3 +424,160 @@ def list_leads(
         ))
 
     return LeadListResponse(total=total, page=page, size=size, data=data)
+
+
+@app.get("/api/leads/remind", response_model=RemindLeadResponse)
+def get_remind_leads(
+    employee: Optional[str] = None,
+    page_id: Optional[str] = None,
+    search: Optional[str] = None,
+    days_bucket: Optional[str] = None,
+    sort_order: Optional[str] = "asc",
+    page: int = Query(1, ge=1),
+    size: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db)
+):
+    """Bảng Remind Lead: lấy các lead có tag 'Remind', tính khoảng cách ngày đến tin nhắn cuối và sắp xếp từ thấp nhất lên xa nhất."""
+    from sqlalchemy import or_
+
+    now_vn = datetime.now(VN_TZ).replace(tzinfo=None)
+
+    # 1. Truy vấn các hội thoại/lead có tag 'remind'
+    query = db.query(
+        FactLeadActivity.id.label('activity_id'),
+        FactLeadActivity.conversation_id,
+        FactLeadActivity.status_tag,
+        FactLeadActivity.assigned_users,
+        FactLeadActivity.contacted_at,
+        FactLeadActivity.tag_timeline,
+        DimLead.id.label('lead_id'),
+        DimLead.customer_id,
+        DimLead.name,
+        DimLead.phone_number,
+        DimLead.page_id,
+        DimLead.first_created_at
+    ).join(DimLead, FactLeadActivity.lead_id == DimLead.id).filter(
+        FactLeadActivity.status_tag.ilike('%remind%')
+    )
+
+    # Lọc theo Page nếu có
+    if page_id and page_id.strip():
+        clean_pid = page_id.strip()
+        canonical_name = resolve_canonical_page_name(clean_pid, fallback=clean_pid)
+        possible_pids = {clean_pid, canonical_name}
+        for k, v in KNOWN_PAGE_NAMES.items():
+            if v == canonical_name or k == clean_pid:
+                possible_pids.add(k)
+                possible_pids.add(v)
+        query = query.filter(DimLead.page_id.in_(list(possible_pids)))
+
+    # Lọc theo Nhân viên nếu có
+    if employee and employee.strip():
+        emp_clean = employee.strip()
+        if normalize_text(emp_clean) in ("chua phan cong", "chưa phân công"):
+            query = query.filter(or_(FactLeadActivity.assigned_users.is_(None), FactLeadActivity.assigned_users == ""))
+        else:
+            query = query.filter(FactLeadActivity.assigned_users.ilike(f"%{emp_clean}%"))
+
+    # Lọc tìm kiếm theo Tên khách / SĐT
+    if search and search.strip():
+        s_clean = search.strip()
+        query = query.filter(or_(DimLead.name.ilike(f"%{s_clean}%"), DimLead.phone_number.ilike(f"%{s_clean}%")))
+
+    rows = query.all()
+
+    # Thu thập danh sách nhân viên có remind leads (để hiển thị filter)
+    all_remind_employees = set()
+    for r in rows:
+        emps = [x.strip() for x in (r.assigned_users or '').split(',') if x.strip()]
+        if not emps:
+            all_remind_employees.add("Chưa phân công")
+        else:
+            all_remind_employees.update(emps)
+
+    items = []
+    summary_total = len(rows)
+    cnt_under_1 = 0
+    cnt_1_to_3 = 0
+    cnt_3_to_7 = 0
+    cnt_over_7 = 0
+
+    for r in rows:
+        last_contact = r.contacted_at or r.first_created_at or now_vn
+        diff_sec = max(0.0, (now_vn - last_contact).total_seconds())
+        days_float = round(diff_sec / 86400.0, 1)
+        days_int = int(diff_sec // 86400.0)
+
+        # Thống kê buckets
+        if days_int == 0:
+            cnt_under_1 += 1
+        elif 1 <= days_int <= 3:
+            cnt_1_to_3 += 1
+        elif 4 <= days_int <= 7:
+            cnt_3_to_7 += 1
+        else:
+            cnt_over_7 += 1
+
+        # Lọc theo days_bucket nếu người dùng bấm chọn
+        if days_bucket:
+            if days_bucket == "today" and days_int != 0:
+                continue
+            elif days_bucket == "1_to_3" and not (1 <= days_int <= 3):
+                continue
+            elif days_bucket == "3_to_7" and not (4 <= days_int <= 7):
+                continue
+            elif days_bucket == "over_7" and days_int <= 7:
+                continue
+
+        # Tìm thời điểm gắn tag Remind từ tag_timeline
+        remind_tagged_at = None
+        for t_item in r.tag_timeline or []:
+            if isinstance(t_item, dict):
+                t_name = str(t_item.get('tag') or '').strip().lower()
+                if 'remind' in t_name and t_item.get('action') == 'add':
+                    remind_tagged_at = t_item.get('tagged_at')
+                    break
+
+        canonical_pg = resolve_canonical_page_name(r.page_id, fallback=r.page_id)
+        items.append(
+            RemindLeadItem(
+                lead_id=r.lead_id,
+                customer_id=r.customer_id,
+                name=r.name,
+                phone_number=r.phone_number,
+                page_id=canonical_pg,
+                assigned_users=r.assigned_users or "Chưa phân công",
+                status_tag=r.status_tag,
+                remind_tag="Remind",
+                remind_tagged_at=remind_tagged_at,
+                contacted_at=r.contacted_at,
+                days_since_last_contact=days_float,
+                days_int=days_int,
+                conversation_id=r.conversation_id
+            )
+        )
+
+    # Sort mặc định: từ thấp nhất lên xa nhất (0 ngày -> 1 ngày -> 2 ngày...)
+    reverse_sort = (sort_order == "desc")
+    items.sort(key=lambda x: x.days_since_last_contact, reverse=reverse_sort)
+
+    total_filtered = len(items)
+    total_pages = (total_filtered + size - 1) // size if total_filtered > 0 else 1
+    paginated = items[(page - 1) * size : page * size]
+
+    return RemindLeadResponse(
+        total=total_filtered,
+        page=page,
+        size=size,
+        total_pages=total_pages,
+        summary=RemindSummary(
+            total=summary_total,
+            under_1_day=cnt_under_1,
+            days_1_to_3=cnt_1_to_3,
+            days_3_to_7=cnt_3_to_7,
+            over_7_days=cnt_over_7
+        ),
+        employees=sorted(list(all_remind_employees)),
+        items=paginated
+    )
+

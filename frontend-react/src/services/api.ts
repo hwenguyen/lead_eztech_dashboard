@@ -100,3 +100,55 @@ export const fetchPages = async (): Promise<PagesData> => {
   const response = await apiClient.get<{data: string[], zalo_pages?: string[]}>('/pages/list');
   return { pages: response.data.data, zaloPages: response.data.zalo_pages ?? [] };
 };
+
+export interface RemindLeadItem {
+  lead_id: number;
+  customer_id: string;
+  name?: string;
+  phone_number?: string;
+  page_id: string;
+  assigned_users?: string;
+  status_tag?: string;
+  remind_tag: string;
+  remind_tagged_at?: string;
+  contacted_at: string | null;
+  days_since_last_contact: number;
+  days_int: number;
+  conversation_id?: string;
+}
+
+export interface RemindSummary {
+  total: number;
+  under_1_day: number;
+  days_1_to_3: number;
+  days_3_to_7: number;
+  over_7_days: number;
+}
+
+export interface RemindLeadResponse {
+  total: number;
+  page: number;
+  size: number;
+  total_pages: number;
+  summary: RemindSummary;
+  employees: string[];
+  items: RemindLeadItem[];
+}
+
+export const fetchRemindLeads = async (
+  employee?: string,
+  pageId?: string,
+  search?: string,
+  daysBucket?: string,
+  sortOrder: 'asc' | 'desc' = 'asc',
+  page: number = 1,
+  size: number = 20
+): Promise<RemindLeadResponse> => {
+  const params: any = { page, size, sort_order: sortOrder };
+  if (employee) params.employee = employee;
+  if (pageId) params.page_id = pageId;
+  if (search) params.search = search;
+  if (daysBucket && daysBucket !== 'all') params.days_bucket = daysBucket;
+  const res = await apiClient.get<RemindLeadResponse>('/leads/remind', { params });
+  return res.data;
+};

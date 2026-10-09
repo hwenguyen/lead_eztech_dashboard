@@ -1,14 +1,16 @@
 import { useState, useEffect } from 'react';
 import { format, subDays } from 'date-fns';
-import { Users, UserPlus, UserCheck, PhoneCall, PhoneForwarded, Percent, Filter, RefreshCw } from 'lucide-react';
+import { Users, UserPlus, UserCheck, PhoneCall, PhoneForwarded, Percent, Filter, RefreshCw, LayoutDashboard, Clock } from 'lucide-react';
 import { KpiCard } from './components/KpiCard';
 import { TrendChart } from './components/TrendChart';
 import { LeadTable } from './components/LeadTable';
 import { RatioChart } from './components/RatioChart';
 import { StatsPieChart } from './components/StatsPieChart';
+import { RemindLeadTable } from './components/RemindLeadTable';
 import { fetchSummary, fetchTrend, fetchLeads, fetchEmployees, fetchPages, type SummaryData, type TrendData, type Lead } from './services/api';
 
 function App() {
+  const [activeTab, setActiveTab] = useState<'overview' | 'remind'>('overview');
   const [startDate, setStartDate] = useState(format(subDays(new Date(), 7), 'yyyy-MM-dd'));
   const [endDate, setEndDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [pageId, setPageId] = useState('');
@@ -112,13 +114,42 @@ function App() {
       {/* Header */}
       <header className="bg-white border-b border-[#E5E7EB] sticky top-0 z-20 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <img src="/logo.png" alt="EzTech Logo" className="h-10 object-contain" />
-            <div className="ml-2 border-l border-[#E5E7EB] pl-3">
-              <h1 className="text-base font-bold text-navy leading-none">Lead Dashboard</h1>
-              <p className="text-xs text-[#4B5563] mt-0.5">Pancake Analytics</p>
+          <div className="flex items-center gap-6">
+            <div className="flex items-center gap-3">
+              <img src="/logo.png" alt="EzTech Logo" className="h-10 object-contain" />
+              <div className="ml-2 border-l border-[#E5E7EB] pl-3">
+                <h1 className="text-base font-bold text-navy leading-none">Lead Dashboard</h1>
+                <p className="text-xs text-[#4B5563] mt-0.5">Pancake Analytics</p>
+              </div>
+            </div>
+
+            {/* Desktop Navigation Tabs */}
+            <div className="hidden sm:flex items-center gap-1 bg-gray-100 p-1 rounded-xl">
+              <button
+                onClick={() => setActiveTab('overview')}
+                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                  activeTab === 'overview'
+                    ? 'bg-white text-navy shadow-sm'
+                    : 'text-[#4B5563] hover:text-navy hover:bg-white/50'
+                }`}
+              >
+                <LayoutDashboard className="w-3.5 h-3.5 text-[#1E5BD6]" />
+                <span>Tổng quan & Chỉ số</span>
+              </button>
+              <button
+                onClick={() => setActiveTab('remind')}
+                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                  activeTab === 'remind'
+                    ? 'bg-white text-navy shadow-sm'
+                    : 'text-[#4B5563] hover:text-navy hover:bg-white/50'
+                }`}
+              >
+                <Clock className="w-3.5 h-3.5 text-amber-500" />
+                <span>Chăm sóc Lead (Remind)</span>
+              </button>
             </div>
           </div>
+
           <div className="flex items-center gap-3">
             {lastUpdated && (
               <span className="text-xs text-[#4B5563]">
@@ -137,8 +168,37 @@ function App() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+        {/* Mobile Tab Switcher */}
+        <div className="sm:hidden flex items-center gap-1 bg-gray-100 p-1 rounded-xl">
+          <button
+            onClick={() => setActiveTab('overview')}
+            className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-semibold transition-all ${
+              activeTab === 'overview'
+                ? 'bg-white text-navy shadow-sm'
+                : 'text-[#4B5563]'
+            }`}
+          >
+            <LayoutDashboard className="w-3.5 h-3.5 text-[#1E5BD6]" />
+            <span>Tổng quan</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('remind')}
+            className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-semibold transition-all ${
+              activeTab === 'remind'
+                ? 'bg-white text-navy shadow-sm'
+                : 'text-[#4B5563]'
+            }`}
+          >
+            <Clock className="w-3.5 h-3.5 text-amber-500" />
+            <span>Remind Lead</span>
+          </button>
+        </div>
 
-        {/* Filter Panel */}
+        {activeTab === 'remind' ? (
+          <RemindLeadTable pagesList={pagesList} zaloPages={zaloPages} />
+        ) : (
+          <>
+            {/* Filter Panel */}
         <div className="bg-white rounded-2xl border border-[#E5E7EB] shadow-sm p-5">
           <div className="flex items-center gap-2 mb-4">
             <Filter className="w-4 h-4 text-eztech" />
@@ -301,6 +361,8 @@ function App() {
             />
           </>
         )}
+      </>
+    )}
       </main>
     </div>
   );

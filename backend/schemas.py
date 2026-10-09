@@ -44,3 +44,34 @@ class LeadListResponse(BaseModel):
     page: int
     size: int
     data: List[LeadResponse]
+
+class RemindSummary(BaseModel):
+    total: int
+    under_1_day: int
+    days_1_to_3: int
+    days_3_to_7: int
+    over_7_days: int
+
+class RemindLeadItem(BaseModel):
+    lead_id: int
+    customer_id: str
+    name: Optional[str] = None
+    phone_number: Optional[str] = None
+    page_id: str
+    assigned_users: Optional[str] = None
+    status_tag: Optional[str] = None
+    remind_tag: str = "Remind"
+    remind_tagged_at: Optional[str] = None
+    contacted_at: Optional[datetime] = None
+    days_since_last_contact: float
+    days_int: int
+    conversation_id: Optional[str] = None
+
+class RemindLeadResponse(BaseModel):
+    total: int
+    page: int
+    size: int
+    total_pages: int
+    summary: RemindSummary
+    employees: List[str]
+    items: List[RemindLeadItem]
