@@ -360,12 +360,12 @@ def run_etl_pipeline():
                 )
                 api_secs = time.perf_counter() - t_api
 
-                # Tên chuẩn của riêng Page này (ưu tiên tên API trả về -> tên cấu hình preset -> tên cấu hình chuẩn -> tên DB)
+                # Tên chuẩn của riêng Page này (ưu tiên tên cấu hình chuẩn hệ thống -> tên cấu hình preset -> tên API trả về -> tên DB)
                 canonical_page_name = (
-                    getattr(client, 'page_name', None)
-                    or preset_name
-                    or resolve_canonical_page_name(page_id, fallback=None)
+                    resolve_canonical_page_name(page_id, fallback=None)
                     or known_page_name
+                    or preset_name
+                    or getattr(client, 'page_name', None)
                     or (page_id if not is_page_id(page_id) else None)
                 )
                 if not canonical_page_name or is_page_id(canonical_page_name):
