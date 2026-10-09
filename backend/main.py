@@ -244,7 +244,7 @@ def get_summary(
     new_leads = recontact_leads = new_phone_leads = recontact_phone_leads = 0
     new_leads_employee_stats: Counter = Counter()
     phone_leads_employee_stats: Counter = Counter()
-    tag_stats: Counter = Counter()
+    tag_stats: Counter = Counter({"Lead Other": 0, "Đào tạo": 0, "Other": 0})
 
     for lead in leads.values():
         # Pie Chart: mỗi lead chỉ gán cho 1 nhân viên chính để tổng không bị lặp
@@ -261,8 +261,25 @@ def get_summary(
         if lead.has_phone:
             phone_leads_employee_stats[emp] += 1
 
-        for label in {_categorize_tag(t) for t in lead.tags} - {None}:
-            tag_stats[label] += 1
+        cats = {_categorize_tag(t) for t in lead.tags} - {None}
+        if "Lead Other" in cats and "Đào tạo" in cats:
+            # Nếu có cả 2 nhóm tag, chọn nhóm có tag gắn gần nhất trong timeline
+            latest_cat = None
+            latest_time = None
+            for item in lead.tag_timeline:
+                cat = _categorize_tag(item.get("tag", ""))
+                if cat in ("Lead Other", "Đào tạo"):
+                    t_str = item.get("tagged_at")
+                    if t_str and (latest_time is None or t_str > latest_time):
+                        latest_time = t_str
+                        latest_cat = cat
+            tag_stats[latest_cat or "Đào tạo"] += 1
+        elif "Lead Other" in cats:
+            tag_stats["Lead Other"] += 1
+        elif "Đào tạo" in cats:
+            tag_stats["Đào tạo"] += 1
+        else:
+            tag_stats["Other"] += 1
 
     return LeadMetricsSummary(
         new_leads=new_leads,

@@ -348,6 +348,11 @@ function App() {
                 title="Lead Other & Đào tạo"
                 subtitle="Thống kê Tag phân loại"
                 stats={summary?.tag_stats}
+                colorMap={{
+                  'Lead Other': '#1E5BD6',
+                  'Đào tạo': '#10B981',
+                  'Other': '#F59E0B',
+                }}
               />
             </div>
 

@@ -4,6 +4,7 @@ interface StatsPieChartProps {
   title: string;
   subtitle: string;
   stats: Record<string, number> | undefined;
+  colorMap?: Record<string, string>;
 }
 
 const COLORS = ['#1E5BD6', '#10B981', '#F59E0B', '#EF4444', '#0A1F44', '#FFC107', '#E6F0FF', '#4B5563'];
@@ -21,7 +22,7 @@ const CustomLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent }: an
   );
 };
 
-export function StatsPieChart({ title, subtitle, stats }: StatsPieChartProps) {
+export function StatsPieChart({ title, subtitle, stats, colorMap }: StatsPieChartProps) {
   if (!stats) return null;
 
   const data = Object.entries(stats)
@@ -30,6 +31,11 @@ export function StatsPieChart({ title, subtitle, stats }: StatsPieChartProps) {
     .sort((a, b) => b.value - a.value);
 
   const total = data.reduce((acc, curr) => acc + curr.value, 0);
+
+  const getColor = (name: string, index: number) => {
+    if (colorMap && colorMap[name]) return colorMap[name];
+    return COLORS[index % COLORS.length];
+  };
 
   return (
     <div className="bg-white rounded-2xl border border-[#E5E7EB] p-6 shadow-sm">
@@ -53,8 +59,8 @@ export function StatsPieChart({ title, subtitle, stats }: StatsPieChartProps) {
                 labelLine={false}
                 label={<CustomLabel />}
               >
-                {data.map((_, index) => (
-                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                {data.map((item, index) => (
+                  <Cell key={`cell-${index}`} fill={getColor(item.name, index)} />
                 ))}
               </Pie>
               <Tooltip formatter={(value: number) => [value, 'Lead']} />
@@ -67,7 +73,7 @@ export function StatsPieChart({ title, subtitle, stats }: StatsPieChartProps) {
                 <span className="flex items-center gap-2 text-gray-600 truncate mr-2">
                   <span 
                     className="w-2.5 h-2.5 rounded-full inline-block shrink-0" 
-                    style={{ backgroundColor: COLORS[index % COLORS.length] }} 
+                    style={{ backgroundColor: getColor(item.name, index) }} 
                   />
                   <span className="truncate">{item.name}</span>
                 </span>
