@@ -209,9 +209,10 @@ class PancakeClient:
                 reached_cutoff = False
                 valid_convs = []
                 for conv in convs:
-                    # Bỏ qua Comment ngay từ đầu — chỉ lấy tin nhắn (Message/Inbox)
+                    # Bỏ qua Comment và Group chat Zalo ngay từ đầu — chỉ lấy tin nhắn khách hàng cá nhân (Message/Inbox)
                     conv_type = str(conv.get("type", "")).upper()
-                    if conv_type == "COMMENT":
+                    conv_id = str(conv.get("id", ""))
+                    if conv_type == "COMMENT" or conv_id.startswith("pzl_g_"):
                         continue
 
                     if cutoff_dt:

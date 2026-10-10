@@ -51,9 +51,9 @@ def upsert_lead_data(db: Session, raw_data: dict, page_id: str, commit: bool = T
         conv_id = str(raw_data.get('id', ''))
         customer_id = str(raw_data.get('customer_id', ''))
         
-        # Bỏ qua Comment (Chỉ lấy Message)
+        # Bỏ qua Comment và Group chat Zalo (Chỉ lấy Message khách hàng cá nhân)
         conv_type = str(raw_data.get('type', '')).upper()
-        if conv_type == 'COMMENT':
+        if conv_type == 'COMMENT' or conv_id.startswith('pzl_g_'):
             return
             
         if not conv_id or not customer_id:
@@ -384,9 +384,9 @@ def run_etl_pipeline():
 
                 changed = []
                 for c in conversations:
-                    if str(c.get('type', '')).upper() == 'COMMENT':
+                    cid = str(c.get('id', ''))
+                    if str(c.get('type', '')).upper() == 'COMMENT' or cid.startswith('pzl_g_'):
                         continue
-                    cid = str(c.get('id'))
                     cached = stored_payloads.get(cid)
                     if not cached:
                         changed.append(c)

@@ -72,6 +72,8 @@ def auto_repair_contacted_dates():
         # 1. Khởi tạo và xây dựng bản đồ ánh xạ (Mapping) từ Page ID (số / pzl_) sang Page Name (chữ) cho TỪNG PAGE
         id_to_name_map: Dict[str, str] = KNOWN_PAGE_NAMES.copy()
         for r in raws:
+            if r.pancake_id and r.pancake_id.startswith("pzl_g_"):
+                continue
             payload = r.payload if isinstance(r.payload, dict) else {}
             pid = str(payload.get('page_id') or (r.page_id if r.page_id and is_page_id(r.page_id) else '') or '')
 
@@ -95,6 +97,8 @@ def auto_repair_contacted_dates():
         # 2. Cập nhật RawConversation.page_id nếu đang là ID số sang tên chữ tương ứng của page đó
         conv_to_page: Dict[str, str] = {}
         for r in raws:
+            if r.pancake_id and r.pancake_id.startswith("pzl_g_"):
+                continue
             payload = r.payload if isinstance(r.payload, dict) else {}
             pid = str(payload.get('page_id') or (r.page_id if r.page_id and is_page_id(r.page_id) else '') or '')
 
@@ -497,7 +501,9 @@ def get_remind_leads(
             DimLead.phone_number,
             DimLead.page_id,
             DimLead.first_created_at
-        ).join(DimLead, FactLeadActivity.lead_id == DimLead.id)
+        ).join(DimLead, FactLeadActivity.lead_id == DimLead.id).filter(
+            ~FactLeadActivity.conversation_id.like("pzl_g_%")
+        )
 
         # Lọc theo Tag nếu có và không phải 'all'
         if tag and tag.strip() and tag.strip().lower() != 'all':

@@ -81,11 +81,28 @@ FastAPI backend (`backend/`) + React frontend (`frontend-react/`) trên Render (
 - PR #1: gom logic đếm vào `backend/lead_metrics.py`, tách Contact Lại + Tổng Lead, lọc nhân viên khớp chính xác, trend điền ngày trống.
 - PR #2: ép driver `postgresql+psycopg2://` (SQLAlchemy 2.1 đổi mặc định) + `pool_pre_ping`; ETL đóng session trước khi cào.
 
+### 2026-10-10 — Đã hoàn thành
+- Thêm Fanpage Facebook mới: `514400205095512` (`Anh Kế toán làm Data (Facebook)`):
+  - Phân biệt với kênh TikTok cùng tên `Anh Kế toán làm Data (TikTok)`.
+  - Cấu hình access token và chạy first run ETL thành công (kéo toàn bộ 1.955 hội thoại lịch sử).
+- Loại bỏ hoàn toàn Nhóm Chat Zalo (`pzl_g_...`) khỏi Backend & ETL:
+  - **Nguyên nhân**: Zalo cá nhân (`pzl_`) có các nhóm chat lớp học, nhóm hỗ trợ mang tiền tố `pzl_g_...` (ví dụ `HVPBIK...`, `EzTech - Cộng đồng chia sẻ...`). Trước đây các nhóm này bị nhận nhầm là Lead cá nhân, SĐT chia sẻ trong nhóm bị tính là Lead có SĐT, và xuất hiện trong bảng Remind.
+  - **Backend (`lead_metrics.py`, `main.py`)**:
+    - Trong `_phone_owner_ids`: Lọc bỏ `~FactLeadActivity.conversation_id.like("pzl_g_%")` để số điện thoại trong group chat không bị đếm cho Lead.
+    - Trong `classify_leads`: Lọc bỏ `~FactLeadActivity.conversation_id.like("pzl_g_%")` ở cả `active_lead_ids` và `query`, đồng thời chặn trong vòng lặp duyệt kết quả. Áp dụng cho toàn bộ 4 API: Summary, Trend, Leads List, Employees List.
+    - Trong `get_remind_leads`: Lọc bỏ `~FactLeadActivity.conversation_id.like("pzl_g_%")` ở câu query và vòng lặp. Bảng Remind sạch 100% nhóm chat.
+    - Trong `auto_repair_contacted_dates`: Bỏ qua các bản ghi có tiền tố `pzl_g_`.
+  - **ETL (`pancake_client.py`, `pipeline.py`)**:
+    - Lọc bỏ ngay tại `PancakeClient.get_conversations`: bỏ qua hội thoại nếu `conv_id.startswith("pzl_g_")` tương tự như lọc `COMMENT`, không tốn API request tải message.
+    - Chốt chặn tại `upsert_lead_data` và vòng lặp `changed`: không lưu hội thoại `pzl_g_` vào DB.
+  - **Kết quả**: Dữ liệu Zalo phản ánh đúng 100% khách hàng 1-1 cá nhân (ví dụ: `Tuấn Anh Data` từ 1.783 lead giảm về đúng 984 lead cá nhân; `Eztech Phân Tích Dữ Liệu` từ 2.008 lead về đúng 1.826 lead; `Hiền Minh Eztech` từ 1.262 lead về đúng 1.098 lead).
+
 ### Bước tiếp / tồn đọng (chưa xử lý, chờ user quyết)
+- **Dọn dẹp DB**: Tùy chọn chạy lệnh DELETE dọn dẹp các bản ghi `pzl_g_...` cũ đã lưu trước đây trong bảng `fact_lead_activities` và `dim_leads` trên Neon DB để tiết kiệm dung lượng.
 - **Token Pancake**: run ETL 03/10 04:54Z báo `Invalid access_token (102)` cho page "Anh Kế toán làm Data" → kéo 0 hội thoại nhưng job vẫn xanh. Cần tạo lại token; nên cho job fail khi một page lỗi.
 - `contacted_dates` cộng cả ngày `updated_at` của hội thoại (`etl/pipeline.py`) → Contact Lại có thể gồm hội thoại chỉ đổi tag.
 - ETL chỉ lưu 30 tin gần nhất và ghi đè `contacted_dates` mỗi lần tải lại → lịch sử contact của hội thoại dài mất dần (chủ yếu page Zalo). Lỗi tải tin nhắn trả `[]` cũng xoá tin đã lưu.
-- `customer_id = 'unknown'` gộp mọi hội thoại thiếu id khách vào 1 lead; nhóm chat Zalo (`pzl_g_…`) bị tính là lead; giới hạn 500/2000 hội thoại áp trước khi lọc COMMENT.
+- `customer_id = 'unknown'` gộp mọi hội thoại thiếu id khách vào 1 lead; giới hạn 500/2000 hội thoại áp trước khi lọc COMMENT.
 - Page "user5025817249978" chưa có tên chuẩn; hai page TikTok "Anh Gà Kế Toán" và page này chưa gắn tag Lead Other/Đào tạo.
 - `auto_repair_contacted_dates` load toàn bộ raw payload vào RAM mỗi lần startup (512MB) → rủi ro khi data lớn.
 - Deps trong `requirements.txt` chưa pin (Render dùng Python 3.14).

@@ -114,16 +114,29 @@ def _phone_owner_ids(db: Session, start: datetime, end: datetime, scope) -> Set[
 
     Mỗi số chỉ tính cho lead có thời điểm thu sớm nhất trong phạm vi page (xét mọi thời gian, không phụ thuộc
     lọc nhân viên) → số đã có từ kỳ trước hoặc trùng với lead khác không bị đếm lại.
+    Loại bỏ hoàn toàn các nhóm chat Zalo (pzl_g_).
     """
     obtained_in_period = or_(
         DimLead.phone_at.between(start, end),
         and_(DimLead.phone_at.is_(None), DimLead.first_created_at.between(start, end)),
     )
-    period_phones = select(DimLead.phone_number).where(
-        DimLead.phone_number.isnot(None), DimLead.phone_number != "", obtained_in_period, scope
+    period_phones = select(DimLead.phone_number).join(
+        FactLeadActivity, DimLead.id == FactLeadActivity.lead_id
+    ).where(
+        DimLead.phone_number.isnot(None),
+        DimLead.phone_number != "",
+        obtained_in_period,
+        scope,
+        ~FactLeadActivity.conversation_id.like("pzl_g_%"),
     ).correlate(None)
-    rows = db.query(DimLead.id, DimLead.phone_number, DimLead.phone_at, DimLead.first_created_at).filter(
-        DimLead.phone_number.in_(period_phones), scope
+    rows = db.query(
+        DimLead.id, DimLead.phone_number, DimLead.phone_at, DimLead.first_created_at
+    ).join(
+        FactLeadActivity, DimLead.id == FactLeadActivity.lead_id
+    ).filter(
+        DimLead.phone_number.in_(period_phones),
+        scope,
+        ~FactLeadActivity.conversation_id.like("pzl_g_%"),
     ).all()
 
     first_seen: Dict[str, Tuple[datetime, int]] = {}
@@ -145,7 +158,8 @@ def classify_leads(
     employee: Optional[str] = None,
     bypass_cache: bool = False,
 ) -> Dict[int, LeadAgg]:
-    """Trả về các lead thuộc Tổng Lead (Mới hoặc Contact Lại) trong kỳ, key = lead id."""
+    """Trả về các lead thuộc Tổng Lead (Mới hoặc Contact Lại) trong kỳ, key = lead id.
+    Bỏ qua hoàn toàn các nhóm chat Zalo (tiền tố pzl_g_)."""
     start_day, end_day = start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")
     page_key = page_id.strip() if page_id else None
     emp_key = employee.strip() if employee else None
@@ -164,10 +178,14 @@ def classify_leads(
 
     # Prefilter theo LEAD: chỉ lấy lead tạo trong kỳ, gửi SĐT trong kỳ, hoặc có hội thoại nhắn tin từ start trở đi.
     # Lấy mọi hội thoại của các lead đó để không mất tag "Đã add" nằm ở hội thoại cũ.
-    active_lead_ids = select(FactLeadActivity.lead_id).where(or_(
-        FactLeadActivity.contacted_at >= start,
-        and_(FactLeadActivity.contacted_at.is_(None), FactLeadActivity.contacted_dates.isnot(None)),
-    ))
+    # Loại bỏ hội thoại nhóm chat (pzl_g_).
+    active_lead_ids = select(FactLeadActivity.lead_id).where(
+        ~FactLeadActivity.conversation_id.like("pzl_g_%"),
+        or_(
+            FactLeadActivity.contacted_at >= start,
+            and_(FactLeadActivity.contacted_at.is_(None), FactLeadActivity.contacted_dates.isnot(None)),
+        )
+    )
     query = db.query(
         DimLead.id,
         DimLead.customer_id,
@@ -184,6 +202,7 @@ def classify_leads(
         FactLeadActivity.tag_timeline,
     ).join(FactLeadActivity, DimLead.id == FactLeadActivity.lead_id).filter(
         scope,
+        ~FactLeadActivity.conversation_id.like("pzl_g_%"),
         or_(
             DimLead.first_created_at.between(start, end),
             DimLead.phone_at.between(start, end),
@@ -203,6 +222,8 @@ def classify_leads(
 
     for (lid, customer_id, name, phone_number, phone_at, pg_id, first_created_at,
          conversation_id, status_tag, assigned_users, contacted_dates, contacted_at, tag_timeline) in query.all():
+        if conversation_id and conversation_id.startswith("pzl_g_"):
+            continue
         emps = split_csv(assigned_users)
         if not emps:
             emps = ["Chưa phân công"]
