@@ -214,9 +214,10 @@ def startup_event():
     except Exception as e:
         logger.error(f"Error ensuring database schema on startup: {e}")
 
-    # Chỉ chạy sửa dữ liệu nặng nếu được bật qua biến môi trường (tránh nghẽn RAM và CPU trên Render Free 512MB)
-    if os.getenv("RUN_AUTO_REPAIR", "false").lower() == "true":
-        logger.info("RUN_AUTO_REPAIR is true, starting auto_repair_contacted_dates thread...")
+    # Ngăn chặn tự động tải toàn bộ bảng raw_conversations khi Render khởi động lại (bảo vệ băng thông Neon).
+    # Chỉ chạy khi đặt RUN_AUTO_REPAIR="force" hoặc gọi trực tiếp qua API /api/admin/repair
+    if os.getenv("RUN_AUTO_REPAIR", "false").lower() == "force":
+        logger.info("RUN_AUTO_REPAIR is force, starting auto_repair_contacted_dates thread...")
         threading.Thread(target=auto_repair_contacted_dates, daemon=True).start()
 
 # Tag phân loại lead: khớp CHÍNH XÁC tên tag (không dùng chuỗi con, tránh dính "TikTok HV other"...).
@@ -351,46 +352,51 @@ def get_employees(
     return {"data": sorted(list(employees))}
 
 _PAGES_CACHE: Dict[str, Any] = {}
-_PAGES_CACHE_TTL = 300.0  # 5 phút cache cho danh sách page
+_PAGES_CACHE_TTL = 3600.0  # 60 phút cache cho danh sách page
 _PAGES_LOCK = threading.Lock()
 
 @app.get("/api/pages/list")
 def get_pages(db: Session = Depends(get_db)):
-    now = time.time()
     with _PAGES_LOCK:
+        now = time.time()
         if "data" in _PAGES_CACHE and (now - _PAGES_CACHE.get("time", 0) < _PAGES_CACHE_TTL):
             return _PAGES_CACHE["data"]
 
-    results = db.query(DimLead.page_id).distinct().all()
-    pages = set()
-    for (page,) in results:
-        if page:
-            p_name = resolve_canonical_page_name(page.strip(), fallback=None)
-            if p_name and not is_page_id(p_name):
-                pages.add(p_name)
-    # Luôn đưa các kênh đã cấu hình sẵn vào danh sách lựa chọn trên dashboard
-    for known_name in set(KNOWN_PAGE_NAMES.values()):
-        pages.add(known_name)
-    # zalo_pages: các page không được cộng vào "Tất cả Page" (kênh chăm sóc), dashboard hiển thị thành nhóm riêng
-    result = {"data": sorted(list(pages)), "zalo_pages": sorted(p for p in pages if p in ZALO_PAGE_NAMES)}
-    with _PAGES_LOCK:
+        results = db.query(DimLead.page_id).distinct().all()
+        pages = set()
+        for (page,) in results:
+            if page:
+                p_name = resolve_canonical_page_name(page.strip(), fallback=None)
+                if p_name and not is_page_id(p_name):
+                    pages.add(p_name)
+        # Luôn đưa các kênh đã cấu hình sẵn vào danh sách lựa chọn trên dashboard
+        for known_name in set(KNOWN_PAGE_NAMES.values()):
+            pages.add(known_name)
+        # zalo_pages: các page không được cộng vào "Tất cả Page" (kênh chăm sóc), dashboard hiển thị thành nhóm riêng
+        result = {"data": sorted(list(pages)), "zalo_pages": sorted(p for p in pages if p in ZALO_PAGE_NAMES)}
         _PAGES_CACHE["data"] = result
         _PAGES_CACHE["time"] = now
-    return result
+        return result
 
 _REMIND_CACHE: Dict[str, Tuple[float, Any]] = {}
 _REMIND_LOCK = threading.Lock()
-_REMIND_TTL = 60  # 60 giây TTL cache
+_REMIND_TTL = 900.0  # 15 phút TTL cache để tiết kiệm băng thông Neon
+
+_LAST_MSG_CACHE: Dict[str, Tuple[float, Optional[str]]] = {}
+_LAST_MSG_LOCK = threading.Lock()
+_LAST_MSG_TTL = 900.0  # 15 phút cache tin nhắn cuối
 
 @app.post("/api/admin/clear-cache")
 def clear_cache():
-    """Xoá toàn bộ cache metrics, page list & remind leads."""
+    """Xoá toàn bộ cache metrics, page list, tin nhắn cuối & remind leads."""
     clear_metrics_cache()
     with _PAGES_LOCK:
         _PAGES_CACHE.clear()
     with _REMIND_LOCK:
         _REMIND_CACHE.clear()
-    return {"status": "ok", "message": "All metrics, pages, and remind caches have been cleared."}
+    with _LAST_MSG_LOCK:
+        _LAST_MSG_CACHE.clear()
+    return {"status": "ok", "message": "All metrics, pages, last messages, and remind caches have been cleared."}
 
 @app.post("/api/admin/repair")
 def trigger_manual_repair():
@@ -408,6 +414,7 @@ def list_leads(
     end_date: Optional[datetime] = None,
     db: Session = Depends(get_db)
 ):
+    import json
     start, end = resolve_period(start_date, end_date)
     leads = sorted(
         classify_leads(db, start, end, page_id, employee).values(),
@@ -417,24 +424,71 @@ def list_leads(
     total = len(leads)
     paginated = leads[(page - 1) * size : page * size]
 
-    # Chỉ query JSON Raw cho page hiện tại
-    conv_ids = [cid for lead in paginated for cid in lead.conversation_ids]
-    raw_results = []
-    if conv_ids:
-        raw_results = db.query(RawConversation).filter(RawConversation.pancake_id.in_(conv_ids)).all()
-    raw_dict = {r.pancake_id: r for r in raw_results}
+    # Chỉ lấy tin nhắn cuối cùng cho page hiện tại và lưu cache 15 phút
+    conv_ids = [cid for lead in paginated for cid in lead.conversation_ids if cid]
+    now_ts = time.time()
+    last_msg_map: Dict[str, Optional[str]] = {}
+    missing_cids: List[str] = []
+
+    with _LAST_MSG_LOCK:
+        for cid in conv_ids:
+            if cid in _LAST_MSG_CACHE and (now_ts - _LAST_MSG_CACHE[cid][0] < _LAST_MSG_TTL):
+                last_msg_map[cid] = _LAST_MSG_CACHE[cid][1]
+            else:
+                missing_cids.append(cid)
+
+    if missing_cids:
+        is_pg = bool(db.bind and db.bind.dialect.name == "postgresql")
+        if is_pg:
+            # Trên Postgres (Neon): chỉ trích xuất phần tử tin nhắn cuối cùng (-1) ngay trong SQL (~100 bytes thay vì 25KB/hội thoại)
+            rows = db.query(
+                RawConversation.pancake_id,
+                RawConversation.payload.op('->')('messages').op('->')(-1)
+            ).filter(RawConversation.pancake_id.in_(missing_cids)).all()
+            fetched_map = {}
+            for cid, last_m in rows:
+                if isinstance(last_m, str):
+                    try:
+                        last_m = json.loads(last_m)
+                    except Exception:
+                        last_m = None
+                msg_str = None
+                if isinstance(last_m, dict) and last_m.get("message"):
+                    sender = last_m.get("sender_name", last_m.get("role", "Unknown"))
+                    clean_msg = re.sub(r'<[^>]+>', '', str(last_m.get('message', '')))
+                    msg_str = f"[{sender}]: {clean_msg}"
+                fetched_map[cid] = msg_str
+        else:
+            raw_results = db.query(RawConversation).filter(RawConversation.pancake_id.in_(missing_cids)).all()
+            fetched_map = {}
+            for r in raw_results:
+                msg_str = None
+                if r.payload and isinstance(r.payload, dict):
+                    for m in reversed(r.payload.get("messages", [])):
+                        if isinstance(m, dict) and m.get("message"):
+                            sender = m.get("sender_name", m.get("role", "Unknown"))
+                            clean_msg = re.sub(r'<[^>]+>', '', str(m.get('message', '')))
+                            msg_str = f"[{sender}]: {clean_msg}"
+                            break
+                fetched_map[r.pancake_id] = msg_str
+
+        with _LAST_MSG_LOCK:
+            if len(_LAST_MSG_CACHE) > 2000:
+                expired_c = [k for k, (t, _) in _LAST_MSG_CACHE.items() if now_ts - t > _LAST_MSG_TTL]
+                for k in expired_c:
+                    _LAST_MSG_CACHE.pop(k, None)
+            for cid in missing_cids:
+                val = fetched_map.get(cid)
+                _LAST_MSG_CACHE[cid] = (now_ts, val)
+                last_msg_map[cid] = val
 
     data = []
     for lead in paginated:
         messages = []
         for cid in lead.conversation_ids:
-            raw = raw_dict.get(cid)
-            if raw and raw.payload:
-                for m in raw.payload.get("messages", []):
-                    if m.get("message"):
-                        sender = m.get("sender_name", m.get("role", "Unknown"))
-                        clean_msg = re.sub(r'<[^>]+>', '', m.get('message', ''))
-                        messages.append(f"[{sender}]: {clean_msg}")
+            m_str = last_msg_map.get(cid)
+            if m_str:
+                messages.append(m_str)
 
         data.append(LeadResponse(
             id=lead.id,
@@ -472,66 +526,63 @@ def get_remind_leads(
     db: Session = Depends(get_db)
 ):
     """Bảng Chăm sóc Lead: lấy lead theo tag (hoặc tất cả lead nếu tag='all'), tính khoảng cách ngày đến tin nhắn cuối và sắp xếp từ thấp nhất lên xa nhất."""
-    from sqlalchemy import or_
-
     now_vn = datetime.now(VN_TZ).replace(tzinfo=None)
 
-    # 1. Kiểm tra cache in-memory TTL (60s) theo bộ lọc chính
-    cache_key = f"{page_id or ''}|{employee or ''}|{tag or ''}"
-    now_ts = time.time()
-    rows = None
-
+    # 1. Cache toàn bộ bảng hoạt động trong RAM (TTL 15 phút) với single-flight lock:
+    # Khi đổi bộ lọc Page / Nhân viên / Tag trên giao diện, lọc trực tiếp trong RAM mà KHÔNG query lại Neon
     with _REMIND_LOCK:
-        if cache_key in _REMIND_CACHE:
-            ts, cached_rows = _REMIND_CACHE[cache_key]
+        now_ts = time.time()
+        all_rows = None
+        if "ALL" in _REMIND_CACHE:
+            ts, cached_rows = _REMIND_CACHE["ALL"]
             if now_ts - ts < _REMIND_TTL:
-                rows = cached_rows
+                all_rows = cached_rows
 
-    if rows is None:
-        query = db.query(
-            FactLeadActivity.id.label('activity_id'),
-            FactLeadActivity.conversation_id,
-            FactLeadActivity.status_tag,
-            FactLeadActivity.assigned_users,
-            FactLeadActivity.contacted_at,
-            FactLeadActivity.tag_timeline,
-            DimLead.id.label('lead_id'),
-            DimLead.customer_id,
-            DimLead.name,
-            DimLead.phone_number,
-            DimLead.page_id,
-            DimLead.first_created_at
-        ).join(DimLead, FactLeadActivity.lead_id == DimLead.id).filter(
-            ~FactLeadActivity.conversation_id.like("pzl_g_%")
-        )
+        if all_rows is None:
+            all_rows = db.query(
+                FactLeadActivity.id.label('activity_id'),
+                FactLeadActivity.conversation_id,
+                FactLeadActivity.status_tag,
+                FactLeadActivity.assigned_users,
+                FactLeadActivity.contacted_at,
+                FactLeadActivity.tag_timeline,
+                DimLead.id.label('lead_id'),
+                DimLead.customer_id,
+                DimLead.name,
+                DimLead.phone_number,
+                DimLead.page_id,
+                DimLead.first_created_at
+            ).join(DimLead, FactLeadActivity.lead_id == DimLead.id).filter(
+                ~FactLeadActivity.conversation_id.like("pzl_g_%")
+            ).all()
+            _REMIND_CACHE["ALL"] = (now_ts, all_rows)
 
-        # Lọc theo Tag nếu có và không phải 'all'
-        if tag and tag.strip() and tag.strip().lower() != 'all':
-            clean_tag = tag.strip()
-            query = query.filter(FactLeadActivity.status_tag.ilike(f"%{clean_tag}%"))
+    rows = all_rows
 
-        # Lọc theo Page nếu có
-        if page_id and page_id.strip():
-            clean_pid = page_id.strip()
-            canonical_name = resolve_canonical_page_name(clean_pid, fallback=clean_pid)
-            possible_pids = {clean_pid, canonical_name}
-            for k, v in KNOWN_PAGE_NAMES.items():
-                if v == canonical_name or k == clean_pid:
-                    possible_pids.add(k)
-                    possible_pids.add(v)
-            query = query.filter(DimLead.page_id.in_(list(possible_pids)))
+    # Lọc theo Tag trong RAM nếu có và không phải 'all'
+    if tag and tag.strip() and tag.strip().lower() != 'all':
+        clean_tag = tag.strip().lower()
+        rows = [r for r in rows if r.status_tag and clean_tag in r.status_tag.lower()]
 
-        # Lọc theo Nhân viên nếu có
-        if employee and employee.strip():
-            emp_clean = employee.strip()
-            if normalize_text(emp_clean) in ("chua phan cong", "chưa phân công"):
-                query = query.filter(or_(FactLeadActivity.assigned_users.is_(None), FactLeadActivity.assigned_users == ""))
-            else:
-                query = query.filter(FactLeadActivity.assigned_users.ilike(f"%{emp_clean}%"))
+    # Lọc theo Page trong RAM nếu có
+    if page_id and page_id.strip():
+        clean_pid = page_id.strip()
+        canonical_name = resolve_canonical_page_name(clean_pid, fallback=clean_pid)
+        possible_pids = {clean_pid, canonical_name}
+        for k, v in KNOWN_PAGE_NAMES.items():
+            if v == canonical_name or k == clean_pid:
+                possible_pids.add(k)
+                possible_pids.add(v)
+        rows = [r for r in rows if r.page_id in possible_pids]
 
-        rows = query.all()
-        with _REMIND_LOCK:
-            _REMIND_CACHE[cache_key] = (now_ts, rows)
+    # Lọc theo Nhân viên trong RAM nếu có
+    if employee and employee.strip():
+        emp_clean = employee.strip()
+        if normalize_text(emp_clean) in ("chua phan cong", "chưa phân công"):
+            rows = [r for r in rows if not r.assigned_users or not r.assigned_users.strip()]
+        else:
+            emp_lower = emp_clean.lower()
+            rows = [r for r in rows if r.assigned_users and emp_lower in r.assigned_users.lower()]
 
     # Thu thập danh sách nhân viên & toàn bộ thẻ (tags) có trong hệ thống
     all_remind_employees = set()

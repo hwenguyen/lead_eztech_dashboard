@@ -3,7 +3,7 @@ import time
 import logging
 from typing import Optional, Dict, Any, List, Iterable
 from sqlalchemy import or_, func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, defer
 from database.db import SessionLocal
 from database.models import RawConversation, DimLead, FactLeadActivity
 from database.schema import ensure_schema
@@ -25,14 +25,14 @@ def _chunks(items: List[str], size: int = IN_CHUNK) -> Iterable[List[str]]:
 
 def prefetch_records(db: Session, conversations: List[dict]) -> Dict[str, Dict[str, Any]]:
     """Nạp sẵn RawConversation / DimLead / FactLeadActivity của cả lô bằng vài câu IN (...).
-    Thay cho 3 câu SELECT + flush cho MỖI hội thoại — mỗi câu là 1 round trip từ runner GitHub tới Neon."""
+    Dùng defer() để KHÔNG tải cột JSON nặng (payload, tag_timeline) từ Neon về runner GitHub — tiết kiệm >95% băng thông egress."""
     conv_ids = list({str(c.get('id')) for c in conversations if c.get('id')})
     cust_ids = list({str(c.get('customer_id')) for c in conversations if c.get('customer_id')})
     maps: Dict[str, Dict[str, Any]] = {"raw": {}, "lead": {}, "activity": {}}
     for chunk in _chunks(conv_ids):
-        for r in db.query(RawConversation).filter(RawConversation.pancake_id.in_(chunk)):
+        for r in db.query(RawConversation).options(defer(RawConversation.payload)).filter(RawConversation.pancake_id.in_(chunk)):
             maps["raw"][r.pancake_id] = r
-        for a in db.query(FactLeadActivity).filter(FactLeadActivity.conversation_id.in_(chunk)):
+        for a in db.query(FactLeadActivity).options(defer(FactLeadActivity.tag_timeline)).filter(FactLeadActivity.conversation_id.in_(chunk)):
             maps["activity"][a.conversation_id] = a
     for chunk in _chunks(cust_ids):
         for lead in db.query(DimLead).filter(DimLead.customer_id.in_(chunk)):
@@ -62,17 +62,18 @@ def upsert_lead_data(db: Session, raw_data: dict, page_id: str, commit: bool = T
         if prefetched is not None:
             raw_record = prefetched["raw"].get(conv_id)
         else:
-            raw_record = db.query(RawConversation).filter_by(pancake_id=conv_id).first()
+            raw_record = db.query(RawConversation).options(defer(RawConversation.payload)).filter_by(pancake_id=conv_id).first()
         if not raw_record:
             raw_record = RawConversation(pancake_id=conv_id, page_id=page_id, payload=raw_data)
             db.add(raw_record)
             if prefetched is not None:
                 prefetched["raw"][conv_id] = raw_record
         else:
-            # Preserve old messages if new payload is from cache and empty
-            old_payload = raw_record.payload or {}
-            if not raw_data.get('messages') and old_payload.get('messages'):
-                raw_data['messages'] = old_payload.get('messages')
+            # Chỉ đọc raw_record.payload từ DB khi raw_data bị rỗng messages (hiếm gặp), tránh lazy-load tốn băng thông Neon
+            if not raw_data.get('messages'):
+                old_payload = raw_record.payload or {}
+                if old_payload.get('messages'):
+                    raw_data['messages'] = old_payload.get('messages')
                 
             raw_record.payload = raw_data
             if not raw_record.page_id or is_page_id(raw_record.page_id):
