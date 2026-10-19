@@ -33,7 +33,7 @@ AUTO_REPLY_RULES = [
             "cho em xin", "cho mình xin", "gửi file", "gui file", "sheet"
         ],
         "message": (
-            "Chào bạn, mình thấy bạn quan tâm đến các buổi workshop và tài liệu chia sẻ về ứng dụng Excel, Power Query & AI trong công việc. Bạn nhắn SĐT để bạn quản lý lớp bên mình add vào nhóm cộng đồng nhé!"
+            "Chào bạn, mình thấy bạn quan tâm đến các bộ file và tài liệu chia sẻ về ứng dụng Excel, Power Query & AI trong công việc. Bạn nhắn mình SĐT để bạn quản lý lớp bên mình add ZL và gửi bạn thông tin chi tiết nhé"
         ),
     },
 
