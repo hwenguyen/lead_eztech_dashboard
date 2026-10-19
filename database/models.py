@@ -51,3 +51,20 @@ class FactLeadActivity(Base):
     updated_at = Column(DateTime, default=get_vn_now, onupdate=get_vn_now)
 
     lead = relationship("DimLead", back_populates="activities")
+
+
+class BotAutoReplyLog(Base):
+    """Lịch sử Bot gửi tin nhắn tự động theo kịch bản."""
+    __tablename__ = "bot_auto_replies"
+
+    id = Column(Integer, primary_key=True, index=True)
+    conversation_id = Column(String, index=True, nullable=False)
+    customer_id = Column(String, index=True, nullable=True)
+    page_id = Column(String, index=True, nullable=False)
+    case_id = Column(String, index=True, nullable=False)  # vd: "xin_file", "tham_gia_cong_dong"
+    customer_message = Column(String, nullable=True)
+    reply_message = Column(String, nullable=False)
+    sent_at = Column(DateTime, default=get_vn_now, index=True)
+    status = Column(String, default="SENT", index=True)  # "SENT", "DRY_RUN", "FAILED"
+    error_message = Column(String, nullable=True)
+

@@ -195,17 +195,12 @@ def upsert_lead_data(db: Session, raw_data: dict, page_id: str, commit: bool = T
             db.rollback()
         logger.error(f"Error upserting conversation {raw_data.get('id')}: {e}")
 
-def run_etl_pipeline():
-    t_start = time.perf_counter()
-    logger.info("Starting Fast ETL Pipeline...")
-    # ETL có thể chạy trước khi Backend kịp thêm cột mới → tự đồng bộ schema
-    ensure_schema()
-
+def load_pancake_pages_config() -> List[Dict[str, Any]]:
+    """Nạp danh sách Fanpage và token từ các biến môi trường PANCAKE_PAGES_JSON hoặc PAGE_IDS."""
     pages_to_process: List[Dict[str, Any]] = []
 
     # 1. Hỗ trợ cấu hình dạng JSON / Dict qua secret PANCAKE_PAGES_JSON, PANCAKE_CONFIG hoặc PANCAKE_API_TOKENS
     pages_json_env = os.getenv("PANCAKE_PAGES_JSON") or os.getenv("PANCAKE_CONFIG")
-    
     pancake_api_tokens_env = os.getenv("PANCAKE_API_TOKENS", "").strip()
     if not pages_json_env and (pancake_api_tokens_env.startswith("{") or pancake_api_tokens_env.startswith("[")):
         pages_json_env = pancake_api_tokens_env
@@ -270,6 +265,16 @@ def run_etl_pipeline():
                 })
                 logger.info(f"Bổ sung Page ID '{page_id}' từ PAGE_IDS vào danh sách cào.")
 
+    return pages_to_process
+
+
+def run_etl_pipeline():
+    t_start = time.perf_counter()
+    logger.info("Starting Fast ETL Pipeline...")
+    # ETL có thể chạy trước khi Backend kịp thêm cột mới → tự đồng bộ schema
+    ensure_schema()
+
+    pages_to_process = load_pancake_pages_config()
     if not pages_to_process:
         logger.warning("No pages found in environment variables (PANCAKE_PAGES_JSON or PAGE_IDS).")
         return

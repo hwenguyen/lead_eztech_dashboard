@@ -4,6 +4,7 @@ __pycache__/
 .venv/
 venv/
 *.db
+*.pkl
 
 # Env
 .env
@@ -12,3 +13,4 @@ venv/
 # Frontend
 node_modules/
 dist/
+.neon

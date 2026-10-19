@@ -461,3 +461,28 @@ class PancakeClient:
             
         logger.info(f"Hoàn tất lấy dữ liệu qua API! Tổng cộng: {len(results)} hội thoại.")
         return results
+
+    def send_message(self, page_id: str, conversation_id: str, message: str) -> dict:
+        """
+        Gửi tin nhắn phản hồi vào hội thoại qua Pancake Public API v1.
+        API: POST https://pages.fm/api/public_api/v1/pages/{page_id}/conversations/{conversation_id}/messages
+        """
+        ptoken, resolved_page_id, _ = self._get_page_access_token(page_id)
+        if not ptoken:
+            return {"success": False, "message": f"Không lấy được token cho Page {page_id}"}
+
+        url = f"https://pages.fm/api/public_api/v1/pages/{resolved_page_id}/conversations/{conversation_id}/messages"
+        params = {"page_access_token": ptoken}
+        payload = {"message": message}
+        try:
+            resp = self.session.post(url, params=params, json=payload, timeout=10)
+            if resp.status_code == 200:
+                data = resp.json()
+                if "success" not in data:
+                    data["success"] = True
+                return data
+            else:
+                return {"success": False, "status_code": resp.status_code, "message": resp.text}
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+

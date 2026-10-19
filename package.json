@@ -1,0 +1,11 @@
+{
+  "name": "lead-eztech-dashboard",
+  "scripts": {
+    "build": "npm --prefix frontend-react run build",
+    "start": "uvicorn backend.main:app --port 8000"
+  },
+  "dependencies": {
+    "@neon/config": "^1.9.2",
+    "@neon/env": "^1.6.3"
+  }
+}
