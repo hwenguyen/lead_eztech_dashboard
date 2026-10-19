@@ -16,6 +16,7 @@ Cơ chế hoạt động:
 import os
 import sys
 import time
+import random
 import re
 import unicodedata
 import logging
@@ -299,8 +300,11 @@ def run_auto_reply_bot(
                         total_failed += 1
                         logger.error(f"  => ❌ GỬI THẤT BẠI: {err}")
 
-                    # Nghỉ 1.5 giây giữa các lần gửi để tránh bị đánh spam
-                    time.sleep(1.5)
+                    # Giãn cách ngẫu nhiên 6 - 12 giây giữa các lần gửi để tránh bị TikTok/Facebook gắn cờ spam
+                    # Nếu vừa bị lỗi thì tạm nghỉ dài hơn (10 - 15 giây) để tài khoản hạ nhiệt
+                    delay = random.uniform(10.0, 15.0) if not success else random.uniform(6.0, 12.0)
+                    logger.info(f"  ⏳ Tạm nghỉ {delay:.1f}s trước lượt gửi tiếp theo để chống spam...")
+                    time.sleep(delay)
 
     finally:
         db.close()
