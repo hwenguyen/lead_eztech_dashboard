@@ -506,8 +506,16 @@ class PancakeClient:
                 if "success" not in data:
                     data["success"] = True if data.get("id") else False
                 elif not data.get("success"):
-                    if not data.get("message") and data.get("message_code"):
-                        data["message"] = data.get("message_code")
+                    details = []
+                    if data.get("message"):
+                        details.append(str(data.get("message")))
+                    if data.get("message_code"):
+                        details.append(f"code: {data.get('message_code')}")
+                    if data.get("error_code"):
+                        details.append(f"err: {data.get('error_code')}")
+                    if data.get("description"):
+                        details.append(str(data.get("description")))
+                    data["message"] = " | ".join(details) if details else "Sending message failed"
                 return data
             else:
                 return {"success": False, "status_code": resp.status_code, "message": resp.text}

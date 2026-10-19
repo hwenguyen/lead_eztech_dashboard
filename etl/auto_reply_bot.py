@@ -148,6 +148,16 @@ def should_reply(
     if existing_sent:
         return False, rule, matched_kw, cust_text, f"Đã từng gửi kịch bản [{case_id}] trước đây (chống spam)"
 
+    # 6. Chốt chặn giới hạn retry: Nếu đã thử gửi 2 lần nhưng bị TikTok từ chối (quyền riêng tư/chặn tin nhắn), bỏ qua để không spam
+    repeated_fails = db.query(BotAutoReplyLog.id).filter(
+        BotAutoReplyLog.conversation_id == conv_id,
+        BotAutoReplyLog.case_id == case_id,
+        BotAutoReplyLog.status == "FAILED",
+        BotAutoReplyLog.error_message.like("%Sending message failed%")
+    ).count()
+    if repeated_fails >= 2:
+        return False, rule, matched_kw, cust_text, f"Đã thử gửi {repeated_fails} lần nhưng bị nền tảng từ chối (quyền riêng tư/chính sách người dùng), tạm bỏ qua"
+
     return True, rule, matched_kw, cust_text, "Đủ điều kiện gửi"
 
 
