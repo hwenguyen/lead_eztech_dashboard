@@ -113,6 +113,7 @@ FastAPI backend (`backend/`) + React frontend (`frontend-react/`) trên Render (
     3. Chỉ áp dụng cho các kênh Lead nguồn (Facebook, TikTok), bỏ qua các nhóm Zalo cá nhân.
   - Tích hợp vào GitHub Actions Workflow (`.github/workflows/pancake-etl.yml`): Tự động kích hoạt bot gửi tin nhắn sau mỗi lần chạy cào dữ liệu ETL.
   - Sửa lỗi Pancake Send Message API: Bổ sung trường bắt buộc `"action": "reply_inbox"` vào payload JSON theo đúng OpenAPI spec của Pancake Public API v1 (`/conversations/{conversation_id}/messages`).
+  - Tối ưu chống Spam nền tảng (TikTok): Tăng độ trễ giữa các lần gửi lên ngẫu nhiên 6 – 12 giây (kèm cơ chế backoff 10 – 15 giây khi gặp lỗi) và giới hạn tối đa 2 lần thử đối với các tài khoản chặn tin nhắn riêng tư.
 
 ### Bước tiếp / tồn đọng (chưa xử lý, chờ user quyết)
 - Cập nhật link nhóm Zalo thực tế vào `etl/auto_reply_rules.py` (hiện đang là link placeholder).
