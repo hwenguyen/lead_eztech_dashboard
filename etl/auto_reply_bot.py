@@ -162,6 +162,11 @@ def run_auto_reply_bot(
     - dry_run=True: Chỉ quét và in ra log các khách đủ điều kiện (KHÔNG gửi thật).
     - dry_run=False: Gửi tin nhắn thật qua Pancake API.
     """
+    enable_env = os.getenv("ENABLE_AUTO_REPLY", "true").strip().lower()
+    if enable_env in ("false", "0", "off", "no"):
+        logger.info("Bot tự động phản hồi đang TẮT (ENABLE_AUTO_REPLY=false). Bỏ qua bước này.")
+        return
+
     mode_text = "DRY-RUN (CHẠY THỬ NGHIỆM - KHÔNG GỬI THẬT)" if dry_run else "LIVE (GỬI THẬT QUA PANCAKE API)"
     logger.info("=" * 80)
     logger.info(f"KHỞI ĐỘNG AUTO-REPLY BOT | CHẾ ĐỘ: {mode_text}")
@@ -307,5 +312,6 @@ if __name__ == "__main__":
     parser.add_argument("--from-db", action="store_true", help="Quét trực tiếp từ RawConversation trong Database (dùng để test/đối soát)")
     args = parser.parse_args()
 
-    is_dry_run = not args.send
+    send_env = os.getenv("AUTO_REPLY_SEND", "").strip().lower() in ("true", "1", "yes")
+    is_dry_run = not (args.send or send_env)
     run_auto_reply_bot(dry_run=is_dry_run, days_back=args.days, limit_per_page=args.limit, from_db=args.from_db)

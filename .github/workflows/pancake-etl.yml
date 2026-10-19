@@ -16,6 +16,10 @@ on:
         description: 'Giới hạn số hội thoại mỗi page (Mặc định: 100, nhập 1000 nếu quét lịch sử)'
         required: false
         default: '100'
+      enable_bot:
+        description: 'Bật Bot tự động gửi tin nhắn phản hồi? (true/false)'
+        required: false
+        default: 'true'
 
 concurrency:
   group: pancake-etl
@@ -53,3 +57,16 @@ jobs:
         DAILY_DAYS_BACK: ${{ github.event.inputs.days_back || '1' }}
       run: |
         python -m etl.pipeline
+
+    - name: Chạy Bot Tự Động Gửi Tin Nhắn (Auto-Reply Bot)
+      if: ${{ github.event.inputs.enable_bot != 'false' }}
+      env:
+        DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        PANCAKE_API_TOKEN: ${{ secrets.PANCAKE_API_TOKEN }}
+        PANCAKE_API_TOKENS: ${{ secrets.PANCAKE_API_TOKENS }}
+        PAGE_IDS: ${{ secrets.PAGE_IDS }}
+        PANCAKE_PAGES_JSON: ${{ secrets.PANCAKE_PAGES_JSON }}
+        AUTO_REPLY_SEND: 'true'
+      run: |
+        python -m etl.auto_reply_bot --send --days 1 --limit 100
+

@@ -97,8 +97,24 @@ FastAPI backend (`backend/`) + React frontend (`frontend-react/`) trên Render (
     - Chốt chặn tại `upsert_lead_data` và vòng lặp `changed`: không lưu hội thoại `pzl_g_` vào DB.
   - **Kết quả**: Dữ liệu Zalo phản ánh đúng 100% khách hàng 1-1 cá nhân (ví dụ: `Tuấn Anh Data` từ 1.783 lead giảm về đúng 984 lead cá nhân; `Eztech Phân Tích Dữ Liệu` từ 2.008 lead về đúng 1.826 lead; `Hiền Minh Eztech` từ 1.262 lead về đúng 1.098 lead).
 
+### 2026-10-16 — Đã hoàn thành
+- Chuyển đổi và nâng cấp sang Project Neon mới (`muddy-term-83260316`):
+  - Do Project cũ đạt 98.2% hạn mức Network Transfer Egress (5 GB/tháng).
+  - Khôi phục an toàn 100% dữ liệu (12.122 bản ghi) sang Neon Project mới.
+  - Cập nhật driver `postgresql+psycopg2://` và `pool_recycle=300` trong `database/db.py` để Neon compute tự động scale-to-zero khi không có traffic.
+
+### 2026-10-19 — Đã hoàn thành
+- Tích hợp Bot Tự Động Phản Hồi Tin Nhắn (Auto-Reply Bot):
+  - Tệp cấu hình kịch bản: `etl/auto_reply_rules.py` hỗ trợ nhiều trường hợp linh hoạt (xin file tài liệu -> tin nhắn A, tham gia nhóm cộng đồng -> tin nhắn B, tư vấn khóa học -> tin nhắn C).
+  - Tệp xử lý bot: `etl/auto_reply_bot.py` quét tin nhắn, khử dấu & HTML thông minh.
+  - 3 Chốt chặn an toàn:
+    1. Bỏ qua nếu tin nhắn cuối cùng đã có Admin/Nhân viên trả lời.
+    2. Lưu vết vào bảng `bot_auto_replies` trong Neon DB để chống spam lặp lại (mỗi khách/kịch bản chỉ gửi 1 lần).
+    3. Chỉ áp dụng cho các kênh Lead nguồn (Facebook, TikTok), bỏ qua các nhóm Zalo cá nhân.
+  - Tích hợp vào GitHub Actions Workflow (`.github/workflows/pancake-etl.yml`): Tự động kích hoạt bot gửi tin nhắn sau mỗi lần chạy cào dữ liệu ETL.
+
 ### Bước tiếp / tồn đọng (chưa xử lý, chờ user quyết)
-- **Dọn dẹp DB**: Tùy chọn chạy lệnh DELETE dọn dẹp các bản ghi `pzl_g_...` cũ đã lưu trước đây trong bảng `fact_lead_activities` và `dim_leads` trên Neon DB để tiết kiệm dung lượng.
+- Cập nhật link nhóm Zalo thực tế vào `etl/auto_reply_rules.py` (hiện đang là link placeholder).
 - **Token Pancake**: run ETL 03/10 04:54Z báo `Invalid access_token (102)` cho page "Anh Kế toán làm Data" → kéo 0 hội thoại nhưng job vẫn xanh. Cần tạo lại token; nên cho job fail khi một page lỗi.
 - `contacted_dates` cộng cả ngày `updated_at` của hội thoại (`etl/pipeline.py`) → Contact Lại có thể gồm hội thoại chỉ đổi tag.
 - ETL chỉ lưu 30 tin gần nhất và ghi đè `contacted_dates` mỗi lần tải lại → lịch sử contact của hội thoại dài mất dần (chủ yếu page Zalo). Lỗi tải tin nhắn trả `[]` cũng xoá tin đã lưu.
