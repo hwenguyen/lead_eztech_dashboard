@@ -33,8 +33,7 @@ AUTO_REPLY_RULES = [
             "cho em xin", "cho mình xin", "gửi file", "gui file", "sheet"
         ],
         "message": (
-            "Dạ chào bạn, để nhận trọn bộ File tài liệu và hướng dẫn chi tiết, "
-            "bạn để lại Số điện thoại (Zalo) để bên mình gửi qua Zalo cho bạn ngay nhé ạ! 😊"
+            "Chào bạn, mình thấy bạn quan tâm đến các buổi workshop và tài liệu chia sẻ về ứng dụng Excel, Power Query & AI trong công việc. Bạn nhắn SĐT để bạn quản lý lớp bên mình add vào nhóm cộng đồng nhé!"
         ),
     },
 
@@ -52,31 +51,10 @@ AUTO_REPLY_RULES = [
             "link nhóm", "link group", "link zalo", "nhóm zalo", "nhom zalo"
         ],
         "message": (
-            "Dạ chào bạn, bạn bấm vào link này để tham gia nhóm Zalo chia sẻ kiến thức "
-            "và nhận tài liệu mới nhất cùng cộng đồng EzTech nhé: https://zalo.me/g/xxxxxx. "
-            "Chúc bạn học tập hiệu quả! 🚀"
+            "Chào em, anh thấy em quan tâm đến các buổi workshop và tài liệu chia sẻ về ứng dụng Excel, Power Query & AI trong công việc. Em nhắn SĐT để bạn quản lý lớp add em vào nhóm cộng đồng nhé!"
         ),
     },
-
-    # --------------------------------------------------------------------------
-    # TRƯỜNG HỢP 3: KHÁCH HỎI TƯ VẤN KHÓA HỌC / HỌC PHÍ / LỘ TRÌNH
-    # --------------------------------------------------------------------------
-    {
-        "case_id": "tu_van_khoa_hoc",
-        "name": "Khách hỏi tư vấn khóa học / học phí",
-        "enabled": True,
-        "priority": 3,
-        "keywords": [
-            "khóa học", "khoa hoc", "học phí", "hoc phi", "tư vấn", "tu van",
-            "lộ trình", "lo trinh", "lớp học", "lop hoc", "đào tạo", "dao tao",
-            "khóa power bi", "khoa power bi", "học data", "hoc data"
-        ],
-        "message": (
-            "Dạ chào bạn, bạn để lại Số điện thoại Zalo để chuyên viên EzTech tư vấn "
-            "lộ trình học phù hợp nhất và gửi ưu đãi học phí chi tiết cho bạn ngay nhé ạ!"
-        ),
-    },
-
+   
     # --------------------------------------------------------------------------
     # BẠN CÓ THỂ THÊM CÁC TRƯỜNG HỢP MỚI TẠI ĐÂY THEO MẪU:
     # {
@@ -96,10 +74,9 @@ AUTO_REPLY_RULES = [
 # ==============================================================================
 ALLOWED_SOURCE_PAGES = [
     # 1. Facebook:
-    "514400205095512",          # Anh Kế toán làm Data (Facebook)
-    
+    #"514400205095512",          # Anh Kế toán làm Data (Facebook)
     # 2. TikTok:
     "tt_7196601676597871618",   # Anh Kế toán làm Data (TikTok @tuananhdata)
     "tt_7456003523327919120",   # Hành trang cho kế toán (TikTok @anhgadata)
-    "tt_7661860189083943944",   # Chị Kế Toán GenZ (TikTok @chiketoangenz)
+    #"tt_7661860189083943944",   # Chị Kế Toán GenZ (TikTok @chiketoangenz)
 ]
