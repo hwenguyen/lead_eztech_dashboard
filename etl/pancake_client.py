@@ -462,10 +462,23 @@ class PancakeClient:
         logger.info(f"Hoàn tất lấy dữ liệu qua API! Tổng cộng: {len(results)} hội thoại.")
         return results
 
-    def send_message(self, page_id: str, conversation_id: str, message: str) -> dict:
+    def send_message(
+        self,
+        page_id: str,
+        conversation_id: str,
+        message: str,
+        action: str = "reply_inbox",
+        **kwargs
+    ) -> dict:
         """
         Gửi tin nhắn phản hồi vào hội thoại qua Pancake Public API v1.
         API: POST https://pages.fm/api/public_api/v1/pages/{page_id}/conversations/{conversation_id}/messages
+
+        Args:
+            page_id: ID của Page (có thể có prefix fb_, tt_, pzl_)
+            conversation_id: ID hội thoại (pancake_id)
+            message: Nội dung tin nhắn gửi cho khách
+            action: Hành động gửi ('reply_inbox', 'reply_comment', 'private_replies'). Mặc định là 'reply_inbox'.
         """
         ptoken, resolved_page_id, _ = self._get_page_access_token(page_id)
         if not ptoken:
@@ -473,13 +486,28 @@ class PancakeClient:
 
         url = f"https://pages.fm/api/public_api/v1/pages/{resolved_page_id}/conversations/{conversation_id}/messages"
         params = {"page_access_token": ptoken}
-        payload = {"message": message}
+        payload = {
+            "action": action or "reply_inbox",
+            "message": message,
+        }
+        for k, v in kwargs.items():
+            if v is not None:
+                payload[k] = v
+
         try:
             resp = self.session.post(url, params=params, json=payload, timeout=10)
-            if resp.status_code == 200:
-                data = resp.json()
+            if resp.status_code in (200, 201):
+                try:
+                    data = resp.json()
+                except Exception:
+                    data = {"text": resp.text}
+
+                # Pancake API có thể trả 200 nhưng success=false hoặc trả message_code
                 if "success" not in data:
-                    data["success"] = True
+                    data["success"] = True if data.get("id") else False
+                elif not data.get("success"):
+                    if not data.get("message") and data.get("message_code"):
+                        data["message"] = data.get("message_code")
                 return data
             else:
                 return {"success": False, "status_code": resp.status_code, "message": resp.text}

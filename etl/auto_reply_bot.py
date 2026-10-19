@@ -283,7 +283,8 @@ def run_auto_reply_bot(
 
                     if success:
                         total_sent += 1
-                        logger.info(f"  => ✅ GỬI THÀNH CÔNG!")
+                        msg_id = res.get("id") or "N/A"
+                        logger.info(f"  => ✅ GỬI THÀNH CÔNG! (Message ID: {msg_id})")
                     else:
                         total_failed += 1
                         logger.error(f"  => ❌ GỬI THẤT BẠI: {err}")

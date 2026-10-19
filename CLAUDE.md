@@ -112,6 +112,7 @@ FastAPI backend (`backend/`) + React frontend (`frontend-react/`) trên Render (
     2. Lưu vết vào bảng `bot_auto_replies` trong Neon DB để chống spam lặp lại (mỗi khách/kịch bản chỉ gửi 1 lần).
     3. Chỉ áp dụng cho các kênh Lead nguồn (Facebook, TikTok), bỏ qua các nhóm Zalo cá nhân.
   - Tích hợp vào GitHub Actions Workflow (`.github/workflows/pancake-etl.yml`): Tự động kích hoạt bot gửi tin nhắn sau mỗi lần chạy cào dữ liệu ETL.
+  - Sửa lỗi Pancake Send Message API: Bổ sung trường bắt buộc `"action": "reply_inbox"` vào payload JSON theo đúng OpenAPI spec của Pancake Public API v1 (`/conversations/{conversation_id}/messages`).
 
 ### Bước tiếp / tồn đọng (chưa xử lý, chờ user quyết)
 - Cập nhật link nhóm Zalo thực tế vào `etl/auto_reply_rules.py` (hiện đang là link placeholder).
