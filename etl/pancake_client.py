@@ -495,17 +495,21 @@ class PancakeClient:
         retry_count = 0
         max_retries = 3
         t_list = time.perf_counter()
+        use_type_param = True
+        api_page_count = 0
+        max_api_pages = max(100, int(max_limit / 10))
 
-        while len(all_comments) < max_limit:
+        while len(all_comments) < max_limit and api_page_count < max_api_pages:
+            api_page_count += 1
             params = {
                 "page_access_token": ptoken,
-                "type": "COMMENT",
-                "type[]": "COMMENT",
                 "since": since_ts,
                 "until": now_ts,
                 "order_by": "updated_at",
                 "last_conversation_id": last_id,
             }
+            if use_type_param:
+                params["type"] = "COMMENT"
             clean_params = {k: v for k, v in params.items() if v is not None}
 
             try:
@@ -557,6 +561,23 @@ class PancakeClient:
                     break
                 last_id = new_last_id
                 time.sleep(0.2)
+            elif resp.status_code == 500 and use_type_param:
+                logger.warning(
+                    f"Pancake API trả 500 với filter 'type=COMMENT' cho Page '{page_id}'. "
+                    f"Tự động chuyển sang chế độ fallback (không dùng type filter) và lọc comment trên client..."
+                )
+                use_type_param = False
+                time.sleep(1)
+                continue
+            elif resp.status_code == 500:
+                retry_count += 1
+                if retry_count <= max_retries:
+                    logger.warning(f"Pancake API trả status 500. Thử lại lần {retry_count}/{max_retries} sau {3 * retry_count}s...")
+                    time.sleep(3 * retry_count)
+                    continue
+                else:
+                    logger.error(f"Pancake API trả status 500 khi lấy comment: {resp.text[:200]}")
+                    break
             elif resp.status_code == 429:
                 logger.warning("Pancake API Rate limit (429)! Nghỉ 10s...")
                 time.sleep(10)
