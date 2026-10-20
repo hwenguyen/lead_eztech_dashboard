@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, JSON, Boolean, ForeignKey
+from sqlalchemy import Column, Integer, String, DateTime, JSON, Boolean, ForeignKey, Text
 from sqlalchemy.orm import relationship
 from database.db import Base
 from datetime import datetime, timezone, timedelta
@@ -67,4 +67,29 @@ class BotAutoReplyLog(Base):
     sent_at = Column(DateTime, default=get_vn_now, index=True)
     status = Column(String, default="SENT", index=True)  # "SENT", "DRY_RUN", "FAILED"
     error_message = Column(String, nullable=True)
+
+
+class Comment(Base):
+    """Lưu trữ tất cả Comment từ các kênh nguồn (Facebook, TikTok...)."""
+    __tablename__ = "comments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    comment_id = Column(String, unique=True, index=True, nullable=False)  # Pancake conversation ID (vd: post_id_comment_id)
+    page_id = Column(String, index=True, nullable=False)                  # ID trang (vd: 514400205095512, tt_...)
+    page_name = Column(String, index=True, nullable=True)                 # Tên chuẩn của trang
+    post_id = Column(String, index=True, nullable=True)                   # ID bài viết chứa comment
+    post_url = Column(String, nullable=True)                              # Link bài viết (nếu có)
+    customer_id = Column(String, index=True, nullable=True)               # ID người comment (PSID/TikTok UID)
+    customer_name = Column(String, nullable=True)                         # Tên người comment
+    phone_number = Column(String, index=True, nullable=True)              # SĐT nếu khách để lại
+    message = Column(Text, nullable=True)                                 # Nội dung comment sạch (plain text)
+    raw_message = Column(Text, nullable=True)                             # Nội dung gốc (HTML)
+    message_count = Column(Integer, default=1)                            # Số tin nhắn / lượt reply trong comment thread
+    tags = Column(String, nullable=True)                                  # Thẻ gắn trên comment
+    assigned_users = Column(String, nullable=True)                        # Nhân viên phụ trách
+    inserted_at = Column(DateTime, index=True, nullable=True)             # Thời điểm tạo comment trên MXH
+    updated_at = Column(DateTime, nullable=True)                          # Thời điểm cập nhật cuối
+    payload = Column(JSON, nullable=True)                                 # Dữ liệu gốc đầy đủ từ Pancake API
+    created_at = Column(DateTime, default=get_vn_now)                     # Thời điểm lưu vào DB của hệ thống
+
 

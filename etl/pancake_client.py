@@ -8,7 +8,7 @@ from typing import List, Dict, Any, Optional, Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
-from etl.utils import is_page_id, resolve_canonical_page_name, KNOWN_PAGE_NAMES, parse_pancake_date, VN_TZ
+from etl.utils import is_page_id, resolve_canonical_page_name, KNOWN_PAGE_NAMES, parse_pancake_date, VN_TZ, clean_html, normalize_phone, extract_phone_number
 
 
 logger = logging.getLogger(__name__)
@@ -460,6 +460,216 @@ class PancakeClient:
             })
             
         logger.info(f"Hoàn tất lấy dữ liệu qua API! Tổng cộng: {len(results)} hội thoại.")
+        return results
+
+    def get_comments(
+        self,
+        page_id: str,
+        cache_loader: Optional[Callable[[List[str]], Dict[str, dict]]] = None,
+        days_back: Optional[int] = None,
+        limit: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Lấy danh sách Comment từ kênh nguồn (Facebook, TikTok) qua Pancake Public API v2.
+        - Hỗ trợ Early Stopping theo days_back.
+        - Tận dụng cache DB để không tải lại comment cũ chưa có cập nhật mới.
+        """
+        ptoken, resolved_page_id, resolved_page_name = self._get_page_access_token(page_id)
+        if not ptoken:
+            return []
+
+        page_id = resolved_page_id
+        url_convs = f"https://pages.fm/api/public_api/v2/pages/{page_id}/conversations"
+
+        now_ts = int(datetime.utcnow().timestamp())
+        since_ts = int((datetime.utcnow() - timedelta(days=365 * 2)).timestamp())
+        cutoff_dt = None
+        if days_back and days_back > 0:
+            cutoff_dt = datetime.now(VN_TZ).replace(tzinfo=None) - timedelta(days=days_back)
+
+        max_limit = limit or self.limit
+        logger.info(f"--- BẮT ĐẦU CÀO COMMENT QUA API CHO PAGE: {page_id} (Giới hạn: {max_limit}, Ngày quét: {days_back or 'Tất cả'}) ---")
+
+        all_comments = []
+        last_id = None
+        retry_count = 0
+        max_retries = 3
+        t_list = time.perf_counter()
+
+        while len(all_comments) < max_limit:
+            params = {
+                "page_access_token": ptoken,
+                "type": "COMMENT",
+                "type[]": "COMMENT",
+                "since": since_ts,
+                "until": now_ts,
+                "order_by": "updated_at",
+                "last_conversation_id": last_id,
+            }
+            clean_params = {k: v for k, v in params.items() if v is not None}
+
+            try:
+                resp = self.session.get(url_convs, params=clean_params, timeout=30)
+            except Exception as e:
+                logger.error(f"Lỗi kết nối khi gọi /conversations (comments) cho Page {page_id}: {e}")
+                retry_count += 1
+                if retry_count <= max_retries:
+                    time.sleep(3 * retry_count)
+                    continue
+                else:
+                    break
+
+            if resp.status_code == 200:
+                data = resp.json()
+                if isinstance(data, dict) and data.get("success") is False:
+                    logger.warning(f"Pancake API từ chối cào comment cho Page '{page_id}': {data.get('message')}")
+                    break
+
+                retry_count = 0
+                convs = data.get("conversations", []) if isinstance(data, dict) else []
+                if not convs:
+                    logger.info("Không còn comment mới nào từ API.")
+                    break
+
+                reached_cutoff = False
+                valid_comments = []
+                for conv in convs:
+                    conv_type = str(conv.get("type", "")).upper()
+                    # Chỉ lấy COMMENT hoặc COMMENT_LIVESTREAM
+                    if "COMMENT" not in conv_type:
+                        continue
+
+                    if cutoff_dt:
+                        conv_dt = parse_pancake_date(conv.get("updated_at") or conv.get("inserted_at"))
+                        if conv_dt and conv_dt < cutoff_dt:
+                            reached_cutoff = True
+                            break
+                    valid_comments.append(conv)
+
+                all_comments.extend(valid_comments)
+
+                if reached_cutoff:
+                    logger.info(f"⚡ Đã quét comment đến mốc {days_back} ngày trước. Dừng cào sớm (Early Stopping)!")
+                    break
+
+                new_last_id = convs[-1].get('id')
+                if new_last_id == last_id:
+                    break
+                last_id = new_last_id
+                time.sleep(0.2)
+            elif resp.status_code == 429:
+                logger.warning("Pancake API Rate limit (429)! Nghỉ 10s...")
+                time.sleep(10)
+                continue
+            else:
+                logger.warning(f"Pancake API trả status {resp.status_code} khi lấy comment: {resp.text[:200]}")
+                break
+
+        all_comments = all_comments[:max_limit]
+        logger.info(f"Đã liệt kê {len(all_comments)} comments trong {time.perf_counter() - t_list:.1f}s.")
+
+        existing_cache: Dict[str, dict] = {}
+        if cache_loader and all_comments:
+            try:
+                existing_cache.update(cache_loader([str(c.get('id')) for c in all_comments if c.get('id')]))
+            except Exception as e:
+                logger.warning(f"Không nạp được cache DB cho comments: {e}")
+
+        # Tận dụng cache để chỉ tải messages cho comment mới hoặc có cập nhật
+        convs_to_fetch = []
+        messages_by_conv: Dict[str, list] = {}
+        for conv in all_comments:
+            cid = str(conv.get('id', ''))
+            conv_updated = conv.get('updated_at')
+            cached_data = existing_cache.get(cid)
+            if cached_data and str(cached_data.get('updated_at')) == str(conv_updated):
+                messages_by_conv[cid] = [{"is_cached": True}]
+            else:
+                convs_to_fetch.append(cid)
+
+        if convs_to_fetch:
+            t_msgs = time.perf_counter()
+
+            def fetch_single_comment_messages(cid):
+                url = f"https://pages.fm/api/public_api/v1/pages/{page_id}/conversations/{cid}/messages"
+                try:
+                    resp = self.session.get(url, params={"page_access_token": ptoken}, timeout=10)
+                    if resp.status_code == 200:
+                        return cid, resp.json().get('messages', [])
+                except Exception:
+                    pass
+                return cid, []
+
+            with ThreadPoolExecutor(max_workers=8) as executor:
+                futures = {executor.submit(fetch_single_comment_messages, cid): cid for cid in convs_to_fetch}
+                for f in as_completed(futures):
+                    cid, msgs = f.result()
+                    messages_by_conv[cid] = msgs or []
+
+            logger.info(f"Đã tải chi tiết tin nhắn {len(convs_to_fetch)} comments trong {time.perf_counter() - t_msgs:.1f}s.")
+
+        results = []
+        for conv in all_comments:
+            cid = str(conv.get("id", ""))
+            from_info = conv.get("from") or {}
+            cust_id = str(conv.get("customer_id") or from_info.get("id") or "") or None
+            cust_name = conv.get("customer_name") or from_info.get("name") or None
+            
+            # Trích xuất nội dung tin nhắn của khách
+            msgs = messages_by_conv.get(cid, [])
+            raw_msg = None
+            clean_msg = None
+            if msgs and not msgs[0].get("is_cached"):
+                for m in msgs:
+                    if isinstance(m, dict) and m.get("message"):
+                        raw_msg = m.get("message")
+                        break
+            if not raw_msg:
+                raw_msg = conv.get("snippet") or ""
+
+            clean_msg = clean_html(raw_msg)
+
+            phone = normalize_phone(conv.get("phone_number"))
+            if not phone and clean_msg:
+                phone = extract_phone_number(clean_msg)
+
+            tags = conv.get("tags")
+            if isinstance(tags, list):
+                tag_texts = []
+                for t in tags:
+                    if isinstance(t, dict) and t.get("text"):
+                        tag_texts.append(t.get("text"))
+                    elif isinstance(t, str):
+                        tag_texts.append(t)
+                tags_str = ",".join(tag_texts) if tag_texts else None
+            else:
+                tags_str = str(tags) if tags else None
+
+            assigned = conv.get("current_assign_users") or conv.get("assigned_users")
+            if isinstance(assigned, list):
+                assign_names = [u.get("name") for u in assigned if isinstance(u, dict) and u.get("name")]
+                assigned_str = ",".join(assign_names) if assign_names else None
+            else:
+                assigned_str = str(assigned) if assigned else None
+
+            results.append({
+                "comment_id": cid,
+                "page_id": str(page_id),
+                "post_id": str(conv.get("post_id") or "") or None,
+                "customer_id": cust_id,
+                "customer_name": cust_name,
+                "phone_number": phone,
+                "message": clean_msg,
+                "raw_message": raw_msg,
+                "message_count": conv.get("message_count", 1),
+                "tags": tags_str,
+                "assigned_users": assigned_str,
+                "inserted_at": conv.get("inserted_at"),
+                "updated_at": conv.get("updated_at"),
+                "payload": conv,
+            })
+
+        logger.info(f"Hoàn tất xử lý comment Page {page_id}! Tổng cộng: {len(results)} comments.")
         return results
 
     def send_message(

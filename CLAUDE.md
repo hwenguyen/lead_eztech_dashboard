@@ -115,6 +115,14 @@ FastAPI backend (`backend/`) + React frontend (`frontend-react/`) trên Render (
   - Sửa lỗi Pancake Send Message API: Bổ sung trường bắt buộc `"action": "reply_inbox"` vào payload JSON theo đúng OpenAPI spec của Pancake Public API v1 (`/conversations/{conversation_id}/messages`).
   - Tối ưu chống Spam nền tảng (TikTok): Tăng độ trễ giữa các lần gửi lên ngẫu nhiên 6 – 12 giây (kèm cơ chế backoff 10 – 15 giây khi gặp lỗi) và giới hạn tối đa 2 lần thử đối với các tài khoản chặn tin nhắn riêng tư.
 
+### 2026-10-20 — Đã hoàn thành
+- Tạo bảng `comments` trên Neon Database và bổ sung ETL cào toàn bộ Comment từ kênh nguồn:
+  - Model `Comment` trong `database/models.py`: lưu `comment_id`, `page_id`, `page_name`, `post_id`, `customer_id`, `customer_name`, `phone_number`, `message` (sạch), `raw_message` (HTML), `message_count`, `tags`, `assigned_users`, `inserted_at`, `updated_at`, `payload` (JSON).
+  - Tự động tạo bảng và các index (`page_id`, `post_id`, `customer_id`, `inserted_at`, `phone_number`) qua `database/schema.py::ensure_schema()`.
+  - Bổ sung hàm `PancakeClient.get_comments(...)` trong `etl/pancake_client.py`: cào comment qua Pancake API v2, hỗ trợ Early Stopping (`days_back`), cache `updated_at`, và ThreadPool tải tin nhắn song song.
+  - Tích hợp vào luồng ETL chính `etl/pipeline.py`: tự động nhận diện kênh nguồn (Facebook Fanpage, TikTok) và lưu comment vào bảng `comments` (hoàn toàn tách biệt khỏi `dim_leads` để không làm sai lệch chỉ số Lead).
+
+
 ### Bước tiếp / tồn đọng (chưa xử lý, chờ user quyết)
 - Cập nhật link nhóm Zalo thực tế vào `etl/auto_reply_rules.py` (hiện đang là link placeholder).
 - **Token Pancake**: run ETL 03/10 04:54Z báo `Invalid access_token (102)` cho page "Anh Kế toán làm Data" → kéo 0 hội thoại nhưng job vẫn xanh. Cần tạo lại token; nên cho job fail khi một page lỗi.

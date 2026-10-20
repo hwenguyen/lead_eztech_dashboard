@@ -12,6 +12,11 @@ INDEX_DDL = [
     "CREATE INDEX IF NOT EXISTS ix_dim_leads_phone_at ON dim_leads (phone_at)",
     "CREATE INDEX IF NOT EXISTS ix_fact_lead_activities_lead_id ON fact_lead_activities (lead_id)",
     "CREATE INDEX IF NOT EXISTS ix_fact_lead_activities_contacted_at ON fact_lead_activities (contacted_at)",
+    "CREATE INDEX IF NOT EXISTS ix_comments_inserted_at ON comments (inserted_at)",
+    "CREATE INDEX IF NOT EXISTS ix_comments_page_id ON comments (page_id)",
+    "CREATE INDEX IF NOT EXISTS ix_comments_post_id ON comments (post_id)",
+    "CREATE INDEX IF NOT EXISTS ix_comments_customer_id ON comments (customer_id)",
+    "CREATE INDEX IF NOT EXISTS ix_comments_phone_number ON comments (phone_number)",
 ]
 
 

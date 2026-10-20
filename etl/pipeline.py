@@ -5,10 +5,10 @@ from typing import Optional, Dict, Any, List, Iterable
 from sqlalchemy import or_, func
 from sqlalchemy.orm import Session, defer
 from database.db import SessionLocal
-from database.models import RawConversation, DimLead, FactLeadActivity
+from database.models import RawConversation, DimLead, FactLeadActivity, Comment
 from database.schema import ensure_schema
 from etl.pancake_client import PancakeClient
-from etl.utils import parse_pancake_date, resolve_phone, normalize_phone, is_page_id, resolve_canonical_page_name
+from etl.utils import parse_pancake_date, resolve_phone, normalize_phone, is_page_id, resolve_canonical_page_name, is_source_page, clean_html, extract_phone_number
 import re
 
 logging.basicConfig(level=logging.INFO)
@@ -194,6 +194,83 @@ def upsert_lead_data(db: Session, raw_data: dict, page_id: str, commit: bool = T
         if commit:
             db.rollback()
         logger.error(f"Error upserting conversation {raw_data.get('id')}: {e}")
+
+def upsert_comment_data(db: Session, comment_data: dict, page_name: str, commit: bool = True, prefetched: dict = None):
+    """Lưu trữ và cập nhật dữ liệu Comment vào bảng comments."""
+    try:
+        cid = str(comment_data.get('comment_id') or comment_data.get('id') or '')
+        if not cid:
+            return
+
+        page_id = str(comment_data.get('page_id') or '')
+        post_id = str(comment_data.get('post_id') or '') or None
+        cust_id = str(comment_data.get('customer_id') or '') or None
+        cust_name = comment_data.get('customer_name')
+        phone = comment_data.get('phone_number')
+        clean_msg = comment_data.get('message')
+        raw_msg = comment_data.get('raw_message')
+        msg_count = comment_data.get('message_count', 1)
+        tags_str = comment_data.get('tags')
+        assigned_str = comment_data.get('assigned_users')
+        inserted_at = parse_pancake_date(comment_data.get('inserted_at'))
+        updated_at = parse_pancake_date(comment_data.get('updated_at'))
+        payload = comment_data.get('payload')
+
+        if prefetched is not None and "comment" in prefetched:
+            rec = prefetched["comment"].get(cid)
+        else:
+            rec = db.query(Comment).filter_by(comment_id=cid).first()
+
+        if not rec:
+            rec = Comment(
+                comment_id=cid,
+                page_id=page_id,
+                page_name=page_name,
+                post_id=post_id,
+                customer_id=cust_id,
+                customer_name=cust_name,
+                phone_number=phone,
+                message=clean_msg,
+                raw_message=raw_msg,
+                message_count=msg_count,
+                tags=tags_str,
+                assigned_users=assigned_str,
+                inserted_at=inserted_at,
+                updated_at=updated_at,
+                payload=payload
+            )
+            db.add(rec)
+            if prefetched is not None and "comment" in prefetched:
+                prefetched["comment"][cid] = rec
+        else:
+            rec.page_id = page_id
+            rec.page_name = page_name
+            if post_id:
+                rec.post_id = post_id
+            if cust_id:
+                rec.customer_id = cust_id
+            if cust_name:
+                rec.customer_name = cust_name
+            if phone:
+                rec.phone_number = phone
+            rec.message = clean_msg
+            rec.raw_message = raw_msg
+            rec.message_count = msg_count
+            rec.tags = tags_str
+            rec.assigned_users = assigned_str
+            if inserted_at:
+                rec.inserted_at = inserted_at
+            if updated_at:
+                rec.updated_at = updated_at
+            rec.payload = payload
+
+        if commit:
+            db.commit()
+    except Exception as e:
+        if commit:
+            db.rollback()
+        logger.error(f"Lỗi khi upsert comment {comment_data.get('comment_id')}: {e}")
+
 
 def load_pancake_pages_config() -> List[Dict[str, Any]]:
     """Nạp danh sách Fanpage và token từ các biến môi trường PANCAKE_PAGES_JSON hoặc PAGE_IDS."""
@@ -427,6 +504,38 @@ def run_etl_pipeline():
                 except Exception as e:
                     db.rollback()
                     logger.error(f"Lỗi khi lưu dữ liệu theo batch cho Page {page_id}: {e}")
+
+                # 3. Lấy Comment cho các kênh nguồn (Facebook Fanpage, TikTok...) và lưu vào bảng comments
+                if is_source_page(page_id):
+                    logger.info(f"\n--- [COMMENTS] Bắt đầu cào Comment cho Page nguồn: {canonical_page_name} ({page_id}) ---")
+
+                    def load_comment_cache(cids):
+                        s = SessionLocal()
+                        try:
+                            rows = s.query(Comment.comment_id, Comment.updated_at, Comment.message_count).filter(Comment.comment_id.in_(cids)).all()
+                            return {r.comment_id: {'updated_at': r.updated_at, 'message_count': r.message_count} for r in rows}
+                        finally:
+                            s.close()
+
+                    try:
+                        comments_data = client.get_comments(
+                            page_id=page_id,
+                            cache_loader=load_comment_cache,
+                            days_back=days_back_param,
+                            limit=run_limit_param
+                        )
+                        if comments_data:
+                            logger.info(f"[COMMENTS] Page {page_id}: Nhận được {len(comments_data)} comments. Đang lưu vào DB...")
+                            for c_item in comments_data:
+                                upsert_comment_data(db, c_item, canonical_page_name, commit=False)
+                            db.commit()
+                            logger.info(f"[COMMENTS] ✅ Đã lưu thành công {len(comments_data)} comments cho Page {page_id} vào bảng comments.")
+                        else:
+                            logger.info(f"[COMMENTS] Page {page_id}: Không có comment mới nào.")
+                    except Exception as c_err:
+                        db.rollback()
+                        logger.error(f"[COMMENTS] ❌ Lỗi khi cào/lưu comments cho Page {page_id}: {c_err}")
+
             except Exception as page_err:
                 logger.error(f"Lỗi khi cào dữ liệu cho Page {page_id}: {page_err}", exc_info=True)
                 # Đảm bảo session db mở lại cho lượt loop tiếp theo

@@ -265,3 +265,21 @@ def resolve_canonical_page_name(page_id_or_name: Any, fallback: Optional[str] = 
         return s
     return fallback or s
 
+
+def clean_html(text: Any) -> str:
+    """Loại bỏ các thẻ HTML như <div>, <span>, <CopyText>... giữ lại text thuần."""
+    if not text:
+        return ""
+    clean = re.sub(r"<[^>]+>", " ", str(text))
+    clean = re.sub(r"\s+", " ", clean).strip()
+    return clean
+
+
+def is_source_page(page_id_or_name: Any) -> bool:
+    """Kiểm tra xem page có phải kênh nguồn (Facebook, TikTok...) hay không (không phải kênh Zalo cá nhân)."""
+    if not page_id_or_name:
+        return False
+    s = str(page_id_or_name).strip()
+    return not (s.startswith("pzl_") or s in zalo_page_keys())
+
+
