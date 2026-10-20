@@ -652,10 +652,15 @@ class PancakeClient:
             else:
                 assigned_str = str(assigned) if assigned else None
 
+            post_url = conv.get("post_url") or conv.get("post_link") or conv.get("permalink_url")
+            if not post_url and isinstance(conv.get("post"), dict):
+                post_url = conv["post"].get("permalink_url") or conv["post"].get("url")
+
             results.append({
                 "comment_id": cid,
                 "page_id": str(page_id),
                 "post_id": str(conv.get("post_id") or "") or None,
+                "post_url": str(post_url) if post_url else None,
                 "customer_id": cust_id,
                 "customer_name": cust_name,
                 "phone_number": phone,

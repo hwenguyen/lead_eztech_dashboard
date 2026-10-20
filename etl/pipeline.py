@@ -40,6 +40,16 @@ def prefetch_records(db: Session, conversations: List[dict]) -> Dict[str, Dict[s
     return maps
 
 
+def prefetch_comments(db: Session, comments: List[dict]) -> Dict[str, Comment]:
+    """Nạp sẵn Comment của cả lô bằng câu IN (...)."""
+    cids = list({str(c.get('comment_id') or c.get('id')) for c in comments if c.get('comment_id') or c.get('id')})
+    res: Dict[str, Comment] = {}
+    for chunk in _chunks(cids):
+        for r in db.query(Comment).filter(Comment.comment_id.in_(chunk)):
+            res[r.comment_id] = r
+    return res
+
+
 def upsert_lead_data(db: Session, raw_data: dict, page_id: str, commit: bool = True,
                      prefetched: Optional[Dict[str, Dict[str, Any]]] = None):
     """
@@ -204,6 +214,7 @@ def upsert_comment_data(db: Session, comment_data: dict, page_name: str, commit:
 
         page_id = str(comment_data.get('page_id') or '')
         post_id = str(comment_data.get('post_id') or '') or None
+        post_url = str(comment_data.get('post_url') or '') or None
         cust_id = str(comment_data.get('customer_id') or '') or None
         cust_name = comment_data.get('customer_name')
         phone = comment_data.get('phone_number')
@@ -227,6 +238,7 @@ def upsert_comment_data(db: Session, comment_data: dict, page_name: str, commit:
                 page_id=page_id,
                 page_name=page_name,
                 post_id=post_id,
+                post_url=post_url,
                 customer_id=cust_id,
                 customer_name=cust_name,
                 phone_number=phone,
@@ -247,6 +259,8 @@ def upsert_comment_data(db: Session, comment_data: dict, page_name: str, commit:
             rec.page_name = page_name
             if post_id:
                 rec.post_id = post_id
+            if post_url:
+                rec.post_url = post_url
             if cust_id:
                 rec.customer_id = cust_id
             if cust_name:
@@ -359,6 +373,9 @@ def run_etl_pipeline():
     first_run_limit = int(os.getenv("FIRST_RUN_LIMIT", "2000"))
     daily_run_limit = int(os.getenv("DAILY_RUN_LIMIT", "200"))
     daily_days_back = int(os.getenv("DAILY_DAYS_BACK", "1"))
+    comment_first_run_limit = int(os.getenv("COMMENT_FIRST_RUN_LIMIT", str(first_run_limit)))
+    comment_daily_run_limit = int(os.getenv("COMMENT_DAILY_RUN_LIMIT", str(daily_run_limit)))
+    comment_daily_days_back = int(os.getenv("COMMENT_DAILY_DAYS_BACK", str(daily_days_back)))
 
     db = SessionLocal()
     
@@ -509,6 +526,31 @@ def run_etl_pipeline():
                 if is_source_page(page_id):
                     logger.info(f"\n--- [COMMENTS] Bắt đầu cào Comment cho Page nguồn: {canonical_page_name} ({page_id}) ---")
 
+                    has_existing_comments = False
+                    try:
+                        has_existing_comments = db.query(Comment.id).filter(
+                            or_(
+                                Comment.page_id == page_id,
+                                Comment.page_id == clean_num,
+                                Comment.page_id == canonical_page_name
+                            )
+                        ).first() is not None
+                    except Exception as e_chk:
+                        logger.warning(f"[COMMENTS] Không thể kiểm tra dữ liệu comment cũ trong DB: {e_chk}")
+                        has_existing_comments = False
+
+                    if not has_existing_comments:
+                        logger.info(f"[COMMENTS] 🔔 FIRST RUN DETECTED! Kéo {comment_first_run_limit} comments lịch sử cho Page {page_id}...")
+                        comment_limit = comment_first_run_limit
+                        comment_days_back = None
+                    else:
+                        logger.info(f"[COMMENTS] ⚡ DAILY RUN DETECTED! Kéo comment {comment_daily_days_back} ngày gần nhất (tối đa {comment_daily_run_limit}) cho Page {page_id}...")
+                        comment_limit = comment_daily_run_limit
+                        comment_days_back = comment_daily_days_back
+
+                    # Đóng session trước khi cào qua API để tránh giữ idle connection trên Neon
+                    db.close()
+
                     def load_comment_cache(cids):
                         s = SessionLocal()
                         try:
@@ -521,19 +563,28 @@ def run_etl_pipeline():
                         comments_data = client.get_comments(
                             page_id=page_id,
                             cache_loader=load_comment_cache,
-                            days_back=days_back_param,
-                            limit=run_limit_param
+                            days_back=comment_days_back,
+                            limit=comment_limit
                         )
+                        db = SessionLocal()
                         if comments_data:
                             logger.info(f"[COMMENTS] Page {page_id}: Nhận được {len(comments_data)} comments. Đang lưu vào DB...")
-                            for c_item in comments_data:
-                                upsert_comment_data(db, c_item, canonical_page_name, commit=False)
-                            db.commit()
+                            for start in range(0, len(comments_data), DB_BATCH):
+                                batch = comments_data[start:start + DB_BATCH]
+                                prefetched_comments = {"comment": prefetch_comments(db, batch)}
+                                for c_item in batch:
+                                    upsert_comment_data(db, c_item, canonical_page_name, commit=False, prefetched=prefetched_comments)
+                                db.commit()
                             logger.info(f"[COMMENTS] ✅ Đã lưu thành công {len(comments_data)} comments cho Page {page_id} vào bảng comments.")
                         else:
                             logger.info(f"[COMMENTS] Page {page_id}: Không có comment mới nào.")
                     except Exception as c_err:
-                        db.rollback()
+                        if 'db' in locals() and db:
+                            try:
+                                db.rollback()
+                            except Exception:
+                                pass
+                        db = SessionLocal()
                         logger.error(f"[COMMENTS] ❌ Lỗi khi cào/lưu comments cho Page {page_id}: {c_err}")
 
             except Exception as page_err:
