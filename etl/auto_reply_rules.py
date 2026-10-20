@@ -24,7 +24,7 @@ AUTO_REPLY_RULES = [
         "case_id": "xin_file",
         "name": "Khách xin file / tài liệu / mẫu báo cáo",
         "enabled": True,
-        "priority": 1,
+        "priority": 2,
         "keywords": [
             "file", "xin file", "cho em xin file", "cho mình xin file",
             "tài liệu", "tai lieu", "xin tài liệu", "xin tai lieu",
@@ -44,7 +44,7 @@ AUTO_REPLY_RULES = [
         "case_id": "tham_gia_cong_dong",
         "name": "Khách muốn vào nhóm / tham gia cộng đồng",
         "enabled": True,
-        "priority": 2,
+        "priority": 1,
         "keywords": [
             "cộng đồng", "cong dong", "nhóm", "nhom", "group", "giao lưu",
             "tham gia nhóm", "tham gia group", "vào nhóm", "vao nhom",
