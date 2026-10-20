@@ -81,36 +81,33 @@ COMMENT_REPLY_RULES = [
     # --------------------------------------------------------------------------
     # COMMENT RULE 1: KHÁCH COMMENT XIN FILE / TÀI LIỆU / CÂU LỆNH
     # --------------------------------------------------------------------------
-    {
-        "case_id": "cmt_xin_file",
-        "name": "Khách comment xin file / tài liệu / câu lệnh",
-        "enabled": True,
-        "priority": 1,
-        "keywords": [
-            "file", "xin file", "cho em xin file", "cho mình xin file",
-            "tài liệu", "tai lieu", "xin tài liệu", "xin tai lieu",
-            "template", "mẫu báo cáo", "mau bao cao", "mẫu", "mau",
-            "cho em xin với", "cho mình xin với", "gửi em với", "gửi mình với",
-            "cho em xin", "cho mình xin", "gửi file", "gui file", "sheet",
-            "câu lệnh", "cau lenh", "xin câu lệnh", "prompt", "xin prompt",
-            "công thức", "cong thuc"
-        ],
-        # 1. Tin nhắn riêng gửi trực tiếp vào Inbox/DM của khách:
-        "private_message": (
-            "Chào bạn, mình thấy bạn quan tâm đến bộ file và tài liệu Excel, Power Query & AI. Bạn nhắn mình SĐT để bạn quản lý lớp bên mình add ZL và gửi bạn tài liệu chi tiết nhé!"
-        ),
-        # 2. Nội dung rep comment khi đã gửi DM thành công (khách mở DM):
-        "comment_success_message": (
-            "Dạ mình đã gửi thông tin qua tin nhắn riêng cho bạn rồi nhé, bạn kiểm tra mục Tin nhắn / Tin nhắn chờ giúp mình nha!"
-        ),
-        # 3. Nội dung rep comment khi gửi DM thất bại (khách khóa DM / chặn người lạ):
-        "comment_fallback_message": (
-            "Do tài khoản của bạn đang chặn nhận tin nhắn từ người lạ, bạn bấm nút 'Nhắn tin' cho kênh hoặc để lại SĐT để bên mình gửi tài liệu cho bạn nhé!"
-        ),
-        "message": (
-            "Chào bạn, bạn nhắn tin cho page hoặc để lại SĐT/Zalo bên mình gửi bạn file và tài liệu thực hành nhé!"
-        ),
-    },
+{
+    "case_id": "cmt_xin_file",
+    "name": "Khách comment xin file / tài liệu / câu lệnh",
+    "enabled": True,
+    "priority": 1,
+    "keywords": [
+        "file", "xin file", "cho em xin file", "cho mình xin file",
+        "tài liệu", "tai lieu", "xin tài liệu", "xin tai lieu",
+        "template", "mẫu báo cáo", "mau bao cao", "mẫu", "mau",
+        "cho em xin với", "cho mình xin với", "gửi em với", "gửi mình với",
+        "cho em xin", "cho mình xin", "gửi file", "gui file", "sheet",
+        "câu lệnh", "cau lenh", "xin câu lệnh", "prompt", "xin prompt",
+        "công thức", "cong thuc"
+    ],
+    # 1. Tin nhắn riêng gửi thẳng vào Inbox/DM của khách:
+    "private_message": (
+        "Chào bạn, mình thấy bạn quan tâm đến các bộ file và tài liệu chia sẻ về ứng dụng Excel, Power Query & AI trong công việc. Bạn nhắn mình SĐT để bạn quản lý lớp bên mình add ZL và gửi bạn thông tin chi tiết nhé!"
+    ),
+    # 2. Rep comment khi gửi DM thành công (khách mở DM):
+    "comment_success_message": (
+        "Chào bạn, bạn ib để mình gửi bạn thông tin nha!"
+    ),
+    # 3. Rep comment khi gửi DM thất bại (khách khóa DM / chặn người lạ):
+    "comment_fallback_message": (
+        "Chào bạn, bạn ib để mình gửi bạn thông tin nhé, bạn để riêng tư mình không ib cho bạn được"
+    ),
+},
 
     # --------------------------------------------------------------------------
     # COMMENT RULE 2: KHÁCH COMMENT HỎI KHÓA HỌC / LỚP HỌC / HỌC PHÍ
@@ -128,18 +125,15 @@ COMMENT_REPLY_RULES = [
         ],
         # 1. Tin nhắn riêng gửi trực tiếp vào Inbox/DM của khách:
         "private_message": (
-            "Chào bạn, mình gửi bạn thông tin chi tiết về lộ trình học ứng dụng Excel, Power Query & AI trong công việc. Bạn nhắn mình SĐT để bạn quản lý lớp tư vấn lịch học và ưu đãi cho bạn nhé!"
+            "Chào bạn, mình thấy bạn đang quan tâm đến ứng dụng Excel, Power Query & AI trong CV. Bạn đang làm trong lĩnh vực nào nhỉ để mình gửi lộ trình học phù hợp cho bạn nhé"
         ),
         # 2. Nội dung rep comment khi đã gửi DM thành công (khách mở DM):
         "comment_success_message": (
-            "Dạ mình đã gửi lộ trình và ưu đãi qua tin nhắn riêng cho bạn rồi nhé, bạn kiểm tra mục Tin nhắn / Tin nhắn chờ giúp mình nha!"
+            "Chào bạn, bạn ib để mình gửi bạn thông tin khoá học nha!"
         ),
         # 3. Nội dung rep comment khi gửi DM thất bại (khách khóa DM / chặn người lạ):
         "comment_fallback_message": (
-            "Do tài khoản của bạn đang chặn nhận tin nhắn từ người lạ, bạn bấm nút 'Nhắn tin' cho kênh hoặc để lại SĐT để bên mình tư vấn chi tiết cho bạn nhé!"
-        ),
-        "message": (
-            "Chào bạn, bạn nhắn tin cho page hoặc để lại SĐT bên mình gửi thông tin lộ trình và ưu đãi lớp học cho bạn nhé!"
+            "Chào bạn, bạn ib để mình gửi bạn thông tin nhé, bạn để riêng tư mình không ib cho bạn được"
         ),
     },
 
@@ -158,19 +152,15 @@ COMMENT_REPLY_RULES = [
         ],
         # 1. Tin nhắn riêng gửi trực tiếp vào Inbox/DM của khách:
         "private_message": (
-            "Chào bạn, mình gửi bạn thông tin tham gia cộng đồng Excel, Power Query & AI. Bạn nhắn mình SĐT để bạn quản lý lớp add bạn vào nhóm Zalo cùng học tập và giao lưu nhé!"
+            "Chào bạn, mình thấy bạn quan tâm đến các buổi workshop và tài liệu chia sẻ về ứng dụng Excel, Power Query & AI trong công việc. Bạn nhắn SĐT để bạn quản lý lớp add bạn vào nhóm cộng đồng nhé."
         ),
         # 2. Nội dung rep comment khi đã gửi DM thành công (khách mở DM):
         "comment_success_message": (
-            "Dạ mình đã nhắn tin riêng cho bạn rồi nhé, bạn kiểm tra mục Tin nhắn / Tin nhắn chờ giúp mình nha!"
+            "Chào bạn, bạn ib để mình gửi bạn thông tin cộng đồng nha"
         ),
         # 3. Nội dung rep comment khi gửi DM thất bại (khách khóa DM / chặn người lạ):
         "comment_fallback_message": (
-            "Do tài khoản của bạn đang chặn nhận tin nhắn từ người lạ, bạn bấm nút 'Nhắn tin' cho kênh hoặc để lại SĐT để bên mình add vào nhóm cộng đồng nhé!"
-        ),
-        "message": (
-            "Chào bạn, bạn nhắn SĐT để bên mình add bạn vào nhóm Zalo cộng đồng cùng học tập và trao đổi nhé!"
-        ),
+            "Chào bạn, bạn ib để mình gửi bạn thông tin cộng đồng nhé, bạn để riêng tư mình không ib cho bạn được"
     },
 ]
 
