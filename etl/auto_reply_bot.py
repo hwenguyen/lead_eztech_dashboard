@@ -288,66 +288,132 @@ def process_page_comment_replies(
         stats["matched"] += 1
         case_id = rule["case_id"]
         rule_name = rule["name"]
-        reply_text = rule.get("comment_message") or rule["message"]
 
         logger.info(f"\n[PHÁT HIỆN COMMENT PHÙ HỢP]")
         logger.info(f"  • Khách hàng : {cust_name}")
         logger.info(f"  • Comment ID : {cid}")
         logger.info(f"  • Nội dung   : \"{cust_msg}\"")
         logger.info(f"  • Kịch bản   : [{rule_name}] (từ khóa: \"{matched_kw}\")")
-        logger.info(f"  • Sẽ reply   :\n    \"{reply_text}\"")
+
+        payload = c_item.get("payload") or {}
+        post_id = c_item.get("post_id") or (payload.get("post_id") if isinstance(payload, dict) else None)
+        from_id = (payload.get("from") or {}).get("id") if isinstance(payload, dict) else None
+        if not from_id:
+            from_id = c_item.get("customer_id")
+
+        enable_private_reply = os.getenv("ENABLE_PRIVATE_REPLY", "true").strip().lower() not in ("false", "0", "off", "no")
+        dm_success = False
+
+        # BƯỚC 1: Thử gửi tin nhắn riêng (Private Reply / DM) vào Inbox
+        if enable_private_reply:
+            private_text = rule.get("private_message") or rule.get("message")
+            logger.info(f"  • Sẽ thử gửi tin nhắn riêng (DM):\n    \"{private_text}\"")
+
+            if dry_run:
+                logger.info("  => [DRY-RUN] Giả lập thử gửi tin nhắn riêng vào Inbox...")
+                dm_success = True
+                log_entry_dm = BotAutoReplyLog(
+                    conversation_id=cid,
+                    customer_id=str(c_item.get("customer_id") or ""),
+                    page_id=page_id,
+                    case_id=f"{case_id}_dm",
+                    customer_message=cust_msg,
+                    reply_message=private_text,
+                    status="DRY_RUN",
+                )
+                db.add(log_entry_dm)
+                db.commit()
+            else:
+                logger.info("  => 🚀 ĐANG THỬ GỬI TIN NHẮN RIÊNG (DM) VÀO INBOX QUA PANCAKE API...")
+                res_dm = client.send_message(
+                    page_id=page_id,
+                    conversation_id=cid,
+                    message=private_text,
+                    action="private_replies",
+                    post_id=post_id,
+                    message_id=cid,
+                    from_id=from_id
+                )
+                dm_success = res_dm.get("success", False)
+                dm_err = None if dm_success else str(res_dm.get("message") or res_dm)
+
+                log_entry_dm = BotAutoReplyLog(
+                    conversation_id=cid,
+                    customer_id=str(c_item.get("customer_id") or ""),
+                    page_id=page_id,
+                    case_id=f"{case_id}_dm",
+                    customer_message=cust_msg,
+                    reply_message=private_text,
+                    status="SENT" if dm_success else "FAILED",
+                    error_message=dm_err
+                )
+                db.add(log_entry_dm)
+                db.commit()
+
+                if dm_success:
+                    logger.info(f"  => ✅ GỬI TIN NHẮN RIÊNG THÀNH CÔNG! (Message ID: {res_dm.get('id', 'N/A')})")
+                else:
+                    logger.warning(f"  => ⚠️ KHÔNG THỂ GỬI DM (Khách khóa DM hoặc platform chặn): {dm_err}")
+
+                time.sleep(random.uniform(2.0, 4.0))
+
+        # BƯỚC 2: Rep comment công khai tương ứng với kết quả DM
+        if dm_success:
+            reply_comment_text = rule.get("comment_success_message") or "Dạ mình đã gửi thông tin qua tin nhắn riêng cho bạn rồi nhé, bạn kiểm tra mục Tin nhắn / Tin nhắn chờ giúp mình nha!"
+        else:
+            reply_comment_text = rule.get("comment_fallback_message") or rule.get("comment_message") or rule.get("message")
+
+        logger.info(f"  • Sẽ rep comment công khai:\n    \"{reply_comment_text}\"")
 
         if dry_run:
-            logger.info("  => [DRY-RUN] Bỏ qua bước gửi thật.")
-            log_entry = BotAutoReplyLog(
+            logger.info("  => [DRY-RUN] Bỏ qua bước rep comment thật.")
+            log_entry_cmt = BotAutoReplyLog(
                 conversation_id=cid,
                 customer_id=str(c_item.get("customer_id") or ""),
                 page_id=page_id,
                 case_id=case_id,
                 customer_message=cust_msg,
-                reply_message=reply_text,
+                reply_message=reply_comment_text,
                 status="DRY_RUN",
             )
-            db.add(log_entry)
+            db.add(log_entry_cmt)
             db.commit()
             replied_count += 1
         else:
-            logger.info(f"  => 🚀 ĐANG GỬI REPLY COMMENT QUA PANCAKE API...")
-            res = client.send_message(
+            logger.info("  => 🚀 ĐANG REP COMMENT CÔNG KHAI QUA PANCAKE API...")
+            res_cmt = client.send_message(
                 page_id=page_id,
                 conversation_id=cid,
-                message=reply_text,
+                message=reply_comment_text,
                 action="reply_comment",
                 message_id=cid
             )
-            success = res.get("success", False)
-            status = "SENT" if success else "FAILED"
-            err = None if success else str(res.get("message") or res)
+            cmt_success = res_cmt.get("success", False)
+            cmt_err = None if cmt_success else str(res_cmt.get("message") or res_cmt)
 
-            log_entry = BotAutoReplyLog(
+            log_entry_cmt = BotAutoReplyLog(
                 conversation_id=cid,
                 customer_id=str(c_item.get("customer_id") or ""),
                 page_id=page_id,
                 case_id=case_id,
                 customer_message=cust_msg,
-                reply_message=reply_text,
-                status=status,
-                error_message=err
+                reply_message=reply_comment_text,
+                status="SENT" if cmt_success else "FAILED",
+                error_message=cmt_err
             )
-            db.add(log_entry)
+            db.add(log_entry_cmt)
             db.commit()
 
-            if success:
+            if cmt_success:
                 stats["sent"] += 1
                 replied_count += 1
-                msg_id = res.get("id") or "N/A"
-                logger.info(f"  => ✅ REPLY THÀNH CÔNG! (Message ID: {msg_id})")
+                msg_id = res_cmt.get("id") or "N/A"
+                logger.info(f"  => ✅ REP COMMENT THÀNH CÔNG! (Message ID: {msg_id})")
             else:
                 stats["failed"] += 1
-                logger.error(f"  => ❌ REPLY THẤT BẠI: {err}")
+                logger.error(f"  => ❌ REP COMMENT THẤT BẠI: {cmt_err}")
 
-            # Giãn cách 6 - 12s giữa các lần gửi
-            delay = random.uniform(10.0, 15.0) if not success else random.uniform(6.0, 12.0)
+            delay = random.uniform(8.0, 14.0) if not cmt_success else random.uniform(6.0, 10.0)
             logger.info(f"  ⏳ Tạm nghỉ {delay:.1f}s trước lượt reply tiếp theo để chống spam...")
             time.sleep(delay)
 

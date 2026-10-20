@@ -95,6 +95,18 @@ COMMENT_REPLY_RULES = [
             "câu lệnh", "cau lenh", "xin câu lệnh", "prompt", "xin prompt",
             "công thức", "cong thuc"
         ],
+        # 1. Tin nhắn riêng gửi trực tiếp vào Inbox/DM của khách:
+        "private_message": (
+            "Chào bạn, mình thấy bạn quan tâm đến bộ file và tài liệu Excel, Power Query & AI. Bạn nhắn mình SĐT để bạn quản lý lớp bên mình add ZL và gửi bạn tài liệu chi tiết nhé!"
+        ),
+        # 2. Nội dung rep comment khi đã gửi DM thành công (khách mở DM):
+        "comment_success_message": (
+            "Dạ mình đã gửi thông tin qua tin nhắn riêng cho bạn rồi nhé, bạn kiểm tra mục Tin nhắn / Tin nhắn chờ giúp mình nha!"
+        ),
+        # 3. Nội dung rep comment khi gửi DM thất bại (khách khóa DM / chặn người lạ):
+        "comment_fallback_message": (
+            "Do tài khoản của bạn đang chặn nhận tin nhắn từ người lạ, bạn bấm nút 'Nhắn tin' cho kênh hoặc để lại SĐT để bên mình gửi tài liệu cho bạn nhé!"
+        ),
         "message": (
             "Chào bạn, bạn nhắn tin cho page hoặc để lại SĐT/Zalo bên mình gửi bạn file và tài liệu thực hành nhé!"
         ),
@@ -114,6 +126,18 @@ COMMENT_REPLY_RULES = [
             "có lớp", "co lop", "chi phí", "chi phi", "đào tạo", "dao tao",
             "học online", "hoc online"
         ],
+        # 1. Tin nhắn riêng gửi trực tiếp vào Inbox/DM của khách:
+        "private_message": (
+            "Chào bạn, mình gửi bạn thông tin chi tiết về lộ trình học ứng dụng Excel, Power Query & AI trong công việc. Bạn nhắn mình SĐT để bạn quản lý lớp tư vấn lịch học và ưu đãi cho bạn nhé!"
+        ),
+        # 2. Nội dung rep comment khi đã gửi DM thành công (khách mở DM):
+        "comment_success_message": (
+            "Dạ mình đã gửi lộ trình và ưu đãi qua tin nhắn riêng cho bạn rồi nhé, bạn kiểm tra mục Tin nhắn / Tin nhắn chờ giúp mình nha!"
+        ),
+        # 3. Nội dung rep comment khi gửi DM thất bại (khách khóa DM / chặn người lạ):
+        "comment_fallback_message": (
+            "Do tài khoản của bạn đang chặn nhận tin nhắn từ người lạ, bạn bấm nút 'Nhắn tin' cho kênh hoặc để lại SĐT để bên mình tư vấn chi tiết cho bạn nhé!"
+        ),
         "message": (
             "Chào bạn, bạn nhắn tin cho page hoặc để lại SĐT bên mình gửi thông tin lộ trình và ưu đãi lớp học cho bạn nhé!"
         ),
@@ -132,6 +156,18 @@ COMMENT_REPLY_RULES = [
             "tham gia nhóm", "tham gia group", "vào nhóm", "vao nhom",
             "link nhóm", "link group", "link zalo", "nhóm zalo", "nhom zalo"
         ],
+        # 1. Tin nhắn riêng gửi trực tiếp vào Inbox/DM của khách:
+        "private_message": (
+            "Chào bạn, mình gửi bạn thông tin tham gia cộng đồng Excel, Power Query & AI. Bạn nhắn mình SĐT để bạn quản lý lớp add bạn vào nhóm Zalo cùng học tập và giao lưu nhé!"
+        ),
+        # 2. Nội dung rep comment khi đã gửi DM thành công (khách mở DM):
+        "comment_success_message": (
+            "Dạ mình đã nhắn tin riêng cho bạn rồi nhé, bạn kiểm tra mục Tin nhắn / Tin nhắn chờ giúp mình nha!"
+        ),
+        # 3. Nội dung rep comment khi gửi DM thất bại (khách khóa DM / chặn người lạ):
+        "comment_fallback_message": (
+            "Do tài khoản của bạn đang chặn nhận tin nhắn từ người lạ, bạn bấm nút 'Nhắn tin' cho kênh hoặc để lại SĐT để bên mình add vào nhóm cộng đồng nhé!"
+        ),
         "message": (
             "Chào bạn, bạn nhắn SĐT để bên mình add bạn vào nhóm Zalo cộng đồng cùng học tập và trao đổi nhé!"
         ),

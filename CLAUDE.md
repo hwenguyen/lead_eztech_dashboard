@@ -121,11 +121,14 @@ FastAPI backend (`backend/`) + React frontend (`frontend-react/`) trên Render (
   - Tự động tạo bảng và các index (`page_id`, `post_id`, `customer_id`, `inserted_at`, `phone_number`) qua `database/schema.py::ensure_schema()`.
   - Bổ sung hàm `PancakeClient.get_comments(...)` trong `etl/pancake_client.py`: cào comment qua Pancake API v2, hỗ trợ Early Stopping (`days_back`), cache `updated_at`, và ThreadPool tải tin nhắn song song.
   - Tích hợp vào luồng ETL chính `etl/pipeline.py`: tự động nhận diện kênh nguồn (Facebook Fanpage, TikTok) và lưu comment vào bảng `comments` (hoàn toàn tách biệt khỏi `dim_leads` để không làm sai lệch chỉ số Lead).
-- Bổ sung luồng tự động trả lời bình luận (Comment Auto-Reply) vào ETL Pipeline và Bot:
+- Bổ sung luồng tự động trả lời bình luận (Comment Auto-Reply) theo mô hình Smart Combo (DM + Rep Comment):
   - Thêm `should_reply_comment()` và `process_page_comment_replies()` trong `etl/auto_reply_bot.py`.
-  - Thêm danh sách cấu hình riêng `COMMENT_REPLY_RULES` trong `etl/auto_reply_rules.py` (xin file, hỏi khóa học, vào nhóm cộng đồng).
-  - Kiểm tra điều kiện an toàn: chỉ reply comment gần đây (`days_back=1`), thread chưa có admin trả lời (`message_count <= 1`), chưa từng reply trước đó (`bot_auto_replies`), và khớp từ khóa trong `COMMENT_REPLY_RULES` (hoặc `AUTO_REPLY_RULES`).
-  - Gửi qua Pancake API v1 với `"action": "reply_comment"` và `"message_id": comment_id`.
+  - Thêm danh sách cấu hình riêng `COMMENT_REPLY_RULES` trong `etl/auto_reply_rules.py` (hỗ trợ `private_message`, `comment_success_message`, `comment_fallback_message`).
+  - Cơ chế Smart Combo:
+    1. Thử gửi tin nhắn riêng (Private Message / DM) vào Inbox của khách qua Pancake API (`action="private_replies"`).
+    2. Nếu gửi DM thành công (khách mở DM / Facebook): Rep comment công khai thông báo kiểm tra tin nhắn chờ (`comment_success_message`).
+    3. Nếu gửi DM thất bại (khách TikTok khóa DM): Rep comment công khai điều hướng khách chủ động bấm nhắn tin hoặc để lại SĐT (`comment_fallback_message`).
+  - Kiểm tra điều kiện an toàn: chỉ reply comment gần đây (`days_back=1`), thread chưa có admin trả lời (`message_count <= 1`), chưa từng reply trước đó (`bot_auto_replies`), và khớp từ khóa trong `COMMENT_REPLY_RULES`.
   - Tích hợp trực tiếp vào bước cào comment trong `etl/pipeline.py`, tự động chạy sau khi lưu comment vào DB.
   - Hỗ trợ chạy thủ công qua CLI `etl/auto_reply_bot.py --send --comments-only`.
 
