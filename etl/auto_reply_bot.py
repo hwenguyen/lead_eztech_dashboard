@@ -37,7 +37,8 @@ from etl.auto_reply_rules import (
     AUTO_REPLY_RULES,
     ALLOWED_SOURCE_PAGES,
     COMMENT_REPLY_RULES,
-    SKIP_IF_CUSTOMER_HAS_PRIOR_MESSAGES
+    SKIP_IF_CUSTOMER_HAS_PRIOR_MESSAGES,
+    ENABLE_PRIVATE_REPLY
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -420,12 +421,15 @@ def process_page_comment_replies(
 
         # TikTok không hỗ trợ API gửi tin nhắn riêng từ comment (chỉ Facebook/Instagram hỗ trợ theo Pancake OpenAPI)
         is_tiktok = str(page_id).startswith("tt_") or "tiktok" in resolve_canonical_page_name(page_id).lower()
-        enable_private_reply = os.getenv("ENABLE_PRIVATE_REPLY", "true").strip().lower() not in ("false", "0", "off", "no")
+        env_private = os.getenv("ENABLE_PRIVATE_REPLY")
+        enable_private_reply = (env_private.strip().lower() not in ("false", "0", "off", "no")) if env_private is not None else bool(ENABLE_PRIVATE_REPLY)
         can_private_reply = enable_private_reply and not is_tiktok
         dm_success = False
 
         # BƯỚC 1: Thử gửi tin nhắn riêng (Private Reply / DM) vào Inbox (chỉ áp dụng Facebook)
-        if is_tiktok:
+        if not enable_private_reply:
+            logger.info("  • Cấu hình ENABLE_PRIVATE_REPLY=False: Tạm ẩn DM -> Bỏ qua gửi tin nhắn riêng, chỉ rep comment công khai.")
+        elif is_tiktok:
             logger.info("  • Kênh TikTok: Nền tảng TikTok không hỗ trợ gửi DM từ comment qua API -> Bỏ qua DM, chuyển thẳng sang Rep Comment công khai.")
         elif can_private_reply:
             private_text = rule.get("private_message") or rule.get("message")
@@ -480,7 +484,7 @@ def process_page_comment_replies(
                 time.sleep(random.uniform(2.0, 4.0))
 
         # BƯỚC 2: Rep comment công khai tương ứng với kết quả DM
-        if dm_success or is_tiktok:
+        if not enable_private_reply or dm_success or is_tiktok:
             msg_candidates = rule.get("comment_success_message") or "Chào bạn, bạn ib để mình gửi bạn thông tin nha!"
         else:
             msg_candidates = rule.get("comment_fallback_message") or rule.get("comment_message") or rule.get("message")

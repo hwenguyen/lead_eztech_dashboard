@@ -191,13 +191,22 @@ SKIP_IF_CUSTOMER_HAS_PRIOR_MESSAGES = True
 
 
 # ==============================================================================
+# 4. CẤU HÌNH GỬI TIN NHẮN RIÊNG (PRIVATE INBOX / DM) TỪ COMMENT
+# ==============================================================================
+# False: Tạm thời ẩn/tắt gửi tin nhắn riêng vào Inbox khi khách comment.
+#        Chỉ trả lời bình luận công khai (mời khách inbox) cho các trường hợp chưa có ai inbox.
+# True:  Thử gửi tin nhắn riêng vào Inbox trước (chỉ áp dụng Facebook).
+ENABLE_PRIVATE_REPLY = False
+
+
+# ==============================================================================
 # 4. CÁC KÊNH LEAD NGUỒN ĐƯỢC PHÉP CHẠY BOT (CHỈ FACEBOOK & TIKTOK, BỎ QUA ZALO)
 # ==============================================================================
 ALLOWED_SOURCE_PAGES = [
     # 1. Facebook:
-    #"514400205095512",          # Anh Kế toán làm Data (Facebook)
+    "514400205095512",          # Anh Kế toán làm Data (Facebook)
     # 2. TikTok:
     "tt_7196601676597871618",   # Anh Kế toán làm Data (TikTok @tuananhdata)
     "tt_7456003523327919120",   # Hành trang cho kế toán (TikTok @anhgadata)
-    #"tt_7661860189083943944",   # Chị Kế Toán GenZ (TikTok @chiketoangenz)
+    "tt_7661860189083943944",   # Chị Kế Toán GenZ (TikTok @chiketoangenz)
 ]
