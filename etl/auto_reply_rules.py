@@ -71,6 +71,75 @@ AUTO_REPLY_RULES = [
 
 
 # ==============================================================================
+# CẤU HÌNH KỊCH BẢN PHẢN HỒI BÌNH LUẬN RIÊNG (COMMENT_REPLY_RULES)
+# ==============================================================================
+# Danh sách này dành riêng cho việc tự động Reply Comment trên Facebook & TikTok.
+# Nếu danh sách này có dữ liệu, bot sẽ ưu tiên dùng danh sách này khi reply comment.
+# Bạn có thể tự do thêm bớt từ khóa hoặc chỉnh sửa nội dung phản hồi bên dưới.
+# ==============================================================================
+COMMENT_REPLY_RULES = [
+    # --------------------------------------------------------------------------
+    # COMMENT RULE 1: KHÁCH COMMENT XIN FILE / TÀI LIỆU / CÂU LỆNH
+    # --------------------------------------------------------------------------
+    {
+        "case_id": "cmt_xin_file",
+        "name": "Khách comment xin file / tài liệu / câu lệnh",
+        "enabled": True,
+        "priority": 1,
+        "keywords": [
+            "file", "xin file", "cho em xin file", "cho mình xin file",
+            "tài liệu", "tai lieu", "xin tài liệu", "xin tai lieu",
+            "template", "mẫu báo cáo", "mau bao cao", "mẫu", "mau",
+            "cho em xin với", "cho mình xin với", "gửi em với", "gửi mình với",
+            "cho em xin", "cho mình xin", "gửi file", "gui file", "sheet",
+            "câu lệnh", "cau lenh", "xin câu lệnh", "prompt", "xin prompt",
+            "công thức", "cong thuc"
+        ],
+        "message": (
+            "Chào bạn, bạn nhắn tin cho page hoặc để lại SĐT/Zalo bên mình gửi bạn file và tài liệu thực hành nhé!"
+        ),
+    },
+
+    # --------------------------------------------------------------------------
+    # COMMENT RULE 2: KHÁCH COMMENT HỎI KHÓA HỌC / LỚP HỌC / HỌC PHÍ
+    # --------------------------------------------------------------------------
+    {
+        "case_id": "cmt_khoa_hoc",
+        "name": "Khách comment hỏi khóa học / lộ trình / học phí",
+        "enabled": True,
+        "priority": 2,
+        "keywords": [
+            "khóa học", "khoa hoc", "học phí", "hoc phi", "lộ trình", "lo trinh",
+            "lớp học", "lop hoc", "tư vấn", "tu van", "học ở đâu", "hoc o dau",
+            "có lớp", "co lop", "chi phí", "chi phi", "đào tạo", "dao tao",
+            "học online", "hoc online"
+        ],
+        "message": (
+            "Chào bạn, bạn nhắn tin cho page hoặc để lại SĐT bên mình gửi thông tin lộ trình và ưu đãi lớp học cho bạn nhé!"
+        ),
+    },
+
+    # --------------------------------------------------------------------------
+    # COMMENT RULE 3: KHÁCH COMMENT THAM GIA NHÓM / CỘNG ĐỒNG
+    # --------------------------------------------------------------------------
+    {
+        "case_id": "cmt_cong_dong",
+        "name": "Khách comment muốn tham gia nhóm / cộng đồng",
+        "enabled": True,
+        "priority": 3,
+        "keywords": [
+            "cộng đồng", "cong dong", "nhóm", "nhom", "group", "giao lưu",
+            "tham gia nhóm", "tham gia group", "vào nhóm", "vao nhom",
+            "link nhóm", "link group", "link zalo", "nhóm zalo", "nhom zalo"
+        ],
+        "message": (
+            "Chào bạn, bạn nhắn SĐT để bên mình add bạn vào nhóm Zalo cộng đồng cùng học tập và trao đổi nhé!"
+        ),
+    },
+]
+
+
+# ==============================================================================
 # CÁC KÊNH LEAD NGUỒN ĐƯỢC PHÉP CHẠY BOT (CHỈ FACEBOOK & TIKTOK, BỎ QUA ZALO)
 # ==============================================================================
 ALLOWED_SOURCE_PAGES = [

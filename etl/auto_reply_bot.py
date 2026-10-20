@@ -33,7 +33,7 @@ from database.models import BotAutoReplyLog, RawConversation, Comment
 from database.schema import ensure_schema
 from etl.pancake_client import PancakeClient
 from etl.utils import VN_TZ, is_page_id, resolve_canonical_page_name
-from etl.auto_reply_rules import AUTO_REPLY_RULES, ALLOWED_SOURCE_PAGES
+from etl.auto_reply_rules import AUTO_REPLY_RULES, ALLOWED_SOURCE_PAGES, COMMENT_REPLY_RULES
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
@@ -58,9 +58,12 @@ def normalize_message(text: str) -> Tuple[str, str]:
     return lower, no_accents
 
 
-def match_rule(customer_message: str) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+def match_rule(
+    customer_message: str,
+    rules: Optional[List[Dict[str, Any]]] = None
+) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
     """
-    So khớp tin nhắn của khách hàng với danh sách AUTO_REPLY_RULES.
+    So khớp tin nhắn của khách hàng với danh sách rules (mặc định AUTO_REPLY_RULES).
     Trả về (Rule khớp, Từ khóa đã khớp) hoặc (None, None).
     """
     if not customer_message:
@@ -68,9 +71,10 @@ def match_rule(customer_message: str) -> Tuple[Optional[Dict[str, Any]], Optiona
 
     lower_msg, no_accents_msg = normalize_message(customer_message)
 
+    active_rules = rules if rules is not None else AUTO_REPLY_RULES
     # Sắp xếp các rule theo priority tăng dần
     sorted_rules = sorted(
-        [r for r in AUTO_REPLY_RULES if r.get("enabled", True)],
+        [r for r in active_rules if r.get("enabled", True)],
         key=lambda x: x.get("priority", 99)
     )
 
@@ -208,11 +212,13 @@ def should_reply_comment(
         if any(('admin' in str(m.get('role', '')).lower() or 'admin' in str(m.get('from', '')).lower() or str((m.get('from') or {}).get('id')) == str(clean_num)) for m in msgs if isinstance(m, dict)):
             return False, None, None, None, "Admin đã trả lời trong comment thread"
 
-    # 5. So khớp nội dung comment với AUTO_REPLY_RULES
+    # 5. So khớp nội dung comment với rules (ưu tiên COMMENT_REPLY_RULES)
     clean_msg = comment.get("message") or comment.get("snippet") or ""
     if not clean_msg and isinstance(payload, dict):
         clean_msg = payload.get("snippet", "")
-    rule, matched_kw = match_rule(clean_msg)
+
+    rules_to_check = COMMENT_REPLY_RULES if COMMENT_REPLY_RULES else AUTO_REPLY_RULES
+    rule, matched_kw = match_rule(clean_msg, rules=rules_to_check)
     if not rule:
         return False, None, None, clean_msg, "Không khớp từ khóa của kịch bản nào"
 
