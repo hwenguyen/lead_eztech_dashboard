@@ -161,6 +161,7 @@ COMMENT_REPLY_RULES = [
         # 3. Nội dung rep comment khi gửi DM thất bại (khách khóa DM / chặn người lạ):
         "comment_fallback_message": (
             "Chào bạn, bạn ib để mình gửi bạn thông tin cộng đồng nhé, bạn để riêng tư mình không ib cho bạn được"
+        ),
     },
 ]
 
