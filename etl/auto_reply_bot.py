@@ -22,7 +22,7 @@ import unicodedata
 import logging
 import argparse
 from datetime import datetime, timedelta
-from typing import Optional, Dict, Any, List, Tuple
+from typing import Optional, Dict, Any, List, Tuple, Set
 
 from dotenv import load_dotenv
 load_dotenv(".env.local")
@@ -33,7 +33,12 @@ from database.models import BotAutoReplyLog, RawConversation, Comment
 from database.schema import ensure_schema
 from etl.pancake_client import PancakeClient
 from etl.utils import VN_TZ, is_page_id, resolve_canonical_page_name
-from etl.auto_reply_rules import AUTO_REPLY_RULES, ALLOWED_SOURCE_PAGES, COMMENT_REPLY_RULES
+from etl.auto_reply_rules import (
+    AUTO_REPLY_RULES,
+    ALLOWED_SOURCE_PAGES,
+    COMMENT_REPLY_RULES,
+    SKIP_IF_CUSTOMER_HAS_PRIOR_MESSAGES
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
@@ -166,11 +171,105 @@ def should_reply(
     return True, rule, matched_kw, cust_text, "Đủ điều kiện gửi"
 
 
+def extract_customer_identifiers(comment: Dict[str, Any]) -> List[str]:
+    """
+    Trích xuất toàn bộ các định danh có thể có của khách hàng từ dữ liệu comment
+    để đối chiếu với danh sách khách cũ trong Inbox (ID, PSID, số điện thoại).
+    """
+    ids = []
+    if comment.get("customer_id"):
+        ids.append(str(comment["customer_id"]).strip().lower())
+    if comment.get("phone_number"):
+        ids.append(str(comment["phone_number"]).strip().lower())
+
+    payload = comment.get("payload") or {}
+    if isinstance(payload, dict):
+        if payload.get("customer_id"):
+            ids.append(str(payload["customer_id"]).strip().lower())
+
+        from_info = payload.get("from") or {}
+        if isinstance(from_info, dict) and from_info.get("id"):
+            ids.append(str(from_info["id"]).strip().lower())
+
+        customers = payload.get("customers") or []
+        if isinstance(customers, list):
+            for c in customers:
+                if isinstance(c, dict):
+                    if c.get("id"):
+                        ids.append(str(c["id"]).strip().lower())
+                    if c.get("fb_id"):
+                        ids.append(str(c["fb_id"]).strip().lower())
+                    if c.get("phone_number"):
+                        ids.append(str(c["phone_number"]).strip().lower())
+
+        page_cust = payload.get("page_customer") or {}
+        if isinstance(page_cust, dict):
+            if page_cust.get("id"):
+                ids.append(str(page_cust["id"]).strip().lower())
+            if page_cust.get("customer_id"):
+                ids.append(str(page_cust["customer_id"]).strip().lower())
+            if page_cust.get("psid"):
+                ids.append(str(page_cust["psid"]).strip().lower())
+
+    return [i for i in ids if i and i not in ('unknown', 'none', '')]
+
+
+def get_existing_inbox_customer_ids(page_id: str, db: SessionLocal) -> Set[str]:
+    """
+    Lấy danh sách các định danh (customer_id, psid, phone_number...) của khách hàng
+    ĐÃ CÓ TIN NHẮN trong Inbox của Page hoặc ĐÃ ĐƯỢC BOT GỬI TIN NHẮN THÀNH CÔNG.
+    Dùng để chốt chặn không gửi tin nhắn / rep comment cho khách cũ.
+    """
+    existing_ids = set()
+    canonical_name = resolve_canonical_page_name(page_id)
+
+    # 1. Quét từ raw_conversations của Page
+    try:
+        from sqlalchemy import text
+        sql_convs = """
+            SELECT 
+                payload ->> 'customer_id' as cust_id,
+                payload -> 'customers' -> 0 ->> 'id' as p_cust_id,
+                payload -> 'customers' -> 0 ->> 'fb_id' as fb_id,
+                payload -> 'from' ->> 'id' as from_id,
+                payload ->> 'phone_number' as phone
+            FROM raw_conversations
+            WHERE page_id = :pname
+              AND (
+                  COALESCE((payload ->> 'message_count')::int, 0) > 0
+                  OR payload ->> 'messages' IS NOT NULL
+              )
+        """
+        rows = db.execute(text(sql_convs), {"pname": canonical_name}).fetchall()
+        for r in rows:
+            for val in r:
+                if val and str(val).strip() and str(val).strip().lower() not in ('unknown', 'none', ''):
+                    existing_ids.add(str(val).strip().lower())
+    except Exception as e:
+        logger.warning(f"Lỗi khi nạp danh sách khách cũ từ raw_conversations Page {page_id}: {e}")
+
+    # 2. Quét từ bot_auto_replies (các khách đã từng được Bot gửi tin nhắn thành công)
+    try:
+        clean_num = re.sub(r"^(pzl_|tt_|fb_)", "", str(page_id))
+        bot_rows = db.query(BotAutoReplyLog.customer_id).filter(
+            (BotAutoReplyLog.page_id.like(f"%{clean_num}%")) | (BotAutoReplyLog.page_id == canonical_name),
+            BotAutoReplyLog.status == "SENT"
+        ).all()
+        for b in bot_rows:
+            if b[0] and str(b[0]).strip().lower() not in ('unknown', 'none', ''):
+                existing_ids.add(str(b[0]).strip().lower())
+    except Exception as e:
+        logger.warning(f"Lỗi khi nạp danh sách khách cũ từ bot_auto_replies Page {page_id}: {e}")
+
+    return existing_ids
+
+
 def should_reply_comment(
     comment: Dict[str, Any],
     page_id: str,
     db: SessionLocal,
-    days_back: int = 1
+    days_back: int = 1,
+    existing_inbox_customer_ids: Optional[Set[str]] = None
 ) -> Tuple[bool, Optional[Dict[str, Any]], Optional[str], Optional[str], str]:
     """
     Kiểm tra xem một bình luận (comment) có đủ điều kiện để Bot gửi phản hồi tự động hay không.
@@ -233,7 +332,16 @@ def should_reply_comment(
     if existing_sent:
         return False, rule, matched_kw, clean_msg, f"Đã từng trả lời comment này với kịch bản [{case_id}] (chống spam)"
 
-    # 7. Chốt chặn giới hạn retry nếu lỗi nền tảng
+    # 7. Chốt chặn khách cũ: Nếu khách đã có tin nhắn từ trước trong Inbox -> Bỏ qua hoàn toàn
+    if SKIP_IF_CUSTOMER_HAS_PRIOR_MESSAGES:
+        inbox_ids = existing_inbox_customer_ids
+        if inbox_ids is None:
+            inbox_ids = get_existing_inbox_customer_ids(page_id, db)
+        cust_idents = extract_customer_identifiers(comment)
+        if any(ident in inbox_ids for ident in cust_idents):
+            return False, rule, matched_kw, clean_msg, "Khách hàng đã có tin nhắn từ trước trong Inbox (bỏ qua không gửi lại)"
+
+    # 8. Chốt chặn giới hạn retry nếu lỗi nền tảng
     repeated_fails = db.query(BotAutoReplyLog.id).filter(
         BotAutoReplyLog.conversation_id == cid,
         BotAutoReplyLog.case_id == case_id,
@@ -264,6 +372,12 @@ def process_page_comment_replies(
     mode_text = "DRY-RUN (CHẠY THỬ NGHIỆM)" if dry_run else "LIVE (GỬI THẬT QUA PANCAKE API)"
     logger.info(f"\n--- [AUTO-REPLY COMMENTS] Đang kiểm tra {len(comments_data)} comments cho Page {page_id} | Chế độ: {mode_text} ---")
 
+    # Tải danh sách khách hàng đã có tin nhắn từ trước (để chốt chặn chống spam khách cũ)
+    existing_inbox_customer_ids = None
+    if SKIP_IF_CUSTOMER_HAS_PRIOR_MESSAGES:
+        existing_inbox_customer_ids = get_existing_inbox_customer_ids(page_id, db)
+        logger.info(f"[AUTO-REPLY COMMENTS] Đã nạp {len(existing_inbox_customer_ids)} định danh khách cũ đã có tin nhắn từ trước cho Page {page_id}.")
+
     replied_count = 0
     for c_item in comments_data:
         if replied_count >= max_replies:
@@ -278,7 +392,8 @@ def process_page_comment_replies(
             comment=c_item,
             page_id=page_id,
             db=db,
-            days_back=days_back
+            days_back=days_back,
+            existing_inbox_customer_ids=existing_inbox_customer_ids
         )
 
         if not can_reply:

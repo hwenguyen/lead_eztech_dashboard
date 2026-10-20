@@ -129,6 +129,7 @@ FastAPI backend (`backend/`) + React frontend (`frontend-react/`) trên Render (
     2. Nếu gửi DM thành công (khách mở DM / Facebook): Rep comment công khai thông báo kiểm tra tin nhắn chờ (`comment_success_message`).
     3. Nếu gửi DM thất bại (khách TikTok khóa DM): Rep comment công khai điều hướng khách chủ động bấm nhắn tin hoặc để lại SĐT (`comment_fallback_message`).
   - Kiểm tra điều kiện an toàn: chỉ reply comment gần đây (`days_back=1`), thread chưa có admin trả lời (`message_count <= 1`), chưa từng reply trước đó (`bot_auto_replies`), và khớp từ khóa trong `COMMENT_REPLY_RULES`.
+  - Chốt chặn khách cũ (`SKIP_IF_CUSTOMER_HAS_PRIOR_MESSAGES = True`): Tự động quét và đối chiếu định danh khách (`customer_id`, `psid`, SĐT); nếu khách đã có tin nhắn trao đổi từ trước trong Inbox (`raw_conversations`) hoặc đã từng được bot gửi tin nhắn thành công (`bot_auto_replies`), bot sẽ **bỏ qua hoàn toàn** (không gửi DM và không rep comment) để tránh spam khách cũ.
   - Tích hợp trực tiếp vào bước cào comment trong `etl/pipeline.py`, tự động chạy sau khi lưu comment vào DB.
   - Hỗ trợ chạy thủ công qua CLI `etl/auto_reply_bot.py --send --comments-only`.
 

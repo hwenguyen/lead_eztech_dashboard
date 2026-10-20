@@ -172,7 +172,17 @@ COMMENT_REPLY_RULES = [
 
 
 # ==============================================================================
-# CÁC KÊNH LEAD NGUỒN ĐƯỢC PHÉP CHẠY BOT (CHỈ FACEBOOK & TIKTOK, BỎ QUA ZALO)
+# 3. QUY TẮC CHỐNG SPAM KHÁCH CŨ (BỎ QUA NẾU ĐÃ CÓ TIN NHẮN TỪ TRƯỚC)
+# ==============================================================================
+# True: Nếu khách hàng comment mà ĐÃ CÓ TIN NHẮN TỪ TRƯỚC (đã từng có hội thoại trong
+#       Inbox hoặc đã từng được bot gửi tin nhắn thành công), Bot sẽ BỎ QUA HOÀN TOÀN
+#       (không gửi tin nhắn riêng và không trả lời comment) để tránh làm phiền khách.
+# False: Vẫn rep comment / gửi tin nhắn bình thường.
+SKIP_IF_CUSTOMER_HAS_PRIOR_MESSAGES = True
+
+
+# ==============================================================================
+# 4. CÁC KÊNH LEAD NGUỒN ĐƯỢC PHÉP CHẠY BOT (CHỈ FACEBOOK & TIKTOK, BỎ QUA ZALO)
 # ==============================================================================
 ALLOWED_SOURCE_PAGES = [
     # 1. Facebook:
