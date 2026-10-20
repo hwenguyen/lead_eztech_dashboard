@@ -5,18 +5,20 @@ CẤU HÌNH CÁC TRƯỜNG HỢP VÀ TIN NHẮN TỰ ĐỘNG (AUTO-REPLY RULES)
 File này dùng để bạn TỰ DO THÊM, SỬA, HOẶC BẬT/TẮT các kịch bản trả lời tự động.
 
 HƯỚNG DẪN:
-1. Mỗi trường hợp là một Dictionary {} nằm trong danh sách AUTO_REPLY_RULES.
-2. 'case_id': Tên mã duy nhất (viết liền không dấu, vd: 'xin_file', 'cong_dong').
-   Bot dùng mã này để nhớ và đảm bảo KHÔNG BAO GIỜ gửi trùng 2 lần cho cùng 1 khách.
-3. 'keywords': Danh sách các từ khóa. Chỉ cần tin nhắn của khách chứa 1 trong các từ này
-   thì bot sẽ nhận diện (tự động không phân biệt chữ HOA/thường, có dấu hay không dấu).
-4. 'message': Nội dung tin nhắn bạn muốn Bot gửi cho khách (qua tin nhắn Inbox).
-   'comment_message': (Tùy chọn) Nội dung riêng khi trả lời bình luận (Comment). Nếu không điền sẽ dùng 'message'.
-5. 'enabled': True để BẬT, False để TẠM TẮT trường hợp này.
-6. 'priority': Mức ưu tiên (số nhỏ hơn sẽ được ưu tiên kiểm tra trước).
+1. AUTO_REPLY_RULES: Kịch bản dùng cho tin nhắn riêng trong INBOX.
+2. COMMENT_REPLY_RULES: Kịch bản dành riêng cho BÌNH LUẬN (COMMENT) theo cơ chế Smart Combo:
+   - "private_message": Tin nhắn riêng gửi trực tiếp vào Inbox/DM của khách.
+   - "comment_success_message": Nội dung rep comment khi đã gửi DM thành công.
+   - "comment_fallback_message": Nội dung rep comment khi khách khóa DM (để riêng tư).
+3. 'case_id': Tên mã duy nhất (viết liền không dấu, vd: 'cmt_xin_file').
+   Bot dùng mã này để ghi nhớ và KHÔNG BAO GIỜ rep trùng 2 lần cho cùng 1 comment.
+4. 'keywords': Danh sách các từ khóa (tự động không phân biệt HOA/thường, có dấu/không dấu).
 ================================================================================
 """
 
+# ==============================================================================
+# 1. CẤU HÌNH KỊCH BẢN CHO TIN NHẮN INBOX (AUTO_REPLY_RULES)
+# ==============================================================================
 AUTO_REPLY_RULES = [
     # --------------------------------------------------------------------------
     # TRƯỜNG HỢP 1: KHÁCH XIN FILE / TÀI LIỆU
@@ -27,9 +29,11 @@ AUTO_REPLY_RULES = [
         "enabled": True,
         "priority": 2,
         "keywords": [
-            "file", "xin file", "cho em xin file", "cho mình xin file",
+            "file", "xin file", "cho em xin file", "cho mình xin file", "cho e xin file", "cho m xin file",
             "tài liệu", "tai lieu", "xin tài liệu", "xin tai lieu",
             "template", "mẫu báo cáo", "mau bao cao", "mẫu", "mau",
+            "prompt", "xin prompt", "promt", "xin promt", "câu lệnh", "cau lenh", "xin câu lệnh",
+            "hướng dẫn", "huong dan", "xin hướng dẫn", "file hướng dẫn",
             "cho em xin với", "cho mình xin với", "gửi em với", "gửi mình với",
             "cho em xin", "cho mình xin", "gửi file", "gui file", "sheet"
         ],
@@ -55,73 +59,71 @@ AUTO_REPLY_RULES = [
             "Chào em, anh thấy em quan tâm đến các buổi workshop và tài liệu chia sẻ về ứng dụng Excel, Power Query & AI trong công việc. Em nhắn SĐT để bạn quản lý lớp add em vào nhóm cộng đồng nhé!"
         ),
     },
-   
-    # --------------------------------------------------------------------------
-    # BẠN CÓ THỂ THÊM CÁC TRƯỜNG HỢP MỚI TẠI ĐÂY THEO MẪU:
-    # {
-    #     "case_id": "truong_hop_moi",
-    #     "name": "Mô tả trường hợp",
-    #     "enabled": True,
-    #     "priority": 4,
-    #     "keywords": ["từ khóa 1", "từ khóa 2"],
-    #     "message": "Nội dung tin nhắn gửi...",
-    # },
-    # --------------------------------------------------------------------------
 ]
 
 
 # ==============================================================================
-# CẤU HÌNH KỊCH BẢN PHẢN HỒI BÌNH LUẬN RIÊNG (COMMENT_REPLY_RULES)
+# 2. CẤU HÌNH KỊCH BẢN PHẢN HỒI BÌNH LUẬN (COMMENT_REPLY_RULES) - SMART COMBO
 # ==============================================================================
-# Danh sách này dành riêng cho việc tự động Reply Comment trên Facebook & TikTok.
-# Nếu danh sách này có dữ liệu, bot sẽ ưu tiên dùng danh sách này khi reply comment.
-# Bạn có thể tự do thêm bớt từ khóa hoặc chỉnh sửa nội dung phản hồi bên dưới.
+# Luồng hoạt động của Bot khi khách comment:
+# Bước 1: Bot gửi tin nhắn riêng (private_message) vào Inbox khách.
+# Bước 2:
+#   - Nếu gửi DM thành công -> Bot rep comment bằng [comment_success_message]
+#   - Nếu khách khóa DM    -> Bot rep comment bằng [comment_fallback_message]
 # ==============================================================================
 COMMENT_REPLY_RULES = [
     # --------------------------------------------------------------------------
-    # COMMENT RULE 1: KHÁCH COMMENT XIN FILE / TÀI LIỆU / CÂU LỆNH
+    # COMMENT RULE 1: KHÁCH COMMENT XIN FILE / TÀI LIỆU / CÂU LỆNH / HƯỚNG DẪN / IB
     # --------------------------------------------------------------------------
-{
-    "case_id": "cmt_xin_file",
-    "name": "Khách comment xin file / tài liệu / câu lệnh",
-    "enabled": True,
-    "priority": 1,
-    "keywords": [
-        "file", "xin file", "cho em xin file", "cho mình xin file",
-        "tài liệu", "tai lieu", "xin tài liệu", "xin tai lieu",
-        "template", "mẫu báo cáo", "mau bao cao", "mẫu", "mau",
-        "cho em xin với", "cho mình xin với", "gửi em với", "gửi mình với",
-        "cho em xin", "cho mình xin", "gửi file", "gui file", "sheet",
-        "câu lệnh", "cau lenh", "xin câu lệnh", "prompt", "xin prompt",
-        "công thức", "cong thuc"
-    ],
-    # 1. Tin nhắn riêng gửi thẳng vào Inbox/DM của khách:
-    "private_message": (
-        "Chào bạn, mình thấy bạn quan tâm đến các bộ file và tài liệu chia sẻ về ứng dụng Excel, Power Query & AI trong công việc. Bạn nhắn mình SĐT để bạn quản lý lớp bên mình add ZL và gửi bạn thông tin chi tiết nhé!"
-    ),
-    # 2. Rep comment khi gửi DM thành công (khách mở DM):
-    "comment_success_message": (
-        "Chào bạn, bạn ib để mình gửi bạn thông tin nha!"
-    ),
-    # 3. Rep comment khi gửi DM thất bại (khách khóa DM / chặn người lạ):
-    "comment_fallback_message": (
-        "Chào bạn, bạn ib để mình gửi bạn thông tin nhé, bạn để riêng tư mình không ib cho bạn được"
-    ),
-},
+    {
+        "case_id": "cmt_xin_file",
+        "name": "Khách comment xin file / tài liệu / câu lệnh / hướng dẫn",
+        "enabled": True,
+        "priority": 1,
+        "keywords": [
+            "file", "xin file", "cho em xin file", "cho mình xin file", "cho e xin file", "cho m xin file",
+            "tài liệu", "tai lieu", "xin tài liệu", "xin tai lieu",
+            "template", "mẫu báo cáo", "mau bao cao", "mẫu", "mau",
+            "prompt", "xin prompt", "promt", "xin promt", "promtp", "câu lệnh", "cau lenh", "xin câu lệnh",
+            "hướng dẫn", "huong dan", "xin hướng dẫn", "xin huong dan", "file hướng dẫn",
+            "thông tin", "thong tin", "xin thông tin", "xin thong tin",
+            "ib", "inbox", "inb", "ib mình", "ib e", "ib nha", "inbox mình", "inbox e", "check ib",
+            "công thức", "cong thuc", "sheet", "from", "xin from",
+            "cho em xin", "cho e xin", "cho mình xin", "cho m xin", "cho mk xin", "e xin", "m xin", "mk xin",
+            "cho em xin với", "cho e xin với", "cho em xin vs", "cho e xin vs",
+            "cho mình xin với", "cho m xin với", "cho mình xin vs", "cho m xin vs",
+            "gửi em với", "gui em voi", "gửi e với", "gui e voi", "gửi e vs", "gui e vs",
+            "gửi mình với", "gui minh voi", "gửi m với", "gui m voi", "gửi mình vs", "gửi m vs",
+            "gửi file", "gui file", "xin với", "xin voi", "xin vs"
+        ],
+        # 1. Tin nhắn riêng gửi trực tiếp vào Inbox/DM của khách:
+        "private_message": (
+            "Chào bạn, mình thấy bạn quan tâm đến bộ file và tài liệu Excel, Power Query & AI. Bạn nhắn mình SĐT để bạn quản lý lớp bên mình add ZL và gửi bạn tài liệu chi tiết nhé!"
+        ),
+        # 2. Nội dung rep comment khi đã gửi DM thành công (khách mở DM):
+        "comment_success_message": (
+            "Chào bạn, bạn ib để mình gửi bạn thông tin nha!"
+        ),
+        # 3. Nội dung rep comment khi gửi DM thất bại (khách khóa DM / chặn người lạ):
+        "comment_fallback_message": (
+            "Chào bạn, bạn ib để mình gửi bạn thông tin nhé, bạn để riêng tư mình không ib cho bạn được"
+        ),
+    },
 
     # --------------------------------------------------------------------------
-    # COMMENT RULE 2: KHÁCH COMMENT HỎI KHÓA HỌC / LỚP HỌC / HỌC PHÍ
+    # COMMENT RULE 2: KHÁCH COMMENT HỎI KHÓA HỌC / LỚP HỌC / HỌC PHÍ / ĐĂNG KÝ
     # --------------------------------------------------------------------------
     {
         "case_id": "cmt_khoa_hoc",
-        "name": "Khách comment hỏi khóa học / lộ trình / học phí",
+        "name": "Khách comment hỏi khóa học / lộ trình / học phí / đăng ký",
         "enabled": True,
         "priority": 2,
         "keywords": [
             "khóa học", "khoa hoc", "học phí", "hoc phi", "lộ trình", "lo trinh",
             "lớp học", "lop hoc", "tư vấn", "tu van", "học ở đâu", "hoc o dau",
             "có lớp", "co lop", "chi phí", "chi phi", "đào tạo", "dao tao",
-            "học online", "hoc online"
+            "học online", "hoc online", "đăng ký", "dang ky", "đăng ký học", "dang ky hoc",
+            "học như thế nào", "hoc nhu the nao", "đk học", "dk hoc"
         ],
         # 1. Tin nhắn riêng gửi trực tiếp vào Inbox/DM của khách:
         "private_message": (
@@ -148,7 +150,10 @@ COMMENT_REPLY_RULES = [
         "keywords": [
             "cộng đồng", "cong dong", "nhóm", "nhom", "group", "giao lưu",
             "tham gia nhóm", "tham gia group", "vào nhóm", "vao nhom",
-            "link nhóm", "link group", "link zalo", "nhóm zalo", "nhom zalo"
+            "link nhóm", "link group", "link zalo", "nhóm zalo", "nhom zalo",
+            "tham gia", "xin tham gia", "tham gia với", "tham gia vs",
+            "cho em tham gia", "cho e tham gia", "cho mình tham gia", "cho m tham gia", "cho mk tham gia",
+            "vào với", "vao voi", "vào vs"
         ],
         # 1. Tin nhắn riêng gửi trực tiếp vào Inbox/DM của khách:
         "private_message": (
@@ -160,7 +165,7 @@ COMMENT_REPLY_RULES = [
         ),
         # 3. Nội dung rep comment khi gửi DM thất bại (khách khóa DM / chặn người lạ):
         "comment_fallback_message": (
-            "Chào bạn, bạn ib để mình gửi bạn thông tin cộng đồng nhé, bạn để riêng tư mình không ib cho bạn được"
+            "Chào bạn, bạn ib để mình gửi bạn thông tin nhé, bạn để riêng tư mình không ib cho bạn được"
         ),
     },
 ]

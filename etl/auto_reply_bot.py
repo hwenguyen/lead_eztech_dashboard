@@ -283,6 +283,8 @@ def process_page_comment_replies(
 
         if not can_reply:
             stats["skipped"] += 1
+            if rule:
+                logger.info(f"  [Bỏ qua comment] {cid} | \"{(cust_msg or '')[:30]}\" | Lý do: {reason}")
             continue
 
         stats["matched"] += 1
@@ -419,8 +421,8 @@ def process_page_comment_replies(
 
     logger.info(
         f"[AUTO-REPLY COMMENTS] Hoàn tất Page {page_id}: "
-        f"Đã duyệt {stats['scanned']}, Khớp {stats['matched']}, Đã reply {stats['sent']}, "
-        f"Thất bại {stats['failed']}."
+        f"Đã duyệt {stats['scanned']}, Đủ điều kiện {stats['matched']}, Đã reply {stats['sent']}, "
+        f"Thất bại {stats['failed']}, Bỏ qua {stats['skipped']}."
     )
     return stats
 
