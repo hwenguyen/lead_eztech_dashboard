@@ -109,8 +109,7 @@ COMMENT_REPLY_RULES = [
         # 3. Nội dung rep comment khi gửi DM thất bại (khách khóa DM / chặn người lạ):
         "comment_fallback_message": [
             "Chào bạn, bạn ib để mình gửi bạn thông tin nhé, bạn để riêng tư mình không ib cho bạn được",
-            "Dạ tài khoản bạn đang để riêng tư nên mình không nhắn trước được, bạn chủ động nhắn tin giúp mình nhé!",
-            "Chào bạn, do tài khoản bạn để riêng tư nên mình không nhắn được, bạn bấm nút Nhắn tin để bên mình gửi thông tin nha!",
+            "Chào bạn, do tài khoản bạn để riêng tư nên mình không nhắn được, bạn ib để bên mình gửi thông tin nha!",
         ],
     },
 
@@ -142,8 +141,7 @@ COMMENT_REPLY_RULES = [
         # 3. Nội dung rep comment khi gửi DM thất bại (khách khóa DM / chặn người lạ):
         "comment_fallback_message": [
             "Chào bạn, bạn ib để mình gửi bạn thông tin nhé, bạn để riêng tư mình không ib cho bạn được",
-            "Dạ tài khoản bạn đang để riêng tư nên mình không nhắn trước được, bạn chủ động nhắn tin giúp mình nhé!",
-            "Chào bạn, do tài khoản bạn để riêng tư nên mình không nhắn được, bạn bấm nút Nhắn tin để bên mình gửi thông tin nha!",
+            "Chào bạn, do tài khoản bạn để riêng tư nên mình không nhắn được, bạn ib để bên mình gửi thông tin nha!",
         ],
     },
 
@@ -176,8 +174,7 @@ COMMENT_REPLY_RULES = [
         # 3. Nội dung rep comment khi gửi DM thất bại (khách khóa DM / chặn người lạ):
         "comment_fallback_message": [
             "Chào bạn, bạn ib để mình gửi bạn thông tin nhé, bạn để riêng tư mình không ib cho bạn được",
-            "Dạ tài khoản bạn đang để riêng tư nên mình không nhắn trước được, bạn chủ động nhắn tin giúp mình nhé!",
-            "Chào bạn, do tài khoản bạn để riêng tư nên mình không nhắn được, bạn bấm nút Nhắn tin để bên mình gửi thông tin nha!",
+            "Chào bạn, do tài khoản bạn để riêng tư nên mình không nhắn được, bạn nhắn tin để bên mình gửi thông tin nha!",
         ],
     },
 ]
