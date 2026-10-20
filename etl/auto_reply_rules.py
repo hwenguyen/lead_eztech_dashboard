@@ -101,13 +101,17 @@ COMMENT_REPLY_RULES = [
             "Chào bạn, mình thấy bạn quan tâm đến bộ file và tài liệu Excel, Power Query & AI. Bạn nhắn mình SĐT để bạn quản lý lớp bên mình add ZL và gửi bạn tài liệu chi tiết nhé!"
         ),
         # 2. Nội dung rep comment khi đã gửi DM thành công (khách mở DM):
-        "comment_success_message": (
-            "Chào bạn, bạn ib để mình gửi bạn thông tin nha!"
-        ),
+        "comment_success_message": [
+            "Chào bạn, bạn ib để mình gửi bạn thông tin nha!",
+            "Chào bạn, bạn nhắn tin cho page để mình gửi thông tin nha!",
+            "Dạ bạn ib để bên mình gửi bạn thông tin chi tiết nhé!",
+        ],
         # 3. Nội dung rep comment khi gửi DM thất bại (khách khóa DM / chặn người lạ):
-        "comment_fallback_message": (
-            "Chào bạn, bạn ib để mình gửi bạn thông tin nhé, bạn để riêng tư mình không ib cho bạn được"
-        ),
+        "comment_fallback_message": [
+            "Chào bạn, bạn ib để mình gửi bạn thông tin nhé, bạn để riêng tư mình không ib cho bạn được",
+            "Dạ tài khoản bạn đang để riêng tư nên mình không nhắn trước được, bạn chủ động nhắn tin giúp mình nhé!",
+            "Chào bạn, do tài khoản bạn để riêng tư nên mình không nhắn được, bạn bấm nút Nhắn tin để bên mình gửi thông tin nha!",
+        ],
     },
 
     # --------------------------------------------------------------------------
@@ -130,13 +134,17 @@ COMMENT_REPLY_RULES = [
             "Chào bạn, mình thấy bạn đang quan tâm đến ứng dụng Excel, Power Query & AI trong CV. Bạn đang làm trong lĩnh vực nào nhỉ để mình gửi lộ trình học phù hợp cho bạn nhé"
         ),
         # 2. Nội dung rep comment khi đã gửi DM thành công (khách mở DM):
-        "comment_success_message": (
-            "Chào bạn, bạn ib để mình gửi bạn thông tin khoá học nha!"
-        ),
+        "comment_success_message": [
+            "Chào bạn, bạn ib để mình gửi bạn thông tin khoá học nha!",
+            "Chào bạn, bạn nhắn tin cho page để mình gửi thông tin khoá học nha!",
+            "Dạ bạn ib để bên mình gửi bạn lộ trình khoá học chi tiết nhé!",
+        ],
         # 3. Nội dung rep comment khi gửi DM thất bại (khách khóa DM / chặn người lạ):
-        "comment_fallback_message": (
-            "Chào bạn, bạn ib để mình gửi bạn thông tin nhé, bạn để riêng tư mình không ib cho bạn được"
-        ),
+        "comment_fallback_message": [
+            "Chào bạn, bạn ib để mình gửi bạn thông tin nhé, bạn để riêng tư mình không ib cho bạn được",
+            "Dạ tài khoản bạn đang để riêng tư nên mình không nhắn trước được, bạn chủ động nhắn tin giúp mình nhé!",
+            "Chào bạn, do tài khoản bạn để riêng tư nên mình không nhắn được, bạn bấm nút Nhắn tin để bên mình gửi thông tin nha!",
+        ],
     },
 
     # --------------------------------------------------------------------------
@@ -160,13 +168,17 @@ COMMENT_REPLY_RULES = [
             "Chào bạn, mình thấy bạn quan tâm đến các buổi workshop và tài liệu chia sẻ về ứng dụng Excel, Power Query & AI trong công việc. Bạn nhắn SĐT để bạn quản lý lớp add bạn vào nhóm cộng đồng nhé."
         ),
         # 2. Nội dung rep comment khi đã gửi DM thành công (khách mở DM):
-        "comment_success_message": (
-            "Chào bạn, bạn ib để mình gửi bạn thông tin cộng đồng nha"
-        ),
+        "comment_success_message": [
+            "Chào bạn, bạn ib để mình gửi bạn thông tin cộng đồng nha!",
+            "Chào bạn, bạn nhắn tin cho page để mình gửi thông tin cộng đồng nha!",
+            "Dạ bạn ib để bên mình gửi bạn thông tin tham gia nhóm nhé!",
+        ],
         # 3. Nội dung rep comment khi gửi DM thất bại (khách khóa DM / chặn người lạ):
-        "comment_fallback_message": (
-            "Chào bạn, bạn ib để mình gửi bạn thông tin nhé, bạn để riêng tư mình không ib cho bạn được"
-        ),
+        "comment_fallback_message": [
+            "Chào bạn, bạn ib để mình gửi bạn thông tin nhé, bạn để riêng tư mình không ib cho bạn được",
+            "Dạ tài khoản bạn đang để riêng tư nên mình không nhắn trước được, bạn chủ động nhắn tin giúp mình nhé!",
+            "Chào bạn, do tài khoản bạn để riêng tư nên mình không nhắn được, bạn bấm nút Nhắn tin để bên mình gửi thông tin nha!",
+        ],
     },
 ]
 

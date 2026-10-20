@@ -754,8 +754,10 @@ class PancakeClient:
                     if data.get("description"):
                         details.append(str(data.get("description")))
                     data["message"] = " | ".join(details) if details else "Sending message failed"
+                    logger.warning(f"[PANCAKE API] Gửi tin nhắn thất bại ({action}): {data}")
                 return data
             else:
+                logger.warning(f"[PANCAKE API] HTTP {resp.status_code} ({action}): {resp.text}")
                 return {"success": False, "status_code": resp.status_code, "message": resp.text}
         except Exception as e:
             return {"success": False, "message": str(e)}

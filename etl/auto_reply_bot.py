@@ -476,9 +476,14 @@ def process_page_comment_replies(
 
         # BƯỚC 2: Rep comment công khai tương ứng với kết quả DM
         if dm_success:
-            reply_comment_text = rule.get("comment_success_message") or "Dạ mình đã gửi thông tin qua tin nhắn riêng cho bạn rồi nhé, bạn kiểm tra mục Tin nhắn / Tin nhắn chờ giúp mình nha!"
+            msg_candidates = rule.get("comment_success_message") or "Chào bạn, bạn ib để mình gửi bạn thông tin nha!"
         else:
-            reply_comment_text = rule.get("comment_fallback_message") or rule.get("comment_message") or rule.get("message")
+            msg_candidates = rule.get("comment_fallback_message") or rule.get("comment_message") or rule.get("message")
+
+        if isinstance(msg_candidates, list) and msg_candidates:
+            reply_comment_text = random.choice(msg_candidates)
+        else:
+            reply_comment_text = str(msg_candidates or "")
 
         logger.info(f"  • Sẽ rep comment công khai:\n    \"{reply_comment_text}\"")
 
@@ -503,7 +508,8 @@ def process_page_comment_replies(
                 conversation_id=cid,
                 message=reply_comment_text,
                 action="reply_comment",
-                message_id=cid
+                message_id=cid,
+                post_id=post_id
             )
             cmt_success = res_cmt.get("success", False)
             cmt_err = None if cmt_success else str(res_cmt.get("message") or res_cmt)
@@ -530,7 +536,7 @@ def process_page_comment_replies(
                 stats["failed"] += 1
                 logger.error(f"  => ❌ REP COMMENT THẤT BẠI: {cmt_err}")
 
-            delay = random.uniform(8.0, 14.0) if not cmt_success else random.uniform(6.0, 10.0)
+            delay = random.uniform(12.0, 18.0)
             logger.info(f"  ⏳ Tạm nghỉ {delay:.1f}s trước lượt reply tiếp theo để chống spam...")
             time.sleep(delay)
 
