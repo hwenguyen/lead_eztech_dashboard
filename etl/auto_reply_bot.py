@@ -29,7 +29,7 @@ load_dotenv(".env.local")
 load_dotenv(".env")
 
 from database.db import SessionLocal
-from database.models import BotAutoReplyLog, RawConversation
+from database.models import BotAutoReplyLog, RawConversation, Comment
 from database.schema import ensure_schema
 from etl.pancake_client import PancakeClient
 from etl.utils import VN_TZ, is_page_id, resolve_canonical_page_name
@@ -162,11 +162,204 @@ def should_reply(
     return True, rule, matched_kw, cust_text, "Đủ điều kiện gửi"
 
 
+def should_reply_comment(
+    comment: Dict[str, Any],
+    page_id: str,
+    db: SessionLocal,
+    days_back: int = 1
+) -> Tuple[bool, Optional[Dict[str, Any]], Optional[str], Optional[str], str]:
+    """
+    Kiểm tra xem một bình luận (comment) có đủ điều kiện để Bot gửi phản hồi tự động hay không.
+    Trả về: (can_reply: bool, rule, matched_kw, clean_message, reason)
+    """
+    cid = str(comment.get("comment_id") or comment.get("id") or "")
+    if not cid:
+        return False, None, None, None, "Không có comment_id"
+
+    # 1. Chốt chặn kênh: Chỉ áp dụng cho các kênh Lead nguồn được phép
+    clean_pid = str(page_id).strip()
+    clean_num = re.sub(r"^(pzl_|tt_|fb_)", "", clean_pid)
+    if ALLOWED_SOURCE_PAGES and not any(allowed in (clean_pid, clean_num) for allowed in ALLOWED_SOURCE_PAGES):
+        return False, None, None, None, f"Kênh {page_id} không thuộc danh sách lead nguồn cho phép"
+
+    # 2. Chốt chặn thời gian: Chỉ reply các comment gần đây (trong vòng days_back ngày)
+    inserted_at = comment.get("inserted_at")
+    if inserted_at:
+        from etl.utils import parse_pancake_date
+        dt = parse_pancake_date(inserted_at)
+        if dt:
+            cutoff = datetime.now(VN_TZ).replace(tzinfo=None) - timedelta(days=days_back)
+            if dt < cutoff:
+                return False, None, None, None, f"Comment cũ trước mốc {days_back} ngày ({dt})"
+
+    # 3. Chốt chặn số lượng tin trong thread (message_count)
+    # Pancake comment: message_count=0 hoặc 1 là chỉ mới có comment của khách, chưa có reply
+    msg_count = comment.get("message_count")
+    try:
+        if msg_count is not None and int(msg_count) > 1:
+            return False, None, None, None, f"Thread comment đã có phản hồi (message_count={msg_count})"
+    except (ValueError, TypeError):
+        pass
+
+    # 4. Kiểm tra tin nhắn Admin trong payload nếu có
+    payload = comment.get("payload") or {}
+    if isinstance(payload, dict):
+        msgs = payload.get("messages", [])
+        if any(('admin' in str(m.get('role', '')).lower() or 'admin' in str(m.get('from', '')).lower() or str((m.get('from') or {}).get('id')) == str(clean_num)) for m in msgs if isinstance(m, dict)):
+            return False, None, None, None, "Admin đã trả lời trong comment thread"
+
+    # 5. So khớp nội dung comment với AUTO_REPLY_RULES
+    clean_msg = comment.get("message") or comment.get("snippet") or ""
+    if not clean_msg and isinstance(payload, dict):
+        clean_msg = payload.get("snippet", "")
+    rule, matched_kw = match_rule(clean_msg)
+    if not rule:
+        return False, None, None, clean_msg, "Không khớp từ khóa của kịch bản nào"
+
+    case_id = rule.get("case_id")
+
+    # 6. Chốt chặn chống spam: Kiểm tra DB xem Bot đã từng gửi kịch bản này cho comment này chưa
+    existing_sent = db.query(BotAutoReplyLog.id).filter(
+        BotAutoReplyLog.conversation_id == cid,
+        BotAutoReplyLog.case_id == case_id,
+        BotAutoReplyLog.status == "SENT"
+    ).first()
+    if existing_sent:
+        return False, rule, matched_kw, clean_msg, f"Đã từng trả lời comment này với kịch bản [{case_id}] (chống spam)"
+
+    # 7. Chốt chặn giới hạn retry nếu lỗi nền tảng
+    repeated_fails = db.query(BotAutoReplyLog.id).filter(
+        BotAutoReplyLog.conversation_id == cid,
+        BotAutoReplyLog.case_id == case_id,
+        BotAutoReplyLog.status == "FAILED"
+    ).count()
+    if repeated_fails >= 3:
+        return False, rule, matched_kw, clean_msg, f"Đã thử gửi {repeated_fails} lần nhưng thất bại, tạm bỏ qua"
+
+    return True, rule, matched_kw, clean_msg, "Đủ điều kiện gửi"
+
+
+def process_page_comment_replies(
+    client: PancakeClient,
+    comments_data: List[Dict[str, Any]],
+    page_id: str,
+    db: SessionLocal,
+    dry_run: bool = False,
+    max_replies: int = 10,
+    days_back: int = 1
+) -> Dict[str, int]:
+    """
+    Quét danh sách comments vừa cào được và gửi phản hồi tự động nếu thỏa mãn điều kiện.
+    """
+    stats = {"scanned": 0, "matched": 0, "sent": 0, "failed": 0, "skipped": 0}
+    if not comments_data:
+        return stats
+
+    mode_text = "DRY-RUN (CHẠY THỬ NGHIỆM)" if dry_run else "LIVE (GỬI THẬT QUA PANCAKE API)"
+    logger.info(f"\n--- [AUTO-REPLY COMMENTS] Đang kiểm tra {len(comments_data)} comments cho Page {page_id} | Chế độ: {mode_text} ---")
+
+    replied_count = 0
+    for c_item in comments_data:
+        if replied_count >= max_replies:
+            logger.info(f"[AUTO-REPLY COMMENTS] Đã đạt giới hạn tối đa {max_replies} reply cho Page {page_id} trong lượt chạy này.")
+            break
+
+        stats["scanned"] += 1
+        cid = str(c_item.get("comment_id") or c_item.get("id") or "")
+        cust_name = c_item.get("customer_name") or "Khách hàng"
+
+        can_reply, rule, matched_kw, cust_msg, reason = should_reply_comment(
+            comment=c_item,
+            page_id=page_id,
+            db=db,
+            days_back=days_back
+        )
+
+        if not can_reply:
+            stats["skipped"] += 1
+            continue
+
+        stats["matched"] += 1
+        case_id = rule["case_id"]
+        rule_name = rule["name"]
+        reply_text = rule.get("comment_message") or rule["message"]
+
+        logger.info(f"\n[PHÁT HIỆN COMMENT PHÙ HỢP]")
+        logger.info(f"  • Khách hàng : {cust_name}")
+        logger.info(f"  • Comment ID : {cid}")
+        logger.info(f"  • Nội dung   : \"{cust_msg}\"")
+        logger.info(f"  • Kịch bản   : [{rule_name}] (từ khóa: \"{matched_kw}\")")
+        logger.info(f"  • Sẽ reply   :\n    \"{reply_text}\"")
+
+        if dry_run:
+            logger.info("  => [DRY-RUN] Bỏ qua bước gửi thật.")
+            log_entry = BotAutoReplyLog(
+                conversation_id=cid,
+                customer_id=str(c_item.get("customer_id") or ""),
+                page_id=page_id,
+                case_id=case_id,
+                customer_message=cust_msg,
+                reply_message=reply_text,
+                status="DRY_RUN",
+            )
+            db.add(log_entry)
+            db.commit()
+            replied_count += 1
+        else:
+            logger.info(f"  => 🚀 ĐANG GỬI REPLY COMMENT QUA PANCAKE API...")
+            res = client.send_message(
+                page_id=page_id,
+                conversation_id=cid,
+                message=reply_text,
+                action="reply_comment",
+                message_id=cid
+            )
+            success = res.get("success", False)
+            status = "SENT" if success else "FAILED"
+            err = None if success else str(res.get("message") or res)
+
+            log_entry = BotAutoReplyLog(
+                conversation_id=cid,
+                customer_id=str(c_item.get("customer_id") or ""),
+                page_id=page_id,
+                case_id=case_id,
+                customer_message=cust_msg,
+                reply_message=reply_text,
+                status=status,
+                error_message=err
+            )
+            db.add(log_entry)
+            db.commit()
+
+            if success:
+                stats["sent"] += 1
+                replied_count += 1
+                msg_id = res.get("id") or "N/A"
+                logger.info(f"  => ✅ REPLY THÀNH CÔNG! (Message ID: {msg_id})")
+            else:
+                stats["failed"] += 1
+                logger.error(f"  => ❌ REPLY THẤT BẠI: {err}")
+
+            # Giãn cách 6 - 12s giữa các lần gửi
+            delay = random.uniform(10.0, 15.0) if not success else random.uniform(6.0, 12.0)
+            logger.info(f"  ⏳ Tạm nghỉ {delay:.1f}s trước lượt reply tiếp theo để chống spam...")
+            time.sleep(delay)
+
+    logger.info(
+        f"[AUTO-REPLY COMMENTS] Hoàn tất Page {page_id}: "
+        f"Đã duyệt {stats['scanned']}, Khớp {stats['matched']}, Đã reply {stats['sent']}, "
+        f"Thất bại {stats['failed']}."
+    )
+    return stats
+
+
 def run_auto_reply_bot(
     dry_run: bool = True,
     days_back: int = 1,
     limit_per_page: int = 100,
-    from_db: bool = False
+    from_db: bool = False,
+    include_inbox: bool = True,
+    include_comments: bool = True,
 ):
     """
     Hàm thực thi chính của Bot:
@@ -181,7 +374,7 @@ def run_auto_reply_bot(
     mode_text = "DRY-RUN (CHẠY THỬ NGHIỆM - KHÔNG GỬI THẬT)" if dry_run else "LIVE (GỬI THẬT QUA PANCAKE API)"
     logger.info("=" * 80)
     logger.info(f"KHỞI ĐỘNG AUTO-REPLY BOT | CHẾ ĐỘ: {mode_text}")
-    logger.info(f"Quét các hội thoại trong {days_back} ngày gần nhất (tối đa {limit_per_page}/page)")
+    logger.info(f"Quét các hội thoại trong {days_back} ngày gần nhất (tối đa {limit_per_page}/page) | Inbox: {include_inbox} | Comment: {include_comments}")
     logger.info("=" * 80)
 
     # Đảm bảo bảng lưu lịch sử bot đã sẵn sàng
@@ -214,97 +407,142 @@ def run_auto_reply_bot(
             canonical_name = resolve_canonical_page_name(page_id, fallback=preset_name or page_id)
             logger.info(f"\n--- Đang kiểm tra Page: {canonical_name} ({page_id}) ---")
 
-            if from_db:
-                # Quét trực tiếp từ RawConversation trong Database
-                query = db.query(RawConversation).filter(
-                    RawConversation.page_id.in_([page_id, canonical_name, clean_num])
-                )
-                if days_back and days_back > 0:
-                    cutoff = datetime.now(VN_TZ).replace(tzinfo=None) - timedelta(days=days_back)
-                    query = query.filter(RawConversation.created_at >= cutoff)
-                raw_rows = query.order_by(RawConversation.created_at.desc()).limit(limit_per_page).all()
-                conversations = [r.payload for r in raw_rows if isinstance(r.payload, dict)]
-            else:
-                client = PancakeClient(api_token=page_token)
-                client.limit = limit_per_page
+            client = PancakeClient(api_token=page_token)
 
-                conversations = client.get_conversations(
+            if include_inbox:
+                if from_db:
+                    # Quét trực tiếp từ RawConversation trong Database
+                    query = db.query(RawConversation).filter(
+                        RawConversation.page_id.in_([page_id, canonical_name, clean_num])
+                    )
+                    if days_back and days_back > 0:
+                        cutoff = datetime.now(VN_TZ).replace(tzinfo=None) - timedelta(days=days_back)
+                        query = query.filter(RawConversation.created_at >= cutoff)
+                    raw_rows = query.order_by(RawConversation.created_at.desc()).limit(limit_per_page).all()
+                    conversations = [r.payload for r in raw_rows if isinstance(r.payload, dict)]
+                else:
+                    client.limit = limit_per_page
+                    conversations = client.get_conversations(
+                        page_id=page_id,
+                        days_back=days_back
+                    )
+
+                for conv in conversations:
+                    total_scanned += 1
+                    cid = str(conv.get("id", ""))
+                    cust_name = conv.get("customer_name") or "Khách hàng"
+                    cust_phone = conv.get("phone_number") or "Chưa có SĐT"
+
+                    can_send, rule, matched_kw, cust_msg, reason = should_reply(conv, page_id, db)
+
+                    if not can_send:
+                        continue
+
+                    total_matched += 1
+                    case_id = rule["case_id"]
+                    rule_name = rule["name"]
+                    reply_text = rule["message"]
+
+                    logger.info(f"\n[PHÁT HIỆN KHÁCH PHÙ HỢP]")
+                    logger.info(f"  • Khách hàng : {cust_name} (SĐT: {cust_phone})")
+                    logger.info(f"  • Hội thoại  : {cid}")
+                    logger.info(f"  • Khách nhắn : \"{cust_msg}\"")
+                    logger.info(f"  • Kịch bản   : [{rule_name}] (từ khóa: \"{matched_kw}\")")
+                    logger.info(f"  • Nội dung sẽ gửi:\n    \"{reply_text}\"")
+
+                    if dry_run:
+                        logger.info("  => [DRY-RUN] Bỏ qua bước gửi thật.")
+                        # Ghi log trạng thái DRY_RUN vào DB để theo dõi
+                        log_entry = BotAutoReplyLog(
+                            conversation_id=cid,
+                            customer_id=str(conv.get("customer_id") or ""),
+                            page_id=page_id,
+                            case_id=case_id,
+                            customer_message=cust_msg,
+                            reply_message=reply_text,
+                            status="DRY_RUN",
+                        )
+                        db.add(log_entry)
+                        db.commit()
+                    else:
+                        # GỬI THẬT QUA PANCAKE API
+                        logger.info(f"  => 🚀 ĐANG GỬI TIN NHẮN QUA PANCAKE API...")
+                        res = client.send_message(page_id, cid, reply_text)
+                        success = res.get("success", False)
+
+                        status = "SENT" if success else "FAILED"
+                        err = None if success else str(res.get("message") or res)
+
+                        log_entry = BotAutoReplyLog(
+                            conversation_id=cid,
+                            customer_id=str(conv.get("customer_id") or ""),
+                            page_id=page_id,
+                            case_id=case_id,
+                            customer_message=cust_msg,
+                            reply_message=reply_text,
+                            status=status,
+                            error_message=err
+                        )
+                        db.add(log_entry)
+                        db.commit()
+
+                        if success:
+                            total_sent += 1
+                            msg_id = res.get("id") or "N/A"
+                            logger.info(f"  => ✅ GỬI THÀNH CÔNG! (Message ID: {msg_id})")
+                        else:
+                            total_failed += 1
+                            logger.error(f"  => ❌ GỬI THẤT BẠI: {err}")
+
+                        # Giãn cách ngẫu nhiên 6 - 12 giây giữa các lần gửi để tránh bị TikTok/Facebook gắn cờ spam
+                        # Nếu vừa bị lỗi thì tạm nghỉ dài hơn (10 - 15 giây) để tài khoản hạ nhiệt
+                        delay = random.uniform(10.0, 15.0) if not success else random.uniform(6.0, 12.0)
+                        logger.info(f"  ⏳ Tạm nghỉ {delay:.1f}s trước lượt gửi tiếp theo để chống spam...")
+                        time.sleep(delay)
+
+            # Quét và trả lời bình luận (Comment)
+            if include_comments:
+                if from_db:
+                    query_cmt = db.query(Comment).filter(
+                        Comment.page_id.in_([page_id, canonical_name, clean_num])
+                    )
+                    if days_back and days_back > 0:
+                        cutoff_cmt = datetime.now(VN_TZ).replace(tzinfo=None) - timedelta(days=days_back)
+                        query_cmt = query_cmt.filter(Comment.inserted_at >= cutoff_cmt)
+                    cmt_rows = query_cmt.order_by(Comment.inserted_at.desc()).limit(limit_per_page).all()
+                    comments_to_process = [
+                        {
+                            "comment_id": r.comment_id,
+                            "customer_id": r.customer_id,
+                            "customer_name": r.customer_name,
+                            "message": r.message,
+                            "raw_message": r.raw_message,
+                            "message_count": r.message_count,
+                            "inserted_at": r.inserted_at,
+                            "payload": r.payload
+                        }
+                        for r in cmt_rows
+                    ]
+                else:
+                    comments_to_process = client.get_comments(
+                        page_id=page_id,
+                        days_back=days_back,
+                        limit=limit_per_page
+                    )
+
+                cmt_stats = process_page_comment_replies(
+                    client=client,
+                    comments_data=comments_to_process,
                     page_id=page_id,
+                    db=db,
+                    dry_run=dry_run,
+                    max_replies=min(limit_per_page, 20),
                     days_back=days_back
                 )
-
-            for conv in conversations:
-                total_scanned += 1
-                cid = str(conv.get("id", ""))
-                cust_name = conv.get("customer_name") or "Khách hàng"
-                cust_phone = conv.get("phone_number") or "Chưa có SĐT"
-
-                can_send, rule, matched_kw, cust_msg, reason = should_reply(conv, page_id, db)
-
-                if not can_send:
-                    continue
-
-                total_matched += 1
-                case_id = rule["case_id"]
-                rule_name = rule["name"]
-                reply_text = rule["message"]
-
-                logger.info(f"\n[PHÁT HIỆN KHÁCH PHÙ HỢP]")
-                logger.info(f"  • Khách hàng : {cust_name} (SĐT: {cust_phone})")
-                logger.info(f"  • Hội thoại  : {cid}")
-                logger.info(f"  • Khách nhắn : \"{cust_msg}\"")
-                logger.info(f"  • Kịch bản   : [{rule_name}] (từ khóa: \"{matched_kw}\")")
-                logger.info(f"  • Nội dung sẽ gửi:\n    \"{reply_text}\"")
-
-                if dry_run:
-                    logger.info("  => [DRY-RUN] Bỏ qua bước gửi thật.")
-                    # Ghi log trạng thái DRY_RUN vào DB để theo dõi
-                    log_entry = BotAutoReplyLog(
-                        conversation_id=cid,
-                        customer_id=str(conv.get("customer_id") or ""),
-                        page_id=page_id,
-                        case_id=case_id,
-                        customer_message=cust_msg,
-                        reply_message=reply_text,
-                        status="DRY_RUN",
-                    )
-                    db.add(log_entry)
-                    db.commit()
-                else:
-                    # GỬI THẬT QUA PANCAKE API
-                    logger.info(f"  => 🚀 ĐANG GỬI TIN NHẮN QUA PANCAKE API...")
-                    res = client.send_message(page_id, cid, reply_text)
-                    success = res.get("success", False)
-
-                    status = "SENT" if success else "FAILED"
-                    err = None if success else str(res.get("message") or res)
-
-                    log_entry = BotAutoReplyLog(
-                        conversation_id=cid,
-                        customer_id=str(conv.get("customer_id") or ""),
-                        page_id=page_id,
-                        case_id=case_id,
-                        customer_message=cust_msg,
-                        reply_message=reply_text,
-                        status=status,
-                        error_message=err
-                    )
-                    db.add(log_entry)
-                    db.commit()
-
-                    if success:
-                        total_sent += 1
-                        msg_id = res.get("id") or "N/A"
-                        logger.info(f"  => ✅ GỬI THÀNH CÔNG! (Message ID: {msg_id})")
-                    else:
-                        total_failed += 1
-                        logger.error(f"  => ❌ GỬI THẤT BẠI: {err}")
-
-                    # Giãn cách ngẫu nhiên 6 - 12 giây giữa các lần gửi để tránh bị TikTok/Facebook gắn cờ spam
-                    # Nếu vừa bị lỗi thì tạm nghỉ dài hơn (10 - 15 giây) để tài khoản hạ nhiệt
-                    delay = random.uniform(10.0, 15.0) if not success else random.uniform(6.0, 12.0)
-                    logger.info(f"  ⏳ Tạm nghỉ {delay:.1f}s trước lượt gửi tiếp theo để chống spam...")
-                    time.sleep(delay)
+                total_scanned += cmt_stats["scanned"]
+                total_matched += cmt_stats["matched"]
+                total_sent += cmt_stats["sent"]
+                total_failed += cmt_stats["failed"]
 
     finally:
         db.close()
@@ -324,9 +562,23 @@ if __name__ == "__main__":
     parser.add_argument("--send", action="store_true", help="Bật gửi thật qua Pancake API (Mặc định là DRY-RUN)")
     parser.add_argument("--days", type=int, default=1, help="Số ngày quét hội thoại gần nhất (Mặc định: 1)")
     parser.add_argument("--limit", type=int, default=50, help="Số hội thoại tối đa mỗi page (Mặc định: 50)")
-    parser.add_argument("--from-db", action="store_true", help="Quét trực tiếp từ RawConversation trong Database (dùng để test/đối soát)")
+    parser.add_argument("--from-db", action="store_true", help="Quét trực tiếp từ Database (dùng để test/đối soát)")
+    parser.add_argument("--no-inbox", action="store_true", help="Bỏ qua quét Inbox")
+    parser.add_argument("--no-comments", action="store_true", help="Bỏ qua quét Comment")
+    parser.add_argument("--comments-only", action="store_true", help="Chỉ quét và trả lời Comment")
     args = parser.parse_args()
 
     send_env = os.getenv("AUTO_REPLY_SEND", "").strip().lower() in ("true", "1", "yes")
     is_dry_run = not (args.send or send_env)
-    run_auto_reply_bot(dry_run=is_dry_run, days_back=args.days, limit_per_page=args.limit, from_db=args.from_db)
+
+    inc_inbox = not args.no_inbox and not args.comments_only
+    inc_comments = not args.no_comments
+
+    run_auto_reply_bot(
+        dry_run=is_dry_run,
+        days_back=args.days,
+        limit_per_page=args.limit,
+        from_db=args.from_db,
+        include_inbox=inc_inbox,
+        include_comments=inc_comments
+    )

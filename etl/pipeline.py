@@ -576,6 +576,27 @@ def run_etl_pipeline():
                                     upsert_comment_data(db, c_item, canonical_page_name, commit=False, prefetched=prefetched_comments)
                                 db.commit()
                             logger.info(f"[COMMENTS] ✅ Đã lưu thành công {len(comments_data)} comments cho Page {page_id} vào bảng comments.")
+
+                            # 4. Tự động phản hồi bình luận (Auto-Reply Comments) theo kịch bản
+                            enable_comment_reply = os.getenv("ENABLE_COMMENT_REPLY", "true").strip().lower() not in ("false", "0", "off", "no")
+                            if enable_comment_reply:
+                                try:
+                                    from etl.auto_reply_bot import process_page_comment_replies
+                                    reply_dry_run = os.getenv("COMMENT_REPLY_DRY_RUN", "false").strip().lower() in ("true", "1", "yes")
+                                    reply_days_back = int(os.getenv("COMMENT_REPLY_DAYS_BACK", "1"))
+                                    max_comment_replies = int(os.getenv("MAX_COMMENT_REPLIES_PER_RUN", "10"))
+
+                                    process_page_comment_replies(
+                                        client=client,
+                                        comments_data=comments_data,
+                                        page_id=page_id,
+                                        db=db,
+                                        dry_run=reply_dry_run,
+                                        max_replies=max_comment_replies,
+                                        days_back=reply_days_back
+                                    )
+                                except Exception as reply_err:
+                                    logger.error(f"[COMMENTS] ❌ Lỗi khi tự động phản hồi comment cho Page {page_id}: {reply_err}")
                         else:
                             logger.info(f"[COMMENTS] Page {page_id}: Không có comment mới nào.")
                     except Exception as c_err:

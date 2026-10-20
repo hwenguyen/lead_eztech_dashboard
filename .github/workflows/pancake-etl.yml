@@ -55,6 +55,7 @@ jobs:
         PANCAKE_PAGES_JSON: ${{ secrets.PANCAKE_PAGES_JSON }}
         DAILY_RUN_LIMIT: ${{ github.event.inputs.run_limit || '100' }}
         DAILY_DAYS_BACK: ${{ github.event.inputs.days_back || '1' }}
+        ENABLE_COMMENT_REPLY: ${{ github.event.inputs.enable_bot != 'false' }}
       run: |
         python -m etl.pipeline
 

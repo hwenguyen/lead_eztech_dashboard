@@ -121,6 +121,12 @@ FastAPI backend (`backend/`) + React frontend (`frontend-react/`) trên Render (
   - Tự động tạo bảng và các index (`page_id`, `post_id`, `customer_id`, `inserted_at`, `phone_number`) qua `database/schema.py::ensure_schema()`.
   - Bổ sung hàm `PancakeClient.get_comments(...)` trong `etl/pancake_client.py`: cào comment qua Pancake API v2, hỗ trợ Early Stopping (`days_back`), cache `updated_at`, và ThreadPool tải tin nhắn song song.
   - Tích hợp vào luồng ETL chính `etl/pipeline.py`: tự động nhận diện kênh nguồn (Facebook Fanpage, TikTok) và lưu comment vào bảng `comments` (hoàn toàn tách biệt khỏi `dim_leads` để không làm sai lệch chỉ số Lead).
+- Bổ sung luồng tự động trả lời bình luận (Comment Auto-Reply) vào ETL Pipeline và Bot:
+  - Thêm `should_reply_comment()` và `process_page_comment_replies()` trong `etl/auto_reply_bot.py`.
+  - Kiểm tra điều kiện an toàn: chỉ reply comment gần đây (`days_back=1`), thread chưa có admin trả lời (`message_count <= 1`), chưa từng reply trước đó (`bot_auto_replies`), và khớp từ khóa trong `AUTO_REPLY_RULES`.
+  - Gửi qua Pancake API v1 với `"action": "reply_comment"` và `"message_id": comment_id`.
+  - Tích hợp trực tiếp vào bước cào comment trong `etl/pipeline.py`, tự động chạy sau khi lưu comment vào DB.
+  - Hỗ trợ chạy thủ công qua CLI `etl/auto_reply_bot.py --send --comments-only`.
 
 
 ### Bước tiếp / tồn đọng (chưa xử lý, chờ user quyết)

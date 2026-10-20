@@ -10,7 +10,8 @@ HƯỚNG DẪN:
    Bot dùng mã này để nhớ và đảm bảo KHÔNG BAO GIỜ gửi trùng 2 lần cho cùng 1 khách.
 3. 'keywords': Danh sách các từ khóa. Chỉ cần tin nhắn của khách chứa 1 trong các từ này
    thì bot sẽ nhận diện (tự động không phân biệt chữ HOA/thường, có dấu hay không dấu).
-4. 'message': Nội dung tin nhắn bạn muốn Bot gửi cho khách.
+4. 'message': Nội dung tin nhắn bạn muốn Bot gửi cho khách (qua tin nhắn Inbox).
+   'comment_message': (Tùy chọn) Nội dung riêng khi trả lời bình luận (Comment). Nếu không điền sẽ dùng 'message'.
 5. 'enabled': True để BẬT, False để TẠM TẮT trường hợp này.
 6. 'priority': Mức ưu tiên (số nhỏ hơn sẽ được ưu tiên kiểm tra trước).
 ================================================================================
