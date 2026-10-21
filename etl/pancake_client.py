@@ -726,8 +726,20 @@ class PancakeClient:
             "action": action or "reply_inbox",
             "message": message,
         }
-        if action in ("reply_comment", "private_replies") and "message_id" not in kwargs:
-            payload["message_id"] = conversation_id
+
+        # Trích xuất comment ID chuẩn (loại bỏ prefix {post_id}_ hoặc tt_...: nếu có)
+        target_msg_id = kwargs.get("message_id") or conversation_id
+        clean_msg_id = target_msg_id
+        if isinstance(clean_msg_id, str):
+            if ":" in clean_msg_id:
+                clean_msg_id = clean_msg_id.split(":")[-1]
+            elif "_" in clean_msg_id:
+                parts = clean_msg_id.split("_")
+                if len(parts) >= 2:
+                    clean_msg_id = parts[-1]
+
+        if action in ("reply_comment", "private_replies"):
+            payload["message_id"] = clean_msg_id
 
         # Hỗ trợ các trường chuẩn theo Pancake OpenAPI (content_ids, sender_id, mentions...)
         if "content_ids" in kwargs and kwargs["content_ids"] is not None:
@@ -753,6 +765,21 @@ class PancakeClient:
                 if "success" not in data:
                     data["success"] = True if data.get("id") else False
                 elif not data.get("success"):
+                    # Nếu thất bại với clean_msg_id và có khác conversation_id gốc, tự động thử fallback với conversation_id gốc
+                    if clean_msg_id != conversation_id and action in ("reply_comment", "private_replies"):
+                        logger.info(f"[PANCAKE API] Thử gửi lại ({action}) với compound conversation_id làm message_id...")
+                        payload_fb = dict(payload)
+                        payload_fb["message_id"] = conversation_id
+                        try:
+                            resp_fb = self.session.post(url, params=params, json=payload_fb, timeout=10)
+                            if resp_fb.status_code in (200, 201):
+                                data_fb = resp_fb.json()
+                                if data_fb.get("success") or data_fb.get("id"):
+                                    data_fb["success"] = True
+                                    return data_fb
+                        except Exception as e_fb:
+                            logger.warning(f"[PANCAKE API] Fallback retry lỗi: {e_fb}")
+
                     details = []
                     if data.get("message"):
                         details.append(str(data.get("message")))
@@ -763,7 +790,7 @@ class PancakeClient:
                     if data.get("description"):
                         details.append(str(data.get("description")))
                     data["message"] = " | ".join(details) if details else "Sending message failed"
-                    logger.warning(f"[PANCAKE API] Gửi tin nhắn thất bại ({action}): {data}")
+                    logger.warning(f"[PANCAKE API] Gửi tin nhắn thất bại ({action}) [Payload: message_id={payload.get('message_id')}]: {data}")
                 return data
             else:
                 logger.warning(f"[PANCAKE API] HTTP {resp.status_code} ({action}): {resp.text}")

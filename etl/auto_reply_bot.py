@@ -419,6 +419,21 @@ def process_page_comment_replies(
         if not from_id:
             from_id = c_item.get("customer_id")
 
+        # Trích xuất comment_id chuẩn (loại bỏ prefix post_id_ hoặc tt_...: nếu có)
+        target_msg_id = (
+            c_item.get("target_message_id")
+            or c_item.get("message_id")
+            or (payload.get("message_id") if isinstance(payload, dict) else None)
+        )
+        if not target_msg_id:
+            raw_cid = str(cid)
+            if ":" in raw_cid:
+                target_msg_id = raw_cid.split(":")[-1]
+            elif "_" in raw_cid:
+                target_msg_id = raw_cid.split("_")[-1]
+            else:
+                target_msg_id = raw_cid
+
         # TikTok không hỗ trợ API gửi tin nhắn riêng từ comment (chỉ Facebook/Instagram hỗ trợ theo Pancake OpenAPI)
         is_tiktok = str(page_id).startswith("tt_") or "tiktok" in resolve_canonical_page_name(page_id).lower()
         env_private = os.getenv("ENABLE_PRIVATE_REPLY")
@@ -457,7 +472,7 @@ def process_page_comment_replies(
                     message=private_text,
                     action="private_replies",
                     post_id=post_id,
-                    message_id=cid,
+                    message_id=target_msg_id,
                     from_id=from_id
                 )
                 dm_success = res_dm.get("success", False)
@@ -512,12 +527,13 @@ def process_page_comment_replies(
             replied_count += 1
         else:
             logger.info("  => 🚀 ĐANG REP COMMENT CÔNG KHAI QUA PANCAKE API...")
+            logger.info(f"  • Target Message ID: {target_msg_id} (Conv ID: {cid})")
             res_cmt = client.send_message(
                 page_id=page_id,
                 conversation_id=cid,
                 message=reply_comment_text,
                 action="reply_comment",
-                message_id=cid
+                message_id=target_msg_id
             )
             cmt_success = res_cmt.get("success", False)
             cmt_err = None if cmt_success else str(res_cmt.get("message") or res_cmt)
