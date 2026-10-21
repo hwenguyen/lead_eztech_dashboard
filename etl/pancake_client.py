@@ -728,10 +728,17 @@ class PancakeClient:
         }
         if action in ("reply_comment", "private_replies") and "message_id" not in kwargs:
             payload["message_id"] = conversation_id
-        if action == "reply_comment" and "parent_id" not in kwargs:
-            payload["parent_id"] = conversation_id
+
+        # Hỗ trợ các trường chuẩn theo Pancake OpenAPI (content_ids, sender_id, mentions...)
+        if "content_ids" in kwargs and kwargs["content_ids"] is not None:
+            payload["content_ids"] = kwargs["content_ids"]
+        if "sender_id" in kwargs and kwargs["sender_id"]:
+            payload["sender_id"] = kwargs["sender_id"]
+        if "mentions" in kwargs and kwargs["mentions"] is not None:
+            payload["mentions"] = kwargs["mentions"]
+
         for k, v in kwargs.items():
-            if v is not None:
+            if k not in payload and v is not None:
                 payload[k] = v
 
         try:
