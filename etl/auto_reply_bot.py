@@ -538,6 +538,25 @@ def process_page_comment_replies(
             cmt_success = res_cmt.get("success", False)
             cmt_err = None if cmt_success else str(res_cmt.get("message") or res_cmt)
 
+            # Thử lại 1 lần nếu gặp lỗi TikTok Gateway #1000000 (Unknown error)
+            if not cmt_success and is_tiktok and ("1000000" in str(cmt_err) or res_cmt.get("e_code") == 1000000):
+                logger.warning("  ⚠️ TikTok trả lỗi #1000000. Tạm nghỉ 5s và thử lại 1 lần với câu thoại an toàn...")
+                time.sleep(5.0)
+                retry_text = "Dạ bạn nhắn tin cho page để bên mình hỗ trợ chi tiết cho bạn nha!"
+                res_retry = client.send_message(
+                    page_id=page_id,
+                    conversation_id=cid,
+                    message=retry_text,
+                    action="reply_comment",
+                    message_id=target_msg_id
+                )
+                if res_retry.get("success", False):
+                    cmt_success = True
+                    reply_comment_text = retry_text
+                    cmt_err = None
+                    res_cmt = res_retry
+                    logger.info("  => ✅ THỬ LẠI LẦN 2 THÀNH CÔNG!")
+
             log_entry_cmt = BotAutoReplyLog(
                 conversation_id=cid,
                 customer_id=str(c_item.get("customer_id") or ""),
@@ -560,7 +579,7 @@ def process_page_comment_replies(
                 stats["failed"] += 1
                 logger.error(f"  => ❌ REP COMMENT THẤT BẠI: {cmt_err}")
 
-            delay = random.uniform(12.0, 18.0)
+            delay = random.uniform(15.0, 25.0) if is_tiktok else random.uniform(10.0, 16.0)
             logger.info(f"  ⏳ Tạm nghỉ {delay:.1f}s trước lượt reply tiếp theo để chống spam...")
             time.sleep(delay)
 
