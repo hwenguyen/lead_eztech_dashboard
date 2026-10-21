@@ -17,11 +17,11 @@ def create_http_session() -> requests.Session:
     """Tạo requests.Session có connection pooling và keep-alive để tái sử dụng TLS connection."""
     session = requests.Session()
     adapter = HTTPAdapter(
-        pool_connections=15,
-        pool_maxsize=15,
+        pool_connections=25,
+        pool_maxsize=25,
         max_retries=Retry(
-            total=2,
-            backoff_factor=0.5,
+            total=3,
+            backoff_factor=1.0,
             status_forcelist=[500, 502, 503, 504],
             raise_on_status=False
         )
@@ -63,7 +63,7 @@ class PancakeClient:
                 f"{self.base_url}/pages",
                 params={"access_token": self.api_token},
                 headers=headers,
-                timeout=10
+                timeout=25
             )
             if res.status_code == 200:
                 data = res.json()
@@ -87,7 +87,7 @@ class PancakeClient:
             res_token = self.session.post(
                 f"{self.base_url}/pages/{resolved_page_id}/generate_page_access_token",
                 params={"access_token": self.api_token},
-                timeout=10
+                timeout=25
             )
             token_data = res_token.json()
             if token_data.get("success") and token_data.get("page_access_token"):
@@ -106,7 +106,7 @@ class PancakeClient:
                         f"{self.base_url}/pages/{candidate_id}",
                         params={"access_token": self.api_token},
                         headers=headers,
-                        timeout=5
+                        timeout=20
                     )
                     if res_single.status_code == 200:
                         p_info = res_single.json()
@@ -296,26 +296,37 @@ class PancakeClient:
 
             def fetch_single_conversation_messages(cid):
                 url = f"https://pages.fm/api/public_api/v1/pages/{page_id}/conversations/{cid}/messages"
-                try:
-                    resp = self.session.get(
-                        url,
-                        params={"page_access_token": ptoken},
-                        timeout=10
-                    )
-                    if resp.status_code == 200:
-                        return cid, resp.json().get('messages', [])
-                    elif resp.status_code == 429:
-                        time.sleep(3)
-                        resp2 = self.session.get(url, params={"page_access_token": ptoken}, timeout=10)
-                        if resp2.status_code == 200:
-                            return cid, resp2.json().get('messages', [])
-                except Exception as e:
-                    logger.debug(f"Lỗi khi tải messages cho conversation {cid}: {e}")
+                max_retries = 3
+                for attempt in range(1, max_retries + 1):
+                    try:
+                        resp = self.session.get(
+                            url,
+                            params={"page_access_token": ptoken},
+                            timeout=25
+                        )
+                        if resp.status_code == 200:
+                            return cid, resp.json().get('messages', [])
+                        elif resp.status_code == 429:
+                            time.sleep(3.0 * attempt)
+                            continue
+                        elif resp.status_code in (500, 502, 503, 504):
+                            time.sleep(2.0 * attempt)
+                            continue
+                        else:
+                            break
+                    except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
+                        if attempt < max_retries:
+                            time.sleep(2.0 * attempt)
+                            continue
+                        logger.debug(f"Timeout/lỗi kết nối khi tải messages conversation {cid}: {e}")
+                    except Exception as e:
+                        logger.debug(f"Lỗi khi tải messages cho conversation {cid}: {e}")
+                        break
                 return cid, None  # None = tải lỗi (khác với hội thoại thật sự không có tin)
 
             failed = 0
-            # Sử dụng 8 workers để tải song song cực nhanh
-            with ThreadPoolExecutor(max_workers=8) as executor:
+            # Sử dụng 4 workers để giảm áp lực lên server Pancake (chống lỗi 500 Server internal error & Read timed out)
+            with ThreadPoolExecutor(max_workers=4) as executor:
                 future_to_conv = {executor.submit(fetch_single_conversation_messages, cid): cid for cid in convs_to_fetch}
                 for future in as_completed(future_to_conv):
                     cid = future_to_conv[future]
@@ -613,15 +624,29 @@ class PancakeClient:
 
             def fetch_single_comment_messages(cid):
                 url = f"https://pages.fm/api/public_api/v1/pages/{page_id}/conversations/{cid}/messages"
-                try:
-                    resp = self.session.get(url, params={"page_access_token": ptoken}, timeout=10)
-                    if resp.status_code == 200:
-                        return cid, resp.json().get('messages', [])
-                except Exception:
-                    pass
+                max_retries = 3
+                for attempt in range(1, max_retries + 1):
+                    try:
+                        resp = self.session.get(url, params={"page_access_token": ptoken}, timeout=25)
+                        if resp.status_code == 200:
+                            return cid, resp.json().get('messages', [])
+                        elif resp.status_code == 429:
+                            time.sleep(3.0 * attempt)
+                            continue
+                        elif resp.status_code in (500, 502, 503, 504):
+                            time.sleep(2.0 * attempt)
+                            continue
+                        else:
+                            break
+                    except (requests.exceptions.Timeout, requests.exceptions.ConnectionError):
+                        if attempt < max_retries:
+                            time.sleep(2.0 * attempt)
+                            continue
+                    except Exception:
+                        break
                 return cid, []
 
-            with ThreadPoolExecutor(max_workers=8) as executor:
+            with ThreadPoolExecutor(max_workers=4) as executor:
                 futures = {executor.submit(fetch_single_comment_messages, cid): cid for cid in convs_to_fetch}
                 for f in as_completed(futures):
                     cid, msgs = f.result()
@@ -754,7 +779,7 @@ class PancakeClient:
                 params["type"] = post_type
 
             try:
-                resp = self.session.get(url, params=params, timeout=20)
+                resp = self.session.get(url, params=params, timeout=30)
             except Exception as e:
                 logger.error(f"Lỗi kết nối khi gọi /posts trang {page_number} cho Page {page_id}: {e}")
                 retry_count += 1
@@ -923,48 +948,94 @@ class PancakeClient:
             if k not in payload and v is not None:
                 payload[k] = v
 
-        try:
-            resp = self.session.post(url, params=params, json=payload, timeout=10)
-            if resp.status_code in (200, 201):
-                try:
-                    data = resp.json()
-                except Exception:
-                    data = {"text": resp.text}
+        max_retries = 3
+        last_error = None
+        for attempt in range(1, max_retries + 1):
+            try:
+                resp = self.session.post(url, params=params, json=payload, timeout=30)
+                if resp.status_code in (200, 201):
+                    try:
+                        data = resp.json()
+                    except Exception:
+                        data = {"text": resp.text}
 
-                # Pancake API có thể trả 200 nhưng success=false hoặc trả message_code
-                if "success" not in data:
-                    data["success"] = True if data.get("id") else False
-                elif not data.get("success"):
-                    # Nếu thất bại với clean_msg_id và có khác conversation_id gốc, tự động thử fallback với conversation_id gốc
-                    if clean_msg_id != conversation_id and action in ("reply_comment", "private_replies"):
-                        logger.info(f"[PANCAKE API] Thử gửi lại ({action}) với compound conversation_id làm message_id...")
-                        payload_fb = dict(payload)
-                        payload_fb["message_id"] = conversation_id
-                        try:
-                            resp_fb = self.session.post(url, params=params, json=payload_fb, timeout=10)
-                            if resp_fb.status_code in (200, 201):
-                                data_fb = resp_fb.json()
-                                if data_fb.get("success") or data_fb.get("id"):
-                                    data_fb["success"] = True
-                                    return data_fb
-                        except Exception as e_fb:
-                            logger.warning(f"[PANCAKE API] Fallback retry lỗi: {e_fb}")
+                    # Pancake API có thể trả 200 nhưng success=false hoặc trả message_code
+                    if "success" not in data:
+                        data["success"] = True if data.get("id") else False
+                    elif not data.get("success"):
+                        details = []
+                        if data.get("message"):
+                            details.append(str(data.get("message")))
+                        if data.get("message_code"):
+                            details.append(f"code: {data.get('message_code')}")
+                        if data.get("error_code"):
+                            details.append(f"err: {data.get('error_code')}")
+                        if data.get("description"):
+                            details.append(str(data.get("description")))
+                        err_str = " | ".join(details) if details else "Sending message failed"
 
-                    details = []
-                    if data.get("message"):
-                        details.append(str(data.get("message")))
-                    if data.get("message_code"):
-                        details.append(f"code: {data.get('message_code')}")
-                    if data.get("error_code"):
-                        details.append(f"err: {data.get('error_code')}")
-                    if data.get("description"):
-                        details.append(str(data.get("description")))
-                    data["message"] = " | ".join(details) if details else "Sending message failed"
-                    logger.warning(f"[PANCAKE API] Gửi tin nhắn thất bại ({action}) [Payload: message_id={payload.get('message_id')}]: {data}")
-                return data
-            else:
-                logger.warning(f"[PANCAKE API] HTTP {resp.status_code} ({action}): {resp.text}")
-                return {"success": False, "status_code": resp.status_code, "message": resp.text}
-        except Exception as e:
-            return {"success": False, "message": str(e)}
+                        # Nếu server Pancake trả lỗi nội bộ tạm thời, thử lại với backoff
+                        if any(k in err_str.lower() for k in ("server internal error", "failed to send comment")):
+                            if attempt < max_retries:
+                                wait_time = 2.0 * attempt
+                                logger.warning(
+                                    f"[PANCAKE API] Server trả lỗi tạm thời ({err_str}). "
+                                    f"Đang thử lại lần {attempt}/{max_retries} sau {wait_time:.1f}s..."
+                                )
+                                time.sleep(wait_time)
+                                continue
+
+                        # Nếu thất bại với clean_msg_id và có khác conversation_id gốc, tự động thử fallback với conversation_id gốc
+                        if clean_msg_id != conversation_id and action in ("reply_comment", "private_replies"):
+                            logger.info(f"[PANCAKE API] Thử gửi lại ({action}) với compound conversation_id làm message_id...")
+                            payload_fb = dict(payload)
+                            payload_fb["message_id"] = conversation_id
+                            try:
+                                resp_fb = self.session.post(url, params=params, json=payload_fb, timeout=30)
+                                if resp_fb.status_code in (200, 201):
+                                    data_fb = resp_fb.json()
+                                    if data_fb.get("success") or data_fb.get("id"):
+                                        data_fb["success"] = True
+                                        return data_fb
+                            except Exception as e_fb:
+                                logger.warning(f"[PANCAKE API] Fallback retry lỗi: {e_fb}")
+
+                        data["message"] = err_str
+                        logger.warning(f"[PANCAKE API] Gửi tin nhắn thất bại ({action}) [Payload: message_id={payload.get('message_id')}]: {data}")
+                    return data
+                elif resp.status_code in (500, 502, 503, 504):
+                    last_error = f"HTTP {resp.status_code}: {resp.text}"
+                    if attempt < max_retries:
+                        wait_time = 2.0 * attempt
+                        logger.warning(
+                            f"[PANCAKE API] Server trả HTTP {resp.status_code} ({action}): {resp.text[:100]}. "
+                            f"Đang thử lại lần {attempt}/{max_retries} sau {wait_time:.1f}s..."
+                        )
+                        time.sleep(wait_time)
+                        continue
+                    logger.warning(f"[PANCAKE API] HTTP {resp.status_code} ({action}): {resp.text}")
+                    return {"success": False, "status_code": resp.status_code, "message": resp.text}
+                elif resp.status_code == 429:
+                    last_error = "Rate limit 429"
+                    if attempt < max_retries:
+                        logger.warning(f"[PANCAKE API] HTTP 429 Rate Limit ({action}). Đang đợi 5s thử lại lần {attempt}/{max_retries}...")
+                        time.sleep(5.0)
+                        continue
+                    return {"success": False, "status_code": 429, "message": "Rate limit exceeded"}
+                else:
+                    logger.warning(f"[PANCAKE API] HTTP {resp.status_code} ({action}): {resp.text}")
+                    return {"success": False, "status_code": resp.status_code, "message": resp.text}
+            except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
+                last_error = str(e)
+                if attempt < max_retries:
+                    wait_time = 2.5 * attempt
+                    logger.warning(f"[PANCAKE API] Kết nối timeout/lỗi ({action}) [Lần {attempt}/{max_retries}]: {e}. Đợi {wait_time:.1f}s...")
+                    time.sleep(wait_time)
+                    continue
+                return {"success": False, "message": str(e)}
+            except Exception as e:
+                logger.error(f"[PANCAKE API] Lỗi không xác định khi gửi ({action}): {e}")
+                return {"success": False, "message": str(e)}
+
+        return {"success": False, "message": last_error or "Thất bại sau các lần thử lại"}
 
