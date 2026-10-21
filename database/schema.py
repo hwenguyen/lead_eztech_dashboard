@@ -18,6 +18,7 @@ INDEX_DDL = [
     "CREATE INDEX IF NOT EXISTS ix_comments_customer_id ON comments (customer_id)",
     "CREATE INDEX IF NOT EXISTS ix_comments_phone_number ON comments (phone_number)",
     "CREATE INDEX IF NOT EXISTS ix_posts_page_id ON posts (page_id)",
+    "CREATE INDEX IF NOT EXISTS ix_posts_platform ON posts (platform)",
     "CREATE INDEX IF NOT EXISTS ix_posts_inserted_at ON posts (inserted_at)",
     "CREATE INDEX IF NOT EXISTS ix_posts_type ON posts (type)",
 ]
@@ -47,6 +48,16 @@ def _add_missing_columns():
         col_type = "JSONB" if engine.dialect.name == "postgresql" else "JSON"
         ddl_statements.append(f"ALTER TABLE fact_lead_activities ADD COLUMN {if_not_exists}tag_timeline {col_type}")
         logger.info("Đã lên kế hoạch thêm cột fact_lead_activities.tag_timeline.")
+
+    table_names = inspector.get_table_names()
+    if "posts" in table_names:
+        existing_posts = {col["name"] for col in inspector.get_columns("posts")}
+        if "platform" not in existing_posts:
+            ddl_statements.append(f"ALTER TABLE posts ADD COLUMN {if_not_exists}platform VARCHAR(50) DEFAULT 'tiktok'")
+        if "share_count" not in existing_posts:
+            ddl_statements.append(f"ALTER TABLE posts ADD COLUMN {if_not_exists}share_count INTEGER DEFAULT 0")
+        if "view_count" not in existing_posts:
+            ddl_statements.append(f"ALTER TABLE posts ADD COLUMN {if_not_exists}view_count INTEGER DEFAULT 0")
 
     if ddl_statements:
         _run_ddl(ddl_statements)

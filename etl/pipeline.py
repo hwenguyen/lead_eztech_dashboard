@@ -8,7 +8,7 @@ from database.db import SessionLocal
 from database.models import RawConversation, DimLead, FactLeadActivity, Comment, Post
 from database.schema import ensure_schema
 from etl.pancake_client import PancakeClient
-from etl.utils import parse_pancake_date, resolve_phone, normalize_phone, is_page_id, resolve_canonical_page_name, is_source_page, clean_html, extract_phone_number
+from etl.utils import parse_pancake_date, resolve_phone, normalize_phone, is_page_id, resolve_canonical_page_name, is_source_page, clean_html, extract_phone_number, build_post_url
 import re
 
 logging.basicConfig(level=logging.INFO)
@@ -304,9 +304,11 @@ def upsert_post_data(db: Session, post_data: dict, page_name: str, commit: bool 
             return
 
         page_id = str(post_data.get('page_id') or '')
-        p_type = post_data.get('type')
+        is_tiktok = page_id.startswith("tt_") or "tiktok" in resolve_canonical_page_name(page_id).lower() or pid.startswith("tt_")
+        platform = post_data.get("platform") or ("tiktok" if is_tiktok else "facebook")
+        p_type = post_data.get('type') or ("video" if is_tiktok else "post")
         message = post_data.get('message')
-        post_url = post_data.get('post_url')
+        post_url = build_post_url(pid, page_id, post_data.get('post_url'))
         creator_id = post_data.get('creator_id')
         creator_name = post_data.get('creator_name')
         comment_count = int(post_data.get('comment_count') or 0)
@@ -318,6 +320,8 @@ def upsert_post_data(db: Session, post_data: dict, page_name: str, commit: bool 
         angry_count = int(post_data.get('angry_count') or 0)
         care_count = int(post_data.get('care_count') or 0)
         reactions_total = int(post_data.get('reactions_total') or 0)
+        share_count = int(post_data.get('share_count') or 0)
+        view_count = int(post_data.get('view_count') or 0)
         phone_number_count = int(post_data.get('phone_number_count') or 0)
         inserted_at = parse_pancake_date(post_data.get('inserted_at'))
         updated_at = parse_pancake_date(post_data.get('updated_at'))
@@ -333,6 +337,7 @@ def upsert_post_data(db: Session, post_data: dict, page_name: str, commit: bool 
                 post_id=pid,
                 page_id=page_id,
                 page_name=page_name,
+                platform=platform,
                 type=p_type,
                 message=message,
                 post_url=post_url,
@@ -347,6 +352,8 @@ def upsert_post_data(db: Session, post_data: dict, page_name: str, commit: bool 
                 angry_count=angry_count,
                 care_count=care_count,
                 reactions_total=reactions_total,
+                share_count=share_count,
+                view_count=view_count,
                 phone_number_count=phone_number_count,
                 inserted_at=inserted_at,
                 updated_at=updated_at,
@@ -358,29 +365,39 @@ def upsert_post_data(db: Session, post_data: dict, page_name: str, commit: bool 
         else:
             rec.page_id = page_id
             rec.page_name = page_name
+            rec.platform = platform
             rec.type = p_type
-            rec.message = message
+            if message:
+                rec.message = message
             if post_url:
                 rec.post_url = post_url
             if creator_id:
                 rec.creator_id = creator_id
             if creator_name:
                 rec.creator_name = creator_name
-            rec.comment_count = comment_count
-            rec.like_count = like_count
+            if comment_count:
+                rec.comment_count = comment_count
+            if like_count:
+                rec.like_count = like_count
             rec.love_count = love_count
             rec.haha_count = haha_count
             rec.wow_count = wow_count
             rec.sad_count = sad_count
             rec.angry_count = angry_count
             rec.care_count = care_count
-            rec.reactions_total = reactions_total
+            if reactions_total:
+                rec.reactions_total = reactions_total
+            if share_count:
+                rec.share_count = share_count
+            if view_count:
+                rec.view_count = view_count
             rec.phone_number_count = phone_number_count
             if inserted_at:
                 rec.inserted_at = inserted_at
             if updated_at:
                 rec.updated_at = updated_at
-            rec.payload = payload
+            if payload:
+                rec.payload = payload
 
         if commit:
             db.commit()
@@ -680,6 +697,33 @@ def run_etl_pipeline():
                                     upsert_comment_data(db, c_item, canonical_page_name, commit=False, prefetched=prefetched_comments)
                                 db.commit()
                             logger.info(f"[COMMENTS] ✅ Đã lưu thành công {len(comments_data)} comments cho Page {page_id} vào bảng comments.")
+
+                            # Tự động trích xuất các bài viết/video TikTok từ comment threads vào bảng posts
+                            is_tiktok_page = str(page_id).startswith("tt_") or "tiktok" in canonical_page_name.lower()
+                            unique_posts = {}
+                            for c_item in comments_data:
+                                p_id = c_item.get("post_id") or ((c_item.get("payload") or {}).get("post_id") if isinstance(c_item.get("payload"), dict) else None)
+                                if p_id and str(p_id) not in unique_posts:
+                                    p_obj = (c_item.get("payload") or {}).get("post") if isinstance(c_item.get("payload"), dict) else {}
+                                    p_url = c_item.get("post_url") or (p_obj.get("permalink_url") if isinstance(p_obj, dict) else None) or (p_obj.get("url") if isinstance(p_obj, dict) else None)
+                                    p_msg = (p_obj.get("message") or p_obj.get("title")) if isinstance(p_obj, dict) else None
+                                    p_ins = (p_obj.get("inserted_at") if isinstance(p_obj, dict) else None) or c_item.get("inserted_at")
+                                    unique_posts[str(p_id)] = {
+                                        "post_id": str(p_id),
+                                        "page_id": str(page_id),
+                                        "platform": "tiktok" if is_tiktok_page else "facebook",
+                                        "type": "video" if is_tiktok_page else "post",
+                                        "message": p_msg,
+                                        "post_url": build_post_url(str(p_id), page_id, p_url),
+                                        "inserted_at": p_ins,
+                                        "payload": p_obj if p_obj else {"post_id": p_id, "from_comment": True}
+                                    }
+                            if unique_posts:
+                                prefetched_p = {"post": prefetch_posts(db, list(unique_posts.values()))}
+                                for p_data in unique_posts.values():
+                                    upsert_post_data(db, p_data, canonical_page_name, commit=False, prefetched=prefetched_p)
+                                db.commit()
+                                logger.info(f"[POSTS] Đã đồng bộ {len(unique_posts)} bài viết/video từ comments cho Page {page_id}.")
 
                             # 4. Tự động phản hồi bình luận (Auto-Reply Comments) theo kịch bản
                             enable_comment_reply = os.getenv("ENABLE_COMMENT_REPLY", "true").strip().lower() not in ("false", "0", "off", "no")

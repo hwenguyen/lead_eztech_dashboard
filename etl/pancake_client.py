@@ -8,7 +8,7 @@ from typing import List, Dict, Any, Optional, Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
-from etl.utils import is_page_id, resolve_canonical_page_name, KNOWN_PAGE_NAMES, parse_pancake_date, VN_TZ, clean_html, normalize_phone, extract_phone_number
+from etl.utils import is_page_id, resolve_canonical_page_name, KNOWN_PAGE_NAMES, parse_pancake_date, VN_TZ, clean_html, normalize_phone, extract_phone_number, build_post_url
 
 
 logger = logging.getLogger(__name__)
@@ -811,6 +811,9 @@ class PancakeClient:
         all_posts = all_posts[:max_limit]
         logger.info(f"Đã tải {len(all_posts)} bài viết (posts) trong {time.perf_counter() - t_start:.1f}s.")
 
+        is_tiktok = str(page_id).startswith("tt_") or "tiktok" in resolve_canonical_page_name(page_id).lower()
+        platform = "tiktok" if is_tiktok else "facebook"
+
         results = []
         for p in all_posts:
             pid = str(p.get("id") or "")
@@ -822,7 +825,7 @@ class PancakeClient:
             c_name = creator.get("name")
             cmt_cnt = p.get("comment_count", 0)
             reactions = p.get("reactions") or {}
-            like_cnt = reactions.get("like_count", 0)
+            like_cnt = reactions.get("like_count") or p.get("digg_count") or p.get("like_count") or 0
             love_cnt = reactions.get("love_count", 0)
             haha_cnt = reactions.get("haha_count", 0)
             wow_cnt = reactions.get("wow_count", 0)
@@ -830,19 +833,20 @@ class PancakeClient:
             angry_cnt = reactions.get("angry_count", 0)
             care_cnt = reactions.get("care_count", 0)
             rx_total = sum([like_cnt, love_cnt, haha_cnt, wow_cnt, sad_cnt, angry_cnt, care_cnt])
+            share_cnt = p.get("share_count", 0)
+            view_cnt = p.get("play_count") or p.get("view_count") or 0
             phone_cnt = p.get("phone_number_count", 0)
 
-            post_url = p.get("permalink_url") or p.get("url") or p.get("post_url")
-            if not post_url and pid:
-                clean_pid = pid.split("_")[-1] if "_" in pid else pid
-                post_url = f"https://facebook.com/{clean_pid}"
+            raw_url = p.get("permalink_url") or p.get("url") or p.get("post_url")
+            final_url = build_post_url(pid, page_id, raw_url)
 
             results.append({
                 "post_id": pid,
                 "page_id": str(page_id),
-                "type": p.get("type"),
-                "message": p.get("message"),
-                "post_url": post_url,
+                "platform": platform,
+                "type": p.get("type") or ("video" if is_tiktok else "post"),
+                "message": p.get("message") or p.get("title") or p.get("description"),
+                "post_url": final_url,
                 "creator_id": c_id,
                 "creator_name": c_name,
                 "comment_count": cmt_cnt,
@@ -854,6 +858,8 @@ class PancakeClient:
                 "angry_count": angry_cnt,
                 "care_count": care_cnt,
                 "reactions_total": rx_total,
+                "share_count": share_cnt,
+                "view_count": view_cnt,
                 "phone_number_count": phone_cnt,
                 "inserted_at": p.get("inserted_at") or p.get("created_time"),
                 "updated_at": p.get("updated_at"),

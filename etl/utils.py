@@ -233,6 +233,34 @@ def build_pancake_url(
     return f"https://pancake.vn/{pid}?c_id={target_cid}"
 
 
+def build_post_url(post_id: Optional[str], page_id: Optional[str] = None, raw_url: Optional[str] = None) -> Optional[str]:
+    """Tạo link chuẩn trực tiếp tới video TikTok hoặc bài viết Facebook."""
+    if raw_url and str(raw_url).startswith("http"):
+        return str(raw_url).strip()
+
+    if not post_id:
+        return None
+
+    pid_str = str(post_id).strip()
+    page_str = str(page_id or "").strip()
+    is_tiktok = page_str.startswith("tt_") or "tiktok" in resolve_canonical_page_name(page_str).lower() or pid_str.startswith("tt_")
+
+    if is_tiktok:
+        clean_vid = pid_str.split(":")[-1] if ":" in pid_str else pid_str
+        slug = PAGE_NAME_TO_PANCAKE_ID.get(page_str) or PAGE_NAME_TO_PANCAKE_ID.get(resolve_canonical_page_name(page_str)) or ""
+        handle = slug.replace("tt_", "") if slug.startswith("tt_") else ""
+        if handle:
+            return f"https://www.tiktok.com/@{handle}/video/{clean_vid}"
+        return f"https://www.tiktok.com/video/{clean_vid}"
+    else:
+        # Facebook Fanpage
+        clean_fbid = pid_str.split("_")[-1] if "_" in pid_str else pid_str
+        clean_page = re.sub(r"^(fb_)", "", page_str)
+        if clean_page and clean_page.isdigit():
+            return f"https://facebook.com/{clean_page}/posts/{clean_fbid}"
+        return f"https://facebook.com/{clean_fbid}"
+
+
 # Page Zalo cá nhân (ID prefix pzl_) là kênh chăm sóc sau khi đã có SĐT → không cộng vào "Tất cả Page".
 # Page Zalo mới PHẢI được khai báo trong KNOWN_PAGE_NAMES với prefix pzl_ để được nhận diện.
 ZALO_PAGE_NAMES: Set[str] = {name for pid, name in KNOWN_PAGE_NAMES.items() if pid.startswith("pzl_")}
