@@ -485,7 +485,7 @@ def process_page_comment_replies(
 
         # BƯỚC 2: Rep comment công khai tương ứng với kết quả DM
         if not enable_private_reply or dm_success or is_tiktok:
-            msg_candidates = rule.get("comment_success_message") or "Chào bạn, bạn ib để mình gửi bạn thông tin nha!"
+            msg_candidates = rule.get("comment_success_message") or "Chào bạn, bạn nhắn tin cho page để mình gửi thông tin nha!"
         else:
             msg_candidates = rule.get("comment_fallback_message") or rule.get("comment_message") or rule.get("message")
 

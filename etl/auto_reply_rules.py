@@ -100,16 +100,18 @@ COMMENT_REPLY_RULES = [
         "private_message": (
             "Chào bạn, mình thấy bạn quan tâm đến bộ file và tài liệu Excel, Power Query & AI. Bạn nhắn mình SĐT để bạn quản lý lớp bên mình add ZL và gửi bạn tài liệu chi tiết nhé!"
         ),
-        # 2. Nội dung rep comment khi đã gửi DM thành công (khách mở DM):
+        # 2. Nội dung rep comment khi đã gửi DM thành công (hoặc kênh TikTok):
         "comment_success_message": [
-            "Chào bạn, bạn ib để mình gửi bạn thông tin nha!",
-            "Chào bạn, bạn nhắn tin cho page để mình gửi thông tin nha!",
-            "Dạ bạn ib để bên mình gửi bạn thông tin chi tiết nhé!",
+            "Chào bạn, bạn nhắn tin cho page để mình gửi tài liệu cho bạn nha!",
+            "Dạ bạn nhắn tin cho bên mình để nhận trọn bộ tài liệu nhé!",
+            "Chào bạn, bạn gửi tin nhắn cho page bên mình gửi file và hướng dẫn chi tiết nha!",
+            "Dạ bạn nhắn tin qua page để bên mình gửi bạn file thực hành nhé!",
         ],
         # 3. Nội dung rep comment khi gửi DM thất bại (khách khóa DM / chặn người lạ):
         "comment_fallback_message": [
-            "Chào bạn, bạn ib để mình gửi bạn thông tin nhé, bạn để riêng tư mình không ib cho bạn được",
-            "Chào bạn, do tài khoản bạn để riêng tư nên mình không nhắn được, bạn ib để bên mình gửi thông tin nha!",
+            "Chào bạn, bạn chủ động nhắn tin cho page để mình gửi tài liệu cho bạn nha!",
+            "Dạ bạn nhắn tin cho bên mình để nhận file và tài liệu thực hành nhé!",
+            "Chào bạn, bạn gửi tin nhắn cho page để bên mình gửi bạn tài liệu chi tiết nha!",
         ],
     },
 
@@ -132,16 +134,16 @@ COMMENT_REPLY_RULES = [
         "private_message": (
             "Chào bạn, mình thấy bạn đang quan tâm đến ứng dụng Excel, Power Query & AI trong CV. Bạn đang làm trong lĩnh vực nào nhỉ để mình gửi lộ trình học phù hợp cho bạn nhé"
         ),
-        # 2. Nội dung rep comment khi đã gửi DM thành công (khách mở DM):
+        # 2. Nội dung rep comment khi đã gửi DM thành công (hoặc kênh TikTok):
         "comment_success_message": [
-            "Chào bạn, bạn ib để mình gửi bạn thông tin khoá học nha!",
-            "Chào bạn, bạn nhắn tin cho page để mình gửi thông tin khoá học nha!",
-            "Dạ bạn ib để bên mình gửi bạn lộ trình khoá học chi tiết nhé!",
+            "Chào bạn, bạn nhắn tin cho page để bên mình tư vấn lộ trình học phù hợp nhé!",
+            "Dạ bạn nhắn tin cho page để mình gửi bạn thông tin chi tiết về khóa học nha!",
+            "Chào bạn, bạn gửi tin nhắn cho page để bên mình gửi thông tin và ưu đãi khóa học nhé!",
         ],
         # 3. Nội dung rep comment khi gửi DM thất bại (khách khóa DM / chặn người lạ):
         "comment_fallback_message": [
-            "Chào bạn, bạn ib để mình gửi bạn thông tin nhé, bạn để riêng tư mình không ib cho bạn được",
-            "Chào bạn, do tài khoản bạn để riêng tư nên mình không nhắn được, bạn ib để bên mình gửi thông tin nha!",
+            "Chào bạn, bạn chủ động nhắn tin cho page để bên mình gửi thông tin chi tiết về khóa học nhé!",
+            "Dạ bạn nhắn tin cho page để bên mình gửi bạn lộ trình học chi tiết nha!",
         ],
     },
 
@@ -165,16 +167,16 @@ COMMENT_REPLY_RULES = [
         "private_message": (
             "Chào bạn, mình thấy bạn quan tâm đến các buổi workshop và tài liệu chia sẻ về ứng dụng Excel, Power Query & AI trong công việc. Bạn nhắn SĐT để bạn quản lý lớp add bạn vào nhóm cộng đồng nhé."
         ),
-        # 2. Nội dung rep comment khi đã gửi DM thành công (khách mở DM):
+        # 2. Nội dung rep comment khi đã gửi DM thành công (hoặc kênh TikTok):
         "comment_success_message": [
-            "Chào bạn, bạn ib để mình gửi bạn thông tin cộng đồng nha!",
-            "Chào bạn, bạn nhắn tin cho page để mình gửi thông tin cộng đồng nha!",
-            "Dạ bạn ib để bên mình gửi bạn thông tin tham gia nhóm nhé!",
+            "Chào bạn, bạn nhắn tin cho page để bên mình gửi bạn thông tin tham gia nhóm nhé!",
+            "Dạ bạn gửi tin nhắn cho page để bên mình hỗ trợ bạn vào nhóm cộng đồng nha!",
+            "Chào bạn, bạn nhắn tin cho page để nhận link tham gia nhóm giao lưu nhé!",
         ],
         # 3. Nội dung rep comment khi gửi DM thất bại (khách khóa DM / chặn người lạ):
         "comment_fallback_message": [
-            "Chào bạn, bạn ib để mình gửi bạn thông tin nhé, bạn để riêng tư mình không ib cho bạn được",
-            "Chào bạn, do tài khoản bạn để riêng tư nên mình không nhắn được, bạn nhắn tin để bên mình gửi thông tin nha!",
+            "Chào bạn, bạn chủ động nhắn tin cho page để bên mình gửi thông tin tham gia nhóm nha!",
+            "Dạ bạn nhắn tin cho page để bên mình hỗ trợ bạn vào nhóm cộng đồng nhé!",
         ],
     },
 ]
