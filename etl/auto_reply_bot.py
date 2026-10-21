@@ -785,7 +785,20 @@ if __name__ == "__main__":
     parser.add_argument("--no-inbox", action="store_true", help="Bỏ qua quét Inbox")
     parser.add_argument("--no-comments", action="store_true", help="Bỏ qua quét Comment")
     parser.add_argument("--comments-only", action="store_true", help="Chỉ quét và trả lời Comment")
+    parser.add_argument("--clean-failed", action="store_true", help="Xóa các bản ghi FAILED cũ trong bot_auto_replies trước khi chạy")
     args = parser.parse_args()
+
+    if args.clean_failed:
+        db_clean = SessionLocal()
+        try:
+            num_deleted = db_clean.query(BotAutoReplyLog).filter(BotAutoReplyLog.status == "FAILED").delete(synchronize_session=False)
+            db_clean.commit()
+            logger.info(f"🧹 [CLEAN-FAILED] Đã xóa {num_deleted} bản ghi FAILED cũ khỏi bảng bot_auto_replies.")
+        except Exception as e_clean:
+            db_clean.rollback()
+            logger.warning(f"⚠️ [CLEAN-FAILED] Không thể xóa bản ghi FAILED: {e_clean}")
+        finally:
+            db_clean.close()
 
     send_env = os.getenv("AUTO_REPLY_SEND", "").strip().lower() in ("true", "1", "yes")
     is_dry_run = not (args.send or send_env)
