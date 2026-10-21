@@ -728,6 +728,8 @@ class PancakeClient:
         }
         if action in ("reply_comment", "private_replies") and "message_id" not in kwargs:
             payload["message_id"] = conversation_id
+        if action == "reply_comment" and "parent_id" not in kwargs:
+            payload["parent_id"] = conversation_id
         for k, v in kwargs.items():
             if v is not None:
                 payload[k] = v

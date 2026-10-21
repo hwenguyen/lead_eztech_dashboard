@@ -513,7 +513,8 @@ def process_page_comment_replies(
                 conversation_id=cid,
                 message=reply_comment_text,
                 action="reply_comment",
-                message_id=cid
+                message_id=cid,
+                parent_id=cid
             )
             cmt_success = res_cmt.get("success", False)
             cmt_err = None if cmt_success else str(res_cmt.get("message") or res_cmt)
