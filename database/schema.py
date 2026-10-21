@@ -17,6 +17,9 @@ INDEX_DDL = [
     "CREATE INDEX IF NOT EXISTS ix_comments_post_id ON comments (post_id)",
     "CREATE INDEX IF NOT EXISTS ix_comments_customer_id ON comments (customer_id)",
     "CREATE INDEX IF NOT EXISTS ix_comments_phone_number ON comments (phone_number)",
+    "CREATE INDEX IF NOT EXISTS ix_posts_page_id ON posts (page_id)",
+    "CREATE INDEX IF NOT EXISTS ix_posts_inserted_at ON posts (inserted_at)",
+    "CREATE INDEX IF NOT EXISTS ix_posts_type ON posts (type)",
 ]
 
 

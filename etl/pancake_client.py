@@ -698,6 +698,170 @@ class PancakeClient:
         logger.info(f"Hoàn tất xử lý comment Page {page_id}! Tổng cộng: {len(results)} comments.")
         return results
 
+    def get_posts(
+        self,
+        page_id: str,
+        days_back: Optional[int] = None,
+        limit: Optional[int] = None,
+        post_type: Optional[str] = None,
+        since_ts: Optional[int] = None,
+        until_ts: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Lấy danh sách Bài viết (Posts) từ Page qua Pancake Public API v1.
+        API: GET https://pages.fm/api/public_api/v1/pages/{page_id}/posts
+
+        Args:
+            page_id: ID của Page (hỗ trợ prefix fb_, tt_...)
+            days_back: Số ngày quét ngược về trước (mặc định 365 ngày nếu không truyền since_ts)
+            limit: Số lượng bài viết tối đa cần lấy (mặc định 100)
+            post_type: Lọc theo loại bài viết ('video', 'photo', 'text', 'livestream')
+            since_ts: Unix timestamp bắt đầu (UTC)
+            until_ts: Unix timestamp kết thúc (UTC)
+        """
+        ptoken, resolved_page_id, resolved_page_name = self._get_page_access_token(page_id)
+        if not ptoken:
+            logger.warning(f"Không lấy được token cho Page {page_id} khi lấy Posts.")
+            return []
+
+        url = f"https://pages.fm/api/public_api/v1/pages/{resolved_page_id}/posts"
+        now_dt = datetime.utcnow()
+        if until_ts is None:
+            until_ts = int(now_dt.timestamp())
+        if since_ts is None:
+            days = days_back if (days_back and days_back > 0) else 365
+            since_ts = int((now_dt - timedelta(days=days)).timestamp())
+
+        max_limit = limit or 100
+        page_size = min(30, max_limit)
+        page_number = 1
+        all_posts: List[Dict[str, Any]] = []
+        retry_count = 0
+        max_retries = 3
+
+        logger.info(f"--- BẮT ĐẦU CÀO POSTS QUA API CHO PAGE: {page_id} (Giới hạn: {max_limit}, Ngày quét: {days_back or '365 ngày'}) ---")
+        t_start = time.perf_counter()
+
+        while len(all_posts) < max_limit:
+            params = {
+                "page_access_token": ptoken,
+                "since": since_ts,
+                "until": until_ts,
+                "page_number": page_number,
+                "page_size": page_size,
+            }
+            if post_type:
+                params["type"] = post_type
+
+            try:
+                resp = self.session.get(url, params=params, timeout=20)
+            except Exception as e:
+                logger.error(f"Lỗi kết nối khi gọi /posts trang {page_number} cho Page {page_id}: {e}")
+                retry_count += 1
+                if retry_count <= max_retries:
+                    time.sleep(3 * retry_count)
+                    continue
+                else:
+                    break
+
+            if resp.status_code == 200:
+                retry_count = 0
+                try:
+                    data = resp.json()
+                except Exception:
+                    data = {}
+
+                if isinstance(data, dict) and data.get("success") is False:
+                    logger.warning(f"Pancake API từ chối lấy posts cho Page '{page_id}': {data.get('message')}")
+                    break
+
+                raw_posts = data.get("posts") if isinstance(data, dict) else []
+                if not raw_posts and isinstance(data, dict):
+                    raw_posts = data.get("data", [])
+
+                if not raw_posts:
+                    break
+
+                all_posts.extend(raw_posts)
+
+                total = data.get("total") if isinstance(data, dict) else None
+                if total and len(all_posts) >= total:
+                    break
+                if len(raw_posts) < page_size:
+                    break
+
+                page_number += 1
+                time.sleep(0.2)
+            elif resp.status_code == 429:
+                logger.warning("Pancake API Rate limit (429) khi lấy posts! Nghỉ 10s...")
+                time.sleep(10)
+                continue
+            elif resp.status_code == 500:
+                retry_count += 1
+                if retry_count <= max_retries:
+                    time.sleep(3 * retry_count)
+                    continue
+                else:
+                    logger.error(f"Pancake API trả status 500 khi lấy posts Page {page_id}: {resp.text[:200]}")
+                    break
+            else:
+                logger.warning(f"Pancake API trả status {resp.status_code} khi lấy posts Page {page_id}: {resp.text[:200]}")
+                break
+
+        all_posts = all_posts[:max_limit]
+        logger.info(f"Đã tải {len(all_posts)} bài viết (posts) trong {time.perf_counter() - t_start:.1f}s.")
+
+        results = []
+        for p in all_posts:
+            pid = str(p.get("id") or "")
+            if not pid:
+                continue
+
+            creator = p.get("from") or {}
+            c_id = str(creator.get("id") or "") or None
+            c_name = creator.get("name")
+            cmt_cnt = p.get("comment_count", 0)
+            reactions = p.get("reactions") or {}
+            like_cnt = reactions.get("like_count", 0)
+            love_cnt = reactions.get("love_count", 0)
+            haha_cnt = reactions.get("haha_count", 0)
+            wow_cnt = reactions.get("wow_count", 0)
+            sad_cnt = reactions.get("sad_count", 0)
+            angry_cnt = reactions.get("angry_count", 0)
+            care_cnt = reactions.get("care_count", 0)
+            rx_total = sum([like_cnt, love_cnt, haha_cnt, wow_cnt, sad_cnt, angry_cnt, care_cnt])
+            phone_cnt = p.get("phone_number_count", 0)
+
+            post_url = p.get("permalink_url") or p.get("url") or p.get("post_url")
+            if not post_url and pid:
+                clean_pid = pid.split("_")[-1] if "_" in pid else pid
+                post_url = f"https://facebook.com/{clean_pid}"
+
+            results.append({
+                "post_id": pid,
+                "page_id": str(page_id),
+                "type": p.get("type"),
+                "message": p.get("message"),
+                "post_url": post_url,
+                "creator_id": c_id,
+                "creator_name": c_name,
+                "comment_count": cmt_cnt,
+                "like_count": like_cnt,
+                "love_count": love_cnt,
+                "haha_count": haha_cnt,
+                "wow_count": wow_cnt,
+                "sad_count": sad_cnt,
+                "angry_count": angry_cnt,
+                "care_count": care_cnt,
+                "reactions_total": rx_total,
+                "phone_number_count": phone_cnt,
+                "inserted_at": p.get("inserted_at") or p.get("created_time"),
+                "updated_at": p.get("updated_at"),
+                "payload": p,
+            })
+
+        return results
+
     def send_message(
         self,
         page_id: str,

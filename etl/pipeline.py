@@ -5,7 +5,7 @@ from typing import Optional, Dict, Any, List, Iterable
 from sqlalchemy import or_, func
 from sqlalchemy.orm import Session, defer
 from database.db import SessionLocal
-from database.models import RawConversation, DimLead, FactLeadActivity, Comment
+from database.models import RawConversation, DimLead, FactLeadActivity, Comment, Post
 from database.schema import ensure_schema
 from etl.pancake_client import PancakeClient
 from etl.utils import parse_pancake_date, resolve_phone, normalize_phone, is_page_id, resolve_canonical_page_name, is_source_page, clean_html, extract_phone_number
@@ -47,6 +47,16 @@ def prefetch_comments(db: Session, comments: List[dict]) -> Dict[str, Comment]:
     for chunk in _chunks(cids):
         for r in db.query(Comment).filter(Comment.comment_id.in_(chunk)):
             res[r.comment_id] = r
+    return res
+
+
+def prefetch_posts(db: Session, posts: List[dict]) -> Dict[str, Post]:
+    """Nạp sẵn Post của cả lô bằng câu IN (...)."""
+    pids = list({str(p.get('post_id') or p.get('id')) for p in posts if p.get('post_id') or p.get('id')})
+    res: Dict[str, Post] = {}
+    for chunk in _chunks(pids):
+        for r in db.query(Post).filter(Post.post_id.in_(chunk)):
+            res[r.post_id] = r
     return res
 
 
@@ -284,6 +294,100 @@ def upsert_comment_data(db: Session, comment_data: dict, page_name: str, commit:
         if commit:
             db.rollback()
         logger.error(f"Lỗi khi upsert comment {comment_data.get('comment_id')}: {e}")
+
+
+def upsert_post_data(db: Session, post_data: dict, page_name: str, commit: bool = True, prefetched: dict = None):
+    """Lưu trữ và cập nhật dữ liệu Bài viết (Post) vào bảng posts."""
+    try:
+        pid = str(post_data.get('post_id') or post_data.get('id') or '')
+        if not pid:
+            return
+
+        page_id = str(post_data.get('page_id') or '')
+        p_type = post_data.get('type')
+        message = post_data.get('message')
+        post_url = post_data.get('post_url')
+        creator_id = post_data.get('creator_id')
+        creator_name = post_data.get('creator_name')
+        comment_count = int(post_data.get('comment_count') or 0)
+        like_count = int(post_data.get('like_count') or 0)
+        love_count = int(post_data.get('love_count') or 0)
+        haha_count = int(post_data.get('haha_count') or 0)
+        wow_count = int(post_data.get('wow_count') or 0)
+        sad_count = int(post_data.get('sad_count') or 0)
+        angry_count = int(post_data.get('angry_count') or 0)
+        care_count = int(post_data.get('care_count') or 0)
+        reactions_total = int(post_data.get('reactions_total') or 0)
+        phone_number_count = int(post_data.get('phone_number_count') or 0)
+        inserted_at = parse_pancake_date(post_data.get('inserted_at'))
+        updated_at = parse_pancake_date(post_data.get('updated_at'))
+        payload = post_data.get('payload')
+
+        if prefetched is not None and "post" in prefetched:
+            rec = prefetched["post"].get(pid)
+        else:
+            rec = db.query(Post).filter_by(post_id=pid).first()
+
+        if not rec:
+            rec = Post(
+                post_id=pid,
+                page_id=page_id,
+                page_name=page_name,
+                type=p_type,
+                message=message,
+                post_url=post_url,
+                creator_id=creator_id,
+                creator_name=creator_name,
+                comment_count=comment_count,
+                like_count=like_count,
+                love_count=love_count,
+                haha_count=haha_count,
+                wow_count=wow_count,
+                sad_count=sad_count,
+                angry_count=angry_count,
+                care_count=care_count,
+                reactions_total=reactions_total,
+                phone_number_count=phone_number_count,
+                inserted_at=inserted_at,
+                updated_at=updated_at,
+                payload=payload
+            )
+            db.add(rec)
+            if prefetched is not None and "post" in prefetched:
+                prefetched["post"][pid] = rec
+        else:
+            rec.page_id = page_id
+            rec.page_name = page_name
+            rec.type = p_type
+            rec.message = message
+            if post_url:
+                rec.post_url = post_url
+            if creator_id:
+                rec.creator_id = creator_id
+            if creator_name:
+                rec.creator_name = creator_name
+            rec.comment_count = comment_count
+            rec.like_count = like_count
+            rec.love_count = love_count
+            rec.haha_count = haha_count
+            rec.wow_count = wow_count
+            rec.sad_count = sad_count
+            rec.angry_count = angry_count
+            rec.care_count = care_count
+            rec.reactions_total = reactions_total
+            rec.phone_number_count = phone_number_count
+            if inserted_at:
+                rec.inserted_at = inserted_at
+            if updated_at:
+                rec.updated_at = updated_at
+            rec.payload = payload
+
+        if commit:
+            db.commit()
+    except Exception as e:
+        if commit:
+            db.rollback()
+        logger.error(f"Lỗi khi upsert post {post_data.get('post_id')}: {e}")
 
 
 def load_pancake_pages_config() -> List[Dict[str, Any]]:
@@ -607,6 +711,37 @@ def run_etl_pipeline():
                                 pass
                         db = SessionLocal()
                         logger.error(f"[COMMENTS] ❌ Lỗi khi cào/lưu comments cho Page {page_id}: {c_err}")
+
+                    # 5. Cào và đồng bộ danh sách Bài viết (Posts) vào bảng posts
+                    enable_posts_sync = os.getenv("ENABLE_POSTS_SYNC", "true").strip().lower() not in ("false", "0", "off", "no")
+                    if enable_posts_sync:
+                        posts_days_back = int(os.getenv("POSTS_DAYS_BACK", "90"))
+                        posts_limit = int(os.getenv("POSTS_LIMIT", "100"))
+                        try:
+                            posts_data = client.get_posts(
+                                page_id=page_id,
+                                days_back=posts_days_back,
+                                limit=posts_limit
+                            )
+                            if posts_data:
+                                logger.info(f"[POSTS] Page {page_id}: Nhận được {len(posts_data)} posts. Đang lưu vào DB...")
+                                for start in range(0, len(posts_data), DB_BATCH):
+                                    batch = posts_data[start:start + DB_BATCH]
+                                    prefetched_posts = {"post": prefetch_posts(db, batch)}
+                                    for p_item in batch:
+                                        upsert_post_data(db, p_item, canonical_page_name, commit=False, prefetched=prefetched_posts)
+                                    db.commit()
+                                logger.info(f"[POSTS] ✅ Đã lưu thành công {len(posts_data)} bài viết cho Page {page_id} vào bảng posts.")
+                            else:
+                                logger.info(f"[POSTS] Page {page_id}: Không có bài viết nào.")
+                        except Exception as p_err:
+                            if 'db' in locals() and db:
+                                try:
+                                    db.rollback()
+                                except Exception:
+                                    pass
+                            db = SessionLocal()
+                            logger.error(f"[POSTS] ❌ Lỗi khi cào/lưu bài viết cho Page {page_id}: {p_err}")
 
             except Exception as page_err:
                 logger.error(f"Lỗi khi cào dữ liệu cho Page {page_id}: {page_err}", exc_info=True)

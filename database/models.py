@@ -93,3 +93,33 @@ class Comment(Base):
     created_at = Column(DateTime, default=get_vn_now)                     # Thời điểm lưu vào DB của hệ thống
 
 
+class Post(Base):
+    """Lưu trữ tất cả Bài viết (Post) từ các Fanpage (Facebook, TikTok...)."""
+    __tablename__ = "posts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    post_id = Column(String, unique=True, index=True, nullable=False)     # ID bài viết từ Pancake (vd: 256469571178082_1719461745119729)
+    page_id = Column(String, index=True, nullable=False)                  # ID trang sở hữu
+    page_name = Column(String, index=True, nullable=True)                 # Tên chuẩn của trang
+    type = Column(String, index=True, nullable=True)                      # video, photo, text, livestream, rating...
+    message = Column(Text, nullable=True)                                 # Nội dung bài viết (caption / status)
+    post_url = Column(String, nullable=True)                              # Link trực tiếp tới bài viết
+    creator_id = Column(String, nullable=True)                            # ID người tạo bài (from.id)
+    creator_name = Column(String, nullable=True)                          # Tên người tạo bài (from.name)
+    comment_count = Column(Integer, default=0)                            # Số lượng bình luận
+    like_count = Column(Integer, default=0)                               # Lượt like
+    love_count = Column(Integer, default=0)                               # Lượt love
+    haha_count = Column(Integer, default=0)                               # Lượt haha
+    wow_count = Column(Integer, default=0)                                # Lượt wow
+    sad_count = Column(Integer, default=0)                                # Lượt sad
+    angry_count = Column(Integer, default=0)                              # Lượt angry
+    care_count = Column(Integer, default=0)                               # Lượt care
+    reactions_total = Column(Integer, default=0)                          # Tổng các lượt tương tác
+    phone_number_count = Column(Integer, default=0)                       # Số SĐT phát hiện trong bài viết
+    inserted_at = Column(DateTime, index=True, nullable=True)            # Thời điểm đăng bài viết trên MXH
+    updated_at = Column(DateTime, nullable=True)                         # Thời điểm cập nhật cuối
+    payload = Column(JSON, nullable=True)                                 # Toàn bộ dữ liệu gốc đầy đủ từ Pancake API
+    created_at = Column(DateTime, default=get_vn_now)                     # Thời điểm lưu vào DB của hệ thống
+
+
+
