@@ -137,13 +137,13 @@ COMMENT_REPLY_RULES = [
         # 2. Nội dung rep comment khi đã gửi DM thành công (hoặc kênh TikTok):
         "comment_success_message": [
             "Chào bạn, bạn nhắn tin cho page để bên mình tư vấn lộ trình học phù hợp nhé!",
-            "Dạ bạn nhắn tin cho page để mình gửi bạn thông tin chi tiết về khóa học nha!",
-            "Chào bạn, bạn gửi tin nhắn cho page để bên mình gửi thông tin và ưu đãi khóa học nhé!",
+            "Bạn inb cho page để mình gửi bạn thông tin chi tiết về khóa học nha!",
+            "Chào bạn, bạn gửi tin nhắn cho page để bên mình gửi thông tin nhé!",
         ],
         # 3. Nội dung rep comment khi gửi DM thất bại (khách khóa DM / chặn người lạ):
         "comment_fallback_message": [
-            "Chào bạn, bạn chủ động nhắn tin cho page để bên mình gửi thông tin chi tiết về khóa học nhé!",
-            "Dạ bạn nhắn tin cho page để bên mình gửi bạn lộ trình học chi tiết nha!",
+            "Chào bạn, bạn nhắn cho page để bên mình gửi thông tin chi tiết về khóa học nhé!",
+            "Bạn nhắn tin cho page để bên mình gửi bạn lộ trình học chi tiết nha!",
         ],
     },
 
@@ -170,13 +170,13 @@ COMMENT_REPLY_RULES = [
         # 2. Nội dung rep comment khi đã gửi DM thành công (hoặc kênh TikTok):
         "comment_success_message": [
             "Chào bạn, bạn nhắn tin cho page để bên mình gửi bạn thông tin tham gia nhóm nhé!",
-            "Dạ bạn gửi tin nhắn cho page để bên mình hỗ trợ bạn vào nhóm cộng đồng nha!",
-            "Chào bạn, bạn nhắn tin cho page để nhận link tham gia nhóm giao lưu nhé!",
+            "Bạn gửi cho page để bên mình hỗ trợ bạn vào nhóm cộng đồng nha!",
+            "Chào bạn, bạn nhắn tin cho page để nhận thông tin nhé ",
         ],
         # 3. Nội dung rep comment khi gửi DM thất bại (khách khóa DM / chặn người lạ):
         "comment_fallback_message": [
-            "Chào bạn, bạn chủ động nhắn tin cho page để bên mình gửi thông tin tham gia nhóm nha!",
-            "Dạ bạn nhắn tin cho page để bên mình hỗ trợ bạn vào nhóm cộng đồng nhé!",
+            "Chào bạn, bạn inb cho page để bên mình gửi thông tin tham gia nhóm nha!",
+            "Bạn nhắn tin cho page để bên mình hỗ trợ bạn vào nhóm cộng đồng nhé!",
         ],
     },
 ]
@@ -206,9 +206,9 @@ ENABLE_PRIVATE_REPLY = False
 # ==============================================================================
 ALLOWED_SOURCE_PAGES = [
     # 1. Facebook:
-    "514400205095512",          # Anh Kế toán làm Data (Facebook)
+    #"514400205095512",          # Anh Kế toán làm Data (Facebook)
     # 2. TikTok:
     "tt_7196601676597871618",   # Anh Kế toán làm Data (TikTok @tuananhdata)
     "tt_7456003523327919120",   # Hành trang cho kế toán (TikTok @anhgadata)
-    "tt_7661860189083943944",   # Chị Kế Toán GenZ (TikTok @chiketoangenz)
+    #"tt_7661860189083943944",   # Chị Kế Toán GenZ (TikTok @chiketoangenz)
 ]
