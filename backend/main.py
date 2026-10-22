@@ -1,16 +1,17 @@
-from fastapi import FastAPI, Depends, Query
+from fastapi import FastAPI, Depends, Query, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
+from sqlalchemy import or_, desc, func
 from collections import Counter
 from datetime import datetime, timedelta
-from typing import Optional, Dict, List, Tuple, Any
+from typing import Optional, Dict, List, Tuple, Any, Union
 import os
 import time
 import re
 import threading
 import logging
 from database.db import get_db, SessionLocal
-from database.models import DimLead, FactLeadActivity, RawConversation
+from database.models import DimLead, FactLeadActivity, RawConversation, DealWin
 from database.schema import ensure_schema
 from backend.schemas import (
     LeadMetricsSummary,
@@ -20,7 +21,10 @@ from backend.schemas import (
     LeadResponse,
     RemindLeadResponse,
     RemindLeadItem,
-    RemindSummary
+    RemindSummary,
+    DealWinItem,
+    DealWinListResponse,
+    DealWinSummary,
 )
 from backend.lead_metrics import classify_leads, resolve_period, normalize_text, clear_metrics_cache
 from etl.utils import (
@@ -386,9 +390,13 @@ _LAST_MSG_CACHE: Dict[str, Tuple[float, Optional[str]]] = {}
 _LAST_MSG_LOCK = threading.Lock()
 _LAST_MSG_TTL = 900.0  # 15 phút cache tin nhắn cuối
 
+_DEAL_CACHE: Dict[str, Tuple[float, Any]] = {}
+_DEAL_CACHE_LOCK = threading.Lock()
+_DEAL_CACHE_TTL = 300.0  # 5 phút cache cho Deal Win
+
 @app.post("/api/admin/clear-cache")
 def clear_cache():
-    """Xoá toàn bộ cache metrics, page list, tin nhắn cuối & remind leads."""
+    """Xoá toàn bộ cache metrics, page list, tin nhắn cuối, remind leads & deal wins."""
     clear_metrics_cache()
     with _PAGES_LOCK:
         _PAGES_CACHE.clear()
@@ -396,7 +404,9 @@ def clear_cache():
         _REMIND_CACHE.clear()
     with _LAST_MSG_LOCK:
         _LAST_MSG_CACHE.clear()
-    return {"status": "ok", "message": "All metrics, pages, last messages, and remind caches have been cleared."}
+    with _DEAL_CACHE_LOCK:
+        _DEAL_CACHE.clear()
+    return {"status": "ok", "message": "All metrics, pages, last messages, remind, and deal caches have been cleared."}
 
 @app.post("/api/admin/repair")
 def trigger_manual_repair():
@@ -709,4 +719,299 @@ def get_remind_leads(
         tags=sorted_tags,
         items=paginated
     )
+
+
+# ==========================================
+# DEAL WIN APIs (Google Sheet / Form Webhook)
+# ==========================================
+
+def _clean_revenue_val(val: Any) -> float:
+    """Chuẩn hóa giá trị doanh thu từ chuỗi (vd '5.000.000', '5,000,000 VNĐ', 5000000)."""
+    if val is None:
+        return 0.0
+    if isinstance(val, (int, float)):
+        return float(val)
+    s = str(val).strip()
+    if not s:
+        return 0.0
+    s_lower = s.lower().replace("vnđ", "").replace("vnd", "").replace("đ", "").strip()
+    if "tr" in s_lower or "triệu" in s_lower:
+        num_part = re.sub(r"[^\d.,]", "", s_lower).replace(",", ".")
+        try:
+            return float(num_part) * 1_000_000.0
+        except Exception:
+            pass
+    if "k" in s_lower:
+        num_part = re.sub(r"[^\d.,]", "", s_lower).replace(",", ".")
+        try:
+            return float(num_part) * 1_000.0
+        except Exception:
+            pass
+    clean_digits = re.sub(r"[^\d]", "", s)
+    if clean_digits:
+        try:
+            return float(clean_digits)
+        except Exception:
+            return 0.0
+    return 0.0
+
+def _extract_field(row: Dict[str, Any], candidates: List[str]) -> Optional[Any]:
+    """Tìm giá trị trường dữ liệu theo danh sách từ khóa ứng viên (không phân biệt hoa thường/dấu)."""
+    normalized_row = {normalize_text(str(k)): v for k, v in row.items()}
+    # 1. Tìm khớp chính xác
+    for c in candidates:
+        norm_c = normalize_text(c)
+        if norm_c in normalized_row and normalized_row[norm_c] is not None:
+            val = normalized_row[norm_c]
+            if isinstance(val, str) and not val.strip():
+                continue
+            return val
+    # 2. Tìm khớp chứa chuỗi con
+    for c in candidates:
+        norm_c = normalize_text(c)
+        for k, v in normalized_row.items():
+            if norm_c in k and v is not None:
+                if isinstance(v, str) and not v.strip():
+                    continue
+                return v
+    return None
+
+@app.post("/api/deals/webhook")
+async def receive_deal_webhook(request: Request, db: Session = Depends(get_db)):
+    """Nhận dữ liệu Deal Win được đẩy tự động từ Google Sheet / Google Form.
+    Hỗ trợ nhận 1 dòng đơn lẻ (dict) hoặc nhiều dòng (list).
+    Tự động chuẩn hóa tên cột tiếng Việt, SĐT, số tiền và loại bỏ trùng lặp.
+    """
+    try:
+        body = await request.json()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid JSON payload: {e}")
+
+    # Chuẩn hoá đầu vào thành danh sách các dòng (rows)
+    rows: List[Dict[str, Any]] = []
+    if isinstance(body, list):
+        rows = [r for r in body if isinstance(r, dict)]
+    elif isinstance(body, dict):
+        if "data" in body and isinstance(body["data"], list):
+            rows = [r for r in body["data"] if isinstance(r, dict)]
+        else:
+            rows = [body]
+
+    if not rows:
+        return {"status": "ok", "synced_count": 0, "message": "No data rows provided."}
+
+    synced_count = 0
+    updated_count = 0
+
+    for row in rows:
+        # Bóc tách các trường chính
+        name = _extract_field(row, ["customer_name", "họ và tên", "họ tên", "tên học viên", "tên", "khách hàng", "name"])
+        raw_phone = _extract_field(row, ["phone_number", "số điện thoại", "sdt", "điện thoại", "phone", "mobile"])
+        phone = normalize_phone(raw_phone) if raw_phone else None
+
+        revenue_raw = _extract_field(row, ["revenue", "số tiền", "học phí", "doanh thu", "tiền", "giá trị", "amount", "price"])
+        revenue = _clean_revenue_val(revenue_raw)
+
+        product = _extract_field(row, ["product_name", "khóa học", "sản phẩm", "tên khóa", "gói học", "combo", "product"])
+        sales = _extract_field(row, ["sales_person", "nhân viên chốt", "sale", "tư vấn", "người phụ trách", "seller"])
+        email = _extract_field(row, ["email", "mail", "thư điện tử"])
+        payment_method = _extract_field(row, ["payment_method", "hình thức thanh toán", "phương thức thanh toán", "thanh toán", "chuyển khoản"])
+        status = _extract_field(row, ["status", "trạng thái"]) or "WIN"
+        note = _extract_field(row, ["note", "ghi chú", "lưu ý"])
+
+        # Thời gian nộp form (Dấu thời gian)
+        submitted_raw = _extract_field(row, ["submitted_at", "dấu thời gian", "thời gian", "ngày", "timestamp", "created_at"])
+        submitted_at = parse_pancake_date(submitted_raw) if submitted_raw else datetime.now(VN_TZ).replace(tzinfo=None)
+
+        # Định danh dòng trên Sheet
+        sheet_row_id = _extract_field(row, ["sheet_row_id", "row_id", "row_number", "id"])
+        if sheet_row_id:
+            sheet_row_id = str(sheet_row_id).strip()
+
+        # Kiểm tra trùng lặp
+        existing_deal = None
+        if sheet_row_id:
+            existing_deal = db.query(DealWin).filter_by(sheet_row_id=sheet_row_id).first()
+
+        if not existing_deal and phone:
+            # Nếu trùng SĐT và thời điểm nộp trong vòng 2 phút -> coi là 1 deal
+            sub_window_start = submitted_at - timedelta(minutes=2)
+            sub_window_end = submitted_at + timedelta(minutes=2)
+            existing_deal = db.query(DealWin).filter(
+                DealWin.phone_number == phone,
+                DealWin.submitted_at.between(sub_window_start, sub_window_end)
+            ).first()
+
+        if existing_deal:
+            existing_deal.customer_name = str(name).strip() if name else existing_deal.customer_name
+            existing_deal.phone_number = phone or existing_deal.phone_number
+            existing_deal.email = str(email).strip() if email else existing_deal.email
+            existing_deal.product_name = str(product).strip() if product else existing_deal.product_name
+            existing_deal.revenue = revenue if revenue > 0 else existing_deal.revenue
+            existing_deal.sales_person = str(sales).strip() if sales else existing_deal.sales_person
+            existing_deal.payment_method = str(payment_method).strip() if payment_method else existing_deal.payment_method
+            existing_deal.status = str(status).strip() if status else existing_deal.status
+            existing_deal.note = str(note).strip() if note else existing_deal.note
+            existing_deal.raw_data = row
+            existing_deal.submitted_at = submitted_at
+            updated_count += 1
+        else:
+            new_deal = DealWin(
+                sheet_row_id=sheet_row_id,
+                submitted_at=submitted_at,
+                customer_name=str(name).strip() if name else "Khách hàng",
+                phone_number=phone,
+                email=str(email).strip() if email else None,
+                product_name=str(product).strip() if product else "Khóa học",
+                revenue=revenue,
+                sales_person=str(sales).strip() if sales else "Chưa phân công",
+                payment_method=str(payment_method).strip() if payment_method else None,
+                status=str(status).strip() if status else "WIN",
+                note=str(note).strip() if note else None,
+                raw_data=row,
+            )
+            db.add(new_deal)
+            synced_count += 1
+
+    db.commit()
+
+    # Xóa cache Deal Win để dashboard cập nhật số liệu mới ngay
+    with _DEAL_CACHE_LOCK:
+        _DEAL_CACHE.clear()
+
+    return {
+        "status": "ok",
+        "synced_count": synced_count,
+        "updated_count": updated_count,
+        "total_processed": len(rows),
+        "message": f"Đã lưu thành công {synced_count} deal mới và cập nhật {updated_count} deal."
+    }
+
+@app.get("/api/deals/list", response_model=DealWinListResponse)
+def get_deals_list(
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None,
+    sales_person: Optional[str] = None,
+    product_name: Optional[str] = None,
+    search: Optional[str] = None,
+    page: int = Query(1, ge=1),
+    size: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db)
+):
+    """Danh sách Deal Win có phân trang, bộ lọc thời gian, nhân viên, sản phẩm và tìm kiếm."""
+    start, end = resolve_period(start_date, end_date)
+
+    query = db.query(DealWin).filter(
+        DealWin.submitted_at.between(start, end)
+    )
+
+    if sales_person and sales_person.strip():
+        s_clean = sales_person.strip()
+        query = query.filter(DealWin.sales_person.ilike(f"%{s_clean}%"))
+
+    if product_name and product_name.strip():
+        p_clean = product_name.strip()
+        query = query.filter(DealWin.product_name.ilike(f"%{p_clean}%"))
+
+    if search and search.strip():
+        s = f"%{search.strip()}%"
+        query = query.filter(
+            or_(
+                DealWin.customer_name.ilike(s),
+                DealWin.phone_number.ilike(s),
+                DealWin.note.ilike(s),
+                DealWin.product_name.ilike(s)
+            )
+        )
+
+    all_deals = query.order_by(desc(DealWin.submitted_at)).all()
+
+    total = len(all_deals)
+    total_pages = (total + size - 1) // size if total > 0 else 1
+    paginated = all_deals[(page - 1) * size : page * size]
+
+    total_rev = sum(d.revenue for d in all_deals)
+    sales_stats = Counter()
+    prod_stats = Counter()
+    sales_persons_set = set()
+    products_set = set()
+
+    for d in all_deals:
+        sp = d.sales_person or "Chưa phân công"
+        pn = d.product_name or "Khác"
+        sales_stats[sp] += 1
+        prod_stats[pn] += 1
+        if d.sales_person:
+            sales_persons_set.add(d.sales_person)
+        if d.product_name:
+            products_set.add(d.product_name)
+
+    items = [
+        DealWinItem(
+            id=d.id,
+            sheet_row_id=d.sheet_row_id,
+            submitted_at=d.submitted_at,
+            customer_name=d.customer_name,
+            phone_number=d.phone_number,
+            email=d.email,
+            product_name=d.product_name,
+            revenue=d.revenue,
+            sales_person=d.sales_person,
+            payment_method=d.payment_method,
+            status=d.status,
+            note=d.note,
+            raw_data=d.raw_data,
+            created_at=d.created_at
+        )
+        for d in paginated
+    ]
+
+    return DealWinListResponse(
+        total=total,
+        page=page,
+        size=size,
+        total_pages=total_pages,
+        summary=DealWinSummary(
+            total_deals=total,
+            total_revenue=total_rev,
+            sales_person_stats=dict(sales_stats),
+            product_stats=dict(prod_stats),
+        ),
+        sales_persons=sorted(list(sales_persons_set)),
+        products=sorted(list(products_set)),
+        data=items
+    )
+
+@app.get("/api/deals/summary", response_model=DealWinSummary)
+def get_deals_summary(
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None,
+    sales_person: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """Thống kê tổng quan Deal Win theo khoảng thời gian."""
+    start, end = resolve_period(start_date, end_date)
+    query = db.query(DealWin).filter(DealWin.submitted_at.between(start, end))
+
+    if sales_person and sales_person.strip():
+        query = query.filter(DealWin.sales_person.ilike(f"%{sales_person.strip()}%"))
+
+    deals = query.all()
+    total_rev = sum(d.revenue for d in deals)
+    sales_stats = Counter()
+    prod_stats = Counter()
+
+    for d in deals:
+        sp = d.sales_person or "Chưa phân công"
+        pn = d.product_name or "Khác"
+        sales_stats[sp] += 1
+        prod_stats[pn] += 1
+
+    return DealWinSummary(
+        total_deals=len(deals),
+        total_revenue=total_rev,
+        sales_person_stats=dict(sales_stats),
+        product_stats=dict(prod_stats)
+    )
+
 

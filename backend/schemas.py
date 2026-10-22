@@ -78,3 +78,39 @@ class RemindLeadResponse(BaseModel):
     employees: List[str]
     tags: List[str] = []
     items: List[RemindLeadItem]
+
+class DealWinItem(BaseModel):
+    id: int
+    sheet_row_id: Optional[str] = None
+    submitted_at: Optional[datetime] = None
+    customer_name: Optional[str] = None
+    phone_number: Optional[str] = None
+    email: Optional[str] = None
+    product_name: Optional[str] = None
+    revenue: float = 0.0
+    sales_person: Optional[str] = None
+    payment_method: Optional[str] = None
+    status: Optional[str] = "WIN"
+    note: Optional[str] = None
+    raw_data: Optional[dict] = None
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+class DealWinSummary(BaseModel):
+    total_deals: int = 0
+    total_revenue: float = 0.0
+    sales_person_stats: dict = {}
+    product_stats: dict = {}
+
+class DealWinListResponse(BaseModel):
+    total: int
+    page: int
+    size: int
+    total_pages: int
+    summary: DealWinSummary
+    sales_persons: List[str] = []
+    products: List[str] = []
+    data: List[DealWinItem]
+

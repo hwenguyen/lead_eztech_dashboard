@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, JSON, Boolean, ForeignKey, Text
+from sqlalchemy import Column, Integer, String, DateTime, JSON, Boolean, ForeignKey, Text, Float
 from sqlalchemy.orm import relationship
 from database.db import Base
 from datetime import datetime, timezone, timedelta
@@ -123,6 +123,28 @@ class Post(Base):
     updated_at = Column(DateTime, nullable=True)                         # Thời điểm cập nhật cuối
     payload = Column(JSON, nullable=True)                                 # Toàn bộ dữ liệu gốc đầy đủ từ Pancake API
     created_at = Column(DateTime, default=get_vn_now)                     # Thời điểm lưu vào DB của hệ thống
+
+
+class DealWin(Base):
+    """Lưu trữ các Deal chốt thành công (Deal Win) từ Google Sheet / Google Form."""
+    __tablename__ = "deal_wins"
+
+    id = Column(Integer, primary_key=True, index=True)
+    sheet_row_id = Column(String, unique=True, index=True, nullable=True) # ID định danh dòng trên sheet (vd: sheet_row_2, timestamp+sdt)
+    submitted_at = Column(DateTime, index=True, nullable=True)           # Thời gian nộp form (Dấu thời gian)
+    customer_name = Column(String, nullable=True)                        # Tên khách hàng / Học viên
+    phone_number = Column(String, index=True, nullable=True)             # SĐT đã chuẩn hóa
+    email = Column(String, nullable=True)                                # Email khách hàng
+    product_name = Column(String, index=True, nullable=True)             # Tên khóa học / Gói sản phẩm
+    revenue = Column(Float, default=0.0, nullable=False)                 # Doanh thu / Số tiền thanh toán (VNĐ)
+    sales_person = Column(String, index=True, nullable=True)             # Nhân viên chốt / Sale phụ trách
+    payment_method = Column(String, nullable=True)                       # Phương thức thanh toán (CK, tiền mặt, v.v.)
+    status = Column(String, default="WIN", index=True)                   # Trạng thái (WIN, CANCELLED, REFUND...)
+    note = Column(Text, nullable=True)                                   # Ghi chú
+    raw_data = Column(JSON, nullable=True)                               # Lưu toàn bộ dữ liệu gốc của dòng form (mọi cột)
+    created_at = Column(DateTime, default=get_vn_now)                    # Thời điểm lưu vào DB
+    updated_at = Column(DateTime, default=get_vn_now, onupdate=get_vn_now)
+
 
 
 
