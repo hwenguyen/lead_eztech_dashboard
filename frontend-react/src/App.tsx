@@ -146,7 +146,7 @@ function App() {
                 }`}
               >
                 <Clock className="w-3.5 h-3.5 text-amber-500" />
-                <span>Chăm sóc Lead (Remind)</span>
+                <span>Chăm sóc Lead</span>
               </button>
               <button
                 onClick={() => setActiveTab('deals')}
@@ -157,7 +157,7 @@ function App() {
                 }`}
               >
                 <Award className="w-3.5 h-3.5 text-[#1E5BD6]" />
-                <span>Deal Win (Học viên)</span>
+                <span>Deal Win</span>
               </button>
             </div>
           </div>
