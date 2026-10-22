@@ -4,6 +4,9 @@ import sys
 import argparse
 from dotenv import load_dotenv
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+
 load_dotenv(".env.local")
 load_dotenv(".env")
 

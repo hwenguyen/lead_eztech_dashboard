@@ -922,22 +922,16 @@ class PancakeClient:
             "message": message,
         }
 
-        # Trích xuất comment ID chuẩn (loại bỏ prefix {post_id}_ hoặc tt_...: nếu có)
+        # message_id phải giữ nguyên ID đầy đủ của Pancake (không tách post_id hay tt_ vì backend Pancake tra cứu DB theo ID này)
         target_msg_id = kwargs.get("message_id") or conversation_id
-        clean_msg_id = target_msg_id
-        if isinstance(clean_msg_id, str):
-            if ":" in clean_msg_id:
-                clean_msg_id = clean_msg_id.split(":")[-1]
-            elif "_" in clean_msg_id:
-                parts = clean_msg_id.split("_")
-                if len(parts) >= 2:
-                    clean_msg_id = parts[-1]
-
         if action in ("reply_comment", "private_replies"):
-            payload["message_id"] = clean_msg_id
+            payload["message_id"] = str(target_msg_id)
 
         # Hỗ trợ các trường chuẩn theo Pancake OpenAPI (content_ids, sender_id, mentions...)
-        if "content_ids" in kwargs and kwargs["content_ids"] is not None:
+        # OpenAPI mẫu: { "action": "reply_comment", "message_id": "...", "message": "...", "content_ids": [] }
+        if action == "reply_comment":
+            payload["content_ids"] = kwargs.get("content_ids") if kwargs.get("content_ids") is not None else []
+        elif "content_ids" in kwargs and kwargs["content_ids"] is not None:
             payload["content_ids"] = kwargs["content_ids"]
         if "sender_id" in kwargs and kwargs["sender_id"]:
             payload["sender_id"] = kwargs["sender_id"]
@@ -984,21 +978,6 @@ class PancakeClient:
                                 )
                                 time.sleep(wait_time)
                                 continue
-
-                        # Nếu thất bại với clean_msg_id và có khác conversation_id gốc, tự động thử fallback với conversation_id gốc
-                        if clean_msg_id != conversation_id and action in ("reply_comment", "private_replies"):
-                            logger.info(f"[PANCAKE API] Thử gửi lại ({action}) với compound conversation_id làm message_id...")
-                            payload_fb = dict(payload)
-                            payload_fb["message_id"] = conversation_id
-                            try:
-                                resp_fb = self.session.post(url, params=params, json=payload_fb, timeout=30)
-                                if resp_fb.status_code in (200, 201):
-                                    data_fb = resp_fb.json()
-                                    if data_fb.get("success") or data_fb.get("id"):
-                                        data_fb["success"] = True
-                                        return data_fb
-                            except Exception as e_fb:
-                                logger.warning(f"[PANCAKE API] Fallback retry lỗi: {e_fb}")
 
                         data["message"] = err_str
                         logger.warning(f"[PANCAKE API] Gửi tin nhắn thất bại ({action}) [Payload: message_id={payload.get('message_id')}]: {data}")

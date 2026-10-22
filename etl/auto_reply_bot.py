@@ -419,20 +419,14 @@ def process_page_comment_replies(
         if not from_id:
             from_id = c_item.get("customer_id")
 
-        # Trích xuất comment_id chuẩn (loại bỏ prefix post_id_ hoặc tt_...: nếu có)
+        # Target comment ID chuẩn cho Pancake API: Giữ nguyên CID đầy đủ (ví dụ: tt_... hoặc post_id_cmt_id)
+        # Không được cắt bỏ prefix vì Pancake DB index và truy vấn comment theo chuỗi ID này
         target_msg_id = (
             c_item.get("target_message_id")
             or c_item.get("message_id")
             or (payload.get("message_id") if isinstance(payload, dict) else None)
+            or cid
         )
-        if not target_msg_id:
-            raw_cid = str(cid)
-            if ":" in raw_cid:
-                target_msg_id = raw_cid.split(":")[-1]
-            elif "_" in raw_cid:
-                target_msg_id = raw_cid.split("_")[-1]
-            else:
-                target_msg_id = raw_cid
 
         # TikTok không hỗ trợ API gửi tin nhắn riêng từ comment (chỉ Facebook/Instagram hỗ trợ theo Pancake OpenAPI)
         is_tiktok = str(page_id).startswith("tt_") or "tiktok" in resolve_canonical_page_name(page_id).lower()
