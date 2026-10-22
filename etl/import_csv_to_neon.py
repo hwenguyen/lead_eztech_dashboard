@@ -134,6 +134,17 @@ def import_rows_to_neon(rows):
                 inserted += 1
 
         db.commit()
+
+        # Đồng bộ tag "Đã là học viên" và nhân viên chăm sóc từ DimLead
+        sync_all_deals_with_dim_leads(db)
+
+        # Xoá cache Render API nếu đang chạy online
+        try:
+            import requests
+            requests.post("https://pancake-lead-api.onrender.com/api/admin/clear-cache", timeout=5)
+        except Exception:
+            pass
+
         print(f"✅ ĐÃ LƯU THÀNH CÔNG VÀO NEON POSTGRES!")
         print(f"   - Thêm mới: {inserted} học viên")
         print(f"   - Cập nhật: {updated} học viên")

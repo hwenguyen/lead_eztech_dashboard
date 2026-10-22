@@ -793,6 +793,23 @@ def run_etl_pipeline():
                 db = SessionLocal()
     finally:
         db.close()
+
+    # Tự động đồng bộ tag "Đã là học viên" và nhân viên chăm sóc từ DimLead sang DealWin
+    try:
+        from database.deal_sync import sync_all_deals_with_dim_leads
+        db_sync = SessionLocal()
+        total_deals, students, care_updated = sync_all_deals_with_dim_leads(db_sync)
+        logger.info(f"[DEAL_WINS] ✅ Đã đồng bộ Deal Win: {total_deals} deal, {students} học viên có tag 'Đã là học viên', {care_updated} lượt cập nhật care_by từ Pancake.")
+        db_sync.close()
+    except Exception as sync_err:
+        logger.warning(f"[DEAL_WINS] ⚠️ Không thể đồng bộ Deal Win tự động: {sync_err}")
+
+    # Xóa cache trên Render API để dashboard nhận dữ liệu mới ngay
+    try:
+        import requests
+        requests.post("https://pancake-lead-api.onrender.com/api/admin/clear-cache", timeout=5)
+    except Exception:
+        pass
         
     logger.info(f"ETL Pipeline hoàn tất trong {time.perf_counter() - t_start:.1f}s.")
 
