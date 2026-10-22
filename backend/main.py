@@ -12,6 +12,7 @@ import threading
 import logging
 from database.db import get_db, SessionLocal
 from database.models import DimLead, FactLeadActivity, RawConversation, DealWin
+from database.deal_sync import find_lead_info_by_phone, sync_all_deals_with_dim_leads
 from database.schema import ensure_schema
 from backend.schemas import (
     LeadMetricsSummary,
@@ -803,6 +804,10 @@ async def receive_deal_webhook(request: Request, db: Session = Depends(get_db)):
         if sheet_row_id:
             sheet_row_id = str(sheet_row_id).strip()
 
+        # Map với DimLead và Pancake qua SĐT
+        dim_lead_id, is_student, pancake_care, lead_tag = find_lead_info_by_phone(phone, db)
+        final_care_by = pancake_care or (str(care_by).strip() if care_by else "Chưa phân công")
+
         # Kiểm tra trùng lặp theo sheet_row_id hoặc theo SĐT + khóa học
         existing_deal = None
         if sheet_row_id:
@@ -828,7 +833,10 @@ async def receive_deal_webhook(request: Request, db: Session = Depends(get_db)):
             existing_deal.note = str(note).strip() if note else existing_deal.note
             existing_deal.course_name = str(course_name).strip() if course_name else existing_deal.course_name
             existing_deal.payment_status = str(payment_status).strip() if payment_status else existing_deal.payment_status
-            existing_deal.care_by = str(care_by).strip() if care_by else existing_deal.care_by
+            existing_deal.care_by = final_care_by or existing_deal.care_by
+            existing_deal.dim_lead_id = dim_lead_id or existing_deal.dim_lead_id
+            existing_deal.is_student = is_student
+            existing_deal.lead_tag = lead_tag or existing_deal.lead_tag
             existing_deal.raw_data = row
             updated_count += 1
         else:
@@ -847,7 +855,10 @@ async def receive_deal_webhook(request: Request, db: Session = Depends(get_db)):
                 note=str(note).strip() if note else None,
                 course_name=str(course_name).strip() if course_name else None,
                 payment_status=str(payment_status).strip() if payment_status else None,
-                care_by=str(care_by).strip() if care_by else "Chưa phân công",
+                care_by=final_care_by,
+                dim_lead_id=dim_lead_id,
+                is_student=is_student,
+                lead_tag=lead_tag,
                 raw_data=row,
             )
             db.add(new_deal)
@@ -867,21 +878,42 @@ async def receive_deal_webhook(request: Request, db: Session = Depends(get_db)):
         "message": f"Đã lưu thành công {synced_count} học viên mới và cập nhật {updated_count} học viên."
     }
 
+@app.post("/api/deals/sync-leads")
+def trigger_deal_leads_sync(db: Session = Depends(get_db)):
+    """Đồng bộ Deal Win với DimLead (map SĐT, kiểm tra tag Đã là học viên, cập nhật nhân viên chăm sóc từ Pancake)."""
+    total, students, updated = sync_all_deals_with_dim_leads(db)
+    with _DEAL_CACHE_LOCK:
+        _DEAL_CACHE.clear()
+    return {
+        "status": "ok",
+        "total_deals": total,
+        "students_count": students,
+        "care_by_updated": updated,
+        "message": f"Đã map thành công {total} deal: {students} học viên có tag 'Đã là học viên', {updated} lượt cập nhật nhân viên chăm sóc từ Pancake."
+    }
+
 @app.get("/api/deals/options", response_model=DealWinOptions)
-def get_deals_options(db: Session = Depends(get_db)):
+def get_deals_options(
+    only_student: bool = Query(True, description="Chỉ lấy danh sách sale/khóa có tag Đã là học viên"),
+    db: Session = Depends(get_db)
+):
     """Lấy danh sách các nhân viên sale và các khóa học từ Deal Win để render dropdown filters (có cache 10 phút)."""
-    cache_key = "deals_options"
+    cache_key = f"deals_options_{only_student}"
     with _DEAL_CACHE_LOCK:
         if cache_key in _DEAL_CACHE:
             ts, val = _DEAL_CACHE[cache_key]
             if time.time() - ts < 600.0:
                 return val
 
-    sales_rows = db.query(DealWin.care_by).distinct().filter(DealWin.care_by.isnot(None), func.trim(DealWin.care_by) != "").all()
-    courses_rows = db.query(DealWin.course_name).distinct().filter(DealWin.course_name.isnot(None), func.trim(DealWin.course_name) != "").all()
+    sales_query = db.query(DealWin.care_by).distinct().filter(DealWin.care_by.isnot(None), func.trim(DealWin.care_by) != "")
+    courses_query = db.query(DealWin.course_name).distinct().filter(DealWin.course_name.isnot(None), func.trim(DealWin.course_name) != "")
 
-    sales = sorted([r[0] for r in sales_rows if r[0]])
-    courses = sorted([r[0] for r in courses_rows if r[0]])
+    if only_student:
+        sales_query = sales_query.filter(DealWin.is_student == True)
+        courses_query = courses_query.filter(DealWin.is_student == True)
+
+    sales = sorted([r[0] for r in sales_query.all() if r[0]])
+    courses = sorted([r[0] for r in courses_query.all() if r[0]])
 
     res = DealWinOptions(sales_persons=sales, products=courses)
     with _DEAL_CACHE_LOCK:
@@ -894,11 +926,12 @@ def get_deals_summary(
     end_date: Optional[datetime] = None,
     sales_person: Optional[str] = None,
     product_name: Optional[str] = None,
+    only_student: bool = Query(True, description="Chỉ tính những ai có tag Đã là học viên"),
     db: Session = Depends(get_db)
 ):
     """Thống kê tổng quan Deal Win theo khoảng thời gian - Tối ưu 100% bằng SQL aggregations và in-memory cache (tiết kiệm băng thông Neon tối đa)."""
     start, end = resolve_period(start_date, end_date)
-    cache_key = f"deals_summary_{start}_{end}_{sales_person}_{product_name}"
+    cache_key = f"deals_summary_{start}_{end}_{sales_person}_{product_name}_{only_student}"
 
     with _DEAL_CACHE_LOCK:
         if cache_key in _DEAL_CACHE:
@@ -907,6 +940,8 @@ def get_deals_summary(
                 return val
 
     filters = [DealWin.timestamp.between(start, end)]
+    if only_student:
+        filters.append(DealWin.is_student == True)
     if sales_person and sales_person.strip():
         filters.append(DealWin.care_by.ilike(f"%{sales_person.strip()}%"))
     if product_name and product_name.strip():
@@ -976,6 +1011,7 @@ def get_deals_list(
     sales_person: Optional[str] = None,
     product_name: Optional[str] = None,
     search: Optional[str] = None,
+    only_student: bool = Query(True, description="Chỉ hiển thị những ai có tag Đã là học viên"),
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db)
@@ -984,6 +1020,9 @@ def get_deals_list(
     start, end = resolve_period(start_date, end_date)
 
     query = db.query(DealWin).filter(DealWin.timestamp.between(start, end))
+
+    if only_student:
+        query = query.filter(DealWin.is_student == True)
 
     if sales_person and sales_person.strip():
         query = query.filter(DealWin.care_by.ilike(f"%{sales_person.strip()}%"))
@@ -1026,6 +1065,9 @@ def get_deals_list(
         DealWin.course_name,
         DealWin.payment_status,
         DealWin.care_by,
+        DealWin.is_student,
+        DealWin.lead_tag,
+        DealWin.dim_lead_id,
         DealWin.created_at
     ).order_by(desc(DealWin.timestamp)).offset((page - 1) * size).limit(size).all()
 
@@ -1047,6 +1089,9 @@ def get_deals_list(
             course_name=r.course_name,
             payment_status=r.payment_status,
             care_by=r.care_by,
+            is_student=r.is_student,
+            lead_tag=r.lead_tag,
+            dim_lead_id=r.dim_lead_id,
             raw_data=None,  # Tối ưu băng thông
             created_at=r.created_at
         )

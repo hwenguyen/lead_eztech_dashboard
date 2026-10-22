@@ -7,6 +7,7 @@ import unicodedata
 from datetime import datetime
 from database.db import SessionLocal, engine
 from database.models import DealWin
+from database.deal_sync import find_lead_info_by_phone
 from database.schema import ensure_schema
 from etl.utils import normalize_phone, parse_pancake_date, VN_TZ
 
@@ -63,7 +64,11 @@ def import_rows_to_neon(rows):
             course_name = extract_field(row, ["học khóa", "đăng kí học", "khóa học", "gói học", "course_name", "product_name"])
             
             payment_status = extract_field(row, ["đóng tiền", "thanh toán", "payment_status", "học phí", "số tiền", "revenue"])
-            care_by = extract_field(row, ["chăm sóc", "sale", "nhân viên chốt", "nhân viên", "care_by", "sales_person"])
+            raw_care_by = extract_field(row, ["chăm sóc", "sale", "nhân viên chốt", "nhân viên", "care_by", "sales_person"])
+            
+            # Map với DimLead và Pancake qua SĐT
+            dim_lead_id, is_student, pancake_care, lead_tag = find_lead_info_by_phone(phone, db)
+            care_by = pancake_care or (str(raw_care_by).strip() if raw_care_by else "Chưa phân công")
             sheet_row_id = f"row_{idx}"
 
             existing = None
@@ -97,7 +102,10 @@ def import_rows_to_neon(rows):
                 existing.note = str(note).strip() if note else existing.note
                 existing.course_name = str(course_name).strip() if course_name else existing.course_name
                 existing.payment_status = str(payment_status).strip() if payment_status else existing.payment_status
-                existing.care_by = str(care_by).strip() if care_by else existing.care_by
+                existing.care_by = care_by or existing.care_by
+                existing.is_student = is_student
+                existing.dim_lead_id = dim_lead_id or existing.dim_lead_id
+                existing.lead_tag = lead_tag or existing.lead_tag
                 existing.raw_data = serializable_row
                 updated += 1
             else:
@@ -116,7 +124,10 @@ def import_rows_to_neon(rows):
                     note=str(note).strip() if note else None,
                     course_name=str(course_name).strip() if course_name else None,
                     payment_status=str(payment_status).strip() if payment_status else None,
-                    care_by=str(care_by).strip() if care_by else "Chưa phân công",
+                    care_by=care_by,
+                    dim_lead_id=dim_lead_id,
+                    is_student=is_student,
+                    lead_tag=lead_tag,
                     raw_data=serializable_row
                 )
                 db.add(deal)

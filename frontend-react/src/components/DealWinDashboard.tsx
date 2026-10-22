@@ -37,6 +37,7 @@ import {
   fetchDealWinList,
   fetchDealWinOptions,
   fetchDealWinDetail,
+  syncDealsWithLeads,
   type DealWinItem,
   type DealWinSummary,
   type DealWinOptions
@@ -50,6 +51,7 @@ export function DealWinDashboard() {
   const [datePreset, setDatePreset] = useState<'7d' | '30d' | 'month' | 'all' | 'custom'>('30d');
 
   // Filters
+  const [onlyStudent, setOnlyStudent] = useState<boolean>(true);
   const [selectedSale, setSelectedSale] = useState('');
   const [selectedCourse, setSelectedCourse] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -69,18 +71,19 @@ export function DealWinDashboard() {
   // Loading & status
   const [loadingSummary, setLoadingSummary] = useState(false);
   const [loadingList, setLoadingList] = useState(false);
+  const [syncingPancake, setSyncingPancake] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   // Modal detail
   const [detailModal, setDetailModal] = useState<DealWinItem | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
 
-  // Load dropdown options once on mount
+  // Load dropdown options once on mount or when onlyStudent changes
   useEffect(() => {
-    fetchDealWinOptions()
+    fetchDealWinOptions(onlyStudent)
       .then(res => setOptions(res))
       .catch(err => console.error('Error fetching deal options:', err));
-  }, []);
+  }, [onlyStudent]);
 
   // Quick date presets
   const handleDatePreset = (preset: '7d' | '30d' | 'month' | 'all') => {
@@ -109,7 +112,8 @@ export function DealWinDashboard() {
         startDate,
         endDate,
         selectedSale || undefined,
-        selectedCourse || undefined
+        selectedCourse || undefined,
+        onlyStudent
       );
       setSummary(res);
       setLastUpdated(new Date());
@@ -131,7 +135,8 @@ export function DealWinDashboard() {
         endDate,
         selectedSale || undefined,
         selectedCourse || undefined,
-        activeSearch || undefined
+        activeSearch || undefined,
+        onlyStudent
       );
       setDeals(res.data);
       setTotalDeals(res.total);
@@ -148,7 +153,22 @@ export function DealWinDashboard() {
   useEffect(() => {
     loadSummaryData();
     loadListData(1);
-  }, [startDate, endDate, selectedSale, selectedCourse, activeSearch]);
+  }, [startDate, endDate, selectedSale, selectedCourse, activeSearch, onlyStudent]);
+
+  const handleSyncPancake = async () => {
+    setSyncingPancake(true);
+    try {
+      const res = await syncDealsWithLeads();
+      alert(res.message);
+      loadSummaryData();
+      loadListData(page);
+    } catch (err) {
+      console.error('Error syncing with Pancake:', err);
+      alert('Lỗi đồng bộ với Pancake!');
+    } finally {
+      setSyncingPancake(false);
+    }
+  };
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -262,6 +282,19 @@ export function DealWinDashboard() {
 
           <div className="h-9 w-px bg-[#E5E7EB] mx-1 hidden sm:block" />
 
+          {/* Student Tag Filter */}
+          <div className="flex flex-col gap-1 min-w-[190px]">
+            <label className="text-xs font-medium text-[#4B5563]">Phân loại Học viên</label>
+            <select
+              value={onlyStudent ? 'student' : 'all'}
+              onChange={e => setOnlyStudent(e.target.value === 'student')}
+              className="px-3 py-2 border border-[#E5E7EB] rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#1E5BD6]/20 focus:border-[#1E5BD6] transition-all text-[#111827] cursor-pointer font-medium"
+            >
+              <option value="student">✓ Có tag 'Đã là học viên' ({summary?.total_deals ?? 0})</option>
+              <option value="all">Tất cả form đăng ký</option>
+            </select>
+          </div>
+
           {/* Sale Filter */}
           <div className="flex flex-col gap-1 min-w-[160px]">
             <label className="text-xs font-medium text-[#4B5563]">Nhân viên Sale</label>
@@ -319,13 +352,22 @@ export function DealWinDashboard() {
             </div>
           </form>
 
-          {/* Refresh Button & Timestamp */}
+          {/* Action Buttons & Timestamp */}
           <div className="flex items-center gap-2 shrink-0">
             {lastUpdated && (
-              <span className="text-xs text-gray-400 hidden md:inline">
+              <span className="text-xs text-gray-400 hidden xl:inline">
                 Cập nhật: {format(lastUpdated, 'HH:mm:ss')}
               </span>
             )}
+            <button
+              onClick={handleSyncPancake}
+              disabled={syncingPancake || loadingSummary || loadingList}
+              className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-xl transition-colors disabled:opacity-50 border border-emerald-200"
+              title="Đồng bộ tag 'Đã là học viên' và nhân viên chăm sóc từ Pancake"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${syncingPancake ? 'animate-spin' : ''}`} />
+              <span>{syncingPancake ? 'Đang đồng bộ...' : 'Đồng bộ Pancake'}</span>
+            </button>
             <button
               onClick={handleRefresh}
               disabled={loadingSummary || loadingList}
@@ -653,8 +695,17 @@ export function DealWinDashboard() {
                             {(deal.full_name || 'H').charAt(0).toUpperCase()}
                           </div>
                           <div>
-                            <div className="font-semibold text-navy">
-                              {deal.full_name || 'Học viên'}
+                            <div className="font-semibold text-navy flex items-center gap-1.5">
+                              <span>{deal.full_name || 'Học viên'}</span>
+                              {deal.is_student ? (
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                  Học viên
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-500">
+                                  Chưa có tag
+                                </span>
+                              )}
                             </div>
                             {deal.birth_year && (
                               <div className="text-[11px] text-gray-400">
@@ -707,7 +758,7 @@ export function DealWinDashboard() {
 
                       {/* Care by Sale */}
                       <td className="px-5 py-3.5 whitespace-nowrap text-xs">
-                        <span className="font-medium text-gray-800">
+                        <span className="font-semibold text-navy bg-slate-100/90 px-2 py-0.5 rounded-md border border-slate-200">
                           {deal.care_by || 'Chưa phân công'}
                         </span>
                       </td>
@@ -860,6 +911,25 @@ export function DealWinDashboard() {
                   <div>
                     <span className="text-xs text-gray-500 block">Kênh biết đến:</span>
                     <span className="font-semibold text-gray-800">{detailModal.source_channel || 'Không rõ'}</span>
+                  </div>
+                  <div className="sm:col-span-2">
+                    <span className="text-xs text-gray-500 block">Trạng thái gắn tag Pancake:</span>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      {detailModal.is_student ? (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-emerald-100 text-emerald-800">
+                          ✓ Đã là học viên
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-600">
+                          Chưa có tag Học viên
+                        </span>
+                      )}
+                      {detailModal.lead_tag && (
+                        <span className="text-xs text-gray-500 truncate" title={detailModal.lead_tag}>
+                          (Tags: {detailModal.lead_tag})
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>

@@ -179,6 +179,9 @@ export interface DealWinItem {
   course_name?: string;
   payment_status?: string;
   care_by?: string;
+  is_student?: boolean;
+  lead_tag?: string;
+  dim_lead_id?: number;
   raw_data?: Record<string, any>;
   created_at?: string;
 }
@@ -211,9 +214,10 @@ export const fetchDealWinSummary = async (
   startDate?: string,
   endDate?: string,
   salesPerson?: string,
-  productName?: string
+  productName?: string,
+  onlyStudent: boolean = true
 ): Promise<DealWinSummary> => {
-  const params: any = {};
+  const params: any = { only_student: onlyStudent };
   if (startDate) params.start_date = startDate;
   if (endDate) params.end_date = endDate;
   if (salesPerson) params.sales_person = salesPerson;
@@ -229,9 +233,10 @@ export const fetchDealWinList = async (
   endDate?: string,
   salesPerson?: string,
   productName?: string,
-  search?: string
+  search?: string,
+  onlyStudent: boolean = true
 ): Promise<DealWinListResponse> => {
-  const params: any = { page, size };
+  const params: any = { page, size, only_student: onlyStudent };
   if (startDate) params.start_date = startDate;
   if (endDate) params.end_date = endDate;
   if (salesPerson) params.sales_person = salesPerson;
@@ -241,12 +246,17 @@ export const fetchDealWinList = async (
   return res.data;
 };
 
-export const fetchDealWinOptions = async (): Promise<DealWinOptions> => {
-  const res = await apiClient.get<DealWinOptions>('/deals/options');
+export const fetchDealWinOptions = async (onlyStudent: boolean = true): Promise<DealWinOptions> => {
+  const res = await apiClient.get<DealWinOptions>('/deals/options', { params: { only_student: onlyStudent } });
   return res.data;
 };
 
 export const fetchDealWinDetail = async (dealId: number): Promise<DealWinItem> => {
   const res = await apiClient.get<DealWinItem>(`/deals/${dealId}`);
+  return res.data;
+};
+
+export const syncDealsWithLeads = async (): Promise<{ status: string; total_deals: number; students_count: number; care_by_updated: number; message: string }> => {
+  const res = await apiClient.post('/deals/sync-leads');
   return res.data;
 };

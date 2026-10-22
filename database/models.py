@@ -145,6 +145,9 @@ class DealWin(Base):
     course_name = Column(String, index=True, nullable=True)              # HỌC KHÓA (K31, K32, K33, DAK...)
     payment_status = Column(String, nullable=True)                       # ĐÓNG TIỀN (text gốc: "Nộp 3,5tr", "Đã đóng"...)
     care_by = Column(String, index=True, nullable=True)                  # CHĂM SÓC (Nhân viên sale phụ trách: Hiền Minh...)
+    dim_lead_id = Column(Integer, nullable=True, index=True)             # ID của lead tương ứng trong dim_leads
+    is_student = Column(Boolean, default=False, index=True)              # True nếu có tag "Đã là học viên" trên Pancake
+    lead_tag = Column(String, nullable=True)                              # Tag lấy từ Pancake (vd: "Đã là học viên, Khách VIP")
     raw_data = Column(JSON, nullable=True)                               # Lưu toàn bộ dữ liệu gốc của dòng form
     created_at = Column(DateTime, default=get_vn_now)                    # Thời điểm lưu vào DB
     updated_at = Column(DateTime, default=get_vn_now, onupdate=get_vn_now)

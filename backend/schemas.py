@@ -96,6 +96,9 @@ class DealWinItem(BaseModel):
     course_name: Optional[str] = None
     payment_status: Optional[str] = None
     care_by: Optional[str] = None
+    is_student: Optional[bool] = False
+    lead_tag: Optional[str] = None
+    dim_lead_id: Optional[int] = None
     raw_data: Optional[dict] = None
     created_at: Optional[datetime] = None
 
