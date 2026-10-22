@@ -157,3 +157,96 @@ export const fetchRemindLeads = async (
   const res = await apiClient.get<RemindLeadResponse>('/leads/remind', { params });
   return res.data;
 };
+
+// ==========================================
+// DEAL WIN (Google Sheet / Form Học Viên)
+// ==========================================
+
+export interface DealWinItem {
+  id: number;
+  sheet_row_id?: string;
+  timestamp?: string;
+  email?: string;
+  full_name?: string;
+  phone_number?: string;
+  birth_year?: string;
+  address?: string;
+  industry?: string;
+  job_title?: string;
+  expectation?: string;
+  source_channel?: string;
+  note?: string;
+  course_name?: string;
+  payment_status?: string;
+  care_by?: string;
+  raw_data?: Record<string, any>;
+  created_at?: string;
+}
+
+export interface DealWinSummary {
+  total_deals: number;
+  paid_deals: number;
+  top_sales_person?: string;
+  top_product?: string;
+  sales_person_stats: Record<string, number>;
+  product_stats: Record<string, number>;
+  source_stats: Record<string, number>;
+  daily_trend: Array<{ date: string; count: number }>;
+}
+
+export interface DealWinListResponse {
+  total: number;
+  page: number;
+  size: number;
+  total_pages: number;
+  data: DealWinItem[];
+}
+
+export interface DealWinOptions {
+  sales_persons: string[];
+  products: string[];
+}
+
+export const fetchDealWinSummary = async (
+  startDate?: string,
+  endDate?: string,
+  salesPerson?: string,
+  productName?: string
+): Promise<DealWinSummary> => {
+  const params: any = {};
+  if (startDate) params.start_date = startDate;
+  if (endDate) params.end_date = endDate;
+  if (salesPerson) params.sales_person = salesPerson;
+  if (productName) params.product_name = productName;
+  const res = await apiClient.get<DealWinSummary>('/deals/summary', { params });
+  return res.data;
+};
+
+export const fetchDealWinList = async (
+  page: number = 1,
+  size: number = 20,
+  startDate?: string,
+  endDate?: string,
+  salesPerson?: string,
+  productName?: string,
+  search?: string
+): Promise<DealWinListResponse> => {
+  const params: any = { page, size };
+  if (startDate) params.start_date = startDate;
+  if (endDate) params.end_date = endDate;
+  if (salesPerson) params.sales_person = salesPerson;
+  if (productName) params.product_name = productName;
+  if (search) params.search = search;
+  const res = await apiClient.get<DealWinListResponse>('/deals/list', { params });
+  return res.data;
+};
+
+export const fetchDealWinOptions = async (): Promise<DealWinOptions> => {
+  const res = await apiClient.get<DealWinOptions>('/deals/options');
+  return res.data;
+};
+
+export const fetchDealWinDetail = async (dealId: number): Promise<DealWinItem> => {
+  const res = await apiClient.get<DealWinItem>(`/deals/${dealId}`);
+  return res.data;
+};

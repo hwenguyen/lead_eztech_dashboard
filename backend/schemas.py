@@ -122,16 +122,25 @@ class DealWinItem(BaseModel):
 
 class DealWinSummary(BaseModel):
     total_deals: int = 0
+    paid_deals: int = 0
+    top_sales_person: Optional[str] = None
+    top_product: Optional[str] = None
     sales_person_stats: dict = {}
     product_stats: dict = {}
+    source_stats: dict = {}
+    daily_trend: List[dict] = []
+
+class DealWinOptions(BaseModel):
+    sales_persons: List[str] = []
+    products: List[str] = []
 
 class DealWinListResponse(BaseModel):
     total: int
     page: int
     size: int
     total_pages: int
-    summary: DealWinSummary
-    sales_persons: List[str] = []
-    products: List[str] = []
     data: List[DealWinItem]
+    summary: Optional[DealWinSummary] = None
+    sales_persons: Optional[List[str]] = None
+    products: Optional[List[str]] = None
 

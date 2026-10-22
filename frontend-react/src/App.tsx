@@ -1,16 +1,17 @@
 import { useState, useEffect } from 'react';
 import { format, subDays } from 'date-fns';
-import { Users, UserPlus, UserCheck, PhoneCall, PhoneForwarded, Percent, Filter, RefreshCw, LayoutDashboard, Clock } from 'lucide-react';
+import { Users, UserPlus, UserCheck, PhoneCall, PhoneForwarded, Percent, Filter, RefreshCw, LayoutDashboard, Clock, Award } from 'lucide-react';
 import { KpiCard } from './components/KpiCard';
 import { TrendChart } from './components/TrendChart';
 import { LeadTable } from './components/LeadTable';
 import { RatioChart } from './components/RatioChart';
 import { StatsPieChart } from './components/StatsPieChart';
 import { RemindLeadTable } from './components/RemindLeadTable';
+import { DealWinDashboard } from './components/DealWinDashboard';
 import { fetchSummary, fetchTrend, fetchLeads, fetchEmployees, fetchPages, type SummaryData, type TrendData, type Lead } from './services/api';
 
 function App() {
-  const [activeTab, setActiveTab] = useState<'overview' | 'remind'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'remind' | 'deals'>('overview');
   const [startDate, setStartDate] = useState(format(subDays(new Date(), 7), 'yyyy-MM-dd'));
   const [endDate, setEndDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [pageId, setPageId] = useState('');
@@ -147,6 +148,17 @@ function App() {
                 <Clock className="w-3.5 h-3.5 text-amber-500" />
                 <span>Chăm sóc Lead (Remind)</span>
               </button>
+              <button
+                onClick={() => setActiveTab('deals')}
+                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                  activeTab === 'deals'
+                    ? 'bg-white text-navy shadow-sm'
+                    : 'text-[#4B5563] hover:text-navy hover:bg-white/50'
+                }`}
+              >
+                <Award className="w-3.5 h-3.5 text-[#1E5BD6]" />
+                <span>Deal Win (Học viên)</span>
+              </button>
             </div>
           </div>
 
@@ -190,11 +202,24 @@ function App() {
             }`}
           >
             <Clock className="w-3.5 h-3.5 text-amber-500" />
-            <span>Remind Lead</span>
+            <span>Remind</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('deals')}
+            className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-semibold transition-all ${
+              activeTab === 'deals'
+                ? 'bg-white text-navy shadow-sm'
+                : 'text-[#4B5563]'
+            }`}
+          >
+            <Award className="w-3.5 h-3.5 text-[#1E5BD6]" />
+            <span>Deal Win</span>
           </button>
         </div>
 
-        {activeTab === 'remind' ? (
+        {activeTab === 'deals' ? (
+          <DealWinDashboard />
+        ) : activeTab === 'remind' ? (
           <RemindLeadTable pagesList={pagesList} zaloPages={zaloPages} />
         ) : (
           <>

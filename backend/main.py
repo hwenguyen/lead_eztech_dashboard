@@ -25,6 +25,7 @@ from backend.schemas import (
     DealWinItem,
     DealWinListResponse,
     DealWinSummary,
+    DealWinOptions,
 )
 from backend.lead_metrics import classify_leads, resolve_period, normalize_text, clear_metrics_cache
 from etl.utils import (
@@ -866,6 +867,108 @@ async def receive_deal_webhook(request: Request, db: Session = Depends(get_db)):
         "message": f"Đã lưu thành công {synced_count} học viên mới và cập nhật {updated_count} học viên."
     }
 
+@app.get("/api/deals/options", response_model=DealWinOptions)
+def get_deals_options(db: Session = Depends(get_db)):
+    """Lấy danh sách các nhân viên sale và các khóa học từ Deal Win để render dropdown filters (có cache 10 phút)."""
+    cache_key = "deals_options"
+    with _DEAL_CACHE_LOCK:
+        if cache_key in _DEAL_CACHE:
+            ts, val = _DEAL_CACHE[cache_key]
+            if time.time() - ts < 600.0:
+                return val
+
+    sales_rows = db.query(DealWin.care_by).distinct().filter(DealWin.care_by.isnot(None), func.trim(DealWin.care_by) != "").all()
+    courses_rows = db.query(DealWin.course_name).distinct().filter(DealWin.course_name.isnot(None), func.trim(DealWin.course_name) != "").all()
+
+    sales = sorted([r[0] for r in sales_rows if r[0]])
+    courses = sorted([r[0] for r in courses_rows if r[0]])
+
+    res = DealWinOptions(sales_persons=sales, products=courses)
+    with _DEAL_CACHE_LOCK:
+        _DEAL_CACHE[cache_key] = (time.time(), res)
+    return res
+
+@app.get("/api/deals/summary", response_model=DealWinSummary)
+def get_deals_summary(
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None,
+    sales_person: Optional[str] = None,
+    product_name: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """Thống kê tổng quan Deal Win theo khoảng thời gian - Tối ưu 100% bằng SQL aggregations và in-memory cache (tiết kiệm băng thông Neon tối đa)."""
+    start, end = resolve_period(start_date, end_date)
+    cache_key = f"deals_summary_{start}_{end}_{sales_person}_{product_name}"
+
+    with _DEAL_CACHE_LOCK:
+        if cache_key in _DEAL_CACHE:
+            ts, val = _DEAL_CACHE[cache_key]
+            if time.time() - ts < _DEAL_CACHE_TTL:
+                return val
+
+    filters = [DealWin.timestamp.between(start, end)]
+    if sales_person and sales_person.strip():
+        filters.append(DealWin.care_by.ilike(f"%{sales_person.strip()}%"))
+    if product_name and product_name.strip():
+        filters.append(DealWin.course_name.ilike(f"%{product_name.strip()}%"))
+
+    # 1. Total deals count
+    total_deals = db.query(func.count(DealWin.id)).filter(*filters).scalar() or 0
+
+    # 2. Paid deals count (where payment_status is not null and not empty)
+    paid_deals = db.query(func.count(DealWin.id)).filter(
+        *filters,
+        DealWin.payment_status.isnot(None),
+        func.trim(DealWin.payment_status) != ""
+    ).scalar() or 0
+
+    # 3. Sales person stats (GROUP BY care_by)
+    sales_query = db.query(
+        func.coalesce(DealWin.care_by, "Chưa phân công").label("sale"),
+        func.count(DealWin.id).label("cnt")
+    ).filter(*filters).group_by(func.coalesce(DealWin.care_by, "Chưa phân công")).order_by(desc("cnt")).all()
+    sales_stats = {r.sale: r.cnt for r in sales_query}
+
+    # 4. Product stats (GROUP BY course_name)
+    prod_query = db.query(
+        func.coalesce(DealWin.course_name, "Chưa xác định").label("course"),
+        func.count(DealWin.id).label("cnt")
+    ).filter(*filters).group_by(func.coalesce(DealWin.course_name, "Chưa xác định")).order_by(desc("cnt")).all()
+    prod_stats = {r.course: r.cnt for r in prod_query}
+
+    # 5. Source stats (GROUP BY source_channel)
+    source_query = db.query(
+        func.coalesce(DealWin.source_channel, "Không rõ nguồn").label("src"),
+        func.count(DealWin.id).label("cnt")
+    ).filter(*filters).group_by(func.coalesce(DealWin.source_channel, "Không rõ nguồn")).order_by(desc("cnt")).limit(10).all()
+    source_stats = {r.src: r.cnt for r in source_query}
+
+    # 6. Daily trend (GROUP BY DATE(timestamp))
+    trend_query = db.query(
+        func.date(DealWin.timestamp).label("d"),
+        func.count(DealWin.id).label("cnt")
+    ).filter(*filters).group_by(func.date(DealWin.timestamp)).order_by("d").all()
+    daily_trend = [{"date": str(r.d), "count": r.cnt} for r in trend_query if r.d]
+
+    top_sale = next(iter(sales_stats.keys()), None)
+    top_prod = next(iter(prod_stats.keys()), None)
+
+    summary = DealWinSummary(
+        total_deals=total_deals,
+        paid_deals=paid_deals,
+        top_sales_person=top_sale,
+        top_product=top_prod,
+        sales_person_stats=sales_stats,
+        product_stats=prod_stats,
+        source_stats=source_stats,
+        daily_trend=daily_trend
+    )
+
+    with _DEAL_CACHE_LOCK:
+        _DEAL_CACHE[cache_key] = (time.time(), summary)
+
+    return summary
+
 @app.get("/api/deals/list", response_model=DealWinListResponse)
 def get_deals_list(
     start_date: Optional[datetime] = None,
@@ -877,20 +980,16 @@ def get_deals_list(
     size: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db)
 ):
-    """Danh sách Deal Win có phân trang, bộ lọc thời gian, nhân viên, sản phẩm và tìm kiếm."""
+    """Danh sách Deal Win có phân trang tối ưu - Chỉ fetch các cột cần thiết, KHÔNG tải raw_data JSON để tiết kiệm tối đa Network Transfer."""
     start, end = resolve_period(start_date, end_date)
 
-    query = db.query(DealWin).filter(
-        DealWin.timestamp.between(start, end)
-    )
+    query = db.query(DealWin).filter(DealWin.timestamp.between(start, end))
 
     if sales_person and sales_person.strip():
-        s_clean = sales_person.strip()
-        query = query.filter(DealWin.care_by.ilike(f"%{s_clean}%"))
+        query = query.filter(DealWin.care_by.ilike(f"%{sales_person.strip()}%"))
 
     if product_name and product_name.strip():
-        p_clean = product_name.strip()
-        query = query.filter(DealWin.course_name.ilike(f"%{p_clean}%"))
+        query = query.filter(DealWin.course_name.ilike(f"%{product_name.strip()}%"))
 
     if search and search.strip():
         s = f"%{search.strip()}%"
@@ -900,54 +999,58 @@ def get_deals_list(
                 DealWin.phone_number.ilike(s),
                 DealWin.email.ilike(s),
                 DealWin.note.ilike(s),
-                DealWin.course_name.ilike(s)
+                DealWin.course_name.ilike(s),
+                DealWin.care_by.ilike(s)
             )
         )
 
-    all_deals = query.order_by(desc(DealWin.timestamp)).all()
-
-    total = len(all_deals)
+    # Đếm tổng số O(1) qua SQL count
+    total = query.with_entities(func.count(DealWin.id)).scalar() or 0
     total_pages = (total + size - 1) // size if total > 0 else 1
-    paginated = all_deals[(page - 1) * size : page * size]
 
-    total_rev = sum(d.revenue for d in all_deals)
-    sales_stats = Counter()
-    prod_stats = Counter()
-    sales_persons_set = set()
-    products_set = set()
-
-    for d in all_deals:
-        sp = d.care_by or "Chưa phân công"
-        pn = d.course_name or "Khác"
-        sales_stats[sp] += 1
-        prod_stats[pn] += 1
-        if d.care_by:
-            sales_persons_set.add(d.care_by)
-        if d.course_name:
-            products_set.add(d.course_name)
+    # Fetch các cột nhẹ với SQL LIMIT & OFFSET (bỏ qua raw_data)
+    rows = query.with_entities(
+        DealWin.id,
+        DealWin.sheet_row_id,
+        DealWin.timestamp,
+        DealWin.email,
+        DealWin.full_name,
+        DealWin.phone_number,
+        DealWin.birth_year,
+        DealWin.address,
+        DealWin.industry,
+        DealWin.job_title,
+        DealWin.expectation,
+        DealWin.source_channel,
+        DealWin.note,
+        DealWin.course_name,
+        DealWin.payment_status,
+        DealWin.care_by,
+        DealWin.created_at
+    ).order_by(desc(DealWin.timestamp)).offset((page - 1) * size).limit(size).all()
 
     items = [
         DealWinItem(
-            id=d.id,
-            sheet_row_id=d.sheet_row_id,
-            timestamp=d.timestamp,
-            email=d.email,
-            full_name=d.full_name,
-            phone_number=d.phone_number,
-            birth_year=d.birth_year,
-            address=d.address,
-            industry=d.industry,
-            job_title=d.job_title,
-            expectation=d.expectation,
-            source_channel=d.source_channel,
-            note=d.note,
-            course_name=d.course_name,
-            payment_status=d.payment_status,
-            care_by=d.care_by,
-            raw_data=d.raw_data,
-            created_at=d.created_at
+            id=r.id,
+            sheet_row_id=r.sheet_row_id,
+            timestamp=r.timestamp,
+            email=r.email,
+            full_name=r.full_name,
+            phone_number=r.phone_number,
+            birth_year=r.birth_year,
+            address=r.address,
+            industry=r.industry,
+            job_title=r.job_title,
+            expectation=r.expectation,
+            source_channel=r.source_channel,
+            note=r.note,
+            course_name=r.course_name,
+            payment_status=r.payment_status,
+            care_by=r.care_by,
+            raw_data=None,  # Tối ưu băng thông
+            created_at=r.created_at
         )
-        for d in paginated
+        for r in rows
     ]
 
     return DealWinListResponse(
@@ -955,45 +1058,17 @@ def get_deals_list(
         page=page,
         size=size,
         total_pages=total_pages,
-        summary=DealWinSummary(
-            total_deals=total,
-            sales_person_stats=dict(sales_stats),
-            product_stats=dict(prod_stats),
-        ),
-        sales_persons=sorted(list(sales_persons_set)),
-        products=sorted(list(products_set)),
         data=items
     )
 
-@app.get("/api/deals/summary", response_model=DealWinSummary)
-def get_deals_summary(
-    start_date: Optional[datetime] = None,
-    end_date: Optional[datetime] = None,
-    sales_person: Optional[str] = None,
-    db: Session = Depends(get_db)
-):
-    """Thống kê tổng quan Deal Win theo khoảng thời gian."""
-    start, end = resolve_period(start_date, end_date)
-    query = db.query(DealWin).filter(DealWin.timestamp.between(start, end))
+@app.get("/api/deals/{deal_id}", response_model=DealWinItem)
+def get_deal_detail(deal_id: int, db: Session = Depends(get_db)):
+    """Lấy chi tiết 1 Deal Win (bao gồm cả raw_data) chỉ khi người dùng click xem chi tiết modal."""
+    deal = db.query(DealWin).filter(DealWin.id == deal_id).first()
+    if not deal:
+        raise HTTPException(status_code=404, detail="Deal không tồn tại")
+    return DealWinItem.from_orm(deal)
 
-    if sales_person and sales_person.strip():
-        query = query.filter(DealWin.care_by.ilike(f"%{sales_person.strip()}%"))
-
-    deals = query.all()
-    sales_stats = Counter()
-    prod_stats = Counter()
-
-    for d in deals:
-        sp = d.care_by or "Chưa phân công"
-        pn = d.course_name or "Khác"
-        sales_stats[sp] += 1
-        prod_stats[pn] += 1
-
-    return DealWinSummary(
-        total_deals=len(deals),
-        sales_person_stats=dict(sales_stats),
-        product_stats=dict(prod_stats)
-    )
 
 
 
