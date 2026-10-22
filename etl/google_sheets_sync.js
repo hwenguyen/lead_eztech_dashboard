@@ -1,37 +1,60 @@
 /**
- * GOOGLE APPS SCRIPT ĐỒNG BỘ DEAL WIN SANG DATABASE EZTECH
+ * GOOGLE APPS SCRIPT ĐỒNG BỘ DEAL WIN / HỌC VIÊN SANG DATABASE NEON
  * 
- * Hướng dẫn cài đặt trên Google Sheet:
- * 1. Trên trang Google Sheet (kết quả form), bấm: Tiện ích mở rộng (Extensions) > Apps Script
- * 2. Xóa code cũ, dán toàn bộ đoạn code này vào.
- * 3. Thay đổi biến API_URL bên dưới thành link Render của bạn:
- *    Ví dụ: "https://pancake-lead-api.onrender.com/api/deals/webhook"
- * 4. Bấm Lưu (Ctrl+S).
- * 5. Bấm Trình kích hoạt (Biểu tượng đồng hồ ở menu trái / Triggers) > Thêm trình kích hoạt:
- *    - Chọn hàm: onFormSubmitHandler
- *    - Chọn nguồn sự kiện: Từ bảng tính
- *    - Chọn loại sự kiện: Khi gửi biểu mẫu (On form submit)
- *    - Bấm Lưu và cấp quyền cho script.
+ * Tính năng:
+ * 1. onFormSubmitHandler: Tự động đẩy ngay khi có học viên mới nộp Form.
+ * 2. onEditHandler: Tự động cập nhật ngay khi nhân viên sửa bất kỳ ô nào (Đóng tiền, Chăm sóc, Note...).
+ * 3. dailySyncJob: Tự động chạy định kỳ mỗi ngày để quét và cập nhật toàn bộ bảng lên Neon.
+ * 4. syncAllExistingDeals: Nút bấm đồng bộ thủ công trên thanh menu Google Sheet.
  */
 
 // ĐỊA CHỈ API CỦA BẠN TRÊN RENDER (Gắn thêm /api/deals/webhook)
 var API_URL = "https://pancake-lead-api.onrender.com/api/deals/webhook";
+var TARGET_SHEET_NAME = "Form Responses 1"; // Tên tab chứa kết quả form
 
 /**
- * 1. TỰ ĐỘNG CHẠY KHI CÓ NGƯỜI NỘP FORM MỚI
+ * Lấy đúng sheet chứa dữ liệu form
+ */
+function getTargetSheet() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  return ss.getSheetByName(TARGET_SHEET_NAME) || ss.getActiveSheet();
+}
+
+/**
+ * 1. TỰ ĐỘNG CHẠY KHI CÓ FORM MỚI NỘP
  */
 function onFormSubmitHandler(e) {
   try {
-    var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+    var sheet = getTargetSheet();
     var row = e ? e.range.getRow() : sheet.getLastRow();
     sendRowToBackend(sheet, row);
   } catch (err) {
-    Logger.log("Lỗi khi xử lý Form Submit: " + err);
+    Logger.log("Lỗi onFormSubmitHandler: " + err);
   }
 }
 
 /**
- * 2. ĐỒNG BỘ 1 DÒNG CỤ THỂ SANG BACKEND
+ * 2. TỰ ĐỘNG CHẠY KHI NHÂN VIÊN SỬA BẤT KỲ Ô NÀO TRÊN SHEET (Real-time edit)
+ * (Ví dụ: Đổi cột ĐÓNG TIỀN, HỌC KHÓA, CHĂM SÓC, Note...)
+ */
+function onEditHandler(e) {
+  try {
+    if (!e || !e.range) return;
+    var sheet = e.range.getSheet();
+    // Chỉ kích hoạt khi sửa trong sheet Form Responses 1 và từ dòng 2 trở đi
+    if (sheet.getName() !== TARGET_SHEET_NAME && sheet.getName() !== getTargetSheet().getName()) return;
+    var row = e.range.getRow();
+    if (row < 2) return; // Bỏ qua dòng tiêu đề
+
+    sendRowToBackend(sheet, row);
+    Logger.log("Đã tự động cập nhật dòng " + row + " sau khi chỉnh sửa.");
+  } catch (err) {
+    Logger.log("Lỗi onEditHandler: " + err);
+  }
+}
+
+/**
+ * Gửi 1 dòng cụ thể sang Backend Neon
  */
 function sendRowToBackend(sheet, rowNumber) {
   var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
@@ -60,20 +83,21 @@ function sendRowToBackend(sheet, rowNumber) {
   };
   
   var response = UrlFetchApp.fetch(API_URL, options);
-  Logger.log("Row " + rowNumber + " sent. Response: " + response.getContentText());
+  Logger.log("Row " + rowNumber + " sent. Code: " + response.getResponseCode());
 }
 
 /**
- * 3. NÚT BẤM ĐỒNG BỘ TOÀN BỘ SHEET LÊN DB (DÀNH CHO DỮ LIỆU CŨ ĐÃ CÓ SẴN)
+ * 3. HÀM QUÉT ĐỒNG BỘ TOÀN BỘ SHEET LÊN NEON (CHẠY HÀNG NGÀY HOẶC THEO GIỜ)
+ * Được thiết kế an toàn cho Trigger hẹn giờ (không dùng UI Alert để không bị lỗi)
  */
-function syncAllExistingDeals() {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+function dailySyncJob() {
+  var sheet = getTargetSheet();
   var lastRow = sheet.getLastRow();
   var lastCol = sheet.getLastColumn();
   
   if (lastRow < 2) {
-    SpreadsheetApp.getUi().alert("Sheet không có dữ liệu để đồng bộ.");
-    return;
+    Logger.log("Sheet không có dữ liệu để đồng bộ.");
+    return 0;
   }
   
   var headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
@@ -108,10 +132,11 @@ function syncAllExistingDeals() {
   }
   
   if (batch.length === 0) {
-    SpreadsheetApp.getUi().alert("Không có dòng dữ liệu hợp lệ.");
-    return;
+    Logger.log("Không có dòng dữ liệu hợp lệ.");
+    return 0;
   }
   
+  // Gửi theo từng lô 100 dòng lên Neon
   var batchSize = 100;
   var totalSent = 0;
   for (var i = 0; i < batch.length; i += batchSize) {
@@ -124,17 +149,31 @@ function syncAllExistingDeals() {
     };
     var response = UrlFetchApp.fetch(API_URL, options);
     totalSent += chunk.length;
+    Logger.log("Đã gửi lô " + Math.floor(i / batchSize + 1) + ": " + chunk.length + " dòng. Status: " + response.getResponseCode());
   }
   
-  SpreadsheetApp.getUi().alert("Đã đồng bộ thành công " + totalSent + " dòng Deal Win lên Database!");
+  Logger.log("Hoàn thành dailySyncJob: đã đồng bộ " + totalSent + " dòng lên Neon.");
+  return totalSent;
 }
 
 /**
- * 4. TẠO MENU TIỆN ÍCH TRÊN GOOGLE SHEET
+ * 4. NÚT BẤM THỦ CÔNG TỪ MENU GOOGLE SHEET (CÓ THÔNG BÁO POPUP)
+ */
+function syncAllExistingDeals() {
+  try {
+    var count = dailySyncJob();
+    SpreadsheetApp.getUi().alert("Đã đồng bộ thành công " + count + " dòng học viên lên Database NEON!");
+  } catch (err) {
+    SpreadsheetApp.getUi().alert("Lỗi khi đồng bộ: " + err);
+  }
+}
+
+/**
+ * 5. TẠO MENU TIỆN ÍCH TRÊN GOOGLE SHEET
  */
 function onOpen() {
   var ui = SpreadsheetApp.getUi();
   ui.createMenu("🚀 EZTECH SYNC")
-    .addItem("Đồng bộ toàn bộ Deal cũ lên DB", "syncAllExistingDeals")
+    .addItem("Đồng bộ toàn bộ Deal lên NEON", "syncAllExistingDeals")
     .addToUi();
 }
