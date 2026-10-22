@@ -95,9 +95,7 @@ class DealWinItem(BaseModel):
     note: Optional[str] = None
     course_name: Optional[str] = None
     payment_status: Optional[str] = None
-    revenue: float = 0.0
     care_by: Optional[str] = None
-    status: Optional[str] = "WIN"
     raw_data: Optional[dict] = None
     created_at: Optional[datetime] = None
 
@@ -124,7 +122,6 @@ class DealWinItem(BaseModel):
 
 class DealWinSummary(BaseModel):
     total_deals: int = 0
-    total_revenue: float = 0.0
     sales_person_stats: dict = {}
     product_stats: dict = {}
 

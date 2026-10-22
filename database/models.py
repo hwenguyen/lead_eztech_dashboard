@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, JSON, Boolean, ForeignKey, Text, Float
+from sqlalchemy import Column, Integer, String, DateTime, JSON, Boolean, ForeignKey, Text
 from sqlalchemy.orm import relationship
 from database.db import Base
 from datetime import datetime, timezone, timedelta
@@ -144,9 +144,7 @@ class DealWin(Base):
     note = Column(Text, nullable=True)                                   # Note
     course_name = Column(String, index=True, nullable=True)              # HỌC KHÓA (K31, K32, K33, DAK...)
     payment_status = Column(String, nullable=True)                       # ĐÓNG TIỀN (text gốc: "Nộp 3,5tr", "Đã đóng"...)
-    revenue = Column(Float, default=0.0, nullable=False)                 # Doanh thu / Số tiền quy đổi dạng số (VNĐ)
     care_by = Column(String, index=True, nullable=True)                  # CHĂM SÓC (Nhân viên sale phụ trách: Hiền Minh...)
-    status = Column(String, default="WIN", index=True)                   # Trạng thái (WIN, CANCELLED, REFUND...)
     raw_data = Column(JSON, nullable=True)                               # Lưu toàn bộ dữ liệu gốc của dòng form
     created_at = Column(DateTime, default=get_vn_now)                    # Thời điểm lưu vào DB
     updated_at = Column(DateTime, default=get_vn_now, onupdate=get_vn_now)

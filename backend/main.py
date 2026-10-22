@@ -725,36 +725,6 @@ def get_remind_leads(
 # DEAL WIN APIs (Google Sheet / Form Webhook)
 # ==========================================
 
-def _clean_revenue_val(val: Any) -> float:
-    """Chuẩn hóa giá trị doanh thu từ chuỗi (vd '5.000.000', '5,000,000 VNĐ', 5000000)."""
-    if val is None:
-        return 0.0
-    if isinstance(val, (int, float)):
-        return float(val)
-    s = str(val).strip()
-    if not s:
-        return 0.0
-    s_lower = s.lower().replace("vnđ", "").replace("vnd", "").replace("đ", "").strip()
-    if "tr" in s_lower or "triệu" in s_lower:
-        num_part = re.sub(r"[^\d.,]", "", s_lower).replace(",", ".")
-        try:
-            return float(num_part) * 1_000_000.0
-        except Exception:
-            pass
-    if "k" in s_lower:
-        num_part = re.sub(r"[^\d.,]", "", s_lower).replace(",", ".")
-        try:
-            return float(num_part) * 1_000.0
-        except Exception:
-            pass
-    clean_digits = re.sub(r"[^\d]", "", s)
-    if clean_digits:
-        try:
-            return float(clean_digits)
-        except Exception:
-            return 0.0
-    return 0.0
-
 def _extract_field(row: Dict[str, Any], candidates: List[str]) -> Optional[Any]:
     """Tìm giá trị trường dữ liệu theo danh sách từ khóa ứng viên (không phân biệt hoa thường/dấu)."""
     normalized_row = {normalize_text(str(k)): v for k, v in row.items()}
@@ -824,11 +794,8 @@ async def receive_deal_webhook(request: Request, db: Session = Depends(get_db)):
         note = _extract_field(row, ["note", "ghi chú", "lưu ý"])
         course_name = _extract_field(row, ["học khóa", "đăng kí học", "khóa học", "gói học", "course_name", "product_name"])
         
-        payment_status = _extract_field(row, ["đóng tiền", "thanh toán", "payment_status", "học phí", "số tiền", "revenue"])
-        revenue = _clean_revenue_val(payment_status)
-
+        payment_status = _extract_field(row, ["đóng tiền", "thanh toán", "payment_status", "học phí", "số tiền"])
         care_by = _extract_field(row, ["chăm sóc", "sale", "nhân viên chốt", "nhân viên", "care_by", "sales_person"])
-        status = _extract_field(row, ["status", "trạng thái"]) or "WIN"
 
         # Định danh dòng trên Sheet
         sheet_row_id = _extract_field(row, ["sheet_row_id", "row_id", "row_number", "id"])
@@ -860,9 +827,7 @@ async def receive_deal_webhook(request: Request, db: Session = Depends(get_db)):
             existing_deal.note = str(note).strip() if note else existing_deal.note
             existing_deal.course_name = str(course_name).strip() if course_name else existing_deal.course_name
             existing_deal.payment_status = str(payment_status).strip() if payment_status else existing_deal.payment_status
-            existing_deal.revenue = revenue if revenue > 0 else existing_deal.revenue
             existing_deal.care_by = str(care_by).strip() if care_by else existing_deal.care_by
-            existing_deal.status = str(status).strip() if status else existing_deal.status
             existing_deal.raw_data = row
             updated_count += 1
         else:
@@ -881,9 +846,7 @@ async def receive_deal_webhook(request: Request, db: Session = Depends(get_db)):
                 note=str(note).strip() if note else None,
                 course_name=str(course_name).strip() if course_name else None,
                 payment_status=str(payment_status).strip() if payment_status else None,
-                revenue=revenue,
                 care_by=str(care_by).strip() if care_by else "Chưa phân công",
-                status=str(status).strip() if status else "WIN",
                 raw_data=row,
             )
             db.add(new_deal)
@@ -980,9 +943,7 @@ def get_deals_list(
             note=d.note,
             course_name=d.course_name,
             payment_status=d.payment_status,
-            revenue=d.revenue,
             care_by=d.care_by,
-            status=d.status,
             raw_data=d.raw_data,
             created_at=d.created_at
         )
@@ -996,7 +957,6 @@ def get_deals_list(
         total_pages=total_pages,
         summary=DealWinSummary(
             total_deals=total,
-            total_revenue=total_rev,
             sales_person_stats=dict(sales_stats),
             product_stats=dict(prod_stats),
         ),
@@ -1020,7 +980,6 @@ def get_deals_summary(
         query = query.filter(DealWin.care_by.ilike(f"%{sales_person.strip()}%"))
 
     deals = query.all()
-    total_rev = sum(d.revenue for d in deals)
     sales_stats = Counter()
     prod_stats = Counter()
 
@@ -1032,7 +991,6 @@ def get_deals_summary(
 
     return DealWinSummary(
         total_deals=len(deals),
-        total_revenue=total_rev,
         sales_person_stats=dict(sales_stats),
         product_stats=dict(prod_stats)
     )

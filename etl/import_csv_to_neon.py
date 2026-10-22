@@ -10,35 +10,6 @@ from database.models import DealWin
 from database.schema import ensure_schema
 from etl.utils import normalize_phone, parse_pancake_date, VN_TZ
 
-def clean_revenue_val(val):
-    if val is None:
-        return 0.0
-    if isinstance(val, (int, float)):
-        return float(val)
-    s = str(val).strip()
-    if not s:
-        return 0.0
-    s_lower = s.lower().replace("vnđ", "").replace("vnd", "").replace("đ", "").strip()
-    if "tr" in s_lower or "triệu" in s_lower:
-        num_part = re.sub(r"[^\d.,]", "", s_lower).replace(",", ".")
-        try:
-            return float(num_part) * 1_000_000.0
-        except Exception:
-            pass
-    if "k" in s_lower:
-        num_part = re.sub(r"[^\d.,]", "", s_lower).replace(",", ".")
-        try:
-            return float(num_part) * 1_000.0
-        except Exception:
-            pass
-    clean_digits = re.sub(r"[^\d]", "", s)
-    if clean_digits:
-        try:
-            return float(clean_digits)
-        except Exception:
-            return 0.0
-    return 0.0
-
 def normalize_text(s):
     return unicodedata.normalize("NFC", str(s)).strip().lower()
 
@@ -92,10 +63,7 @@ def import_rows_to_neon(rows):
             course_name = extract_field(row, ["học khóa", "đăng kí học", "khóa học", "gói học", "course_name", "product_name"])
             
             payment_status = extract_field(row, ["đóng tiền", "thanh toán", "payment_status", "học phí", "số tiền", "revenue"])
-            revenue = clean_revenue_val(payment_status)
-
             care_by = extract_field(row, ["chăm sóc", "sale", "nhân viên chốt", "nhân viên", "care_by", "sales_person"])
-            status = extract_field(row, ["status", "trạng thái"]) or "WIN"
             sheet_row_id = f"row_{idx}"
 
             existing = None
@@ -129,9 +97,7 @@ def import_rows_to_neon(rows):
                 existing.note = str(note).strip() if note else existing.note
                 existing.course_name = str(course_name).strip() if course_name else existing.course_name
                 existing.payment_status = str(payment_status).strip() if payment_status else existing.payment_status
-                existing.revenue = revenue if revenue > 0 else existing.revenue
                 existing.care_by = str(care_by).strip() if care_by else existing.care_by
-                existing.status = str(status).strip() if status else existing.status
                 existing.raw_data = serializable_row
                 updated += 1
             else:
@@ -150,9 +116,7 @@ def import_rows_to_neon(rows):
                     note=str(note).strip() if note else None,
                     course_name=str(course_name).strip() if course_name else None,
                     payment_status=str(payment_status).strip() if payment_status else None,
-                    revenue=revenue,
                     care_by=str(care_by).strip() if care_by else "Chưa phân công",
-                    status=str(status).strip() if status else "WIN",
                     raw_data=serializable_row
                 )
                 db.add(deal)
