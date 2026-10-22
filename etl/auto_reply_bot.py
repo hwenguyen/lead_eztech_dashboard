@@ -286,6 +286,11 @@ def should_reply_comment(
     if ALLOWED_SOURCE_PAGES and not any(allowed in (clean_pid, clean_num) for allowed in ALLOWED_SOURCE_PAGES):
         return False, None, None, None, f"Kênh {page_id} không thuộc danh sách lead nguồn cho phép"
 
+    # 1.5. Chốt chặn livestream: Bỏ qua comment thuộc phiên livestream TikTok (thường có tiền tố live-) vì không rep được sau khi live kết thúc
+    post_id_val = str(comment.get("post_id") or "")
+    if "live-" in post_id_val.lower():
+        return False, None, None, None, f"Comment thuộc phiên livestream đã kết thúc ({post_id_val})"
+
     # 2. Chốt chặn thời gian: Chỉ reply các comment gần đây (trong vòng days_back ngày)
     inserted_at = comment.get("inserted_at")
     if inserted_at:
@@ -524,12 +529,24 @@ def process_page_comment_replies(
         else:
             logger.info("  => 🚀 ĐANG REP COMMENT CÔNG KHAI QUA PANCAKE API...")
             logger.info(f"  • Target Message ID: {target_msg_id} (Conv ID: {cid})")
+            
+            # Chuẩn bị mentions theo OpenAPI schema mẫu của Pancake
+            mentions_list = []
+            if from_id:
+                mentions_list.append({
+                    "psid": str(from_id),
+                    "name": str(cust_name or ""),
+                    "offset": 0,
+                    "length": 0
+                })
+
             res_cmt = client.send_message(
                 page_id=page_id,
                 conversation_id=cid,
                 message=reply_comment_text,
                 action="reply_comment",
-                message_id=target_msg_id
+                message_id=target_msg_id,
+                mentions=mentions_list if mentions_list else None
             )
             cmt_success = res_cmt.get("success", False)
             cmt_err = None if cmt_success else str(res_cmt.get("message") or res_cmt)
@@ -544,7 +561,8 @@ def process_page_comment_replies(
                     conversation_id=cid,
                     message=retry_text,
                     action="reply_comment",
-                    message_id=target_msg_id
+                    message_id=target_msg_id,
+                    mentions=mentions_list if mentions_list else None
                 )
                 if res_retry.get("success", False):
                     cmt_success = True
