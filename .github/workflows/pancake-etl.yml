@@ -28,7 +28,7 @@ concurrency:
 jobs:
   run-etl:
     runs-on: ubuntu-latest
-    timeout-minutes: 10 # Chặn job treo ngốn quota (mỗi lần chạy bình thường chỉ mất 30s-1m)
+    timeout-minutes: 25 # Giới hạn tối đa 25 phút đủ cho cào 7 page và xử lý bot
     
     steps:
     - name: Kiểm tra mã nguồn

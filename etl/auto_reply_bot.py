@@ -380,6 +380,8 @@ def process_page_comment_replies(
         logger.info(f"[AUTO-REPLY COMMENTS] Đã nạp {len(existing_inbox_customer_ids)} định danh khách cũ đã có tin nhắn từ trước cho Page {page_id}.")
 
     replied_count = 0
+    consecutive_failures = 0
+    MAX_CONSECUTIVE_FAILURES = 3
     for c_item in comments_data:
         if replied_count >= max_replies:
             logger.info(f"[AUTO-REPLY COMMENTS] Đã đạt giới hạn tối đa {max_replies} reply cho Page {page_id} trong lượt chạy này.")
@@ -567,15 +569,28 @@ def process_page_comment_replies(
             if cmt_success:
                 stats["sent"] += 1
                 replied_count += 1
+                consecutive_failures = 0
                 msg_id = res_cmt.get("id") or "N/A"
                 logger.info(f"  => ✅ REP COMMENT THÀNH CÔNG! (Message ID: {msg_id})")
+
+                delay = random.uniform(15.0, 25.0) if is_tiktok else random.uniform(10.0, 16.0)
+                logger.info(f"  ⏳ Tạm nghỉ {delay:.1f}s trước lượt reply tiếp theo để chống spam...")
+                time.sleep(delay)
             else:
                 stats["failed"] += 1
+                consecutive_failures += 1
                 logger.error(f"  => ❌ REP COMMENT THẤT BẠI: {cmt_err}")
 
-            delay = random.uniform(15.0, 25.0) if is_tiktok else random.uniform(10.0, 16.0)
-            logger.info(f"  ⏳ Tạm nghỉ {delay:.1f}s trước lượt reply tiếp theo để chống spam...")
-            time.sleep(delay)
+                if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                    logger.warning(
+                        f"  ⚠️ [CIRCUIT BREAKER] Kênh {page_id} bị lỗi gửi comment liên tiếp {consecutive_failures} lần "
+                        f"(lỗi: {cmt_err}). Có thể tài khoản cá nhân không có quyền API hoặc hết phiên. "
+                        f"Tạm dừng quét các comment còn lại của page này để tránh nghẽn pipeline!"
+                    )
+                    break
+
+                # Nếu gửi thất bại, chỉ nghỉ ngắn 1-2s thay vì 15-25s để tránh nghẽn pipeline
+                time.sleep(random.uniform(1.0, 2.0))
 
     logger.info(
         f"[AUTO-REPLY COMMENTS] Hoàn tất Page {page_id}: "

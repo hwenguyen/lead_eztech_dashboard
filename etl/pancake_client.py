@@ -968,8 +968,9 @@ class PancakeClient:
                             details.append(str(data.get("description")))
                         err_str = " | ".join(details) if details else "Sending message failed"
 
-                        # Nếu server Pancake trả lỗi nội bộ tạm thời, thử lại với backoff
-                        if any(k in err_str.lower() for k in ("server internal error", "failed to send comment")):
+                        # Chỉ thử lại với lỗi server nội bộ tạm thời thực sự
+                        # KHÔNG thử lại các lỗi từ chối nền tảng (failed to send comment, live ended, v.v.)
+                        if "server internal error" in err_str.lower():
                             if attempt < max_retries:
                                 wait_time = 2.0 * attempt
                                 logger.warning(
