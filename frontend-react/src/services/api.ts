@@ -174,10 +174,6 @@ export interface DealWinItem {
   industry?: string;
   job_title?: string;
   expectation?: string;
-  source_channel?: string;
-  note?: string;
-  course_name?: string;
-  payment_status?: string;
   care_by?: string;
   is_student?: boolean;
   lead_tag?: string;
@@ -188,12 +184,8 @@ export interface DealWinItem {
 
 export interface DealWinSummary {
   total_deals: number;
-  paid_deals: number;
   top_sales_person?: string;
-  top_product?: string;
   sales_person_stats: Record<string, number>;
-  product_stats: Record<string, number>;
-  source_stats: Record<string, number>;
   daily_trend: Array<{ date: string; count: number }>;
 }
 
@@ -207,21 +199,18 @@ export interface DealWinListResponse {
 
 export interface DealWinOptions {
   sales_persons: string[];
-  products: string[];
 }
 
 export const fetchDealWinSummary = async (
   startDate?: string,
   endDate?: string,
   salesPerson?: string,
-  productName?: string,
   onlyStudent: boolean = true
 ): Promise<DealWinSummary> => {
   const params: any = { only_student: onlyStudent };
   if (startDate) params.start_date = startDate;
   if (endDate) params.end_date = endDate;
   if (salesPerson) params.sales_person = salesPerson;
-  if (productName) params.product_name = productName;
   const res = await apiClient.get<DealWinSummary>('/deals/summary', { params });
   return res.data;
 };
@@ -232,7 +221,6 @@ export const fetchDealWinList = async (
   startDate?: string,
   endDate?: string,
   salesPerson?: string,
-  productName?: string,
   search?: string,
   onlyStudent: boolean = true
 ): Promise<DealWinListResponse> => {
@@ -240,7 +228,6 @@ export const fetchDealWinList = async (
   if (startDate) params.start_date = startDate;
   if (endDate) params.end_date = endDate;
   if (salesPerson) params.sales_person = salesPerson;
-  if (productName) params.product_name = productName;
   if (search) params.search = search;
   const res = await apiClient.get<DealWinListResponse>('/deals/list', { params });
   return res.data;

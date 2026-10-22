@@ -59,11 +59,6 @@ def import_rows_to_neon(rows):
             industry = extract_field(row, ["lĩnh vực hoạt động", "lĩnh vực", "industry"])
             job_title = extract_field(row, ["vị trí/ ngành nghề (ví dụ: kế toán trưởng - thời trang)", "vị trí", "ngành nghề", "job_title"])
             expectation = extract_field(row, ["mục đích/ kì vọng tham gia khoá học", "mục đích", "kì vọng", "expectation"])
-            source_channel = extract_field(row, ["bạn biết đến khóa đào tạo qua đâu?", "biết qua đâu", "nguồn", "source_channel"])
-            note = extract_field(row, ["note", "ghi chú", "lưu ý"])
-            course_name = extract_field(row, ["học khóa", "đăng kí học", "khóa học", "gói học", "course_name", "product_name"])
-            
-            payment_status = extract_field(row, ["đóng tiền", "thanh toán", "payment_status", "học phí", "số tiền", "revenue"])
             raw_care_by = extract_field(row, ["chăm sóc", "sale", "nhân viên chốt", "nhân viên", "care_by", "sales_person"])
             
             # Map với DimLead và Pancake qua SĐT
@@ -73,10 +68,7 @@ def import_rows_to_neon(rows):
 
             existing = None
             if phone:
-                existing = db.query(DealWin).filter(
-                    DealWin.phone_number == phone,
-                    DealWin.course_name == (str(course_name).strip() if course_name else DealWin.course_name)
-                ).first()
+                existing = db.query(DealWin).filter(DealWin.phone_number == phone).first()
             if not existing:
                 existing = db.query(DealWin).filter_by(sheet_row_id=sheet_row_id).first()
 
@@ -98,10 +90,6 @@ def import_rows_to_neon(rows):
                 existing.industry = str(industry).strip() if industry else existing.industry
                 existing.job_title = str(job_title).strip() if job_title else existing.job_title
                 existing.expectation = str(expectation).strip() if expectation else existing.expectation
-                existing.source_channel = str(source_channel).strip() if source_channel else existing.source_channel
-                existing.note = str(note).strip() if note else existing.note
-                existing.course_name = str(course_name).strip() if course_name else existing.course_name
-                existing.payment_status = str(payment_status).strip() if payment_status else existing.payment_status
                 existing.care_by = care_by or existing.care_by
                 existing.is_student = is_student
                 existing.dim_lead_id = dim_lead_id or existing.dim_lead_id
@@ -120,10 +108,6 @@ def import_rows_to_neon(rows):
                     industry=str(industry).strip() if industry else None,
                     job_title=str(job_title).strip() if job_title else None,
                     expectation=str(expectation).strip() if expectation else None,
-                    source_channel=str(source_channel).strip() if source_channel else None,
-                    note=str(note).strip() if note else None,
-                    course_name=str(course_name).strip() if course_name else None,
-                    payment_status=str(payment_status).strip() if payment_status else None,
                     care_by=care_by,
                     dim_lead_id=dim_lead_id,
                     is_student=is_student,

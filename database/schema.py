@@ -11,7 +11,6 @@ INDEX_DDL = [
     "CREATE INDEX IF NOT EXISTS ix_deal_wins_timestamp ON deal_wins (timestamp)",
     "CREATE INDEX IF NOT EXISTS ix_deal_wins_phone_number ON deal_wins (phone_number)",
     "CREATE INDEX IF NOT EXISTS ix_deal_wins_full_name ON deal_wins (full_name)",
-    "CREATE INDEX IF NOT EXISTS ix_deal_wins_course_name ON deal_wins (course_name)",
     "CREATE INDEX IF NOT EXISTS ix_deal_wins_care_by ON deal_wins (care_by)",
     "CREATE INDEX IF NOT EXISTS ix_dim_leads_first_created_at ON dim_leads (first_created_at)",
     "CREATE INDEX IF NOT EXISTS ix_dim_leads_phone_at ON dim_leads (phone_at)",

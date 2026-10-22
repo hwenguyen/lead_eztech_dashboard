@@ -140,10 +140,6 @@ class DealWin(Base):
     industry = Column(String, nullable=True)                             # Lĩnh vực hoạt động
     job_title = Column(String, nullable=True)                            # Vị trí/ Ngành nghề
     expectation = Column(Text, nullable=True)                            # Mục đích/ Kì vọng tham gia khoá học
-    source_channel = Column(String, nullable=True)                       # Bạn biết đến khóa đào tạo qua đâu?
-    note = Column(Text, nullable=True)                                   # Note
-    course_name = Column(String, index=True, nullable=True)              # HỌC KHÓA (K31, K32, K33, DAK...)
-    payment_status = Column(String, nullable=True)                       # ĐÓNG TIỀN (text gốc: "Nộp 3,5tr", "Đã đóng"...)
     care_by = Column(String, index=True, nullable=True)                  # CHĂM SÓC (Nhân viên sale phụ trách: Hiền Minh...)
     dim_lead_id = Column(Integer, nullable=True, index=True)             # ID của lead tương ứng trong dim_leads
     is_student = Column(Boolean, default=False, index=True)              # True nếu có tag "Đã là học viên" trên Pancake
@@ -156,10 +152,6 @@ class DealWin(Base):
     @property
     def customer_name(self):
         return self.full_name
-
-    @property
-    def product_name(self):
-        return self.course_name
 
     @property
     def sales_person(self):
