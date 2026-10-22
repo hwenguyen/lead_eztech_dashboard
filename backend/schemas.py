@@ -82,21 +82,45 @@ class RemindLeadResponse(BaseModel):
 class DealWinItem(BaseModel):
     id: int
     sheet_row_id: Optional[str] = None
-    submitted_at: Optional[datetime] = None
-    customer_name: Optional[str] = None
-    phone_number: Optional[str] = None
+    timestamp: Optional[datetime] = None
     email: Optional[str] = None
-    product_name: Optional[str] = None
-    revenue: float = 0.0
-    sales_person: Optional[str] = None
-    payment_method: Optional[str] = None
-    status: Optional[str] = "WIN"
+    full_name: Optional[str] = None
+    phone_number: Optional[str] = None
+    birth_year: Optional[str] = None
+    address: Optional[str] = None
+    industry: Optional[str] = None
+    job_title: Optional[str] = None
+    expectation: Optional[str] = None
+    source_channel: Optional[str] = None
     note: Optional[str] = None
+    course_name: Optional[str] = None
+    payment_status: Optional[str] = None
+    revenue: float = 0.0
+    care_by: Optional[str] = None
+    status: Optional[str] = "WIN"
     raw_data: Optional[dict] = None
     created_at: Optional[datetime] = None
 
+    # Tương thích ngược với UI
+    @property
+    def customer_name(self) -> Optional[str]:
+        return self.full_name
+
+    @property
+    def product_name(self) -> Optional[str]:
+        return self.course_name
+
+    @property
+    def sales_person(self) -> Optional[str]:
+        return self.care_by
+
+    @property
+    def submitted_at(self) -> Optional[datetime]:
+        return self.timestamp
+
     class Config:
         from_attributes = True
+
 
 class DealWinSummary(BaseModel):
     total_deals: int = 0

@@ -8,10 +8,11 @@ import database.models  # noqa: F401 - đăng ký model vào Base.metadata
 logger = logging.getLogger(__name__)
 
 INDEX_DDL = [
-    "CREATE INDEX IF NOT EXISTS ix_deal_wins_submitted_at ON deal_wins (submitted_at)",
+    "CREATE INDEX IF NOT EXISTS ix_deal_wins_timestamp ON deal_wins (timestamp)",
     "CREATE INDEX IF NOT EXISTS ix_deal_wins_phone_number ON deal_wins (phone_number)",
-    "CREATE INDEX IF NOT EXISTS ix_deal_wins_sales_person ON deal_wins (sales_person)",
-    "CREATE INDEX IF NOT EXISTS ix_deal_wins_product_name ON deal_wins (product_name)",
+    "CREATE INDEX IF NOT EXISTS ix_deal_wins_full_name ON deal_wins (full_name)",
+    "CREATE INDEX IF NOT EXISTS ix_deal_wins_course_name ON deal_wins (course_name)",
+    "CREATE INDEX IF NOT EXISTS ix_deal_wins_care_by ON deal_wins (care_by)",
     "CREATE INDEX IF NOT EXISTS ix_dim_leads_first_created_at ON dim_leads (first_created_at)",
     "CREATE INDEX IF NOT EXISTS ix_dim_leads_phone_at ON dim_leads (phone_at)",
     "CREATE INDEX IF NOT EXISTS ix_fact_lead_activities_lead_id ON fact_lead_activities (lead_id)",

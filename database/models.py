@@ -126,24 +126,48 @@ class Post(Base):
 
 
 class DealWin(Base):
-    """Lưu trữ các Deal chốt thành công (Deal Win) từ Google Sheet / Google Form."""
+    """Lưu trữ các Deal chốt thành công / Học viên từ Google Sheet 'THÔNG TIN HỌC VIÊN - EzTech'."""
     __tablename__ = "deal_wins"
 
     id = Column(Integer, primary_key=True, index=True)
-    sheet_row_id = Column(String, unique=True, index=True, nullable=True) # ID định danh dòng trên sheet (vd: sheet_row_2, timestamp+sdt)
-    submitted_at = Column(DateTime, index=True, nullable=True)           # Thời gian nộp form (Dấu thời gian)
-    customer_name = Column(String, nullable=True)                        # Tên khách hàng / Học viên
-    phone_number = Column(String, index=True, nullable=True)             # SĐT đã chuẩn hóa
-    email = Column(String, nullable=True)                                # Email khách hàng
-    product_name = Column(String, index=True, nullable=True)             # Tên khóa học / Gói sản phẩm
-    revenue = Column(Float, default=0.0, nullable=False)                 # Doanh thu / Số tiền thanh toán (VNĐ)
-    sales_person = Column(String, index=True, nullable=True)             # Nhân viên chốt / Sale phụ trách
-    payment_method = Column(String, nullable=True)                       # Phương thức thanh toán (CK, tiền mặt, v.v.)
+    sheet_row_id = Column(String, unique=True, index=True, nullable=True) # ID định danh dòng trên sheet (vd: row_2)
+    timestamp = Column(DateTime, index=True, nullable=True)               # Timestamp (Dấu thời gian)
+    email = Column(String, nullable=True)                                 # Email
+    full_name = Column(String, index=True, nullable=True)                 # Họ và tên
+    phone_number = Column(String, index=True, nullable=True)              # SĐT
+    birth_year = Column(String, nullable=True)                           # Năm sinh
+    address = Column(String, nullable=True)                              # Địa chỉ (Tỉnh / Thành phố)
+    industry = Column(String, nullable=True)                             # Lĩnh vực hoạt động
+    job_title = Column(String, nullable=True)                            # Vị trí/ Ngành nghề
+    expectation = Column(Text, nullable=True)                            # Mục đích/ Kì vọng tham gia khoá học
+    source_channel = Column(String, nullable=True)                       # Bạn biết đến khóa đào tạo qua đâu?
+    note = Column(Text, nullable=True)                                   # Note
+    course_name = Column(String, index=True, nullable=True)              # HỌC KHÓA (K31, K32, K33, DAK...)
+    payment_status = Column(String, nullable=True)                       # ĐÓNG TIỀN (text gốc: "Nộp 3,5tr", "Đã đóng"...)
+    revenue = Column(Float, default=0.0, nullable=False)                 # Doanh thu / Số tiền quy đổi dạng số (VNĐ)
+    care_by = Column(String, index=True, nullable=True)                  # CHĂM SÓC (Nhân viên sale phụ trách: Hiền Minh...)
     status = Column(String, default="WIN", index=True)                   # Trạng thái (WIN, CANCELLED, REFUND...)
-    note = Column(Text, nullable=True)                                   # Ghi chú
-    raw_data = Column(JSON, nullable=True)                               # Lưu toàn bộ dữ liệu gốc của dòng form (mọi cột)
+    raw_data = Column(JSON, nullable=True)                               # Lưu toàn bộ dữ liệu gốc của dòng form
     created_at = Column(DateTime, default=get_vn_now)                    # Thời điểm lưu vào DB
     updated_at = Column(DateTime, default=get_vn_now, onupdate=get_vn_now)
+
+    # Thuộc tính tương thích ngược (aliases)
+    @property
+    def customer_name(self):
+        return self.full_name
+
+    @property
+    def product_name(self):
+        return self.course_name
+
+    @property
+    def sales_person(self):
+        return self.care_by
+
+    @property
+    def submitted_at(self):
+        return self.timestamp
+
 
 
 

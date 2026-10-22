@@ -804,70 +804,86 @@ async def receive_deal_webhook(request: Request, db: Session = Depends(get_db)):
     updated_count = 0
 
     for row in rows:
-        # Bóc tách các trường chính
-        name = _extract_field(row, ["customer_name", "họ và tên", "họ tên", "tên học viên", "tên", "khách hàng", "name"])
-        raw_phone = _extract_field(row, ["phone_number", "số điện thoại", "sdt", "điện thoại", "phone", "mobile"])
+        # Bóc tách chính xác theo các cột Google Sheet 'THÔNG TIN HỌC VIÊN - EzTech'
+        submitted_raw = _extract_field(row, ["timestamp", "dấu thời gian", "thời gian", "ngày", "created_at"])
+        submitted_at = parse_pancake_date(submitted_raw) if submitted_raw else datetime.now(VN_TZ).replace(tzinfo=None)
+
+        email = _extract_field(row, ["email", "mail", "thư điện tử"])
+        full_name = _extract_field(row, ["họ và tên", "họ tên", "tên học viên", "tên", "khách hàng", "full_name", "customer_name"])
+        raw_phone = _extract_field(row, ["sđt", "số điện thoại", "số điện thoạt", "phone_number", "phone", "mobile"])
         phone = normalize_phone(raw_phone) if raw_phone else None
 
-        revenue_raw = _extract_field(row, ["revenue", "số tiền", "học phí", "doanh thu", "tiền", "giá trị", "amount", "price"])
-        revenue = _clean_revenue_val(revenue_raw)
+        birth_year = _extract_field(row, ["năm sinh", "birth_year"])
+        birth_year_str = str(int(float(birth_year))) if birth_year and str(birth_year).replace('.', '', 1).isdigit() else (str(birth_year).strip() if birth_year else None)
 
-        product = _extract_field(row, ["product_name", "khóa học", "sản phẩm", "tên khóa", "gói học", "combo", "product"])
-        sales = _extract_field(row, ["sales_person", "nhân viên chốt", "sale", "tư vấn", "người phụ trách", "seller"])
-        email = _extract_field(row, ["email", "mail", "thư điện tử"])
-        payment_method = _extract_field(row, ["payment_method", "hình thức thanh toán", "phương thức thanh toán", "thanh toán", "chuyển khoản"])
-        status = _extract_field(row, ["status", "trạng thái"]) or "WIN"
+        address = _extract_field(row, ["địa chỉ (tỉnh / thành phố)", "nơi ở", "địa chỉ", "address", "tỉnh", "thành phố"])
+        industry = _extract_field(row, ["lĩnh vực hoạt động", "lĩnh vực", "industry"])
+        job_title = _extract_field(row, ["vị trí/ ngành nghề (ví dụ: kế toán trưởng - thời trang)", "vị trí", "ngành nghề", "job_title"])
+        expectation = _extract_field(row, ["mục đích/ kì vọng tham gia khoá học", "mục đích", "kì vọng", "expectation"])
+        source_channel = _extract_field(row, ["bạn biết đến khóa đào tạo qua đâu?", "biết qua đâu", "nguồn", "source_channel"])
         note = _extract_field(row, ["note", "ghi chú", "lưu ý"])
+        course_name = _extract_field(row, ["học khóa", "đăng kí học", "khóa học", "gói học", "course_name", "product_name"])
+        
+        payment_status = _extract_field(row, ["đóng tiền", "thanh toán", "payment_status", "học phí", "số tiền", "revenue"])
+        revenue = _clean_revenue_val(payment_status)
 
-        # Thời gian nộp form (Dấu thời gian)
-        submitted_raw = _extract_field(row, ["submitted_at", "dấu thời gian", "thời gian", "ngày", "timestamp", "created_at"])
-        submitted_at = parse_pancake_date(submitted_raw) if submitted_raw else datetime.now(VN_TZ).replace(tzinfo=None)
+        care_by = _extract_field(row, ["chăm sóc", "sale", "nhân viên chốt", "nhân viên", "care_by", "sales_person"])
+        status = _extract_field(row, ["status", "trạng thái"]) or "WIN"
 
         # Định danh dòng trên Sheet
         sheet_row_id = _extract_field(row, ["sheet_row_id", "row_id", "row_number", "id"])
         if sheet_row_id:
             sheet_row_id = str(sheet_row_id).strip()
 
-        # Kiểm tra trùng lặp
+        # Kiểm tra trùng lặp theo sheet_row_id hoặc theo SĐT + khóa học
         existing_deal = None
         if sheet_row_id:
             existing_deal = db.query(DealWin).filter_by(sheet_row_id=sheet_row_id).first()
 
         if not existing_deal and phone:
-            # Nếu trùng SĐT và thời điểm nộp trong vòng 2 phút -> coi là 1 deal
-            sub_window_start = submitted_at - timedelta(minutes=2)
-            sub_window_end = submitted_at + timedelta(minutes=2)
             existing_deal = db.query(DealWin).filter(
                 DealWin.phone_number == phone,
-                DealWin.submitted_at.between(sub_window_start, sub_window_end)
+                DealWin.course_name == (str(course_name).strip() if course_name else DealWin.course_name)
             ).first()
 
         if existing_deal:
-            existing_deal.customer_name = str(name).strip() if name else existing_deal.customer_name
-            existing_deal.phone_number = phone or existing_deal.phone_number
+            existing_deal.timestamp = submitted_at
             existing_deal.email = str(email).strip() if email else existing_deal.email
-            existing_deal.product_name = str(product).strip() if product else existing_deal.product_name
-            existing_deal.revenue = revenue if revenue > 0 else existing_deal.revenue
-            existing_deal.sales_person = str(sales).strip() if sales else existing_deal.sales_person
-            existing_deal.payment_method = str(payment_method).strip() if payment_method else existing_deal.payment_method
-            existing_deal.status = str(status).strip() if status else existing_deal.status
+            existing_deal.full_name = str(full_name).strip() if full_name else existing_deal.full_name
+            existing_deal.phone_number = phone or existing_deal.phone_number
+            existing_deal.birth_year = birth_year_str or existing_deal.birth_year
+            existing_deal.address = str(address).strip() if address else existing_deal.address
+            existing_deal.industry = str(industry).strip() if industry else existing_deal.industry
+            existing_deal.job_title = str(job_title).strip() if job_title else existing_deal.job_title
+            existing_deal.expectation = str(expectation).strip() if expectation else existing_deal.expectation
+            existing_deal.source_channel = str(source_channel).strip() if source_channel else existing_deal.source_channel
             existing_deal.note = str(note).strip() if note else existing_deal.note
+            existing_deal.course_name = str(course_name).strip() if course_name else existing_deal.course_name
+            existing_deal.payment_status = str(payment_status).strip() if payment_status else existing_deal.payment_status
+            existing_deal.revenue = revenue if revenue > 0 else existing_deal.revenue
+            existing_deal.care_by = str(care_by).strip() if care_by else existing_deal.care_by
+            existing_deal.status = str(status).strip() if status else existing_deal.status
             existing_deal.raw_data = row
-            existing_deal.submitted_at = submitted_at
             updated_count += 1
         else:
             new_deal = DealWin(
                 sheet_row_id=sheet_row_id,
-                submitted_at=submitted_at,
-                customer_name=str(name).strip() if name else "Khách hàng",
-                phone_number=phone,
+                timestamp=submitted_at,
                 email=str(email).strip() if email else None,
-                product_name=str(product).strip() if product else "Khóa học",
-                revenue=revenue,
-                sales_person=str(sales).strip() if sales else "Chưa phân công",
-                payment_method=str(payment_method).strip() if payment_method else None,
-                status=str(status).strip() if status else "WIN",
+                full_name=str(full_name).strip() if full_name else "Học viên",
+                phone_number=phone,
+                birth_year=birth_year_str,
+                address=str(address).strip() if address else None,
+                industry=str(industry).strip() if industry else None,
+                job_title=str(job_title).strip() if job_title else None,
+                expectation=str(expectation).strip() if expectation else None,
+                source_channel=str(source_channel).strip() if source_channel else None,
                 note=str(note).strip() if note else None,
+                course_name=str(course_name).strip() if course_name else None,
+                payment_status=str(payment_status).strip() if payment_status else None,
+                revenue=revenue,
+                care_by=str(care_by).strip() if care_by else "Chưa phân công",
+                status=str(status).strip() if status else "WIN",
                 raw_data=row,
             )
             db.add(new_deal)
@@ -884,7 +900,7 @@ async def receive_deal_webhook(request: Request, db: Session = Depends(get_db)):
         "synced_count": synced_count,
         "updated_count": updated_count,
         "total_processed": len(rows),
-        "message": f"Đã lưu thành công {synced_count} deal mới và cập nhật {updated_count} deal."
+        "message": f"Đã lưu thành công {synced_count} học viên mới và cập nhật {updated_count} học viên."
     }
 
 @app.get("/api/deals/list", response_model=DealWinListResponse)
@@ -902,29 +918,30 @@ def get_deals_list(
     start, end = resolve_period(start_date, end_date)
 
     query = db.query(DealWin).filter(
-        DealWin.submitted_at.between(start, end)
+        DealWin.timestamp.between(start, end)
     )
 
     if sales_person and sales_person.strip():
         s_clean = sales_person.strip()
-        query = query.filter(DealWin.sales_person.ilike(f"%{s_clean}%"))
+        query = query.filter(DealWin.care_by.ilike(f"%{s_clean}%"))
 
     if product_name and product_name.strip():
         p_clean = product_name.strip()
-        query = query.filter(DealWin.product_name.ilike(f"%{p_clean}%"))
+        query = query.filter(DealWin.course_name.ilike(f"%{p_clean}%"))
 
     if search and search.strip():
         s = f"%{search.strip()}%"
         query = query.filter(
             or_(
-                DealWin.customer_name.ilike(s),
+                DealWin.full_name.ilike(s),
                 DealWin.phone_number.ilike(s),
+                DealWin.email.ilike(s),
                 DealWin.note.ilike(s),
-                DealWin.product_name.ilike(s)
+                DealWin.course_name.ilike(s)
             )
         )
 
-    all_deals = query.order_by(desc(DealWin.submitted_at)).all()
+    all_deals = query.order_by(desc(DealWin.timestamp)).all()
 
     total = len(all_deals)
     total_pages = (total + size - 1) // size if total > 0 else 1
@@ -937,29 +954,35 @@ def get_deals_list(
     products_set = set()
 
     for d in all_deals:
-        sp = d.sales_person or "Chưa phân công"
-        pn = d.product_name or "Khác"
+        sp = d.care_by or "Chưa phân công"
+        pn = d.course_name or "Khác"
         sales_stats[sp] += 1
         prod_stats[pn] += 1
-        if d.sales_person:
-            sales_persons_set.add(d.sales_person)
-        if d.product_name:
-            products_set.add(d.product_name)
+        if d.care_by:
+            sales_persons_set.add(d.care_by)
+        if d.course_name:
+            products_set.add(d.course_name)
 
     items = [
         DealWinItem(
             id=d.id,
             sheet_row_id=d.sheet_row_id,
-            submitted_at=d.submitted_at,
-            customer_name=d.customer_name,
-            phone_number=d.phone_number,
+            timestamp=d.timestamp,
             email=d.email,
-            product_name=d.product_name,
-            revenue=d.revenue,
-            sales_person=d.sales_person,
-            payment_method=d.payment_method,
-            status=d.status,
+            full_name=d.full_name,
+            phone_number=d.phone_number,
+            birth_year=d.birth_year,
+            address=d.address,
+            industry=d.industry,
+            job_title=d.job_title,
+            expectation=d.expectation,
+            source_channel=d.source_channel,
             note=d.note,
+            course_name=d.course_name,
+            payment_status=d.payment_status,
+            revenue=d.revenue,
+            care_by=d.care_by,
+            status=d.status,
             raw_data=d.raw_data,
             created_at=d.created_at
         )
@@ -991,10 +1014,10 @@ def get_deals_summary(
 ):
     """Thống kê tổng quan Deal Win theo khoảng thời gian."""
     start, end = resolve_period(start_date, end_date)
-    query = db.query(DealWin).filter(DealWin.submitted_at.between(start, end))
+    query = db.query(DealWin).filter(DealWin.timestamp.between(start, end))
 
     if sales_person and sales_person.strip():
-        query = query.filter(DealWin.sales_person.ilike(f"%{sales_person.strip()}%"))
+        query = query.filter(DealWin.care_by.ilike(f"%{sales_person.strip()}%"))
 
     deals = query.all()
     total_rev = sum(d.revenue for d in deals)
@@ -1002,8 +1025,8 @@ def get_deals_summary(
     prod_stats = Counter()
 
     for d in deals:
-        sp = d.sales_person or "Chưa phân công"
-        pn = d.product_name or "Khác"
+        sp = d.care_by or "Chưa phân công"
+        pn = d.course_name or "Khác"
         sales_stats[sp] += 1
         prod_stats[pn] += 1
 
@@ -1013,5 +1036,6 @@ def get_deals_summary(
         sales_person_stats=dict(sales_stats),
         product_stats=dict(prod_stats)
     )
+
 
 
