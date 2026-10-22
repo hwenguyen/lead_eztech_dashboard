@@ -2,9 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { format, subDays, startOfMonth } from 'date-fns';
 import {
   Award,
-  CreditCard,
-  UserCheck,
-  BookOpen,
   Filter,
   RefreshCw,
   Search,
@@ -194,8 +191,6 @@ export function DealWinDashboard() {
   };
 
   const total = summary?.total_deals || 0;
-  const paid = summary?.paid_deals || 0;
-  const paidRate = total > 0 ? ((paid / total) * 100).toFixed(1) : '0';
 
   // Format Top Sales for Bar Chart
   const topSalesData = Object.entries(summary?.sales_person_stats || {})
@@ -398,61 +393,45 @@ export function DealWinDashboard() {
           </div>
         </div>
 
-        {/* Paid Status */}
-        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 shadow-sm hover:shadow-md transition-all flex flex-col justify-between">
+        {/* Placeholder Card 1 */}
+        <div className="bg-white/80 rounded-2xl border border-dashed border-[#D1D5DB] p-5 shadow-xs flex flex-col justify-between select-none">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-[#4B5563]">Đã Xác Nhận Đóng Tiền</span>
-            <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center">
-              <CreditCard className="w-5 h-5" />
+            <span className="text-xs font-medium text-gray-400">Chỉ số 2</span>
+            <div className="w-10 h-10 rounded-xl bg-gray-50 text-gray-400 flex items-center justify-center text-xs font-bold border border-gray-100">
+              —
             </div>
           </div>
           <div className="mt-4">
-            <div className="text-3xl font-bold text-navy tracking-tight">
-              {loadingSummary ? '...' : paid.toLocaleString('vi-VN')}
-            </div>
-            <p className="text-xs font-medium text-emerald-600 mt-1">
-              Tỷ lệ thanh toán: {paidRate}%
-            </p>
+            <div className="text-3xl font-bold text-gray-300 tracking-tight">—</div>
+            <p className="text-xs font-medium text-gray-400 mt-1">Đang cập nhật</p>
           </div>
         </div>
 
-        {/* Top Sales */}
-        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 shadow-sm hover:shadow-md transition-all flex flex-col justify-between">
+        {/* Placeholder Card 2 */}
+        <div className="bg-white/80 rounded-2xl border border-dashed border-[#D1D5DB] p-5 shadow-xs flex flex-col justify-between select-none">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-[#4B5563]">Top Sale Xuất Sắc</span>
-            <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-600 flex items-center justify-center">
-              <UserCheck className="w-5 h-5" />
+            <span className="text-xs font-medium text-gray-400">Chỉ số 3</span>
+            <div className="w-10 h-10 rounded-xl bg-gray-50 text-gray-400 flex items-center justify-center text-xs font-bold border border-gray-100">
+              —
             </div>
           </div>
           <div className="mt-4">
-            <div className="text-2xl font-bold text-navy tracking-tight truncate">
-              {loadingSummary ? '...' : summary?.top_sales_person || 'N/A'}
-            </div>
-            <p className="text-xs font-medium text-amber-600 mt-1">
-              {summary?.top_sales_person && summary.sales_person_stats[summary.top_sales_person]
-                ? `${summary.sales_person_stats[summary.top_sales_person]} học viên chốt`
-                : 'Chưa có dữ liệu'}
-            </p>
+            <div className="text-3xl font-bold text-gray-300 tracking-tight">—</div>
+            <p className="text-xs font-medium text-gray-400 mt-1">Đang cập nhật</p>
           </div>
         </div>
 
-        {/* Top Course */}
-        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 shadow-sm hover:shadow-md transition-all flex flex-col justify-between">
+        {/* Placeholder Card 3 */}
+        <div className="bg-white/80 rounded-2xl border border-dashed border-[#D1D5DB] p-5 shadow-xs flex flex-col justify-between select-none">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-[#4B5563]">Khóa Học Đăng Ký Nhiều Nhất</span>
-            <div className="w-10 h-10 rounded-xl bg-purple-100 text-purple-600 flex items-center justify-center">
-              <BookOpen className="w-5 h-5" />
+            <span className="text-xs font-medium text-gray-400">Chỉ số 4</span>
+            <div className="w-10 h-10 rounded-xl bg-gray-50 text-gray-400 flex items-center justify-center text-xs font-bold border border-gray-100">
+              —
             </div>
           </div>
           <div className="mt-4">
-            <div className="text-2xl font-bold text-navy tracking-tight truncate">
-              {loadingSummary ? '...' : summary?.top_product || 'N/A'}
-            </div>
-            <p className="text-xs font-medium text-purple-600 mt-1">
-              {summary?.top_product && summary.product_stats[summary.top_product]
-                ? `${summary.product_stats[summary.top_product]} lượt đăng ký`
-                : 'Chưa có dữ liệu'}
-            </p>
+            <div className="text-3xl font-bold text-gray-300 tracking-tight">—</div>
+            <p className="text-xs font-medium text-gray-400 mt-1">Đang cập nhật</p>
           </div>
         </div>
       </div>
