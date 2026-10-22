@@ -905,6 +905,10 @@ class PancakeClient:
         Gửi tin nhắn phản hồi vào hội thoại qua Pancake Public API v1.
         API: POST https://pages.fm/api/public_api/v1/pages/{page_id}/conversations/{conversation_id}/messages
 
+        TikTok: Dùng payload đơn giản {"message": "..."} vì TikTok không hỗ trợ
+        các trường Facebook-specific (content_ids, mentions, private_replies).
+        Nếu payload đơn giản thất bại, tự động thử lại với action=reply_comment.
+
         Args:
             page_id: ID của Page (có thể có prefix fb_, tt_, pzl_)
             conversation_id: ID hội thoại (pancake_id)
@@ -915,8 +919,81 @@ class PancakeClient:
         if not ptoken:
             return {"success": False, "message": f"Không lấy được token cho Page {page_id}"}
 
+        # Phát hiện TikTok page
+        is_tiktok = str(page_id).startswith("tt_") or str(resolved_page_id).startswith("tt_")
+
         url = f"https://pages.fm/api/public_api/v1/pages/{resolved_page_id}/conversations/{conversation_id}/messages"
         params = {"page_access_token": ptoken}
+
+        # === TIKTOK: Payload đơn giản theo tài liệu Pancake API ===
+        # TikTok không hỗ trợ content_ids, mentions, private_replies.
+        # Theo docs: "message và content_ids là mutually exclusive" — gửi cả 2 sẽ lỗi.
+        if is_tiktok and action == "reply_comment":
+            target_msg_id = kwargs.get("message_id") or conversation_id
+            # Chiến lược: Thử 3 kiểu payload, từ đơn giản đến đầy đủ
+            tiktok_payloads = [
+                # Lần 1: Chỉ message (đơn giản nhất — đúng theo Pancake docs cho TikTok)
+                {"message": message},
+                # Lần 2: Thêm action=reply_comment + message_id (format Facebook nhưng minimal)
+                {"action": "reply_comment", "message": message, "message_id": str(target_msg_id)},
+                # Lần 3: Full payload kèm content_ids (format cũ)
+                {"action": "reply_comment", "message": message, "message_id": str(target_msg_id), "content_ids": []},
+            ]
+
+            logger.info(f"[PANCAKE API][TIKTOK DEBUG] URL: {url}")
+            logger.info(f"[PANCAKE API][TIKTOK DEBUG] Page ID gốc: {page_id} -> resolved: {resolved_page_id}")
+            logger.info(f"[PANCAKE API][TIKTOK DEBUG] Conv ID: {conversation_id}, Target msg: {target_msg_id}")
+
+            for idx, tk_payload in enumerate(tiktok_payloads, 1):
+                logger.info(f"[PANCAKE API][TIKTOK] Thử payload #{idx}: {tk_payload}")
+                try:
+                    resp = self.session.post(url, params=params, json=tk_payload, timeout=30)
+                    logger.info(f"[PANCAKE API][TIKTOK] Payload #{idx} -> HTTP {resp.status_code}: {resp.text[:300]}")
+
+                    if resp.status_code in (200, 201):
+                        try:
+                            data = resp.json()
+                        except Exception:
+                            data = {"text": resp.text}
+
+                        if "success" not in data:
+                            data["success"] = True if data.get("id") else False
+
+                        if data.get("success"):
+                            logger.info(f"[PANCAKE API][TIKTOK] ✅ Payload #{idx} THÀNH CÔNG!")
+                            return data
+                        else:
+                            err_msg = data.get("message") or data.get("description") or str(data)
+                            logger.warning(f"[PANCAKE API][TIKTOK] Payload #{idx} bị reject: {err_msg}")
+                            # Tiếp tục thử payload tiếp theo
+                            if idx < len(tiktok_payloads):
+                                time.sleep(1.5)
+                                continue
+                            # Payload cuối cùng cũng thất bại
+                            data["message"] = str(err_msg)
+                            return data
+                    elif resp.status_code in (500, 502, 503, 504):
+                        logger.warning(f"[PANCAKE API][TIKTOK] Payload #{idx} -> Server error HTTP {resp.status_code}")
+                        if idx < len(tiktok_payloads):
+                            time.sleep(2.0)
+                            continue
+                        return {"success": False, "status_code": resp.status_code, "message": resp.text}
+                    else:
+                        logger.warning(f"[PANCAKE API][TIKTOK] Payload #{idx} -> HTTP {resp.status_code}: {resp.text[:200]}")
+                        if idx < len(tiktok_payloads):
+                            time.sleep(1.0)
+                            continue
+                        return {"success": False, "status_code": resp.status_code, "message": resp.text}
+                except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
+                    logger.warning(f"[PANCAKE API][TIKTOK] Payload #{idx} -> Lỗi kết nối: {e}")
+                    if idx < len(tiktok_payloads):
+                        time.sleep(2.0)
+                        continue
+                    return {"success": False, "message": str(e)}
+
+            return {"success": False, "message": "Tất cả payload TikTok đều thất bại"}
+
+        # === FACEBOOK / KHÁC: Payload đầy đủ (giữ nguyên logic cũ) ===
         payload = {
             "action": action or "reply_inbox",
             "message": message,
