@@ -1,7 +1,90 @@
 """Module đồng bộ và map thông tin giữa DealWin (Google Sheet) và DimLead / FactLeadActivity (Pancake)."""
+import re
 from typing import Optional, Tuple
 from sqlalchemy.orm import Session, defer
 from database.models import DealWin, DimLead, FactLeadActivity
+
+def normalize_sale_name(raw: Optional[str]) -> Optional[str]:
+    """
+    Chuẩn hóa tên nhân viên chăm sóc từ Google Sheet / Pancake:
+    - Loại bỏ các ghi chú, từ khóa rác không phải tên người ('Bỏ qua', 'Chưa đóng tiền', 'TUẤN ANH DATA'...).
+    - Tách các cụm ghép bởi dấu phẩy, cộng, &, gạch chéo...
+    - Chuẩn hóa tên viết tắt về tên đầy đủ chuẩn ('Liên' -> 'Liên Vũ', 'Cường' -> 'Khuất Cường', 'Minh' -> 'Hiền Minh Lý'...).
+    - Trả về chuỗi tên chuẩn (hoặc nhiều tên ngăn cách bởi dấu phẩy nếu nhiều người cùng phụ trách).
+    """
+    if not raw or not str(raw).strip():
+        return None
+
+    text = str(raw).strip()
+    junk_patterns = [
+        'bỏ qua', 'chưa đóng tiền', 'không học', 'đăng kí chưa', 
+        'chưa phân công', 'đóng trc', 'tuan anh data', 'tuấn anh data', 
+        'anh bean', 'chỉ học', 'ở tuấn anh', 'học t7', 'học k2'
+    ]
+    if any(j in text.lower() for j in junk_patterns) and not any(kw in text.lower() for kw in ('liên', 'linh', 'minh', 'cường', 'ngọc', 'huy', 'trần đạt')):
+        return None
+
+    # Loại bỏ ghi chú sau dấu gạch chéo nếu không phải tên sale
+    text = re.sub(r'/(?!\s*(?:liên|linh|ngọc|minh|an))\w+.*$', '', text, flags=re.IGNORECASE)
+
+    parts = re.split(r'[,+&;/]', text)
+    res = []
+    non_sales = ('học', 't7', 'k2', 'tuan anh', 'tuấn anh', 'data', 'pass', 'lead', 'cn', 'công nợ', 'chị bii', 'chj bii')
+    for p in parts:
+        clean = p.strip()
+        clean = re.sub(r'[/\\].*$', '', clean).strip()
+        clean = re.sub(r'[-–].*$', '', clean).strip()
+        clean = re.sub(r'^zl\s+', '', clean, flags=re.IGNORECASE).strip()
+        lower = clean.lower()
+        if not lower:
+            continue
+        if any(j in lower for j in junk_patterns) or any(ns in lower for ns in non_sales):
+            continue
+
+        if lower in ('cường', 'cuong', 'khuất cường'):
+            norm = 'Khuất Cường'
+        elif lower in ('liên', 'lien', 'liên vũ'):
+            norm = 'Liên Vũ'
+        elif lower in ('hiền minh', 'hien minh', 'hiền minh lý', 'minh', 'minhh'):
+            norm = 'Hiền Minh Lý'
+        elif lower in ('hồng minh', 'hong minh'):
+            norm = 'Hồng Minh'
+        elif lower in ('linh', 'linh bùi', 'linh bui'):
+            norm = 'Linh Bùi'
+        elif lower in ('ngọc', 'ngoc', 'bảo ngọc', 'bao ngoc'):
+            norm = 'Bảo Ngọc'
+        elif lower in ('bảo trânn', 'bảo trân', 'bao tran'):
+            norm = 'Bảo Trânn'
+        elif lower in ('huy', 'nguyen gia huy', 'gia huy'):
+            norm = 'Nguyen Gia Huy'
+        elif lower in ('huyền', 'huyen', 'pham thu huyen', 'thu huyen'):
+            norm = 'Pham Thu Huyen'
+        elif lower in ('quốc anh', 'quoc anh', 'qanh', 'quóc ahn', 'quốc anh', 'nguyễn quoc anh', 'nguyễn quốc anh'):
+            norm = 'Nguyễn Quốc Anh'
+        elif lower in ('trần đạt', 'tran dat', 'đạt'):
+            norm = 'Trần Đạt'
+        elif lower in ('anh trinh', 'trinh'):
+            norm = 'Anh Trinh'
+        elif lower in ('hoài phương', 'hoai phuong'):
+            norm = 'Hoài Phương'
+        elif lower in ('my trà', 'my tra'):
+            norm = 'My Trà'
+        elif lower in ('nguyễn thị thanh mai', 'thanh mai'):
+            norm = 'Nguyễn Thị Thanh Mai'
+        elif lower in ('lam vante', 'vante'):
+            norm = 'Lam Vante'
+        elif lower in ('chị an', 'chj an', 'c an', 'an'):
+            norm = 'Chị An'
+        elif len(clean) >= 2 and lower not in ('hp',):
+            norm = clean.title() if len(clean) > 2 else clean
+        else:
+            norm = None
+
+        if norm and norm not in res:
+            res.append(norm)
+
+    return ', '.join(res) if res else None
+
 
 def find_lead_info_by_phone(phone: Optional[str], db: Session) -> Tuple[Optional[int], bool, Optional[str], Optional[str]]:
     """
@@ -137,13 +220,27 @@ def sync_all_deals_with_dim_leads(db: Session) -> Tuple[int, int, int]:
                 if other_assigned:
                     new_care = other_assigned[0]
 
-            if new_care and d.care_by != new_care:
-                d.care_by = new_care
-                care_by_updated += 1
-                has_changes = True
+            if new_care:
+                norm_care = normalize_sale_name(new_care)
+                if norm_care and d.care_by != norm_care:
+                    d.care_by = norm_care
+                    care_by_updated += 1
+                    has_changes = True
+            else:
+                norm_care = normalize_sale_name(d.care_by)
+                if norm_care != d.care_by:
+                    d.care_by = norm_care
+                    care_by_updated += 1
+                    has_changes = True
         else:
             if d.is_student:
                 d.is_student = False
+                has_changes = True
+
+            norm_care = normalize_sale_name(d.care_by)
+            if norm_care != d.care_by:
+                d.care_by = norm_care
+                care_by_updated += 1
                 has_changes = True
 
     if has_changes:

@@ -889,7 +889,8 @@ async def receive_deal_webhook(request: Request, db: Session = Depends(get_db)):
 
         # Map với DimLead và Pancake qua SĐT
         dim_lead_id, is_student, pancake_care, lead_tag = find_lead_info_by_phone(phone, db)
-        final_care_by = pancake_care or (str(care_by).strip() if care_by else "Chưa phân công")
+        from database.deal_sync import normalize_sale_name
+        final_care_by = pancake_care or normalize_sale_name(care_by) or "Chưa phân công"
 
         # Kiểm tra trùng lặp theo sheet_row_id hoặc theo SĐT (defer raw_data để tiết kiệm băng thông)
         existing_deal = None
@@ -953,6 +954,7 @@ async def receive_deal_webhook(request: Request, db: Session = Depends(get_db)):
 @app.post("/api/deals/sync-leads")
 def trigger_deal_leads_sync(db: Session = Depends(get_db)):
     """Đồng bộ Deal Win với DimLead (map SĐT, kiểm tra tag Đã là học viên, cập nhật nhân viên chăm sóc từ Pancake)."""
+    from database.deal_sync import sync_all_deals_with_dim_leads, normalize_sale_name
     total, students, updated = sync_all_deals_with_dim_leads(db)
     with _DEAL_CACHE_LOCK:
         _DEAL_CACHE.clear()
@@ -970,8 +972,9 @@ def get_deals_options(
     db: Session = Depends(get_db)
 ):
     """Lấy danh sách các nhân viên sale từ Deal Win để render dropdown filters (có cache 10 phút).
-    Chỉ giữ lại tên đơn lẻ (tách các cụm ghép phẩy thành các nhân viên riêng biệt).
+    Chỉ giữ lại tên đơn lẻ (chuẩn hóa tên tắt, tách các cụm ghép phẩy/cộng/& thành các nhân viên riêng biệt, loại bỏ từ rác).
     """
+    from database.deal_sync import normalize_sale_name
     cache_key = f"deals_options_{only_student}"
     with _DEAL_CACHE_LOCK:
         if cache_key in _DEAL_CACHE:
@@ -987,10 +990,12 @@ def get_deals_options(
     raw_sales = [r[0] for r in sales_query.all() if r[0]]
     individual_sales = set()
     for s in raw_sales:
-        for name in s.split(","):
-            clean_name = name.strip()
-            if clean_name:
-                individual_sales.add(clean_name)
+        norm = normalize_sale_name(s)
+        if norm:
+            for name in norm.split(","):
+                clean_name = name.strip()
+                if clean_name and clean_name != "Chưa phân công":
+                    individual_sales.add(clean_name)
     sales = sorted(list(individual_sales))
 
     res = DealWinOptions(sales_persons=sales)

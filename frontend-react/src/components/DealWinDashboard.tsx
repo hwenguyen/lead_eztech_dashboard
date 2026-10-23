@@ -57,11 +57,14 @@ export function DealWinDashboard() {
   // Distinct single sales persons list (tách tên đơn lẻ, không để các cụm ghép phẩy)
   const salesPersonsList = React.useMemo(() => {
     const set = new Set<string>();
+    const junk = ['chưa phân công', 'bỏ qua', 'chưa đóng tiền', 'không học', 'học t7', 'đóng trc', 'data'];
     (options.sales_persons || []).forEach(sp => {
       if (sp) {
         sp.split(',').forEach(name => {
           const trimmed = name.trim();
-          if (trimmed) set.add(trimmed);
+          if (trimmed && !junk.some(j => trimmed.toLowerCase().includes(j))) {
+            set.add(trimmed);
+          }
         });
       }
     });
