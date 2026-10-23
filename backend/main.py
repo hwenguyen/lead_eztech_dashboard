@@ -969,7 +969,9 @@ def get_deals_options(
     only_student: bool = Query(True, description="Chỉ lấy danh sách sale có tag Đã là học viên"),
     db: Session = Depends(get_db)
 ):
-    """Lấy danh sách các nhân viên sale từ Deal Win để render dropdown filters (có cache 10 phút)."""
+    """Lấy danh sách các nhân viên sale từ Deal Win để render dropdown filters (có cache 10 phút).
+    Chỉ giữ lại tên đơn lẻ (tách các cụm ghép phẩy thành các nhân viên riêng biệt).
+    """
     cache_key = f"deals_options_{only_student}"
     with _DEAL_CACHE_LOCK:
         if cache_key in _DEAL_CACHE:
@@ -982,7 +984,14 @@ def get_deals_options(
     if only_student:
         sales_query = sales_query.filter(DealWin.is_student == True)
 
-    sales = sorted([r[0] for r in sales_query.all() if r[0]])
+    raw_sales = [r[0] for r in sales_query.all() if r[0]]
+    individual_sales = set()
+    for s in raw_sales:
+        for name in s.split(","):
+            clean_name = name.strip()
+            if clean_name:
+                individual_sales.add(clean_name)
+    sales = sorted(list(individual_sales))
 
     res = DealWinOptions(sales_persons=sales)
     with _DEAL_CACHE_LOCK:
@@ -997,7 +1006,7 @@ def get_deals_summary(
     only_student: bool = Query(True, description="Chỉ tính những ai có tag Đã là học viên"),
     db: Session = Depends(get_db)
 ):
-    """Thống kê tổng quan Deal Win theo khoảng thời gian - Tối ưu 100% bằng SQL aggregations và in-memory cache (tiết kiệm băng thông Neon tối đa)."""
+    """Thống kê tổng quan Deal Win theo khoảng thời gian - Tối ưu 100% bằng in-memory cache và thống kê sale chuẩn xác."""
     start, end = resolve_period(start_date, end_date)
     cache_key = f"deals_summary_{start}_{end}_{sales_person}_{only_student}"
 
@@ -1016,12 +1025,20 @@ def get_deals_summary(
     # 1. Total deals count
     total_deals = db.query(func.count(DealWin.id)).filter(*filters).scalar() or 0
 
-    # 2. Sales person stats (GROUP BY care_by)
-    sales_query = db.query(
-        func.coalesce(DealWin.care_by, "Chưa phân công").label("sale"),
-        func.count(DealWin.id).label("cnt")
-    ).filter(*filters).group_by(func.coalesce(DealWin.care_by, "Chưa phân công")).order_by(desc("cnt")).all()
-    sales_stats = {r.sale: r.cnt for r in sales_query}
+    # 2. Sales person stats (Tách các tên ghép phẩy để thống kê riêng từng nhân viên cho biểu đồ Top Sales)
+    care_rows = db.query(DealWin.care_by).filter(*filters).all()
+    sales_counts = {}
+    for (care_val,) in care_rows:
+        if not care_val or not str(care_val).strip():
+            sales_counts["Chưa phân công"] = sales_counts.get("Chưa phân công", 0) + 1
+        else:
+            names = [n.strip() for n in str(care_val).split(",") if n.strip()]
+            if not names:
+                sales_counts["Chưa phân công"] = sales_counts.get("Chưa phân công", 0) + 1
+            else:
+                for n in names:
+                    sales_counts[n] = sales_counts.get(n, 0) + 1
+    sales_stats = dict(sorted(sales_counts.items(), key=lambda item: item[1], reverse=True))
 
     # 3. Daily trend (GROUP BY DATE(timestamp))
     trend_query = db.query(

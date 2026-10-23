@@ -8,34 +8,53 @@ def find_lead_info_by_phone(phone: Optional[str], db: Session) -> Tuple[Optional
     Tìm thông tin DimLead và FactLeadActivity theo SĐT.
     Trả về: (dim_lead_id, is_student, care_by, lead_tag)
     - is_student: True nếu có tag chứa 'học viên' (vd: 'Đã là học viên')
-    - care_by: Tên nhân viên phụ trách từ Pancake (assigned_users)
+    - care_by: Tên nhân viên phụ trách từ hội thoại có tag 'học viên'
     """
     if not phone or not str(phone).strip():
         return None, False, None, None
 
     clean_phone = str(phone).strip()
-    lead_row = db.query(DimLead.id).filter(DimLead.phone_number == clean_phone).first()
-    if not lead_row:
+    lead_rows = db.query(DimLead.id).filter(DimLead.phone_number == clean_phone).all()
+    if not lead_rows:
         return None, False, None, None
 
-    lead_id = lead_row[0]
+    lead_ids = [r[0] for r in lead_rows]
     activities = db.query(
         FactLeadActivity.status_tag,
         FactLeadActivity.assigned_users
-    ).filter(FactLeadActivity.lead_id == lead_id).all()
+    ).filter(FactLeadActivity.lead_id.in_(lead_ids)).all()
     all_tags = []
-    assigned_user = None
+    hv_users = []
+    other_users = []
 
     for status_tag, assigned_users in activities:
-        if status_tag:
-            all_tags.append(status_tag.strip())
-        if assigned_users and not assigned_user:
-            assigned_user = assigned_users.strip()
+        tag_str = (status_tag or '').strip()
+        user_str = (assigned_users or '').strip()
+        if tag_str:
+            all_tags.append(tag_str)
+        if user_str:
+            if 'học viên' in tag_str.lower():
+                for n in user_str.split(','):
+                    n_clean = n.strip()
+                    if n_clean and n_clean not in hv_users:
+                        hv_users.append(n_clean)
+            else:
+                for n in user_str.split(','):
+                    n_clean = n.strip()
+                    if n_clean and n_clean not in other_users:
+                        other_users.append(n_clean)
 
     combined_tags = ", ".join(all_tags)
     is_student = bool(combined_tags and "học viên" in combined_tags.lower())
 
-    return lead_id, is_student, assigned_user, combined_tags[:255] if combined_tags else None
+    if is_student and hv_users:
+        assigned_user = ", ".join(hv_users)
+    elif other_users:
+        assigned_user = ", ".join(other_users)
+    else:
+        assigned_user = None
+
+    return lead_ids[0], is_student, assigned_user, combined_tags[:255] if combined_tags else None
 
 
 def sync_all_deals_with_dim_leads(db: Session) -> Tuple[int, int, int]:
@@ -43,6 +62,7 @@ def sync_all_deals_with_dim_leads(db: Session) -> Tuple[int, int, int]:
     Quét và đồng bộ toàn bộ bảng deal_wins với dim_leads:
     - Dùng defer(DealWin.raw_data) để không tải 2MB JSON raw_data qua mạng
     - Chỉ truy vấn DimLead theo đúng danh sách SĐT có trong deal_wins (thay vì quét toàn bộ 13.000 dòng)
+    - Chỉ gán nhân viên chăm sóc (care_by) từ chính hội thoại CÓ TAG 'học viên' (hoặc 'Đã là học viên')
     - Chỉ ghi DB khi có trường thay đổi thực sự
     Trả về: (total_processed, student_count, care_by_updated)
     """
@@ -91,20 +111,36 @@ def sync_all_deals_with_dim_leads(db: Session) -> Tuple[int, int, int]:
                 d.lead_tag = new_tag
                 has_changes = True
             
-            new_is_student = ('học viên' in all_tags.lower())
+            # Chỉ tính là học viên nếu hội thoại có tag chứa 'học viên'
+            hv_items = [it for it in items if 'học viên' in (it['status_tag'] or '').lower()]
+            new_is_student = len(hv_items) > 0
             if new_is_student:
                 student_count += 1
             if d.is_student != new_is_student:
                 d.is_student = new_is_student
                 has_changes = True
 
-            users = [it['assigned'] for it in items if it['assigned']]
-            if users:
-                new_care = users[0]
-                if d.care_by != new_care:
-                    d.care_by = new_care
-                    care_by_updated += 1
-                    has_changes = True
+            # Gán nhân viên chăm sóc: Ưu tiên CHÍNH XÁC từ hội thoại có tag 'học viên'
+            new_care = None
+            if new_is_student:
+                hv_assigned = [it['assigned'] for it in hv_items if it.get('assigned')]
+                if hv_assigned:
+                    names = []
+                    for u in hv_assigned:
+                        for n in u.split(','):
+                            n_clean = n.strip()
+                            if n_clean and n_clean not in names:
+                                names.append(n_clean)
+                    new_care = ', '.join(names) if names else hv_assigned[0]
+            else:
+                other_assigned = [it['assigned'] for it in items if it.get('assigned')]
+                if other_assigned:
+                    new_care = other_assigned[0]
+
+            if new_care and d.care_by != new_care:
+                d.care_by = new_care
+                care_by_updated += 1
+                has_changes = True
         else:
             if d.is_student:
                 d.is_student = False

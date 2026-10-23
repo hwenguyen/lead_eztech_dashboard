@@ -54,6 +54,20 @@ export function DealWinDashboard() {
   // Dropdown options
   const [options, setOptions] = useState<DealWinOptions>({ sales_persons: [] });
 
+  // Distinct single sales persons list (tách tên đơn lẻ, không để các cụm ghép phẩy)
+  const salesPersonsList = React.useMemo(() => {
+    const set = new Set<string>();
+    (options.sales_persons || []).forEach(sp => {
+      if (sp) {
+        sp.split(',').forEach(name => {
+          const trimmed = name.trim();
+          if (trimmed) set.add(trimmed);
+        });
+      }
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'vi'));
+  }, [options.sales_persons]);
+
   // Data states
   const [summary, setSummary] = useState<DealWinSummary | null>(null);
   const [deals, setDeals] = useState<DealWinItem[]>([]);
@@ -293,8 +307,8 @@ export function DealWinDashboard() {
               onChange={e => setSelectedSale(e.target.value)}
               className="px-3 py-2 border border-[#E5E7EB] rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#1E5BD6]/20 focus:border-[#1E5BD6] transition-all text-[#111827] cursor-pointer"
             >
-              <option value="">Tất cả Sale ({options.sales_persons.length})</option>
-              {options.sales_persons.map(sp => (
+              <option value="">Tất cả Sale ({salesPersonsList.length})</option>
+              {salesPersonsList.map(sp => (
                 <option key={sp} value={sp}>{sp}</option>
               ))}
             </select>
