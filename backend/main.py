@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Depends, Query, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, defer
 from sqlalchemy import or_, desc, func
 from collections import Counter
 from datetime import datetime, timedelta
@@ -45,13 +45,53 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Pancake Lead Reporting API")
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Cấu hình CORS: Ưu tiên danh sách ALLOWED_ORIGINS từ biến môi trường
+allowed_origins_env = os.getenv("ALLOWED_ORIGINS", "").strip()
+if allowed_origins_env:
+    allowed_origins = [orig.strip() for orig in allowed_origins_env.split(",") if orig.strip()]
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=allowed_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+else:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+def verify_webhook_secret(request: Request):
+    """Xác thực Webhook Secret từ Header X-Webhook-Secret hoặc query param ?secret=."""
+    webhook_secret = os.getenv("WEBHOOK_SECRET", "").strip()
+    if not webhook_secret:
+        return
+    token = request.headers.get("X-Webhook-Secret") or request.query_params.get("secret")
+    if not token or token.strip() != webhook_secret:
+        raise HTTPException(
+            status_code=401,
+            detail="Unauthorized: Sai hoặc thiếu mã bí mật Webhook (Header X-Webhook-Secret hoặc ?secret=)"
+        )
+
+def verify_admin_secret(request: Request):
+    """Xác thực Admin Secret cho các tác vụ quản trị (clear cache, repair)."""
+    admin_secret = os.getenv("ADMIN_SECRET_KEY", "").strip() or os.getenv("WEBHOOK_SECRET", "").strip()
+    if not admin_secret:
+        return
+    token = (
+        request.headers.get("X-Admin-Secret")
+        or request.headers.get("X-Webhook-Secret")
+        or request.query_params.get("secret")
+    )
+    if not token or token.strip() != admin_secret:
+        raise HTTPException(
+            status_code=401,
+            detail="Unauthorized: Cần cung cấp mã Admin Secret (Header X-Admin-Secret hoặc ?secret=)"
+        )
 
 @app.get("/")
 def root():
@@ -392,11 +432,49 @@ _LAST_MSG_CACHE: Dict[str, Tuple[float, Optional[str]]] = {}
 _LAST_MSG_LOCK = threading.Lock()
 _LAST_MSG_TTL = 900.0  # 15 phút cache tin nhắn cuối
 
+_TAG_TL_CACHE: Dict[str, Tuple[float, List[dict]]] = {}
+_TAG_TL_LOCK = threading.Lock()
+_TAG_TL_TTL = 900.0  # 15 phút cache tag_timeline theo từng hội thoại
+
 _DEAL_CACHE: Dict[str, Tuple[float, Any]] = {}
 _DEAL_CACHE_LOCK = threading.Lock()
 _DEAL_CACHE_TTL = 300.0  # 5 phút cache cho Deal Win
 
-@app.post("/api/admin/clear-cache")
+def _fetch_tag_timelines(db: Session, conv_ids: List[str]) -> Dict[str, List[dict]]:
+    """Chỉ tải cột JSON tag_timeline cho đúng 15-20 hội thoại hiển thị trên trang hiện tại (tiết kiệm 99.9% Egress)."""
+    if not conv_ids:
+        return {}
+    now_ts = time.time()
+    tl_map: Dict[str, List[dict]] = {}
+    missing_cids: List[str] = []
+
+    with _TAG_TL_LOCK:
+        for cid in conv_ids:
+            if cid in _TAG_TL_CACHE and (now_ts - _TAG_TL_CACHE[cid][0] < _TAG_TL_TTL):
+                tl_map[cid] = _TAG_TL_CACHE[cid][1]
+            else:
+                missing_cids.append(cid)
+
+    if missing_cids:
+        rows = db.query(
+            FactLeadActivity.conversation_id,
+            FactLeadActivity.tag_timeline
+        ).filter(FactLeadActivity.conversation_id.in_(missing_cids)).all()
+        fetched_tl = {cid: (tl if isinstance(tl, list) else []) for cid, tl in rows}
+
+        with _TAG_TL_LOCK:
+            if len(_TAG_TL_CACHE) > 2000:
+                expired = [k for k, (t, _) in _TAG_TL_CACHE.items() if now_ts - t > _TAG_TL_TTL]
+                for k in expired:
+                    _TAG_TL_CACHE.pop(k, None)
+            for cid in missing_cids:
+                val = fetched_tl.get(cid, [])
+                _TAG_TL_CACHE[cid] = (now_ts, val)
+                tl_map[cid] = val
+
+    return tl_map
+
+@app.post("/api/admin/clear-cache", dependencies=[Depends(verify_admin_secret)])
 def clear_cache():
     """Xoá toàn bộ cache metrics, page list, tin nhắn cuối, remind leads & deal wins."""
     clear_metrics_cache()
@@ -406,11 +484,13 @@ def clear_cache():
         _REMIND_CACHE.clear()
     with _LAST_MSG_LOCK:
         _LAST_MSG_CACHE.clear()
+    with _TAG_TL_LOCK:
+        _TAG_TL_CACHE.clear()
     with _DEAL_CACHE_LOCK:
         _DEAL_CACHE.clear()
     return {"status": "ok", "message": "All metrics, pages, last messages, remind, and deal caches have been cleared."}
 
-@app.post("/api/admin/repair")
+@app.post("/api/admin/repair", dependencies=[Depends(verify_admin_secret)])
 def trigger_manual_repair():
     """Kích hoạt chạy auto_repair_contacted_dates thủ công trong background."""
     threading.Thread(target=auto_repair_contacted_dates, daemon=True).start()
@@ -494,13 +574,20 @@ def list_leads(
                 _LAST_MSG_CACHE[cid] = (now_ts, val)
                 last_msg_map[cid] = val
 
+    # Chỉ tải tag_timeline cho đúng 15 lead hiển thị trên trang hiện tại
+    tl_map = _fetch_tag_timelines(db, conv_ids)
+
     data = []
     for lead in paginated:
         messages = []
+        lead_tl = []
         for cid in lead.conversation_ids:
             m_str = last_msg_map.get(cid)
             if m_str:
                 messages.append(m_str)
+            for t_item in tl_map.get(cid, []):
+                if t_item not in lead_tl:
+                    lead_tl.append(t_item)
 
         data.append(LeadResponse(
             id=lead.id,
@@ -510,7 +597,7 @@ def list_leads(
             page_id=lead.page_id,
             first_created_at=lead.first_created_at,
             status_tag=", ".join(sorted(lead.tags)) if lead.tags else None,
-            tag_timeline=lead.tag_timeline if lead.tag_timeline else None,
+            tag_timeline=lead_tl if lead_tl else None,
             assigned_users=", ".join(sorted(lead.employees)) if lead.employees else None,
             messages="\n".join(messages) if messages else None,
             is_contacted=lead.is_contacted,
@@ -541,7 +628,7 @@ def get_remind_leads(
     now_vn = datetime.now(VN_TZ).replace(tzinfo=None)
 
     # 1. Cache toàn bộ bảng hoạt động trong RAM (TTL 15 phút) với single-flight lock:
-    # Khi đổi bộ lọc Page / Nhân viên / Tag trên giao diện, lọc trực tiếp trong RAM mà KHÔNG query lại Neon
+    # KHÔNG tải cột JSON tag_timeline (5.2 MB) ở đây để tiết kiệm >90% băng thông Neon; chỉ tải cho 20 dòng trang hiện tại.
     with _REMIND_LOCK:
         now_ts = time.time()
         all_rows = None
@@ -557,7 +644,6 @@ def get_remind_leads(
                 FactLeadActivity.status_tag,
                 FactLeadActivity.assigned_users,
                 FactLeadActivity.contacted_at,
-                FactLeadActivity.tag_timeline,
                 DimLead.id.label('lead_id'),
                 DimLead.customer_id,
                 DimLead.name,
@@ -659,16 +745,6 @@ def get_remind_leads(
             elif days_bucket == "over_7" and days_int <= 7:
                 continue
 
-        # Tìm thời điểm gắn tag từ tag_timeline
-        remind_tagged_at = None
-        for t_item in r.tag_timeline or []:
-            if isinstance(t_item, dict):
-                t_name = str(t_item.get('tag') or '').strip().lower()
-                target_check = (tag.strip().lower() if tag and tag.lower() != 'all' else 'remind')
-                if target_check in t_name and t_item.get('action') == 'add':
-                    remind_tagged_at = t_item.get('tagged_at')
-                    break
-
         # Xác định thẻ chính hiển thị
         lead_tags = [t.strip() for t in (r.status_tag or '').split(',') if t.strip()]
         display_tag = "Remind" if any("remind" in t.lower() for t in lead_tags) else (lead_tags[0] if lead_tags else "Không có tag")
@@ -684,7 +760,7 @@ def get_remind_leads(
                 assigned_users=r.assigned_users or "Chưa phân công",
                 status_tag=r.status_tag,
                 remind_tag=display_tag,
-                remind_tagged_at=remind_tagged_at,
+                remind_tagged_at=None,
                 contacted_at=r.contacted_at,
                 days_since_last_contact=days_float,
                 days_int=days_int,
@@ -704,6 +780,18 @@ def get_remind_leads(
     total_filtered = len(items)
     total_pages = (total_filtered + size - 1) // size if total_filtered > 0 else 1
     paginated = items[(page - 1) * size : page * size]
+
+    # Chỉ tải tag_timeline cho 20 dòng của trang hiện tại để lấy remind_tagged_at
+    page_cids = [it.conversation_id for it in paginated if it.conversation_id]
+    tl_map = _fetch_tag_timelines(db, page_cids)
+    target_check = (tag.strip().lower() if tag and tag.lower() != 'all' else 'remind')
+    for it in paginated:
+        for t_item in tl_map.get(it.conversation_id or "", []):
+            if isinstance(t_item, dict):
+                t_name = str(t_item.get('tag') or '').strip().lower()
+                if target_check in t_name and t_item.get('action') == 'add':
+                    it.remind_tagged_at = t_item.get('tagged_at')
+                    break
 
     return RemindLeadResponse(
         total=total_filtered,
@@ -748,7 +836,7 @@ def _extract_field(row: Dict[str, Any], candidates: List[str]) -> Optional[Any]:
                 return v
     return None
 
-@app.post("/api/deals/webhook")
+@app.post("/api/deals/webhook", dependencies=[Depends(verify_webhook_secret)])
 async def receive_deal_webhook(request: Request, db: Session = Depends(get_db)):
     """Nhận dữ liệu Deal Win được đẩy tự động từ Google Sheet / Google Form.
     Hỗ trợ nhận 1 dòng đơn lẻ (dict) hoặc nhiều dòng (list).
@@ -803,13 +891,13 @@ async def receive_deal_webhook(request: Request, db: Session = Depends(get_db)):
         dim_lead_id, is_student, pancake_care, lead_tag = find_lead_info_by_phone(phone, db)
         final_care_by = pancake_care or (str(care_by).strip() if care_by else "Chưa phân công")
 
-        # Kiểm tra trùng lặp theo sheet_row_id hoặc theo SĐT
+        # Kiểm tra trùng lặp theo sheet_row_id hoặc theo SĐT (defer raw_data để tiết kiệm băng thông)
         existing_deal = None
         if sheet_row_id:
-            existing_deal = db.query(DealWin).filter_by(sheet_row_id=sheet_row_id).first()
+            existing_deal = db.query(DealWin).options(defer(DealWin.raw_data)).filter_by(sheet_row_id=sheet_row_id).first()
 
         if not existing_deal and phone:
-            existing_deal = db.query(DealWin).filter(DealWin.phone_number == phone).first()
+            existing_deal = db.query(DealWin).options(defer(DealWin.raw_data)).filter(DealWin.phone_number == phone).first()
 
         if existing_deal:
             existing_deal.timestamp = submitted_at

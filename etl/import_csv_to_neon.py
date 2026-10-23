@@ -125,7 +125,9 @@ def import_rows_to_neon(rows):
         # Xoá cache Render API nếu đang chạy online
         try:
             import requests
-            requests.post("https://pancake-lead-api.onrender.com/api/admin/clear-cache", timeout=5)
+            secret = os.getenv("ADMIN_SECRET_KEY") or os.getenv("WEBHOOK_SECRET")
+            headers = {"X-Admin-Secret": secret} if secret else {}
+            requests.post("https://pancake-lead-api.onrender.com/api/admin/clear-cache", headers=headers, timeout=5)
         except Exception:
             pass
 

@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Optional, Dict, List, Set, Tuple, Any
 
-from sqlalchemy import select, or_, and_
+from sqlalchemy import select, or_, and_, case
 from sqlalchemy.orm import Session
 
 from database.models import DimLead, FactLeadActivity
@@ -213,7 +213,19 @@ def classify_leads(
                 FactLeadActivity.assigned_users,
                 FactLeadActivity.contacted_dates,
                 FactLeadActivity.contacted_at,
-                FactLeadActivity.tag_timeline,
+                case(
+                    (
+                        and_(
+                            DimLead.phone_at.is_(None),
+                            or_(
+                                FactLeadActivity.status_tag.ilike("%đã add%"),
+                                FactLeadActivity.status_tag.ilike("%da add%"),
+                            ),
+                        ),
+                        FactLeadActivity.tag_timeline,
+                    ),
+                    else_=None,
+                ).label("tag_timeline"),
             ).join(FactLeadActivity, DimLead.id == FactLeadActivity.lead_id).filter(
                 scope,
                 ~FactLeadActivity.conversation_id.like("pzl_g_%"),

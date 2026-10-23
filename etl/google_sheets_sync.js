@@ -10,6 +10,8 @@
 
 // ĐỊA CHỈ API CỦA BẠN TRÊN RENDER (Gắn thêm /api/deals/webhook)
 var API_URL = "https://pancake-lead-api.onrender.com/api/deals/webhook";
+// MÃ BẢO MẬT WEBHOOK (Cấu hình giống với biến môi trường WEBHOOK_SECRET trên Render)
+var WEBHOOK_SECRET = ""; 
 var TARGET_SHEET_NAME = "Form Responses 1"; // Tên tab chứa kết quả form
 
 /**
@@ -75,14 +77,27 @@ function sendRowToBackend(sheet, rowNumber) {
     }
   }
   
+  var reqHeaders = {
+    "Content-Type": "application/json"
+  };
+  if (WEBHOOK_SECRET && WEBHOOK_SECRET.trim() !== "") {
+    reqHeaders["X-Webhook-Secret"] = WEBHOOK_SECRET.trim();
+  }
+
   var options = {
     "method": "post",
     "contentType": "application/json",
+    "headers": reqHeaders,
     "payload": JSON.stringify(payload),
     "muteHttpExceptions": true
   };
   
-  var response = UrlFetchApp.fetch(API_URL, options);
+  var postUrl = API_URL;
+  if (WEBHOOK_SECRET && WEBHOOK_SECRET.trim() !== "" && API_URL.indexOf("?") === -1) {
+    postUrl += "?secret=" + encodeURIComponent(WEBHOOK_SECRET.trim());
+  }
+
+  var response = UrlFetchApp.fetch(postUrl, options);
   Logger.log("Row " + rowNumber + " sent. Code: " + response.getResponseCode());
 }
 
@@ -141,13 +156,25 @@ function dailySyncJob() {
   var totalSent = 0;
   for (var i = 0; i < batch.length; i += batchSize) {
     var chunk = batch.slice(i, i + batchSize);
+    var reqHeaders = {
+      "Content-Type": "application/json"
+    };
+    if (WEBHOOK_SECRET && WEBHOOK_SECRET.trim() !== "") {
+      reqHeaders["X-Webhook-Secret"] = WEBHOOK_SECRET.trim();
+    }
+
     var options = {
       "method": "post",
       "contentType": "application/json",
+      "headers": reqHeaders,
       "payload": JSON.stringify(chunk),
       "muteHttpExceptions": true
     };
-    var response = UrlFetchApp.fetch(API_URL, options);
+    var postUrl = API_URL;
+    if (WEBHOOK_SECRET && WEBHOOK_SECRET.trim() !== "" && API_URL.indexOf("?") === -1) {
+      postUrl += "?secret=" + encodeURIComponent(WEBHOOK_SECRET.trim());
+    }
+    var response = UrlFetchApp.fetch(postUrl, options);
     totalSent += chunk.length;
     Logger.log("Đã gửi lô " + Math.floor(i / batchSize + 1) + ": " + chunk.length + " dòng. Status: " + response.getResponseCode());
   }

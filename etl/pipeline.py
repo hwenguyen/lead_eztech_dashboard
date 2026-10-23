@@ -41,21 +41,21 @@ def prefetch_records(db: Session, conversations: List[dict]) -> Dict[str, Dict[s
 
 
 def prefetch_comments(db: Session, comments: List[dict]) -> Dict[str, Comment]:
-    """Nạp sẵn Comment của cả lô bằng câu IN (...)."""
+    """Nạp sẵn Comment của cả lô bằng câu IN (...). Dùng defer(Comment.payload) để tiết kiệm 95% băng thông Neon."""
     cids = list({str(c.get('comment_id') or c.get('id')) for c in comments if c.get('comment_id') or c.get('id')})
     res: Dict[str, Comment] = {}
     for chunk in _chunks(cids):
-        for r in db.query(Comment).filter(Comment.comment_id.in_(chunk)):
+        for r in db.query(Comment).options(defer(Comment.payload)).filter(Comment.comment_id.in_(chunk)):
             res[r.comment_id] = r
     return res
 
 
 def prefetch_posts(db: Session, posts: List[dict]) -> Dict[str, Post]:
-    """Nạp sẵn Post của cả lô bằng câu IN (...)."""
+    """Nạp sẵn Post của cả lô bằng câu IN (...). Dùng defer(Post.payload) để tiết kiệm băng thông Neon."""
     pids = list({str(p.get('post_id') or p.get('id')) for p in posts if p.get('post_id') or p.get('id')})
     res: Dict[str, Post] = {}
     for chunk in _chunks(pids):
-        for r in db.query(Post).filter(Post.post_id.in_(chunk)):
+        for r in db.query(Post).options(defer(Post.payload)).filter(Post.post_id.in_(chunk)):
             res[r.post_id] = r
     return res
 
@@ -330,7 +330,7 @@ def upsert_post_data(db: Session, post_data: dict, page_name: str, commit: bool 
         if prefetched is not None and "post" in prefetched:
             rec = prefetched["post"].get(pid)
         else:
-            rec = db.query(Post).filter_by(post_id=pid).first()
+            rec = db.query(Post).options(defer(Post.payload)).filter_by(post_id=pid).first()
 
         if not rec:
             rec = Post(
@@ -363,41 +363,51 @@ def upsert_post_data(db: Session, post_data: dict, page_name: str, commit: bool 
             if prefetched is not None and "post" in prefetched:
                 prefetched["post"][pid] = rec
         else:
-            rec.page_id = page_id
-            rec.page_name = page_name
-            rec.platform = platform
-            rec.type = p_type
-            if message:
-                rec.message = message
-            if post_url:
-                rec.post_url = post_url
-            if creator_id:
-                rec.creator_id = creator_id
-            if creator_name:
-                rec.creator_name = creator_name
-            if comment_count:
-                rec.comment_count = comment_count
-            if like_count:
-                rec.like_count = like_count
-            rec.love_count = love_count
-            rec.haha_count = haha_count
-            rec.wow_count = wow_count
-            rec.sad_count = sad_count
-            rec.angry_count = angry_count
-            rec.care_count = care_count
-            if reactions_total:
-                rec.reactions_total = reactions_total
-            if share_count:
-                rec.share_count = share_count
-            if view_count:
-                rec.view_count = view_count
-            rec.phone_number_count = phone_number_count
-            if inserted_at:
-                rec.inserted_at = inserted_at
-            if updated_at:
-                rec.updated_at = updated_at
-            if payload:
-                rec.payload = payload
+            # Chỉ cập nhật khi có sự thay đổi thực sự về số liệu hoặc thời gian cập nhật
+            has_changed = (
+                rec.updated_at != updated_at
+                or rec.comment_count != comment_count
+                or rec.reactions_total != reactions_total
+                or rec.share_count != share_count
+                or rec.view_count != view_count
+                or rec.phone_number_count != phone_number_count
+            )
+            if has_changed:
+                rec.page_id = page_id
+                rec.page_name = page_name
+                rec.platform = platform
+                rec.type = p_type
+                if message:
+                    rec.message = message
+                if post_url:
+                    rec.post_url = post_url
+                if creator_id:
+                    rec.creator_id = creator_id
+                if creator_name:
+                    rec.creator_name = creator_name
+                if comment_count:
+                    rec.comment_count = comment_count
+                if like_count:
+                    rec.like_count = like_count
+                rec.love_count = love_count
+                rec.haha_count = haha_count
+                rec.wow_count = wow_count
+                rec.sad_count = sad_count
+                rec.angry_count = angry_count
+                rec.care_count = care_count
+                if reactions_total:
+                    rec.reactions_total = reactions_total
+                if share_count:
+                    rec.share_count = share_count
+                if view_count:
+                    rec.view_count = view_count
+                rec.phone_number_count = phone_number_count
+                if inserted_at:
+                    rec.inserted_at = inserted_at
+                if updated_at:
+                    rec.updated_at = updated_at
+                if payload:
+                    rec.payload = payload
 
         if commit:
             db.commit()
@@ -689,45 +699,50 @@ def run_etl_pipeline():
                         )
                         db = SessionLocal()
                         if comments_data:
-                            logger.info(f"[COMMENTS] Page {page_id}: Nhận được {len(comments_data)} comments. Đang lưu vào DB...")
-                            for start in range(0, len(comments_data), DB_BATCH):
-                                batch = comments_data[start:start + DB_BATCH]
-                                prefetched_comments = {"comment": prefetch_comments(db, batch)}
-                                for c_item in batch:
-                                    upsert_comment_data(db, c_item, canonical_page_name, commit=False, prefetched=prefetched_comments)
-                                db.commit()
-                            logger.info(f"[COMMENTS] ✅ Đã lưu thành công {len(comments_data)} comments cho Page {page_id} vào bảng comments.")
+                            changed_comments = [c for c in comments_data if not c.get("is_cached")]
+                            logger.info(
+                                f"[COMMENTS] Page {page_id}: Nhận được {len(comments_data)} comments "
+                                f"(mới/cập nhật: {len(changed_comments)}, giữ nguyên: {len(comments_data) - len(changed_comments)})."
+                            )
+                            if changed_comments:
+                                for start in range(0, len(changed_comments), DB_BATCH):
+                                    batch = changed_comments[start:start + DB_BATCH]
+                                    prefetched_comments = {"comment": prefetch_comments(db, batch)}
+                                    for c_item in batch:
+                                        upsert_comment_data(db, c_item, canonical_page_name, commit=False, prefetched=prefetched_comments)
+                                    db.commit()
+                                logger.info(f"[COMMENTS] ✅ Đã lưu thành công {len(changed_comments)} comments thay đổi cho Page {page_id} vào bảng comments.")
 
-                            # Tự động trích xuất các bài viết/video TikTok từ comment threads vào bảng posts
-                            is_tiktok_page = str(page_id).startswith("tt_") or "tiktok" in canonical_page_name.lower()
-                            unique_posts = {}
-                            for c_item in comments_data:
-                                p_id = c_item.get("post_id") or ((c_item.get("payload") or {}).get("post_id") if isinstance(c_item.get("payload"), dict) else None)
-                                if p_id and str(p_id) not in unique_posts:
-                                    p_obj = (c_item.get("payload") or {}).get("post") if isinstance(c_item.get("payload"), dict) else {}
-                                    p_url = c_item.get("post_url") or (p_obj.get("permalink_url") if isinstance(p_obj, dict) else None) or (p_obj.get("url") if isinstance(p_obj, dict) else None)
-                                    p_msg = (p_obj.get("message") or p_obj.get("title")) if isinstance(p_obj, dict) else None
-                                    p_ins = (p_obj.get("inserted_at") if isinstance(p_obj, dict) else None) or c_item.get("inserted_at")
-                                    unique_posts[str(p_id)] = {
-                                        "post_id": str(p_id),
-                                        "page_id": str(page_id),
-                                        "platform": "tiktok" if is_tiktok_page else "facebook",
-                                        "type": "video" if is_tiktok_page else "post",
-                                        "message": p_msg,
-                                        "post_url": build_post_url(str(p_id), page_id, p_url),
-                                        "inserted_at": p_ins,
-                                        "payload": p_obj if p_obj else {"post_id": p_id, "from_comment": True}
-                                    }
-                            if unique_posts:
-                                prefetched_p = {"post": prefetch_posts(db, list(unique_posts.values()))}
-                                for p_data in unique_posts.values():
-                                    upsert_post_data(db, p_data, canonical_page_name, commit=False, prefetched=prefetched_p)
-                                db.commit()
-                                logger.info(f"[POSTS] Đã đồng bộ {len(unique_posts)} bài viết/video từ comments cho Page {page_id}.")
+                                # Tự động trích xuất các bài viết/video TikTok từ comment threads mới vào bảng posts
+                                is_tiktok_page = str(page_id).startswith("tt_") or "tiktok" in canonical_page_name.lower()
+                                unique_posts = {}
+                                for c_item in changed_comments:
+                                    p_id = c_item.get("post_id") or ((c_item.get("payload") or {}).get("post_id") if isinstance(c_item.get("payload"), dict) else None)
+                                    if p_id and str(p_id) not in unique_posts:
+                                        p_obj = (c_item.get("payload") or {}).get("post") if isinstance(c_item.get("payload"), dict) else {}
+                                        p_url = c_item.get("post_url") or (p_obj.get("permalink_url") if isinstance(p_obj, dict) else None) or (p_obj.get("url") if isinstance(p_obj, dict) else None)
+                                        p_msg = (p_obj.get("message") or p_obj.get("title")) if isinstance(p_obj, dict) else None
+                                        p_ins = (p_obj.get("inserted_at") if isinstance(p_obj, dict) else None) or c_item.get("inserted_at")
+                                        unique_posts[str(p_id)] = {
+                                            "post_id": str(p_id),
+                                            "page_id": str(page_id),
+                                            "platform": "tiktok" if is_tiktok_page else "facebook",
+                                            "type": "video" if is_tiktok_page else "post",
+                                            "message": p_msg,
+                                            "post_url": build_post_url(str(p_id), page_id, p_url),
+                                            "inserted_at": p_ins,
+                                            "payload": p_obj if p_obj else {"post_id": p_id, "from_comment": True}
+                                        }
+                                if unique_posts:
+                                    prefetched_p = {"post": prefetch_posts(db, list(unique_posts.values()))}
+                                    for p_data in unique_posts.values():
+                                        upsert_post_data(db, p_data, canonical_page_name, commit=False, prefetched=prefetched_p)
+                                    db.commit()
+                                    logger.info(f"[POSTS] Đã đồng bộ {len(unique_posts)} bài viết/video từ comments cho Page {page_id}.")
 
                             # 4. Tự động phản hồi bình luận (Auto-Reply Comments) theo kịch bản
                             enable_comment_reply = os.getenv("ENABLE_COMMENT_REPLY", "true").strip().lower() not in ("false", "0", "off", "no")
-                            if enable_comment_reply:
+                            if enable_comment_reply and changed_comments:
                                 try:
                                     from etl.auto_reply_bot import process_page_comment_replies
                                     reply_dry_run = os.getenv("COMMENT_REPLY_DRY_RUN", "false").strip().lower() in ("true", "1", "yes")
@@ -736,7 +751,7 @@ def run_etl_pipeline():
 
                                     process_page_comment_replies(
                                         client=client,
-                                        comments_data=comments_data,
+                                        comments_data=changed_comments,
                                         page_id=page_id,
                                         db=db,
                                         dry_run=reply_dry_run,
@@ -759,8 +774,8 @@ def run_etl_pipeline():
                     # 5. Cào và đồng bộ danh sách Bài viết (Posts) vào bảng posts
                     enable_posts_sync = os.getenv("ENABLE_POSTS_SYNC", "true").strip().lower() not in ("false", "0", "off", "no")
                     if enable_posts_sync:
-                        posts_days_back = int(os.getenv("POSTS_DAYS_BACK", "90"))
-                        posts_limit = int(os.getenv("POSTS_LIMIT", "100"))
+                        posts_days_back = int(os.getenv("POSTS_DAYS_BACK", "7"))
+                        posts_limit = int(os.getenv("POSTS_LIMIT", "50"))
                         try:
                             posts_data = client.get_posts(
                                 page_id=page_id,
@@ -807,7 +822,9 @@ def run_etl_pipeline():
     # Xóa cache trên Render API để dashboard nhận dữ liệu mới ngay
     try:
         import requests
-        requests.post("https://pancake-lead-api.onrender.com/api/admin/clear-cache", timeout=5)
+        secret = os.getenv("ADMIN_SECRET_KEY") or os.getenv("WEBHOOK_SECRET")
+        headers = {"X-Admin-Secret": secret} if secret else {}
+        requests.post("https://pancake-lead-api.onrender.com/api/admin/clear-cache", headers=headers, timeout=5)
     except Exception:
         pass
         

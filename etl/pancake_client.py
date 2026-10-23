@@ -613,8 +613,16 @@ class PancakeClient:
         for conv in all_comments:
             cid = str(conv.get('id', ''))
             conv_updated = conv.get('updated_at')
+            conv_msg_count = conv.get('message_count', 1)
             cached_data = existing_cache.get(cid)
-            if cached_data and str(cached_data.get('updated_at')) == str(conv_updated):
+            is_unchanged = False
+            if cached_data:
+                cached_dt = cached_data.get('updated_at')
+                parsed_dt = parse_pancake_date(conv_updated)
+                if (cached_dt and parsed_dt and cached_dt == parsed_dt) or (str(cached_dt) == str(conv_updated)):
+                    if cached_data.get('message_count') == conv_msg_count:
+                        is_unchanged = True
+            if is_unchanged:
                 messages_by_conv[cid] = [{"is_cached": True}]
             else:
                 convs_to_fetch.append(cid)
@@ -718,6 +726,7 @@ class PancakeClient:
                 "inserted_at": conv.get("inserted_at"),
                 "updated_at": conv.get("updated_at"),
                 "payload": conv,
+                "is_cached": bool(msgs and msgs[0].get("is_cached")),
             })
 
         logger.info(f"Hoàn tất xử lý comment Page {page_id}! Tổng cộng: {len(results)} comments.")

@@ -340,9 +340,13 @@ def should_reply_comment(
 
     # 7. Chốt chặn khách cũ: Nếu khách đã có tin nhắn từ trước trong Inbox -> Bỏ qua hoàn toàn
     if SKIP_IF_CUSTOMER_HAS_PRIOR_MESSAGES:
-        inbox_ids = existing_inbox_customer_ids
-        if inbox_ids is None:
-            inbox_ids = get_existing_inbox_customer_ids(page_id, db)
+        if existing_inbox_customer_ids is not None and len(existing_inbox_customer_ids) == 0:
+            # Lazy load danh sách khách hàng chỉ khi có comment thực sự khớp từ khóa và vượt qua các bước 1-6
+            loaded_ids = get_existing_inbox_customer_ids(page_id, db)
+            existing_inbox_customer_ids.update(loaded_ids)
+            existing_inbox_customer_ids.add("__loaded__")
+            logger.info(f"[AUTO-REPLY COMMENTS] Đã nạp lazy {len(loaded_ids)} định danh khách cũ cho Page {page_id}.")
+        inbox_ids = existing_inbox_customer_ids if existing_inbox_customer_ids is not None else get_existing_inbox_customer_ids(page_id, db)
         cust_idents = extract_customer_identifiers(comment)
         if any(ident in inbox_ids for ident in cust_idents):
             return False, rule, matched_kw, clean_msg, "Khách hàng đã có tin nhắn từ trước trong Inbox (bỏ qua không gửi lại)"
@@ -378,11 +382,8 @@ def process_page_comment_replies(
     mode_text = "DRY-RUN (CHẠY THỬ NGHIỆM)" if dry_run else "LIVE (GỬI THẬT QUA PANCAKE API)"
     logger.info(f"\n--- [AUTO-REPLY COMMENTS] Đang kiểm tra {len(comments_data)} comments cho Page {page_id} | Chế độ: {mode_text} ---")
 
-    # Tải danh sách khách hàng đã có tin nhắn từ trước (để chốt chặn chống spam khách cũ)
-    existing_inbox_customer_ids = None
-    if SKIP_IF_CUSTOMER_HAS_PRIOR_MESSAGES:
-        existing_inbox_customer_ids = get_existing_inbox_customer_ids(page_id, db)
-        logger.info(f"[AUTO-REPLY COMMENTS] Đã nạp {len(existing_inbox_customer_ids)} định danh khách cũ đã có tin nhắn từ trước cho Page {page_id}.")
+    # Khởi tạo set rỗng để nạp lazy trong should_reply_comment CHỈ KHI có comment vượt qua bước 1-6 (tiết kiệm 99% truy vấn quét raw_conversations)
+    existing_inbox_customer_ids: Optional[Set[str]] = set() if SKIP_IF_CUSTOMER_HAS_PRIOR_MESSAGES else None
 
     replied_count = 0
     consecutive_failures = 0

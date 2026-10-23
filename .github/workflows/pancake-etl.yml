@@ -69,5 +69,5 @@ jobs:
         PANCAKE_PAGES_JSON: ${{ secrets.PANCAKE_PAGES_JSON }}
         AUTO_REPLY_SEND: 'true'
       run: |
-        python -m etl.auto_reply_bot --send --days 1 --limit 100
+        python -m etl.auto_reply_bot --send --days 1 --limit 100 --no-comments
 
