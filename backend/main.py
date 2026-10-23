@@ -972,20 +972,22 @@ def get_deals_options(
     db: Session = Depends(get_db)
 ):
     """Lấy danh sách các nhân viên sale từ Deal Win để render dropdown filters (có cache 10 phút).
-    Chỉ giữ lại tên đơn lẻ (chuẩn hóa tên tắt, tách các cụm ghép phẩy/cộng/& thành các nhân viên riêng biệt, loại bỏ từ rác).
+    Luôn lấy logic chuẩn tương đương với 'Đã là học viên' (chỉ lấy các nhân viên chăm sóc từ hội thoại có tag học viên).
     """
     from database.deal_sync import normalize_sale_name
-    cache_key = f"deals_options_{only_student}"
+    cache_key = "deals_options_student"
     with _DEAL_CACHE_LOCK:
         if cache_key in _DEAL_CACHE:
             ts, val = _DEAL_CACHE[cache_key]
             if time.time() - ts < 600.0:
                 return val
 
-    sales_query = db.query(DealWin.care_by).distinct().filter(DealWin.care_by.isnot(None), func.trim(DealWin.care_by) != "")
-
-    if only_student:
-        sales_query = sales_query.filter(DealWin.is_student == True)
+    # Luôn chỉ lấy danh sách nhân viên có học viên chốt (Đã là học viên)
+    sales_query = db.query(DealWin.care_by).distinct().filter(
+        DealWin.is_student == True,
+        DealWin.care_by.isnot(None),
+        func.trim(DealWin.care_by) != ""
+    )
 
     raw_sales = [r[0] for r in sales_query.all() if r[0]]
     individual_sales = set()
