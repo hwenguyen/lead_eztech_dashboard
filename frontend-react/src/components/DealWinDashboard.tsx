@@ -46,7 +46,7 @@ export function DealWinDashboard() {
   const [datePreset, setDatePreset] = useState<'7d' | '30d' | 'month' | 'all' | 'custom'>('30d');
 
   // Filters
-  const onlyStudent = true;
+  const [onlyStudent, setOnlyStudent] = useState<boolean>(true);
   const [selectedSale, setSelectedSale] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [activeSearch, setActiveSearch] = useState('');
@@ -162,7 +162,7 @@ export function DealWinDashboard() {
   useEffect(() => {
     loadSummaryData();
     loadListData(1);
-  }, [startDate, endDate, selectedSale, activeSearch]);
+  }, [startDate, endDate, selectedSale, activeSearch, onlyStudent]);
 
   const handleSyncPancake = async () => {
     setSyncingPancake(true);
@@ -288,6 +288,19 @@ export function DealWinDashboard() {
           </div>
 
           <div className="h-9 w-px bg-[#E5E7EB] mx-1 hidden sm:block" />
+
+          {/* Phân loại Học viên */}
+          <div className="flex flex-col gap-1 min-w-[190px]">
+            <label className="text-xs font-medium text-[#4B5563]">Phân loại Học viên</label>
+            <select
+              value={onlyStudent ? 'student' : 'all'}
+              onChange={e => setOnlyStudent(e.target.value === 'student')}
+              className="px-3 py-2 border border-[#E5E7EB] rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#1E5BD6]/20 focus:border-[#1E5BD6] transition-all text-[#111827] cursor-pointer font-medium"
+            >
+              <option value="student">✓ Có tag 'Đã là học viên'</option>
+              <option value="all">Tất cả form đăng ký</option>
+            </select>
+          </div>
 
           {/* Sale Filter */}
           <div className="flex flex-col gap-1 min-w-[170px]">
