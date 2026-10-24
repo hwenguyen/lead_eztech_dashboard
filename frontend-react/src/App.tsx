@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { format, subDays } from 'date-fns';
-import { Users, UserPlus, UserCheck, PhoneCall, PhoneForwarded, Percent, Filter, RefreshCw, LayoutDashboard, Clock, Award, Bot, LogOut, KeyRound, Lock } from 'lucide-react';
+import { Users, UserPlus, UserCheck, PhoneCall, PhoneForwarded, Percent, Filter, RefreshCw, LayoutDashboard, Clock, Award, Bot, LogOut, KeyRound, Lock, Menu, X } from 'lucide-react';
 import { KpiCard } from './components/KpiCard';
 import { TrendChart } from './components/TrendChart';
 import { LeadTable } from './components/LeadTable';
@@ -17,6 +17,7 @@ function App() {
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(() => getStoredAuth().user);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => !!getStoredAuth().token);
   const [showChangePw, setShowChangePw] = useState<boolean>(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
 
   useEffect(() => {
     const onUnauthorized = () => {
@@ -138,183 +139,208 @@ function App() {
   const pct = (part: number, whole: number) => (whole > 0 ? (part / whole) * 100 : 0).toFixed(1);
 
   return (
-    <div className="min-h-screen bg-bg-page text-[#111827]">
-      {/* Header */}
-      <header className="bg-white border-b border-[#E5E7EB] sticky top-0 z-20 shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-6">
-            <div className="flex items-center gap-3">
-              <img src="/logo.png" alt="EzTech Logo" className="h-10 object-contain" />
-              <div className="ml-2 border-l border-[#E5E7EB] pl-3">
-                <h1 className="text-base font-bold text-navy leading-none">Lead Dashboard</h1>
-                <p className="text-xs text-[#4B5563] mt-0.5">Pancake Analytics</p>
-              </div>
-            </div>
+    <div className="min-h-screen bg-bg-page text-[#111827] flex">
+      {/* 1. Backdrop on Mobile */}
+      {isSidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 z-30 lg:hidden backdrop-blur-sm transition-opacity"
+          onClick={() => setIsSidebarOpen(false)}
+        />
+      )}
 
-            {/* Desktop Navigation Tabs */}
-            <div className="hidden sm:flex items-center gap-1 bg-gray-100 p-1 rounded-xl">
-              <button
-                onClick={() => setActiveTab('overview')}
-                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                  activeTab === 'overview'
-                    ? 'bg-white text-navy shadow-sm'
-                    : 'text-[#4B5563] hover:text-navy hover:bg-white/50'
-                }`}
-              >
-                <LayoutDashboard className="w-3.5 h-3.5 text-[#1E5BD6]" />
-                <span>Tổng quan & Chỉ số</span>
-              </button>
-              <button
-                onClick={() => setActiveTab('remind')}
-                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                  activeTab === 'remind'
-                    ? 'bg-white text-navy shadow-sm'
-                    : 'text-[#4B5563] hover:text-navy hover:bg-white/50'
-                }`}
-              >
-                <Clock className="w-3.5 h-3.5 text-amber-500" />
-                <span>Chăm sóc Lead</span>
-              </button>
-              <button
-                onClick={() => setActiveTab('bot')}
-                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                  activeTab === 'bot'
-                    ? 'bg-white text-navy shadow-sm'
-                    : 'text-[#4B5563] hover:text-navy hover:bg-white/50'
-                }`}
-              >
-                <Bot className="w-3.5 h-3.5 text-indigo-600" />
-                <span>Bot Gửi Tin</span>
-              </button>
-              <button
-                onClick={() => setActiveTab('deals')}
-                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                  activeTab === 'deals'
-                    ? 'bg-white text-navy shadow-sm'
-                    : 'text-[#4B5563] hover:text-navy hover:bg-white/50'
-                }`}
-              >
-                <Award className="w-3.5 h-3.5 text-[#1E5BD6]" />
-                <span>Deal Win</span>
-              </button>
+      {/* 2. Left Sidebar Navigation */}
+      <aside
+        className={`fixed inset-y-0 left-0 z-40 w-64 bg-white border-r border-[#E5E7EB] flex flex-col transition-transform duration-300 ease-in-out lg:static lg:translate-x-0 ${
+          isSidebarOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full'
+        }`}
+      >
+        {/* Brand / Logo Header */}
+        <div className="h-16 px-5 border-b border-[#E5E7EB] flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <img src="/logo.png" alt="EzTech Logo" className="h-9 object-contain" />
+            <div className="border-l border-[#E5E7EB] pl-2.5">
+              <h1 className="text-xs font-bold text-navy leading-none">Lead Dashboard</h1>
+              <p className="text-[10px] text-[#4B5563] mt-1 font-medium">Pancake Analytics</p>
             </div>
           </div>
+          <button
+            onClick={() => setIsSidebarOpen(false)}
+            className="lg:hidden p-1.5 text-gray-500 hover:text-navy rounded-lg"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
 
-          <div className="flex items-center gap-3">
-            {lastUpdated && (
-              <span className="text-xs text-[#4B5563]">
-                Cập nhật: {format(lastUpdated, 'HH:mm')}
-              </span>
-            )}
-            <button
-              onClick={loadData}
-              className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-[#4B5563] bg-light-blue/50 hover:bg-light-blue rounded-lg transition-colors border border-transparent hover:border-[#1E5BD6]/20 text-[#1E5BD6]"
-            >
-              <RefreshCw className="w-3.5 h-3.5" />
-              Làm mới
-            </button>
+        {/* Navigation Menu */}
+        <div className="flex-1 px-3 py-4 space-y-1.5 overflow-y-auto">
+          <p className="px-3 text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-2">
+            Menu Quản Lý
+          </p>
 
-            {/* User Profile & Actions */}
-            {isAuthenticated ? (
-              <div className="flex items-center gap-2 pl-2 border-l border-gray-200">
-                <div className="flex items-center gap-2 px-2.5 py-1 bg-gray-50 border border-gray-200 rounded-lg">
-                  <div className="w-6 h-6 rounded-full bg-indigo-600 text-white text-[11px] font-bold flex items-center justify-center uppercase">
-                    {(currentUser?.username || 'A').slice(0, 2)}
-                  </div>
-                  <div className="hidden md:block text-left">
-                    <span className="block text-xs font-bold text-navy leading-none">
-                      {currentUser?.username || 'admin'}
-                    </span>
-                    <span className="text-[10px] text-indigo-600 font-semibold uppercase">
-                      {currentUser?.role || 'admin'}
-                    </span>
-                  </div>
+          {/* Tab 1: Overview */}
+          <button
+            onClick={() => { setActiveTab('overview'); setIsSidebarOpen(false); }}
+            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all ${
+              activeTab === 'overview'
+                ? 'bg-blue-50 text-blue-700 shadow-sm font-bold'
+                : 'text-gray-600 hover:text-navy hover:bg-gray-100/80'
+            }`}
+          >
+            <div className="flex items-center gap-2.5">
+              <LayoutDashboard className={`w-4 h-4 ${activeTab === 'overview' ? 'text-blue-600' : 'text-gray-400'}`} />
+              <span>Tổng quan & Chỉ số</span>
+            </div>
+            {activeTab === 'overview' && <div className="w-1.5 h-1.5 rounded-full bg-blue-600" />}
+          </button>
+
+          {/* Tab 2: Remind */}
+          <button
+            onClick={() => { setActiveTab('remind'); setIsSidebarOpen(false); }}
+            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all ${
+              activeTab === 'remind'
+                ? 'bg-amber-50 text-amber-800 shadow-sm font-bold'
+                : 'text-gray-600 hover:text-navy hover:bg-gray-100/80'
+            }`}
+          >
+            <div className="flex items-center gap-2.5">
+              <Clock className={`w-4 h-4 ${activeTab === 'remind' ? 'text-amber-500' : 'text-gray-400'}`} />
+              <span>Chăm sóc Lead</span>
+            </div>
+            {activeTab === 'remind' && <div className="w-1.5 h-1.5 rounded-full bg-amber-500" />}
+          </button>
+
+          {/* Tab 3: Deals */}
+          <button
+            onClick={() => { setActiveTab('deals'); setIsSidebarOpen(false); }}
+            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all ${
+              activeTab === 'deals'
+                ? 'bg-emerald-50 text-emerald-800 shadow-sm font-bold'
+                : 'text-gray-600 hover:text-navy hover:bg-gray-100/80'
+            }`}
+          >
+            <div className="flex items-center gap-2.5">
+              <Award className={`w-4 h-4 ${activeTab === 'deals' ? 'text-emerald-600' : 'text-gray-400'}`} />
+              <span>Deal Win</span>
+            </div>
+            {activeTab === 'deals' && <div className="w-1.5 h-1.5 rounded-full bg-emerald-600" />}
+          </button>
+
+          {/* Tab 4: Bot Gửi Tin */}
+          <button
+            onClick={() => { setActiveTab('bot'); setIsSidebarOpen(false); }}
+            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all ${
+              activeTab === 'bot'
+                ? 'bg-indigo-50 text-indigo-700 shadow-sm font-bold'
+                : 'text-gray-600 hover:text-navy hover:bg-gray-100/80'
+            }`}
+          >
+            <div className="flex items-center gap-2.5">
+              <Bot className={`w-4 h-4 ${activeTab === 'bot' ? 'text-indigo-600' : 'text-gray-400'}`} />
+              <span>Bot Gửi Tin</span>
+            </div>
+            <span className="px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider bg-indigo-100 text-indigo-700 rounded-md">
+              Pancake
+            </span>
+          </button>
+        </div>
+
+        {/* Bottom User Profile Section in Sidebar */}
+        <div className="p-3 border-t border-[#E5E7EB] bg-gray-50/50">
+          {isAuthenticated ? (
+            <div className="p-2.5 bg-white border border-gray-200 rounded-xl shadow-sm space-y-2">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-indigo-600 to-blue-500 text-white text-xs font-bold flex items-center justify-center uppercase shadow-sm">
+                  {(currentUser?.username || 'A').slice(0, 2)}
                 </div>
-
+                <div className="flex-1 min-w-0">
+                  <span className="block text-xs font-bold text-navy truncate">
+                    {currentUser?.username || 'admin'}
+                  </span>
+                  <span className="inline-block text-[10px] text-indigo-600 font-bold uppercase bg-indigo-50 px-1.5 py-0.2 rounded">
+                    {currentUser?.role || 'admin'}
+                  </span>
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5 pt-1.5 border-t border-gray-100">
                 <button
                   type="button"
                   onClick={() => setShowChangePw(true)}
-                  title="Đổi mật khẩu"
-                  className="p-1.5 text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                  className="flex-1 py-1.5 px-2 text-[11px] font-medium text-gray-600 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg flex items-center justify-center gap-1 transition-colors"
                 >
-                  <KeyRound className="w-4 h-4" />
+                  <KeyRound className="w-3.5 h-3.5" />
+                  <span>Đổi mật khẩu</span>
                 </button>
-
                 <button
                   type="button"
                   onClick={handleLogout}
+                  className="py-1.5 px-2 text-[11px] font-medium text-red-600 hover:bg-red-50 rounded-lg flex items-center justify-center gap-1 transition-colors"
                   title="Đăng xuất"
-                  className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                 >
-                  <LogOut className="w-4 h-4" />
+                  <LogOut className="w-3.5 h-3.5" />
                 </button>
               </div>
-            ) : (
-              <div className="flex items-center pl-2 border-l border-gray-200">
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('bot')}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors border border-indigo-200"
-                >
-                  <Lock className="w-3.5 h-3.5 text-indigo-600" />
-                  <span>Đăng nhập Bot</span>
-                </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => { setActiveTab('bot'); setIsSidebarOpen(false); }}
+              className="w-full py-2 px-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-colors shadow-sm"
+            >
+              <Lock className="w-3.5 h-3.5 text-indigo-600" />
+              <span>Đăng nhập Bot</span>
+            </button>
+          )}
+        </div>
+      </aside>
+
+      {/* 3. Main Content Area */}
+      <div className="flex-1 min-w-0 flex flex-col min-h-screen">
+        {/* Top Header */}
+        <header className="bg-white border-b border-[#E5E7EB] sticky top-0 z-20 shadow-sm h-16">
+          <div className="px-4 sm:px-6 lg:px-8 h-full flex items-center justify-between">
+            {/* Left: Mobile hamburger & Active Tab Title */}
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setIsSidebarOpen(true)}
+                className="lg:hidden p-2 text-gray-600 hover:text-navy hover:bg-gray-100 rounded-xl transition-colors"
+              >
+                <Menu className="w-5 h-5" />
+              </button>
+              <div>
+                <h2 className="text-sm sm:text-base font-bold text-navy leading-none">
+                  {activeTab === 'overview' && 'Tổng quan & Chỉ số'}
+                  {activeTab === 'remind' && 'Chăm sóc Lead (Remind)'}
+                  {activeTab === 'deals' && 'Học viên Chốt (Deal Win)'}
+                  {activeTab === 'bot' && 'Bot Gửi Tin Nhắn Tự Động'}
+                </h2>
+                <p className="text-[11px] text-[#4B5563] mt-1 hidden sm:block">
+                  Hệ thống phân tích & tự động hóa dữ liệu Pancake
+                </p>
               </div>
-            )}
+            </div>
+
+            {/* Right: Last updated & Refresh button */}
+            <div className="flex items-center gap-3">
+              {lastUpdated && (
+                <span className="text-xs text-[#4B5563] hidden sm:inline-block">
+                  Cập nhật: {format(lastUpdated, 'HH:mm')}
+                </span>
+              )}
+              <button
+                onClick={loadData}
+                className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium bg-light-blue/50 hover:bg-light-blue rounded-lg transition-colors border border-transparent hover:border-[#1E5BD6]/20 text-[#1E5BD6]"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>Làm mới</span>
+              </button>
+            </div>
           </div>
-        </div>
-      </header>
+        </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
-        {/* Mobile Tab Switcher */}
-        <div className="sm:hidden flex items-center gap-1 bg-gray-100 p-1 rounded-xl">
-          <button
-            onClick={() => setActiveTab('overview')}
-            className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-semibold transition-all ${
-              activeTab === 'overview'
-                ? 'bg-white text-navy shadow-sm'
-                : 'text-[#4B5563]'
-            }`}
-          >
-            <LayoutDashboard className="w-3.5 h-3.5 text-[#1E5BD6]" />
-            <span>Tổng quan</span>
-          </button>
-          <button
-            onClick={() => setActiveTab('remind')}
-            className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-semibold transition-all ${
-              activeTab === 'remind'
-                ? 'bg-white text-navy shadow-sm'
-                : 'text-[#4B5563]'
-            }`}
-          >
-            <Clock className="w-3.5 h-3.5 text-amber-500" />
-            <span>Remind</span>
-          </button>
-          <button
-            onClick={() => setActiveTab('bot')}
-            className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-semibold transition-all ${
-              activeTab === 'bot'
-                ? 'bg-white text-navy shadow-sm'
-                : 'text-[#4B5563]'
-            }`}
-          >
-            <Bot className="w-3.5 h-3.5 text-indigo-600" />
-            <span>Bot Gửi Tin</span>
-          </button>
-          <button
-            onClick={() => setActiveTab('deals')}
-            className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-semibold transition-all ${
-              activeTab === 'deals'
-                ? 'bg-white text-navy shadow-sm'
-                : 'text-[#4B5563]'
-            }`}
-          >
-            <Award className="w-3.5 h-3.5 text-[#1E5BD6]" />
-            <span>Deal Win</span>
-          </button>
-        </div>
-
-        {activeTab === 'deals' ? (
+        {/* Content Body */}
+        <main className="flex-1 px-4 sm:px-6 lg:px-8 py-6 space-y-6 max-w-7xl w-full mx-auto">
+          {activeTab === 'deals' ? (
           <DealWinDashboard />
         ) : activeTab === 'remind' ? (
           <RemindLeadTable pagesList={pagesList} zaloPages={zaloPages} />
@@ -537,7 +563,8 @@ function App() {
         )}
       </>
     )}
-      </main>
+        </main>
+      </div>
 
       <ChangePasswordModal
         isOpen={showChangePw}
