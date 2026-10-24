@@ -25,8 +25,8 @@ export function LeadTable({ leads, totalLeads, page, pageSize, onPageChange }: L
         <table className="w-full text-sm text-left">
           <thead>
             <tr className="text-xs text-[#4B5563] bg-[#F3F6FA] uppercase tracking-wide">
-              <th className="px-6 py-3 font-medium">Khách Hàng</th>
-              <th className="px-6 py-3 font-medium">Nhân Viên</th>
+              <th className="px-6 py-3 font-medium min-w-[200px]">Khách Hàng</th>
+              <th className="px-6 py-3 font-medium whitespace-nowrap">Nhân Viên</th>
               <th className="px-6 py-3 font-medium">SĐT</th>
               <th className="px-6 py-3 font-medium">Tags</th>
               <th className="px-6 py-3 font-medium">Liên Hệ</th>
@@ -50,8 +50,21 @@ export function LeadTable({ leads, totalLeads, page, pageSize, onPageChange }: L
                         {(lead.name || 'K').charAt(0).toUpperCase()}
                       </div>
                       <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium text-navy">{lead.name || 'Khách từ CRM'}</span>
+                        <div className="font-medium text-navy">{lead.name || 'Khách từ CRM'}</div>
+                        <div className="text-xs text-[#6B7280] mt-0.5">
+                          {lead.first_created_at ? format(new Date(lead.first_created_at), 'dd/MM/yyyy HH:mm') : '—'}
+                        </div>
+                        <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                          {lead.is_new ? (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-green-100 text-green-800 border border-green-200">
+                              Tạo mới
+                            </span>
+                          ) : null}
+                          {!lead.is_new && lead.is_contacted ? (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-blue-100 text-blue-800 border border-blue-200">
+                              Tương tác lại
+                            </span>
+                          ) : null}
                           {lead.pancake_url && (
                             <a
                               href={lead.pancake_url}
@@ -65,38 +78,37 @@ export function LeadTable({ leads, totalLeads, page, pageSize, onPageChange }: L
                             </a>
                           )}
                         </div>
-                        <div className="text-xs text-[#4B5563] mt-0.5 flex flex-col gap-1">
-                          <span className="text-[#6B7280]">{lead.first_created_at ? format(new Date(lead.first_created_at), 'dd/MM/yyyy HH:mm') : '—'}</span>
-                          <div className="flex gap-1 mt-1">
-                            {lead.is_new ? (
-                              <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-green-100 text-green-800 border border-green-200">
-                                Tạo mới
-                              </span>
-                            ) : null}
-                            {!lead.is_new && lead.is_contacted ? (
-                              <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-blue-100 text-blue-800 border border-blue-200">
-                                Tương tác lại
-                              </span>
-                            ) : null}
-                          </div>
-                        </div>
                       </div>
                     </div>
                   </td>
 
                   {/* Nhân viên */}
-                  <td className="px-6 py-4 align-top">
+                  <td className="px-6 py-4 align-top whitespace-nowrap">
                     {lead.assigned_users ? (
                       <div className="flex flex-wrap gap-1">
-                        {lead.assigned_users.split(',').map((u, i) => (
-                          <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-light-blue text-eztech border border-eztech/20">
-                            <User className="w-3 h-3" />
-                            {u.trim()}
-                          </span>
-                        ))}
+                        {lead.assigned_users.split(',').map((u, i) => {
+                          const name = u.trim();
+                          const isUnassigned = name.toLowerCase().includes('chưa phân') || name === '—';
+                          return (
+                            <span 
+                              key={i} 
+                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium whitespace-nowrap ${
+                                isUnassigned 
+                                  ? 'bg-slate-100 text-slate-700 border border-slate-200' 
+                                  : 'bg-light-blue text-eztech border border-eztech/20'
+                              }`}
+                            >
+                              <User className="w-3 h-3 shrink-0" />
+                              <span>{name}</span>
+                            </span>
+                          );
+                        })}
                       </div>
                     ) : (
-                      <span className="text-[#4B5563] text-xs">Chưa phân</span>
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-100 text-slate-700 border border-slate-200 whitespace-nowrap">
+                        <User className="w-3 h-3 shrink-0" />
+                        <span>Chưa phân công</span>
+                      </span>
                     )}
                   </td>
 
