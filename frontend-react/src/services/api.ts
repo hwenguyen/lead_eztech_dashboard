@@ -14,6 +14,31 @@ const apiClient = axios.create({
   },
 });
 
+// Tự động gắn Bearer token vào Header Authorization
+apiClient.interceptors.request.use((config) => {
+  const token = localStorage.getItem('eztech_auth_token') || sessionStorage.getItem('eztech_auth_token');
+  if (token && config.headers) {
+    config.headers.Authorization = 'Bearer ' + token;
+  }
+  return config;
+});
+
+// Bắt lỗi 401 Unauthorized để yêu cầu đăng nhập lại
+apiClient.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401 && !error.config?.url?.includes('/auth/login')) {
+      localStorage.removeItem('eztech_auth_token');
+      sessionStorage.removeItem('eztech_auth_token');
+      localStorage.removeItem('eztech_auth_user');
+      sessionStorage.removeItem('eztech_auth_user');
+      window.dispatchEvent(new Event('auth_unauthorized'));
+    }
+    return Promise.reject(error);
+  }
+);
+
+
 export interface SummaryData {
   new_leads: number;
   recontact_leads: number;
@@ -249,4 +274,228 @@ export const fetchDealWinDetail = async (dealId: number): Promise<DealWinItem> =
 export const syncDealsWithLeads = async (): Promise<{ status: string; total_deals: number; students_count: number; care_by_updated: number; message: string }> => {
   const res = await apiClient.post('/deals/sync-leads');
   return res.data;
+};
+
+
+// ==========================================
+// BROADCAST / BOT GỬI TIN HÀNG LOẠT
+// ==========================================
+
+export interface BroadcastOptions {
+  pages: string[];
+  zalo_pages: string[];
+  employees: string[];
+  tags: string[];
+  gender_options: Array<{ id: string; label: string }>;
+}
+
+export interface BroadcastPreviewParams {
+  page_id?: string;
+  name_filter?: string;
+  employee?: string;
+  gender?: string;
+  tag?: string;
+  days_ago?: number;
+  limit?: number;
+  template: string;
+  exclude_already_sent?: boolean;
+  campaign_name?: string;
+}
+
+export interface BroadcastRecipientItem {
+  lead_id: number;
+  customer_id: string;
+  conversation_id: string;
+  name: string;
+  gender: string;
+  gender_title: string;
+  phone_number?: string;
+  page_id: string;
+  status_tag?: string;
+  assigned_users?: string;
+  rendered_message: string;
+  first_created_at?: string;
+  pancake_url?: string;
+}
+
+export interface BroadcastPreviewResponse {
+  total_matching: number;
+  limit: number;
+  recipients: BroadcastRecipientItem[];
+}
+
+export interface BroadcastStartParams {
+  campaign_name: string;
+  template: string;
+  page_id?: string;
+  name_filter?: string;
+  employee?: string;
+  gender?: string;
+  tag?: string;
+  days_ago?: number;
+  limit: number;
+  delay: number;
+  dry_run: boolean;
+  exclude_already_sent: boolean;
+}
+
+export interface BroadcastStatusResponse {
+  task_id: string;
+  campaign_name: string;
+  is_running: boolean;
+  total: number;
+  processed: number;
+  success: number;
+  failed: number;
+  dry_run: boolean;
+  current_recipient?: string;
+  started_at?: string;
+  finished_at?: string;
+  logs: Array<{
+    index: number;
+    customer_name: string;
+    phone_number: string;
+    conversation_id: string;
+    page_id: string;
+    status: string;
+    error_message?: string;
+    time: string;
+  }>;
+}
+
+export interface BroadcastHistoryItem {
+  id: number;
+  campaign_name: string;
+  conversation_id: string;
+  customer_id?: string;
+  customer_name?: string;
+  phone_number?: string;
+  page_id: string;
+  message: string;
+  status: string;
+  error_message?: string;
+  sent_at: string;
+  pancake_url?: string;
+}
+
+export interface BroadcastCampaignSummary {
+  campaign_name: string;
+  page_id?: string;
+  total_messages: number;
+  success_count: number;
+  failed_count: number;
+  dry_run_count: number;
+  first_sent_at?: string;
+  last_sent_at?: string;
+  status: string;
+}
+
+export const fetchBroadcastOptions = async (): Promise<BroadcastOptions> => {
+  const res = await apiClient.get<BroadcastOptions>('/broadcast/options');
+  return res.data;
+};
+
+export const previewBroadcast = async (params: BroadcastPreviewParams): Promise<BroadcastPreviewResponse> => {
+  const res = await apiClient.post<BroadcastPreviewResponse>('/broadcast/preview', params);
+  return res.data;
+};
+
+export const startBroadcast = async (params: BroadcastStartParams): Promise<{ status: string; task_id: string; campaign_name: string }> => {
+  const res = await apiClient.post<{ status: string; task_id: string; campaign_name: string }>('/broadcast/start', params);
+  return res.data;
+};
+
+export const fetchBroadcastStatus = async (taskId: string): Promise<BroadcastStatusResponse> => {
+  const res = await apiClient.get<BroadcastStatusResponse>('/broadcast/status/' + taskId);
+  return res.data;
+};
+
+export const stopBroadcast = async (taskId: string): Promise<{ status: string; task_id: string }> => {
+  const res = await apiClient.post('/broadcast/stop/' + taskId);
+  return res.data;
+};
+
+export const fetchBroadcastHistory = async (campaignName?: string, limit: number = 100): Promise<{ campaigns: BroadcastCampaignSummary[]; logs: BroadcastHistoryItem[] }> => {
+  const params: any = { limit };
+  if (campaignName && campaignName !== 'all') params.campaign_name = campaignName;
+  const res = await apiClient.get<{ campaigns: BroadcastCampaignSummary[]; logs: BroadcastHistoryItem[] }>('/broadcast/history', { params });
+  return res.data;
+};
+
+
+// ==========================================
+// AUTHENTICATION & SECURITY APIs
+// ==========================================
+
+export interface AuthUser {
+  id: number;
+  username: string;
+  full_name?: string;
+  role: string;
+  last_login_at?: string;
+}
+
+export interface LoginResponse {
+  access_token: string;
+  token_type: string;
+  expires_in_hours: number;
+  user: AuthUser;
+}
+
+export const loginApi = async (username: string, password: string, rememberMe: boolean = false): Promise<LoginResponse> => {
+  const res = await apiClient.post<LoginResponse>('/auth/login', {
+    username,
+    password,
+    remember_me: rememberMe
+  });
+  const token = res.data.access_token;
+  const user = res.data.user;
+  if (rememberMe) {
+    localStorage.setItem('eztech_auth_token', token);
+    localStorage.setItem('eztech_auth_user', JSON.stringify(user));
+  } else {
+    sessionStorage.setItem('eztech_auth_token', token);
+    sessionStorage.setItem('eztech_auth_user', JSON.stringify(user));
+  }
+  return res.data;
+};
+
+export const fetchCurrentUser = async (): Promise<AuthUser> => {
+  const res = await apiClient.get<AuthUser>('/auth/me');
+  return res.data;
+};
+
+export const changePasswordApi = async (oldPassword: string, newPassword: string): Promise<{ status: string; message: string }> => {
+  const res = await apiClient.post('/auth/change-password', {
+    old_password: oldPassword,
+    new_password: newPassword
+  });
+  return res.data;
+};
+
+export const logoutApi = async (): Promise<void> => {
+  try {
+    await apiClient.post('/auth/logout');
+  } catch (e) {
+    // ignore
+  } finally {
+    localStorage.removeItem('eztech_auth_token');
+    sessionStorage.removeItem('eztech_auth_token');
+    localStorage.removeItem('eztech_auth_user');
+    sessionStorage.removeItem('eztech_auth_user');
+  }
+};
+
+export const getStoredAuth = (): { token: string | null; user: AuthUser | null } => {
+  const token = localStorage.getItem('eztech_auth_token') || sessionStorage.getItem('eztech_auth_token');
+  const userStr = localStorage.getItem('eztech_auth_user') || sessionStorage.getItem('eztech_auth_user');
+  let user: AuthUser | null = null;
+  if (userStr) {
+    try {
+      user = JSON.parse(userStr);
+    } catch {
+      // ignore
+    }
+  }
+  return { token, user };
 };

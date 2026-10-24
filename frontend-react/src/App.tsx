@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { format, subDays } from 'date-fns';
-import { Users, UserPlus, UserCheck, PhoneCall, PhoneForwarded, Percent, Filter, RefreshCw, LayoutDashboard, Clock, Award } from 'lucide-react';
+import { Users, UserPlus, UserCheck, PhoneCall, PhoneForwarded, Percent, Filter, RefreshCw, LayoutDashboard, Clock, Award, Bot, LogOut, KeyRound } from 'lucide-react';
 import { KpiCard } from './components/KpiCard';
 import { TrendChart } from './components/TrendChart';
 import { LeadTable } from './components/LeadTable';
@@ -8,10 +8,34 @@ import { RatioChart } from './components/RatioChart';
 import { StatsPieChart } from './components/StatsPieChart';
 import { RemindLeadTable } from './components/RemindLeadTable';
 import { DealWinDashboard } from './components/DealWinDashboard';
-import { fetchSummary, fetchTrend, fetchLeads, fetchEmployees, fetchPages, type SummaryData, type TrendData, type Lead } from './services/api';
+import { BulkMessengerDashboard } from './components/BulkMessengerDashboard';
+import { LoginPage } from './components/LoginPage';
+import { ChangePasswordModal } from './components/ChangePasswordModal';
+import { fetchSummary, fetchTrend, fetchLeads, fetchEmployees, fetchPages, getStoredAuth, logoutApi, type SummaryData, type TrendData, type Lead, type AuthUser } from './services/api';
 
 function App() {
-  const [activeTab, setActiveTab] = useState<'overview' | 'remind' | 'deals'>('overview');
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(() => getStoredAuth().user);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => !!getStoredAuth().token);
+  const [showChangePw, setShowChangePw] = useState<boolean>(false);
+
+  useEffect(() => {
+    const onUnauthorized = () => {
+      setIsAuthenticated(false);
+      setCurrentUser(null);
+    };
+    window.addEventListener('auth_unauthorized', onUnauthorized);
+    return () => window.removeEventListener('auth_unauthorized', onUnauthorized);
+  }, []);
+
+  const handleLogout = async () => {
+    if (window.confirm('Bạn có chắc chắn muốn đăng xuất không?')) {
+      await logoutApi();
+      setIsAuthenticated(false);
+      setCurrentUser(null);
+    }
+  };
+
+  const [activeTab, setActiveTab] = useState<'overview' | 'remind' | 'deals' | 'bot'>('overview');
   const [startDate, setStartDate] = useState(format(subDays(new Date(), 7), 'yyyy-MM-dd'));
   const [endDate, setEndDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [pageId, setPageId] = useState('');
@@ -103,6 +127,17 @@ function App() {
     loadData();
   }, [startDate, endDate, pageId, employee]);
 
+  if (!isAuthenticated) {
+    return (
+      <LoginPage
+        onLoginSuccess={(user) => {
+          setCurrentUser(user);
+          setIsAuthenticated(true);
+        }}
+      />
+    );
+  }
+
   const newLeadsCount = summary?.new_leads || 0;
   const recontactLeadsCount = summary?.recontact_leads || 0;
   const totalLeadsCount = summary?.total_leads || 0;
@@ -150,6 +185,17 @@ function App() {
                 <span>Chăm sóc Lead</span>
               </button>
               <button
+                onClick={() => setActiveTab('bot')}
+                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                  activeTab === 'bot'
+                    ? 'bg-white text-navy shadow-sm'
+                    : 'text-[#4B5563] hover:text-navy hover:bg-white/50'
+                }`}
+              >
+                <Bot className="w-3.5 h-3.5 text-indigo-600" />
+                <span>Bot Gửi Tin</span>
+              </button>
+              <button
                 onClick={() => setActiveTab('deals')}
                 className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                   activeTab === 'deals'
@@ -176,6 +222,41 @@ function App() {
               <RefreshCw className="w-3.5 h-3.5" />
               Làm mới
             </button>
+
+            {/* User Profile & Actions */}
+            <div className="flex items-center gap-2 pl-2 border-l border-gray-200">
+              <div className="flex items-center gap-2 px-2.5 py-1 bg-gray-50 border border-gray-200 rounded-lg">
+                <div className="w-6 h-6 rounded-full bg-indigo-600 text-white text-[11px] font-bold flex items-center justify-center uppercase">
+                  {(currentUser?.username || 'A').slice(0, 2)}
+                </div>
+                <div className="hidden md:block text-left">
+                  <span className="block text-xs font-bold text-navy leading-none">
+                    {currentUser?.username || 'admin'}
+                  </span>
+                  <span className="text-[10px] text-indigo-600 font-semibold uppercase">
+                    {currentUser?.role || 'admin'}
+                  </span>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowChangePw(true)}
+                title="Đổi mật khẩu"
+                className="p-1.5 text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+              >
+                <KeyRound className="w-4 h-4" />
+              </button>
+
+              <button
+                type="button"
+                onClick={handleLogout}
+                title="Đăng xuất"
+                className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            </div>
           </div>
         </div>
       </header>
@@ -206,6 +287,17 @@ function App() {
             <span>Remind</span>
           </button>
           <button
+            onClick={() => setActiveTab('bot')}
+            className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-semibold transition-all ${
+              activeTab === 'bot'
+                ? 'bg-white text-navy shadow-sm'
+                : 'text-[#4B5563]'
+            }`}
+          >
+            <Bot className="w-3.5 h-3.5 text-indigo-600" />
+            <span>Bot Gửi Tin</span>
+          </button>
+          <button
             onClick={() => setActiveTab('deals')}
             className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-semibold transition-all ${
               activeTab === 'deals'
@@ -222,6 +314,8 @@ function App() {
           <DealWinDashboard />
         ) : activeTab === 'remind' ? (
           <RemindLeadTable pagesList={pagesList} zaloPages={zaloPages} />
+        ) : activeTab === 'bot' ? (
+          <BulkMessengerDashboard />
         ) : (
           <>
             {/* Filter Panel */}
@@ -430,6 +524,11 @@ function App() {
       </>
     )}
       </main>
+
+      <ChangePasswordModal
+        isOpen={showChangePw}
+        onClose={() => setShowChangePw(false)}
+      />
     </div>
   );
 }

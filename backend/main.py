@@ -43,7 +43,12 @@ from etl.utils import (
 
 logger = logging.getLogger(__name__)
 
+from backend.broadcast import router as broadcast_router
+from backend.auth import router as auth_router
+
 app = FastAPI(title="Pancake Lead Reporting API")
+app.include_router(auth_router)
+app.include_router(broadcast_router, prefix="/api/broadcast", tags=["Broadcast"])
 
 # Cấu hình CORS: Ưu tiên danh sách ALLOWED_ORIGINS từ biến môi trường
 allowed_origins_env = os.getenv("ALLOWED_ORIGINS", "").strip()
@@ -257,6 +262,9 @@ def startup_event():
     try:
         ensure_schema()
         logger.info("Database schema verified on startup.")
+        from backend.auth import init_default_admin
+        with SessionLocal() as db_session:
+            init_default_admin(db_session)
     except Exception as e:
         logger.error(f"Error ensuring database schema on startup: {e}")
 

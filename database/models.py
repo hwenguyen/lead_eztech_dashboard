@@ -125,6 +125,21 @@ class Post(Base):
     created_at = Column(DateTime, default=get_vn_now)                     # Thời điểm lưu vào DB của hệ thống
 
 
+class AppUser(Base):
+    """Bảng quản lý tài khoản người dùng đăng nhập hệ thống."""
+    __tablename__ = "app_users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String, unique=True, index=True, nullable=False)
+    password_hash = Column(String, nullable=False)
+    salt = Column(String, nullable=False)
+    full_name = Column(String, nullable=True)
+    role = Column(String, default="admin", nullable=False)  # admin, manager, viewer
+    is_active = Column(Boolean, default=True, nullable=False)
+    last_login_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=get_vn_now)
+
+
 class DealWin(Base):
     """Lưu trữ các Deal chốt thành công / Học viên từ Google Sheet 'THÔNG TIN HỌC VIÊN - EzTech'."""
     __tablename__ = "deal_wins"
