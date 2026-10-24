@@ -6,7 +6,6 @@ import {
   EyeOff,
   ShieldCheck,
   AlertCircle,
-  KeyRound,
   ArrowRight
 } from 'lucide-react';
 import { loginApi, type AuthUser } from '../services/api';
@@ -174,21 +173,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, embedded =
               )}
             </button>
           </form>
-
-          {/* Default Credentials Info Box */}
-          <div className="bg-gradient-to-r from-blue-50/60 to-indigo-50/60 border border-indigo-100/80 rounded-2xl p-3.5 text-xs space-y-1.5">
-            <div className="flex items-center gap-1.5 font-bold text-navy text-[11px]">
-              <KeyRound className="w-3.5 h-3.5 text-indigo-600" />
-              <span>Tài khoản Quản trị viên khởi tạo mặc định:</span>
-            </div>
-            <div className="flex items-center justify-between bg-white px-2.5 py-1.5 rounded-lg border border-indigo-100 font-mono text-[11px] text-gray-700">
-              <span>Username: <strong className="text-indigo-700">admin</strong></span>
-              <span>Mật khẩu: <strong className="text-indigo-700">eztech@2026</strong></span>
-            </div>
-            <p className="text-[10px] text-gray-500 italic">
-              * Khuyến cáo đổi mật khẩu sau lần đăng nhập đầu tiên để đảm bảo an toàn.
-            </p>
-          </div>
 
           {/* Security Badges Footer */}
           <div className="pt-2 border-t border-gray-100 flex items-center justify-center gap-2 text-[11px] text-gray-400">
