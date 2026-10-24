@@ -134,6 +134,13 @@ FastAPI backend (`backend/`) + React frontend (`frontend-react/`) trên Render (
   - Hỗ trợ chạy thủ công qua CLI `etl/auto_reply_bot.py --send --comments-only`.
 
 
+### 2026-10-24 — Đã hoàn thành
+- Chuyển đổi biểu đồ SĐT thu được:
+  - Thay thế biểu đồ "SĐT thu được / Nhân viên" thành biểu đồ tròn "SĐT thu được / Lead Other & Đào tạo" (`phone_tag_stats`) thể hiện cơ cấu SĐT thu được giữa các nhóm phân loại Lead Other, Đào tạo (và Other).
+  - Cập nhật backend `backend/main.py` và `backend/schemas.py`: tính toán `phone_tag_stats` cho các lead có SĐT thu được theo phân loại tag.
+  - Cập nhật frontend `StatsPieChart.tsx`: thêm thuộc tính `unit` tùy biến đơn vị tooltip (`SĐT` thay vì mặc định `Lead`).
+  - Đổi tên biểu đồ thứ 3 thành "Tổng Lead / Lead Other & Đào tạo" để phân biệt rõ ràng giữa SĐT thu được và Tổng số Lead.
+
 ### Bước tiếp / tồn đọng (chưa xử lý, chờ user quyết)
 - Cập nhật link nhóm Zalo thực tế vào `etl/auto_reply_rules.py` (hiện đang là link placeholder).
 - **Token Pancake**: run ETL 03/10 04:54Z báo `Invalid access_token (102)` cho page "Anh Kế toán làm Data" → kéo 0 hội thoại nhưng job vẫn xanh. Cần tạo lại token; nên cho job fail khi một page lỗi.

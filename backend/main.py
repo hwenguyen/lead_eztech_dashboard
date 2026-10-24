@@ -296,6 +296,7 @@ def get_summary(
     new_leads_employee_stats: Counter = Counter()
     phone_leads_employee_stats: Counter = Counter()
     tag_stats: Counter = Counter({"Lead Other": 0, "Đào tạo": 0, "Other": 0})
+    phone_tag_stats: Counter = Counter({"Lead Other": 0, "Đào tạo": 0, "Other": 0})
 
     for lead in leads.values():
         # Pie Chart: mỗi lead chỉ gán cho 1 nhân viên chính để tổng không bị lặp
@@ -324,13 +325,17 @@ def get_summary(
                     if t_str and (latest_time is None or t_str > latest_time):
                         latest_time = t_str
                         latest_cat = cat
-            tag_stats[latest_cat or "Đào tạo"] += 1
+            chosen_cat = latest_cat or "Đào tạo"
         elif "Lead Other" in cats:
-            tag_stats["Lead Other"] += 1
+            chosen_cat = "Lead Other"
         elif "Đào tạo" in cats:
-            tag_stats["Đào tạo"] += 1
+            chosen_cat = "Đào tạo"
         else:
-            tag_stats["Other"] += 1
+            chosen_cat = "Other"
+
+        tag_stats[chosen_cat] += 1
+        if lead.has_phone:
+            phone_tag_stats[chosen_cat] += 1
 
     return LeadMetricsSummary(
         new_leads=new_leads,
@@ -342,6 +347,7 @@ def get_summary(
         new_leads_employee_stats=dict(new_leads_employee_stats),
         phone_leads_employee_stats=dict(phone_leads_employee_stats),
         tag_stats=dict(tag_stats),
+        phone_tag_stats=dict(phone_tag_stats),
     )
 
 @app.get("/api/metrics/trend", response_model=TrendResponse)

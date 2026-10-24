@@ -24,6 +24,7 @@ export interface SummaryData {
   new_leads_employee_stats?: Record<string, number>;
   phone_leads_employee_stats?: Record<string, number>;
   tag_stats?: Record<string, number>;
+  phone_tag_stats?: Record<string, number>;
 }
 
 export interface TrendData {

@@ -365,13 +365,19 @@ function App() {
                 stats={summary?.new_leads_employee_stats}
               />
               <StatsPieChart
-                title="SĐT thu được / Nhân viên"
+                title="SĐT thu được / Lead Other & Đào tạo"
                 subtitle="Phân bổ SĐT thu được trong kỳ"
-                stats={summary?.phone_leads_employee_stats}
+                stats={summary?.phone_tag_stats}
+                unit="SĐT"
+                colorMap={{
+                  'Lead Other': '#1E5BD6',
+                  'Đào tạo': '#10B981',
+                  'Other': '#F59E0B',
+                }}
               />
               <StatsPieChart
-                title="Lead Other & Đào tạo"
-                subtitle="Thống kê Tag phân loại"
+                title="Tổng Lead / Lead Other & Đào tạo"
+                subtitle="Thống kê Tag phân loại (tất cả Lead)"
                 stats={summary?.tag_stats}
                 colorMap={{
                   'Lead Other': '#1E5BD6',

@@ -5,6 +5,7 @@ interface StatsPieChartProps {
   subtitle: string;
   stats: Record<string, number> | undefined;
   colorMap?: Record<string, string>;
+  unit?: string;
 }
 
 const COLORS = ['#1E5BD6', '#10B981', '#F59E0B', '#EF4444', '#0A1F44', '#FFC107', '#E6F0FF', '#4B5563'];
@@ -22,7 +23,7 @@ const CustomLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent }: an
   );
 };
 
-export function StatsPieChart({ title, subtitle, stats, colorMap }: StatsPieChartProps) {
+export function StatsPieChart({ title, subtitle, stats, colorMap, unit = 'Lead' }: StatsPieChartProps) {
   if (!stats) return null;
 
   const data = Object.entries(stats)
@@ -63,7 +64,7 @@ export function StatsPieChart({ title, subtitle, stats, colorMap }: StatsPieChar
                   <Cell key={`cell-${index}`} fill={getColor(item.name, index)} />
                 ))}
               </Pie>
-              <Tooltip formatter={(value: number) => [value, 'Lead']} />
+              <Tooltip formatter={(value: number) => [value, unit]} />
             </PieChart>
           </ResponsiveContainer>
 
