@@ -1067,105 +1067,98 @@ class PancakeClient:
             if k not in payload and v is not None:
                 payload[k] = v
 
-        # Danh sách payload dự phòng: ưu tiên chuẩn OpenAPI {"action": "reply_inbox", "message": ...},
-        # nếu Zalo/TikTok từ chối trường action thì fallback sang {"message": ...}
-        payload_variants = [payload]
-        if (is_zalo or is_tiktok) and action == "reply_inbox":
-            minimal_payload = {"message": message}
-            if minimal_payload not in payload_variants:
-                payload_variants.append(minimal_payload)
-
+        # Theo OpenAPI chuẩn của Pancake, mọi tin nhắn gửi qua API bắt buộc phải có trường 'action'
+        # Allowed values: reply_comment, reply_inbox, private_replies
+        # Không được phép loại bỏ trường 'action' vì Pancake sẽ từ chối với lỗi error_code 100
         max_retries = 3
         last_error = None
+        last_resp_data = None
 
         for pid_idx, cand_pid in enumerate(candidate_page_ids):
             target_url = f"https://pages.fm/api/public_api/v1/pages/{cand_pid}/conversations/{conversation_id}/messages"
 
-            for p_idx, active_payload in enumerate(payload_variants):
-                for attempt in range(1, max_retries + 1):
-                    try:
-                        resp = self.session.post(target_url, params=params, json=active_payload, timeout=30)
-                        if resp.status_code in (200, 201):
-                            try:
-                                data = resp.json()
-                            except Exception:
-                                data = {"text": resp.text}
+            for attempt in range(1, max_retries + 1):
+                try:
+                    resp = self.session.post(target_url, params=params, json=payload, timeout=30)
+                    if resp.status_code in (200, 201):
+                        try:
+                            data = resp.json()
+                        except Exception:
+                            data = {"text": resp.text}
 
-                            if "success" not in data:
-                                data["success"] = True if data.get("id") else False
+                        if "success" not in data:
+                            data["success"] = True if data.get("id") else False
 
-                            if data.get("success"):
-                                return data
-
-                            # Xử lý khi HTTP 200 nhưng success=False
-                            details = []
-                            if data.get("message"):
-                                details.append(str(data.get("message")))
-                            if data.get("message_code"):
-                                details.append(f"code: {data.get('message_code')}")
-                            if data.get("error_code"):
-                                details.append(f"err: {data.get('error_code')}")
-                            if data.get("description"):
-                                details.append(str(data.get("description")))
-                            err_str = " | ".join(details) if details else "Sending message failed"
-                            last_error = err_str
-
-                            # Nếu lỗi do sai định dạng Page ID (vd cần pzl_ hoặc bỏ pzl_), thử candidate_page_id tiếp theo
-                            if pid_idx + 1 < len(candidate_page_ids) and any(
-                                k in err_str.lower() for k in ("page", "not found", "invalid", "102", "190", "permission")
-                            ):
-                                logger.info(f"[PANCAKE API] Thử lại với biến thể Page ID '{candidate_page_ids[pid_idx + 1]}' (lỗi cũ: {err_str})")
-                                break
-
-                            # Nếu còn biến thể payload tối giản cho Zalo/TikTok, thử tiếp
-                            if p_idx + 1 < len(payload_variants):
-                                logger.info(f"[PANCAKE API] Thử lại với payload tối giản cho {cand_pid} (lỗi cũ: {err_str})")
-                                break
-
-                            if "server internal error" in err_str.lower() and attempt < max_retries:
-                                wait_time = 2.0 * attempt
-                                time.sleep(wait_time)
-                                continue
-
-                            data["message"] = f"[{cand_pid}] {err_str}"
-                            logger.warning(f"[PANCAKE API] Gửi tin nhắn thất bại ({action}) [Page={cand_pid}, Conv={conversation_id}]: {data}")
+                        if data.get("success"):
                             return data
 
-                        elif resp.status_code in (400, 404, 422):
-                            last_error = f"HTTP {resp.status_code}: {resp.text[:200]}"
-                            # Thử biến thể Page ID hoặc payload tiếp theo nếu có
-                            if p_idx + 1 < len(payload_variants) or pid_idx + 1 < len(candidate_page_ids):
-                                break
-                            return {"success": False, "status_code": resp.status_code, "message": f"[{cand_pid}] {last_error}"}
+                        # Xử lý khi HTTP 200 nhưng success=False
+                        details = []
+                        if data.get("message"):
+                            details.append(str(data.get("message")))
+                        if data.get("message_code"):
+                            details.append(f"code: {data.get('message_code')}")
+                        if data.get("error_code"):
+                            details.append(f"err: {data.get('error_code')}")
+                        if data.get("description"):
+                            details.append(str(data.get("description")))
+                        err_str = " | ".join(details) if details else "Sending message failed"
+                        last_error = err_str
+                        last_resp_data = data
 
-                        elif resp.status_code in (500, 502, 503, 504):
-                            last_error = f"HTTP {resp.status_code}: {resp.text[:200]}"
-                            if p_idx + 1 < len(payload_variants):
-                                break
-                            if attempt < max_retries:
-                                time.sleep(2.0 * attempt)
-                                continue
-                            return {"success": False, "status_code": resp.status_code, "message": last_error}
+                        # Nếu lỗi do sai định dạng Page ID (vd cần pzl_ hoặc token không khớp), thử candidate_page_id tiếp theo
+                        if pid_idx + 1 < len(candidate_page_ids) and any(
+                            k in err_str.lower() for k in ("page", "not found", "invalid access_token", "invalid", "102", "190", "permission")
+                        ):
+                            logger.info(f"[PANCAKE API] Thử lại với biến thể Page ID '{candidate_page_ids[pid_idx + 1]}' (lỗi cũ: {err_str})")
+                            break
 
-                        elif resp.status_code == 429:
-                            last_error = "HTTP 429: Quá giới hạn tốc độ gửi (Rate limit exceeded)"
-                            if attempt < max_retries:
-                                time.sleep(6.0 * attempt)
-                                continue
-                            return {"success": False, "status_code": 429, "message": last_error}
-
-                        else:
-                            last_error = f"HTTP {resp.status_code}: {resp.text[:200]}"
-                            return {"success": False, "status_code": resp.status_code, "message": last_error}
-
-                    except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
-                        last_error = f"Lỗi kết nối mạng: {e}"
-                        if attempt < max_retries:
-                            time.sleep(2.5 * attempt)
+                        if "server internal error" in err_str.lower() and attempt < max_retries:
+                            wait_time = 2.0 * attempt
+                            time.sleep(wait_time)
                             continue
-                    except Exception as e:
-                        logger.error(f"[PANCAKE API] Lỗi ngoại lệ khi gửi ({action}): {e}")
-                        return {"success": False, "message": str(e)}
 
-        return {"success": False, "message": last_error or "Thất bại sau các lần thử lại"}
+                        data["message"] = f"[{cand_pid}] {err_str}"
+                        logger.warning(f"[PANCAKE API] Gửi tin nhắn thất bại ({action}) [Page={cand_pid}, Conv={conversation_id}]: {data}")
+                        return data
+
+                    elif resp.status_code in (400, 404, 422):
+                        last_error = f"HTTP {resp.status_code}: {resp.text[:200]}"
+                        if pid_idx + 1 < len(candidate_page_ids):
+                            break
+                        return {"success": False, "status_code": resp.status_code, "message": f"[{cand_pid}] {last_error}"}
+
+                    elif resp.status_code in (500, 502, 503, 504):
+                        last_error = f"HTTP {resp.status_code}: {resp.text[:200]}"
+                        if attempt < max_retries:
+                            time.sleep(2.0 * attempt)
+                            continue
+                        if pid_idx + 1 < len(candidate_page_ids):
+                            break
+                        return {"success": False, "status_code": resp.status_code, "message": last_error}
+
+                    elif resp.status_code == 429:
+                        last_error = "HTTP 429: Quá giới hạn tốc độ gửi (Rate limit exceeded)"
+                        if attempt < max_retries:
+                            time.sleep(6.0 * attempt)
+                            continue
+                        return {"success": False, "status_code": 429, "message": last_error}
+
+                    else:
+                        last_error = f"HTTP {resp.status_code}: {resp.text[:200]}"
+                        return {"success": False, "status_code": resp.status_code, "message": last_error}
+
+                except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
+                    last_error = f"Lỗi kết nối mạng: {e}"
+                    if attempt < max_retries:
+                        time.sleep(2.5 * attempt)
+                        continue
+                    if pid_idx + 1 < len(candidate_page_ids):
+                        break
+                    return {"success": False, "message": f"[{cand_pid}] {last_error}"}
+                except Exception as e:
+                    logger.error(f"[PANCAKE API] Lỗi ngoại lệ khi gửi ({action}): {e}")
+                    return {"success": False, "message": str(e)}
+
+        return last_resp_data or {"success": False, "message": f"[{resolved_page_id}] {last_error or 'Thất bại sau các lần thử lại'}"}
 

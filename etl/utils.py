@@ -419,10 +419,13 @@ def get_candidate_api_page_ids(page_id_or_name: Any, conversation_id: Optional[s
     if not primary:
         return []
     candidates = [primary]
-    clean_num = re.sub(r"^(pzl_|tt_|fb_)", "", primary)
-    if clean_num and clean_num != primary and clean_num not in candidates:
-        candidates.append(clean_num)
-    if primary.isdigit():
+    # Với Facebook Page có tiền tố fb_, thêm biến thể ID số thuần túy (Pancake FB yêu cầu ID số)
+    if primary.startswith("fb_"):
+        clean_num = primary[3:]
+        if clean_num and clean_num not in candidates:
+            candidates.append(clean_num)
+    # Nếu ID truyền vào là số thuần nhưng thuộc Zalo (pzl_) hoặc TikTok (tt_), ưu tiên tiền tố chuẩn lên đầu
+    elif primary.isdigit():
         if f"pzl_{primary}" in KNOWN_PAGE_NAMES and f"pzl_{primary}" not in candidates:
             candidates.insert(0, f"pzl_{primary}")
         elif f"tt_{primary}" in KNOWN_PAGE_NAMES and f"tt_{primary}" not in candidates:
