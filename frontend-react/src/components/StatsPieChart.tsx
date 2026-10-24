@@ -1,3 +1,4 @@
+import React from 'react';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
 
 interface StatsPieChartProps {
@@ -6,6 +7,7 @@ interface StatsPieChartProps {
   stats: Record<string, number> | undefined;
   colorMap?: Record<string, string>;
   unit?: string;
+  headerAction?: React.ReactNode;
 }
 
 const COLORS = ['#1E5BD6', '#10B981', '#F59E0B', '#EF4444', '#0A1F44', '#FFC107', '#E6F0FF', '#4B5563'];
@@ -23,7 +25,7 @@ const CustomLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent }: an
   );
 };
 
-export function StatsPieChart({ title, subtitle, stats, colorMap, unit = 'Lead' }: StatsPieChartProps) {
+export function StatsPieChart({ title, subtitle, stats, colorMap, unit = 'Lead', headerAction }: StatsPieChartProps) {
   if (!stats) return null;
 
   const data = Object.entries(stats)
@@ -40,9 +42,16 @@ export function StatsPieChart({ title, subtitle, stats, colorMap, unit = 'Lead' 
 
   return (
     <div className="bg-white rounded-2xl border border-[#E5E7EB] p-6 shadow-sm">
-      <div className="mb-4">
+      <div className="flex items-start justify-between gap-2 mb-4">
+        <div>
         <h3 className="text-base font-semibold text-navy">{title}</h3>
-        <p className="text-xs text-[#4B5563] mt-0.5">{subtitle}</p>
+          <p className="text-xs text-[#4B5563] mt-0.5">{subtitle}</p>
+        </div>
+        {headerAction && (
+          <div className="shrink-0">
+            {headerAction}
+          </div>
+        )}
       </div>
 
       {data.length > 0 ? (

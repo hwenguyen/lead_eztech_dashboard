@@ -13,6 +13,8 @@ class LeadMetricsSummary(BaseModel):
     phone_leads_employee_stats: dict
     tag_stats: dict
     phone_tag_stats: Optional[dict] = None
+    new_phone_tag_stats: Optional[dict] = None
+    recontact_phone_tag_stats: Optional[dict] = None
 
 class LeadResponse(BaseModel):
     id: int

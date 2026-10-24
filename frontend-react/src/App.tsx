@@ -28,6 +28,7 @@ function App() {
   const pageSize = 15;
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [phoneCategoryFilter, setPhoneCategoryFilter] = useState<'all' | 'new' | 'recontact'>('all');
 
   useEffect(() => {
     const loadPages = async () => {
@@ -365,10 +366,39 @@ function App() {
                 stats={summary?.new_leads_employee_stats}
               />
               <StatsPieChart
-                title="SĐT thu được / Lead Other & Đào tạo"
-                subtitle="Phân bổ SĐT thu được trong kỳ"
-                stats={summary?.phone_tag_stats}
+                title={
+                  phoneCategoryFilter === 'new'
+                    ? "SĐT Mới / Lead Other & Đào tạo"
+                    : phoneCategoryFilter === 'recontact'
+                    ? "SĐT Contact lại / Lead Other & Đào tạo"
+                    : "SĐT thu được / Lead Other & Đào tạo"
+                }
+                subtitle={
+                  phoneCategoryFilter === 'new'
+                    ? "Phân bổ SĐT từ Lead Mới"
+                    : phoneCategoryFilter === 'recontact'
+                    ? "Phân bổ SĐT từ Lead Contact lại"
+                    : "Phân bổ Tổng SĐT thu được trong kỳ"
+                }
+                stats={
+                  phoneCategoryFilter === 'new'
+                    ? summary?.new_phone_tag_stats
+                    : phoneCategoryFilter === 'recontact'
+                    ? summary?.recontact_phone_tag_stats
+                    : summary?.phone_tag_stats
+                }
                 unit="SĐT"
+                headerAction={
+                  <select
+                    value={phoneCategoryFilter}
+                    onChange={(e) => setPhoneCategoryFilter(e.target.value as 'all' | 'new' | 'recontact')}
+                    className="text-xs font-semibold text-[#1E5BD6] bg-[#EFF6FF] border border-[#BFDBFE] rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-[#1E5BD6]/20 cursor-pointer shadow-sm hover:bg-[#DBEAFE] transition-colors"
+                  >
+                    <option value="all">Tổng SĐT{summary ? ` (${summary.phone_leads})` : ''}</option>
+                    <option value="new">SĐT Mới{summary ? ` (${summary.new_phone_leads})` : ''}</option>
+                    <option value="recontact">SĐT Contact lại{summary ? ` (${summary.recontact_phone_leads})` : ''}</option>
+                  </select>
+                }
                 colorMap={{
                   'Lead Other': '#1E5BD6',
                   'Đào tạo': '#10B981',

@@ -140,6 +140,7 @@ FastAPI backend (`backend/`) + React frontend (`frontend-react/`) trên Render (
   - Cập nhật backend `backend/main.py` và `backend/schemas.py`: tính toán `phone_tag_stats` cho các lead có SĐT thu được theo phân loại tag.
   - Cập nhật frontend `StatsPieChart.tsx`: thêm thuộc tính `unit` tùy biến đơn vị tooltip (`SĐT` thay vì mặc định `Lead`).
   - Đổi tên biểu đồ thứ 3 thành "Tổng Lead / Lead Other & Đào tạo" để phân biệt rõ ràng giữa SĐT thu được và Tổng số Lead.
+  - Thêm bộ lọc cho biểu đồ SĐT thu được (`headerAction`): cho phép chuyển đổi nhanh giữa **Tổng SĐT**, **SĐT Mới** (`new_phone_tag_stats`), và **SĐT Contact lại** (`recontact_phone_tag_stats`).
 
 ### Bước tiếp / tồn đọng (chưa xử lý, chờ user quyết)
 - Cập nhật link nhóm Zalo thực tế vào `etl/auto_reply_rules.py` (hiện đang là link placeholder).
