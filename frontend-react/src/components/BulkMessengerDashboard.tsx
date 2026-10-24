@@ -184,12 +184,12 @@ export const BulkMessengerDashboard: React.FC = () => {
   };
 
   // 1. Tải danh sách Options & Token Status
-  const loadOptions = async (targetPageId?: string) => {
+  const loadOptions = async (targetPageId?: string, forceRefresh: boolean = false) => {
     setLoadingOptions(true);
     try {
       const pageToFetch = typeof targetPageId === 'string' ? targetPageId : undefined;
       const [optData, tokData] = await Promise.all([
-        fetchBroadcastOptions(pageToFetch),
+        fetchBroadcastOptions(pageToFetch, forceRefresh),
         fetchTokenStatus().catch(() => null)
       ]);
       setOptions(optData);
@@ -698,7 +698,7 @@ export const BulkMessengerDashboard: React.FC = () => {
                     </h3>
                   </div>
                   <button
-                    onClick={() => loadOptions()}
+                    onClick={() => loadOptions(undefined, true)}
                     disabled={loadingOptions}
                     className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1"
                   >

@@ -138,6 +138,12 @@ KNOWN_PAGE_NAMES: Dict[str, str] = {
     # 7. Chị Kế Toán GenZ
     "7661860189083943944": "Chị Kế Toán GenZ",
     "tt_7661860189083943944": "Chị Kế Toán GenZ",
+    # 8. Học Kế toán cùng EzTech (TikTok)
+    "7657393326631863314": "Học Kế toán cùng EzTech",
+    "tt_7657393326631863314": "Học Kế toán cùng EzTech",
+    # 9. Anh kế toán Daily (TikTok)
+    "7602128557942293512": "Anh kế toán Daily",
+    "tt_7602128557942293512": "Anh kế toán Daily",
 }
 
 # Bản đồ ánh xạ từ Tên/ID Page sang Page Slug hiển thị trên Pancake URL (https://pancake.vn/[slug]?c_id=[conversation_id])
@@ -210,9 +216,18 @@ def build_pancake_url(
                 pid = PAGE_NAME_TO_PANCAKE_ID.get(parts[2]) or PAGE_NAME_TO_PANCAKE_ID.get(f"pzl_{parts[2]}") or f"pzl_{parts[2]}"
         elif conversation_id.startswith("tt_"):
             parts = conversation_id.split(":")
-            if len(parts) >= 4:
-                pid = PAGE_NAME_TO_PANCAKE_ID.get(parts[-1]) or PAGE_NAME_TO_PANCAKE_ID.get(f"tt_{parts[-1]}") or f"tt_{parts[-1]}"
-            elif len(parts) >= 3:
+            for p in parts[2:]:
+                cand = PAGE_NAME_TO_PANCAKE_ID.get(p) or PAGE_NAME_TO_PANCAKE_ID.get(f"tt_{p}")
+                if cand:
+                    pid = cand
+                    break
+            if not pid:
+                for p in parts[2:]:
+                    if f"tt_{p}" in KNOWN_PAGE_NAMES or p in KNOWN_PAGE_NAMES:
+                        p_name = KNOWN_PAGE_NAMES.get(f"tt_{p}") or KNOWN_PAGE_NAMES.get(p)
+                        pid = PAGE_NAME_TO_PANCAKE_ID.get(p_name) or f"tt_{p}"
+                        break
+            if not pid and len(parts) >= 3:
                 pid = PAGE_NAME_TO_PANCAKE_ID.get(parts[2]) or PAGE_NAME_TO_PANCAKE_ID.get(f"tt_{parts[2]}") or f"tt_{parts[2]}"
         elif conversation_id.startswith("fb_"):
             parts = conversation_id.split("_")
@@ -355,6 +370,16 @@ PAGE_NAME_TO_API_ID: Dict[str, str] = {
     "7661860189083943944": "tt_7661860189083943944",
     "tt_7661860189083943944": "tt_7661860189083943944",
     "tt_chiketoangenz": "tt_7661860189083943944",
+
+    # 8. Học Kế toán cùng EzTech (TikTok)
+    "Học Kế toán cùng EzTech": "tt_7657393326631863314",
+    "7657393326631863314": "tt_7657393326631863314",
+    "tt_7657393326631863314": "tt_7657393326631863314",
+
+    # 9. Anh kế toán Daily (TikTok)
+    "Anh kế toán Daily": "tt_7602128557942293512",
+    "7602128557942293512": "tt_7602128557942293512",
+    "tt_7602128557942293512": "tt_7602128557942293512",
 }
 
 
@@ -363,7 +388,32 @@ def resolve_api_page_id(page_id_or_name: Any, conversation_id: Optional[str] = N
     Phân giải Tên Fanpage (vd 'Eztech Phân Tích Dữ Liệu') hoặc conversation_id
     về đúng mã page_id thực tế để gọi Pancake Public API (/pages/{page_id}/...).
     """
-    # 1. Bóc tách trực tiếp từ conversation_id nếu có (độ chính xác cao nhất vì gắn liền với hội thoại)
+    # 1. Nếu page_id_or_name đã truyền vào và là một Page hợp lệ đã biết, ưu tiên dùng ngay
+    if page_id_or_name:
+        s = str(page_id_or_name).strip()
+        if s in PAGE_NAME_TO_API_ID:
+            return PAGE_NAME_TO_API_ID[s]
+        canonical = resolve_canonical_page_name(s, fallback=None)
+        if canonical and canonical in PAGE_NAME_TO_API_ID:
+            return PAGE_NAME_TO_API_ID[canonical]
+        for k, v in KNOWN_PAGE_NAMES.items():
+            if v == s or v == canonical:
+                if k.startswith(("pzl_", "tt_")):
+                    return k
+        for k, v in KNOWN_PAGE_NAMES.items():
+            if v == s or v == canonical:
+                if is_page_id(k):
+                    return k
+        clean_s = re.sub(r"^(pzl_|tt_|fb_)", "", s)
+        if clean_s in KNOWN_PAGE_NAMES or f"tt_{clean_s}" in KNOWN_PAGE_NAMES or f"pzl_{clean_s}" in KNOWN_PAGE_NAMES:
+            if s.startswith(("tt_", "pzl_")):
+                return s
+            if f"tt_{clean_s}" in KNOWN_PAGE_NAMES:
+                return f"tt_{clean_s}"
+            if f"pzl_{clean_s}" in KNOWN_PAGE_NAMES:
+                return f"pzl_{clean_s}"
+
+    # 2. Bóc tách từ conversation_id nếu chưa xác định được từ page_id_or_name
     if conversation_id:
         cid = str(conversation_id).strip()
         if cid.startswith("pzl_"):
@@ -375,7 +425,14 @@ def resolve_api_page_id(page_id_or_name: Any, conversation_id: Optional[str] = N
                 return f"pzl_{parts[1]}"
         elif cid.startswith("tt_"):
             parts = cid.split(":")
-            if len(parts) >= 3 and parts[-1].isdigit():
+            # Định dạng: tt_0:1:{ID_A}:{ID_B} trong đó một trong hai ID là Page ID và ID còn lại là Customer ID
+            for p in parts[2:]:
+                if f"tt_{p}" in KNOWN_PAGE_NAMES or p in KNOWN_PAGE_NAMES or f"tt_{p}" in PAGE_NAME_TO_API_ID.values():
+                    return f"tt_{p}"
+            # Fallback nếu không có trong danh mục biết trước:
+            if len(parts) >= 3 and parts[2].isdigit():
+                return f"tt_{parts[2]}"
+            if len(parts) >= 2 and parts[-1].isdigit():
                 return f"tt_{parts[-1]}"
         elif cid.startswith("fb_"):
             parts = cid.split("_")
@@ -391,24 +448,9 @@ def resolve_api_page_id(page_id_or_name: Any, conversation_id: Optional[str] = N
                     return f"tt_{parts[0]}"
                 return parts[0]
 
-    # 2. Tra cứu từ page_id_or_name
+    # 3. Fallback lấy chính page_id_or_name
     if page_id_or_name:
-        s = str(page_id_or_name).strip()
-        if s in PAGE_NAME_TO_API_ID:
-            return PAGE_NAME_TO_API_ID[s]
-        canonical = resolve_canonical_page_name(s, fallback=None)
-        if canonical and canonical in PAGE_NAME_TO_API_ID:
-            return PAGE_NAME_TO_API_ID[canonical]
-        # Tìm ngược trong KNOWN_PAGE_NAMES (ưu tiên key có prefix pzl_ hoặc tt_ hoặc số)
-        for k, v in KNOWN_PAGE_NAMES.items():
-            if v == s or v == canonical:
-                if k.startswith(("pzl_", "tt_")):
-                    return k
-        for k, v in KNOWN_PAGE_NAMES.items():
-            if v == s or v == canonical:
-                if is_page_id(k):
-                    return k
-        return s
+        return str(page_id_or_name).strip()
 
     return ""
 

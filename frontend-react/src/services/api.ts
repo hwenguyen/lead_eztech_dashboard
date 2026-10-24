@@ -426,10 +426,13 @@ export interface BroadcastCampaignSummary {
   status: string;
 }
 
-export const fetchBroadcastOptions = async (pageId?: string): Promise<BroadcastOptions> => {
+export const fetchBroadcastOptions = async (pageId?: string, refresh?: boolean): Promise<BroadcastOptions> => {
   const params: any = {};
   if (pageId && pageId !== 'all') {
     params.page_id = pageId;
+  }
+  if (refresh) {
+    params.refresh = true;
   }
   const res = await apiClient.get<BroadcastOptions>('/broadcast/options', { params });
   return res.data;

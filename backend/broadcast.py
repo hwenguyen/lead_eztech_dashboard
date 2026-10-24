@@ -889,12 +889,54 @@ def _run_broadcast_worker(task_id: str, req_data: Dict[str, Any]):
 # 5. CÁC API ENDPOINTS
 # ==============================================================================
 
+# Bộ nhớ đệm in-memory cho options (giảm tối đa network transfer và query tới Neon)
+_OPTIONS_CACHE_LOCK = threading.Lock()
+_OPTIONS_CACHE_DATA: Optional[Dict[str, Any]] = None
+_OPTIONS_CACHE_TIME: float = 0.0
+_OPTIONS_CACHE_TTL: float = 300.0  # Tự động cache 5 phút
+
+
 @router.get("/options", response_model=BroadcastOptionsResponse)
 def get_broadcast_options(
     page_id: Optional[str] = Query(None, description="Lọc danh sách thẻ và nhân viên theo Kênh cụ thể"),
+    refresh: bool = Query(False, description="Bắt buộc làm mới dữ liệu từ DB"),
     db: Session = Depends(get_db)
 ):
     """Lấy danh sách Kênh (tách rõ Nguồn & Zalo), Nhân viên, Tags (phân tách theo Kênh), Giới tính và trạng thái Token."""
+    global _OPTIONS_CACHE_DATA, _OPTIONS_CACHE_TIME
+
+    now_ts = time.time()
+    with _OPTIONS_CACHE_LOCK:
+        if not refresh and _OPTIONS_CACHE_DATA and (now_ts - _OPTIONS_CACHE_TIME < _OPTIONS_CACHE_TTL):
+            cached = _OPTIONS_CACHE_DATA
+            target_pg = (page_id or "all").strip()
+            tags_by_page = cached["tags_by_page"]
+            employees_by_page = cached["employees_by_page"]
+            if target_pg in tags_by_page:
+                sorted_tags = tags_by_page[target_pg]
+                selected_employees = employees_by_page.get(target_pg, cached["employees"])
+            else:
+                c_target = resolve_canonical_page_name(target_pg, fallback=None)
+                if c_target and c_target in tags_by_page:
+                    sorted_tags = tags_by_page[c_target]
+                    selected_employees = employees_by_page.get(c_target, cached["employees"])
+                else:
+                    sorted_tags = tags_by_page.get("all", cached["tags"])
+                    selected_employees = employees_by_page.get("all", cached["employees"])
+
+            return BroadcastOptionsResponse(
+                pages=cached["pages"],
+                source_pages=cached["source_pages"],
+                zalo_pages=cached["zalo_pages"],
+                employees=selected_employees,
+                employees_by_page=employees_by_page,
+                tags=sorted_tags,
+                tags_by_page=tags_by_page,
+                gender_options=cached["gender_options"],
+                has_token_configured=cached["has_token_configured"],
+                configured_pages_count=cached["configured_pages_count"],
+            )
+
     # 1. Danh sách Pages
     page_results = db.query(DimLead.page_id).distinct().all()
     pages_set: Set[str] = set()
@@ -911,12 +953,11 @@ def get_broadcast_options(
     source_pages = sorted([p for p in sorted_pages if p not in ZALO_PAGE_NAMES])
 
     # 2. Danh sách Nhân viên (toàn bộ & phân bổ theo Kênh)
+    # Lưu ý: Không select conversation_id để Postgres thực hiện DISTINCT gọn gàng, giảm 99% network transfer từ Neon
     emp_rows = db.query(
         DimLead.page_id,
-        FactLeadActivity.conversation_id,
         FactLeadActivity.assigned_users
     ).join(FactLeadActivity, DimLead.id == FactLeadActivity.lead_id).filter(
-        ~FactLeadActivity.conversation_id.like("pzl_g_%"),
         FactLeadActivity.assigned_users.isnot(None),
         FactLeadActivity.assigned_users != "",
     ).distinct().all()
@@ -926,14 +967,11 @@ def get_broadcast_options(
     zalo_emp_set: Set[str] = set()
     source_emp_set: Set[str] = set()
 
-    for raw_pg, cid, users in emp_rows:
+    for raw_pg, users in emp_rows:
         if not users:
             continue
         c_page = resolve_canonical_page_name(raw_pg, fallback=str(raw_pg or "").strip())
-        is_zalo = is_zalo_channel(raw_pg, cid)
-        api_pid = resolve_api_page_id(raw_pg, cid)
-        if (not c_page or is_page_id(c_page)) and api_pid:
-            c_page = resolve_canonical_page_name(api_pid, fallback=c_page)
+        is_zalo = is_zalo_channel(raw_pg)
 
         for u in users.split(","):
             u_clean = u.strip()
@@ -956,12 +994,11 @@ def get_broadcast_options(
     sorted_employees = employees_by_page["all"]
 
     # 3. Danh sách Tags (toàn bộ & phân bổ chính xác theo từng Kênh)
+    # Lưu ý: Bỏ conversation_id khỏi SELECT để Postgres trả về kết quả gom nhóm siêu nhẹ (~vài KB thay vì vài MB)
     tag_rows = db.query(
         DimLead.page_id,
-        FactLeadActivity.conversation_id,
         FactLeadActivity.status_tag
     ).join(FactLeadActivity, DimLead.id == FactLeadActivity.lead_id).filter(
-        ~FactLeadActivity.conversation_id.like("pzl_g_%"),
         FactLeadActivity.status_tag.isnot(None),
         FactLeadActivity.status_tag != "",
     ).distinct().all()
@@ -979,14 +1016,11 @@ def get_broadcast_options(
     zalo_tags_set: Set[str] = set()
     source_tags_set: Set[str] = set()
 
-    for raw_pg, cid, t_str in tag_rows:
+    for raw_pg, t_str in tag_rows:
         if not t_str:
             continue
         c_page = resolve_canonical_page_name(raw_pg, fallback=str(raw_pg or "").strip())
-        is_zalo = is_zalo_channel(raw_pg, cid)
-        api_pid = resolve_api_page_id(raw_pg, cid)
-        if (not c_page or is_page_id(c_page)) and api_pid:
-            c_page = resolve_canonical_page_name(api_pid, fallback=c_page)
+        is_zalo = is_zalo_channel(raw_pg)
 
         for t in t_str.split(","):
             t_clean = t.strip()
@@ -1007,6 +1041,35 @@ def get_broadcast_options(
     for pg in sorted_pages:
         tags_by_page[pg] = _sort_tags(tags_map.get(pg, set()))
 
+    gender_options = [
+        {"value": "all", "label": "Tất cả giới tính"},
+        {"value": "female", "label": "Nữ (Chào Chị)"},
+        {"value": "male", "label": "Nam (Chào Anh)"},
+        {"value": "unknown", "label": "Chưa rõ (Chào Anh/Chị)"},
+    ]
+
+    # Kiểm tra trạng thái Token Pancake
+    pages_cfg = load_pancake_pages_config(sync_db=False)
+    def_tok = get_token_for_page()
+    has_tok = bool(def_tok or any(p.get("token") for p in pages_cfg))
+    cfg_cnt = len([p for p in pages_cfg if p.get("token")]) or (7 if def_tok else 0)
+
+    # Lưu vào bộ nhớ cache in-memory
+    with _OPTIONS_CACHE_LOCK:
+        _OPTIONS_CACHE_DATA = {
+            "pages": sorted_pages,
+            "source_pages": source_pages,
+            "zalo_pages": zalo_pages,
+            "employees": sorted_employees,
+            "employees_by_page": employees_by_page,
+            "tags": tags_by_page["all"],
+            "tags_by_page": tags_by_page,
+            "gender_options": gender_options,
+            "has_token_configured": has_tok,
+            "configured_pages_count": cfg_cnt,
+        }
+        _OPTIONS_CACHE_TIME = now_ts
+
     # Xác định danh sách tags và nhân viên được chọn (nếu có truyền query page_id)
     target_pg = (page_id or "all").strip()
     if target_pg and target_pg in tags_by_page:
@@ -1021,18 +1084,6 @@ def get_broadcast_options(
             sorted_tags = tags_by_page["all"]
             selected_employees = sorted_employees
 
-    gender_options = [
-        {"value": "all", "label": "Tất cả giới tính"},
-        {"value": "female", "label": "Nữ (Chào Chị)"},
-        {"value": "male", "label": "Nam (Chào Anh)"},
-        {"value": "unknown", "label": "Chưa rõ (Chào Anh/Chị)"},
-    ]
-
-    # Kiểm tra trạng thái Token Pancake
-    pages_cfg = load_pancake_pages_config(sync_db=False)
-    def_tok = get_token_for_page()
-    has_tok = bool(def_tok or any(p.get("token") for p in pages_cfg))
-
     return BroadcastOptionsResponse(
         pages=sorted_pages,
         source_pages=source_pages,
@@ -1043,7 +1094,7 @@ def get_broadcast_options(
         tags_by_page=tags_by_page,
         gender_options=gender_options,
         has_token_configured=has_tok,
-        configured_pages_count=len([p for p in pages_cfg if p.get("token")]) or (7 if def_tok else 0),
+        configured_pages_count=cfg_cnt,
     )
 
 
