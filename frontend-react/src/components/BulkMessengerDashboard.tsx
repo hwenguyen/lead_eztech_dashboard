@@ -13,15 +13,13 @@ import {
   Eye,
   RefreshCw,
   ExternalLink,
-  Clock,
   Info,
   ShieldAlert,
   ShieldCheck,
   Trash2,
   RotateCcw,
   Check,
-  Key,
-  Phone
+  Key
 } from 'lucide-react';
 import {
   fetchBroadcastOptions,
@@ -658,23 +656,23 @@ export const BulkMessengerDashboard: React.FC = () => {
                       onChange={(e) => setPageId(e.target.value)}
                       className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-xs focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all font-medium"
                     >
-                      <option value="all">🌐 Tất cả các kênh (Fanpage + Zalo)</option>
-                      <option value="all_zalo">💬 Tất cả kênh Zalo cá nhân (3 kênh)</option>
-                      <option value="all_source">📢 Tất cả kênh Nguồn Lead (FB & TikTok)</option>
+                      <option value="all">Tất cả các kênh (Fanpage + Zalo)</option>
+                      <option value="all_zalo">Tất cả kênh Zalo cá nhân (3 kênh)</option>
+                      <option value="all_source">Tất cả kênh Nguồn Lead (FB & TikTok)</option>
                       {options?.zalo_pages && options.zalo_pages.length > 0 && (
-                        <optgroup label="💬 Kênh Zalo Cá Nhân (Chăm sóc)">
+                        <optgroup label="Kênh Zalo Cá Nhân">
                           {options.zalo_pages.map((p) => (
                             <option key={p} value={p}>
-                              💬 {p}
+                              {p}
                             </option>
                           ))}
                         </optgroup>
                       )}
                       {options?.source_pages && options.source_pages.length > 0 && (
-                        <optgroup label="📢 Kênh Nguồn Lead (Facebook / TikTok)">
+                        <optgroup label="Kênh Nguồn Lead (Facebook / TikTok)">
                           {options.source_pages.map((p) => (
                             <option key={p} value={p}>
-                              📢 {p}
+                              {p}
                             </option>
                           ))}
                         </optgroup>
@@ -692,10 +690,10 @@ export const BulkMessengerDashboard: React.FC = () => {
                       onChange={(e) => setEmployee(e.target.value)}
                       className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-xs focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all"
                     >
-                      <option value="all">👤 Tất cả nhân viên</option>
+                      <option value="all">Tất cả nhân viên</option>
                       {options?.employees.map((emp) => (
                         <option key={emp} value={emp}>
-                          {emp === 'Chưa phân công' ? '⚪ Chưa phân công' : `👤 ${emp}`}
+                          {emp}
                         </option>
                       ))}
                     </select>
@@ -711,11 +709,11 @@ export const BulkMessengerDashboard: React.FC = () => {
                       onChange={(e) => setTag(e.target.value)}
                       className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-xs focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all"
                     >
-                      <option value="all">🏷️ Tất cả thẻ (Tags)</option>
-                      <option value="no_tag">⚪ Chưa gắn thẻ (Không có tag)</option>
+                      <option value="all">Tất cả thẻ (Tags)</option>
+                      <option value="no_tag">Chưa gắn thẻ (Không có tag)</option>
                       {options?.tags.map((t) => (
                         <option key={t} value={t}>
-                          🏷️ {t}
+                          {t}
                         </option>
                       ))}
                     </select>
@@ -723,44 +721,44 @@ export const BulkMessengerDashboard: React.FC = () => {
 
                   {/* 5. Thời gian tương tác gần nhất */}
                   <div>
-                    <label className="block text-xs font-semibold text-gray-700 mb-1 flex items-center gap-1">
-                      <Clock className="w-3 h-3 text-indigo-600" />
-                      <span>Thời gian tương tác cuối</span>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">
+                      Thời gian tương tác cuối
                     </label>
                     <select
                       value={timeFilter}
                       onChange={(e) => setTimeFilter(e.target.value)}
                       className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-xs focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all"
                     >
-                      <option value="all">♾️ Mọi thời gian (Tất cả khách)</option>
-                      <optgroup label="Khách mới tương tác gần đây">
-                        <option value="1">⚡ Trong 24 giờ qua (An toàn 24h Facebook)</option>
-                        <option value="3">🕒 Trong 3 ngày qua</option>
-                        <option value="7">📅 Trong 7 ngày qua</option>
-                        <option value="30">🗓️ Trong 30 ngày qua</option>
-                      </optgroup>
+                      <option value="all">Tất cả thời gian (Mặc định - Lấy đầy đủ nhất)</option>
                       <optgroup label="Khách cần chăm sóc lại (Theo mốc Remind)">
-                        <option value="remind_1_3">🔔 Chưa tương tác 1 – 3 ngày</option>
-                        <option value="remind_4_7">🟠 Chưa tương tác 4 – 7 ngày</option>
-                        <option value="remind_over_7">🔴 Chưa tương tác &gt; 7 ngày</option>
+                        <option value="remind_1_3">1 – 3 ngày chưa tương tác lại (Remind)</option>
+                        <option value="remind_4_7">4 – 7 ngày chưa tương tác lại (Remind)</option>
+                        <option value="remind_over_7">Trên 7 ngày chưa tương tác lại (Remind - Khách cũ)</option>
+                      </optgroup>
+                      <optgroup label="Khách mới tương tác gần đây">
+                        <option value="today">Hôm nay (Vừa tương tác trong ngày)</option>
+                        <option value="1">Trong 24 giờ qua (An toàn 24h Facebook)</option>
+                        <option value="3">Trong 3 ngày qua</option>
+                        <option value="7">Trong 7 ngày qua</option>
+                        <option value="30">Trong 30 ngày qua</option>
+                        <option value="60">Trong 60 ngày qua</option>
                       </optgroup>
                     </select>
                   </div>
 
                   {/* 6. Lọc Số điện thoại */}
                   <div>
-                    <label className="block text-xs font-semibold text-gray-700 mb-1 flex items-center gap-1">
-                      <Phone className="w-3 h-3 text-indigo-600" />
-                      <span>Tình trạng Số điện thoại</span>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">
+                      Tình trạng Số điện thoại
                     </label>
                     <select
                       value={phoneFilter}
                       onChange={(e) => setPhoneFilter(e.target.value)}
                       className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-xs focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all"
                     >
-                      <option value="all">📱 Tất cả (Có hoặc chưa có SĐT)</option>
-                      <option value="has_phone">✅ Chỉ khách ĐÃ CÓ SĐT (hoặc tag Đã add)</option>
-                      <option value="no_phone">❓ Chỉ khách CHƯA CÓ SĐT (Cần xin số)</option>
+                      <option value="all">Tất cả (Có hoặc chưa có SĐT)</option>
+                      <option value="has_phone">Chỉ khách đã có SĐT (hoặc tag Đã add)</option>
+                      <option value="no_phone">Chỉ khách chưa có SĐT</option>
                     </select>
                   </div>
 
@@ -774,10 +772,10 @@ export const BulkMessengerDashboard: React.FC = () => {
                       onChange={(e) => setGender(e.target.value)}
                       className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-xs focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all"
                     >
-                      <option value="all">👥 Tất cả giới tính</option>
-                      <option value="female">👩 Nữ (Xưng hô: Chị)</option>
-                      <option value="male">👨 Nam (Xưng hô: Anh)</option>
-                      <option value="unknown">❓ Chưa rõ (Xưng hô: Anh/Chị)</option>
+                      <option value="all">Tất cả giới tính</option>
+                      <option value="female">Nữ (Xưng hô: Chị)</option>
+                      <option value="male">Nam (Xưng hô: Anh)</option>
+                      <option value="unknown">Chưa rõ (Xưng hô: Anh/Chị)</option>
                     </select>
                   </div>
 
@@ -807,11 +805,13 @@ export const BulkMessengerDashboard: React.FC = () => {
                     >
                       <option value={10}>10 khách</option>
                       <option value={20}>20 khách</option>
-                      <option value={30}>30 khách (Khuyến nghị cho 1 đợt Zalo)</option>
+                      <option value={30}>30 khách</option>
                       <option value={50}>50 khách</option>
                       <option value={100}>100 khách</option>
                       <option value={200}>200 khách</option>
                       <option value={500}>500 khách</option>
+                      <option value={1000}>1.000 khách</option>
+                      <option value={999999}>Tất cả khách khớp lọc (Không giới hạn)</option>
                     </select>
                   </div>
 
@@ -905,17 +905,17 @@ export const BulkMessengerDashboard: React.FC = () => {
                         {[
                           {
                             id: 'fast',
-                            title: '⚡ Nhanh vừa',
+                            title: 'Nhanh vừa',
                             desc: 'Nghỉ 5-10s/tin, giải lao 30s mỗi 12 tin (<15 khách)'
                           },
                           {
                             id: 'recommended',
-                            title: '🛡️ Khuyến nghị',
-                            desc: 'Nghỉ 8-15s/tin, giải lao 45s mỗi 10 tin (An toàn)'
+                            title: 'Khuyến nghị (An toàn)',
+                            desc: 'Nghỉ 8-15s/tin, giải lao 45s mỗi 10 tin'
                           },
                           {
                             id: 'ultra',
-                            title: '🔒 Siêu an toàn',
+                            title: 'Siêu an toàn',
                             desc: 'Nghỉ 15-28s/tin, giải lao 65s mỗi 8 tin (Số lượng lớn)'
                           }
                         ].map((p) => (
@@ -1055,8 +1055,8 @@ export const BulkMessengerDashboard: React.FC = () => {
                       { tag: '{phone}', label: 'SĐT' },
                       { tag: '{page_id}', label: 'Tên Kênh' },
                       { tag: '{staff}', label: 'Nhân viên' },
-                      { tag: '{Chào|Xin chào|Dạ chào}', label: '🔀 Spintax Chào' },
-                      { tag: '{ạ|nhé ạ|nha}', label: '🔀 Spintax Cuối câu' }
+                      { tag: '{Chào|Xin chào|Dạ chào}', label: 'Spintax Chào' },
+                      { tag: '{ạ|nhé ạ|nha}', label: 'Spintax Cuối câu' }
                     ].map((b) => (
                       <button
                         key={b.tag}
@@ -1709,7 +1709,7 @@ export const BulkMessengerDashboard: React.FC = () => {
                       className="flex items-center justify-between text-[11px] bg-white px-2.5 py-1.5 rounded border border-gray-100"
                     >
                       <span className="font-medium text-navy">
-                        {ch.is_zalo ? '💬 ' : '📢 '}
+                        <span className="text-[10px] font-semibold text-gray-500 mr-1.5">[{ch.is_zalo ? 'Zalo' : 'Nguồn'}]</span>
                         {ch.page_name}{' '}
                         <span className="text-[10px] text-gray-400 font-mono">
                           ({ch.api_page_id})

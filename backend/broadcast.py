@@ -446,19 +446,24 @@ def _filter_broadcast_candidates(
     clean_page_filter = (page_id or "all").strip()
     target_canonical_page = None
     target_api_page_id = None
-    possible_pids: Set[str] = set()
+    target_clean_num = None
+    possible_pids_lower: Set[str] = set()
 
     if clean_page_filter not in ("all", "all_zalo", "all_source", ""):
         target_canonical_page = resolve_canonical_page_name(clean_page_filter, fallback=clean_page_filter)
         target_api_page_id = resolve_api_page_id(clean_page_filter)
-        possible_pids = {clean_page_filter, target_canonical_page}
+        raw_pids = {clean_page_filter, target_canonical_page}
         if target_api_page_id:
-            possible_pids.add(target_api_page_id)
-            possible_pids.add(re.sub(r"^(pzl_|tt_|fb_)", "", target_api_page_id))
+            raw_pids.add(target_api_page_id)
+            cnum = re.sub(r"^(pzl_|tt_|fb_)", "", target_api_page_id)
+            if cnum:
+                raw_pids.add(cnum)
+                target_clean_num = cnum.lower()
         for k, v in KNOWN_PAGE_NAMES.items():
             if v == target_canonical_page or k == clean_page_filter:
-                possible_pids.add(k)
-                possible_pids.add(v)
+                raw_pids.add(k)
+                raw_pids.add(v)
+        possible_pids_lower = {str(p).strip().lower() for p in raw_pids if p}
 
     emp_norm = normalize_nfc(employee) if (employee and employee.strip() and employee.strip() != "all") else None
     tag_norm = normalize_nfc(tag) if (tag and tag.strip() and tag.strip() != "all") else None
@@ -496,38 +501,63 @@ def _filter_broadcast_candidates(
             if is_zalo:
                 continue
         elif clean_page_filter not in ("all", ""):
+            r_page_str = str(r.page_id or "").strip().lower()
+            canon_lower = canonical_pg.lower()
+            api_pid_lower = (api_pid or "").lower()
+
             page_matched = (
-                str(r.page_id or "").strip() in possible_pids
-                or canonical_pg in possible_pids
-                or (api_pid and api_pid in possible_pids)
+                r_page_str in possible_pids_lower
+                or canon_lower in possible_pids_lower
+                or (api_pid_lower and api_pid_lower in possible_pids_lower)
             )
+            # Nếu DimLead.page_id lưu tên kênh nguồn ban đầu nhưng hội thoại thực tế thuộc kênh Zalo này
+            if not page_matched and target_clean_num and target_clean_num in conv_id.lower():
+                page_matched = True
+
             if not page_matched:
                 continue
 
-        # 2.2. Lọc theo Nhân viên (Employee)
+        # 2.2. Lọc theo Nhân viên (Employee - Không phân biệt hoa thường)
         raw_assigned = (r.assigned_users or "").strip()
         if emp_norm:
-            if emp_norm in ("chưa phân công", "chua phan cong", "unassigned"):
-                if raw_assigned:
+            emp_clean_lower = emp_norm.strip().lower()
+            if emp_clean_lower in ("chưa phân công", "chua phan cong", "unassigned", "chua_phan_cong"):
+                if raw_assigned and raw_assigned.lower() not in ("chưa phân công", "chua phan cong", "unassigned"):
                     continue
             else:
-                emp_list = [normalize_nfc(u) for u in raw_assigned.split(",") if u.strip()]
-                if not any(emp_norm == u or emp_norm in u for u in emp_list):
+                raw_assigned_lower = raw_assigned.lower()
+                emp_list = [normalize_nfc(u).strip().lower() for u in raw_assigned.split(",") if u.strip()]
+                matched_emp = (
+                    emp_clean_lower in raw_assigned_lower
+                    or any(emp_clean_lower == u or emp_clean_lower in u for u in emp_list)
+                    or any(u in emp_clean_lower for u in emp_list if len(u) >= 3)
+                )
+                if not matched_emp:
                     continue
 
-        # 2.3. Lọc theo Thẻ (Tag)
+        # 2.3. Lọc theo Thẻ (Tag - Không phân biệt hoa thường, hỗ trợ substring & tag list)
         raw_tags = (r.status_tag or "").strip()
         if tag_norm:
-            if tag_norm in ("no_tag", "chưa gắn tag", "chua gan tag", "không có tag"):
-                if raw_tags:
+            tag_clean_lower = tag_norm.strip().lower()
+            if tag_clean_lower in ("no_tag", "chưa gắn thẻ", "chưa gắn tag", "chua gan tag", "không có tag"):
+                if raw_tags and raw_tags.lower() not in ("no_tag", "chưa gắn thẻ", "không có tag"):
                     continue
             else:
-                tag_list = [normalize_nfc(t) for t in raw_tags.split(",") if t.strip()]
-                if not any(tag_norm == t or tag_norm in t for t in tag_list):
+                raw_tags_lower = raw_tags.lower()
+                tag_list = [normalize_nfc(t).strip().lower() for t in raw_tags.split(",") if t.strip()]
+                matched_tag = (
+                    tag_clean_lower in raw_tags_lower
+                    or any(tag_clean_lower == t or tag_clean_lower in t for t in tag_list)
+                    or any(t in tag_clean_lower for t in tag_list if len(t) >= 3)
+                )
+                if not matched_tag:
                     continue
 
         # 2.4. Lọc theo SĐT (Phone Filter)
-        has_phone_val = bool((r.phone_number and str(r.phone_number).strip()) or ("đã add" in normalize_nfc(raw_tags)))
+        has_phone_val = bool(
+            (r.phone_number and str(r.phone_number).strip())
+            or ("đã add" in raw_tags.lower() or "da add" in raw_tags.lower())
+        )
         if phone_clean == "has_phone" and not has_phone_val:
             continue
         elif phone_clean == "no_phone" and has_phone_val:
@@ -535,19 +565,37 @@ def _filter_broadcast_candidates(
 
         # 2.5. Lọc theo Thời gian tương tác gần nhất (Time Filter)
         last_dt = r.contacted_at or r.first_created_at or now_vn
+        if hasattr(last_dt, "tzinfo") and last_dt.tzinfo is not None:
+            last_dt = last_dt.astimezone(VN_TZ).replace(tzinfo=None)
+
         diff_sec = max(0.0, (now_vn - last_dt).total_seconds())
         days_float = round(diff_sec / 86400.0, 1)
         days_int = int(diff_sec // 86400.0)
 
         if tf and tf != "all":
-            if tf == "remind_1_3":
+            if tf in ("today", "0"):
+                if days_int != 0:
+                    continue
+            elif tf in ("remind_1_3", "1_to_3", "1_3"):
                 if not (1 <= days_int <= 3):
                     continue
-            elif tf == "remind_4_7":
+            elif tf in ("remind_4_7", "3_to_7", "4_to_7", "4_7"):
                 if not (4 <= days_int <= 7):
                     continue
-            elif tf == "remind_over_7":
+            elif tf in ("remind_over_7", "over_7", ">7"):
                 if days_int <= 7:
+                    continue
+            elif tf == "7":
+                if diff_sec > 7 * 86400.0:
+                    continue
+            elif tf == "30":
+                if diff_sec > 30 * 86400.0:
+                    continue
+            elif tf == "60":
+                if diff_sec > 60 * 86400.0:
+                    continue
+            elif tf == "90":
+                if diff_sec > 90 * 86400.0:
                     continue
             elif tf.isdigit():
                 max_days = int(tf)
