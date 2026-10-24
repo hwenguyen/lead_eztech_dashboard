@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { format, subDays } from 'date-fns';
-import { Users, UserPlus, UserCheck, PhoneCall, PhoneForwarded, Percent, Filter, RefreshCw, LayoutDashboard, Clock, Award, Bot, LogOut, KeyRound } from 'lucide-react';
+import { Users, UserPlus, UserCheck, PhoneCall, PhoneForwarded, Percent, Filter, RefreshCw, LayoutDashboard, Clock, Award, Bot, LogOut, KeyRound, Lock } from 'lucide-react';
 import { KpiCard } from './components/KpiCard';
 import { TrendChart } from './components/TrendChart';
 import { LeadTable } from './components/LeadTable';
@@ -127,16 +127,7 @@ function App() {
     loadData();
   }, [startDate, endDate, pageId, employee]);
 
-  if (!isAuthenticated) {
-    return (
-      <LoginPage
-        onLoginSuccess={(user) => {
-          setCurrentUser(user);
-          setIsAuthenticated(true);
-        }}
-      />
-    );
-  }
+
 
   const newLeadsCount = summary?.new_leads || 0;
   const recontactLeadsCount = summary?.recontact_leads || 0;
@@ -224,39 +215,52 @@ function App() {
             </button>
 
             {/* User Profile & Actions */}
-            <div className="flex items-center gap-2 pl-2 border-l border-gray-200">
-              <div className="flex items-center gap-2 px-2.5 py-1 bg-gray-50 border border-gray-200 rounded-lg">
-                <div className="w-6 h-6 rounded-full bg-indigo-600 text-white text-[11px] font-bold flex items-center justify-center uppercase">
-                  {(currentUser?.username || 'A').slice(0, 2)}
+            {isAuthenticated ? (
+              <div className="flex items-center gap-2 pl-2 border-l border-gray-200">
+                <div className="flex items-center gap-2 px-2.5 py-1 bg-gray-50 border border-gray-200 rounded-lg">
+                  <div className="w-6 h-6 rounded-full bg-indigo-600 text-white text-[11px] font-bold flex items-center justify-center uppercase">
+                    {(currentUser?.username || 'A').slice(0, 2)}
+                  </div>
+                  <div className="hidden md:block text-left">
+                    <span className="block text-xs font-bold text-navy leading-none">
+                      {currentUser?.username || 'admin'}
+                    </span>
+                    <span className="text-[10px] text-indigo-600 font-semibold uppercase">
+                      {currentUser?.role || 'admin'}
+                    </span>
+                  </div>
                 </div>
-                <div className="hidden md:block text-left">
-                  <span className="block text-xs font-bold text-navy leading-none">
-                    {currentUser?.username || 'admin'}
-                  </span>
-                  <span className="text-[10px] text-indigo-600 font-semibold uppercase">
-                    {currentUser?.role || 'admin'}
-                  </span>
-                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setShowChangePw(true)}
+                  title="Đổi mật khẩu"
+                  className="p-1.5 text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                >
+                  <KeyRound className="w-4 h-4" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  title="Đăng xuất"
+                  className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                >
+                  <LogOut className="w-4 h-4" />
+                </button>
               </div>
-
-              <button
-                type="button"
-                onClick={() => setShowChangePw(true)}
-                title="Đổi mật khẩu"
-                className="p-1.5 text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
-              >
-                <KeyRound className="w-4 h-4" />
-              </button>
-
-              <button
-                type="button"
-                onClick={handleLogout}
-                title="Đăng xuất"
-                className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-              >
-                <LogOut className="w-4 h-4" />
-              </button>
-            </div>
+            ) : (
+              <div className="flex items-center pl-2 border-l border-gray-200">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('bot')}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors border border-indigo-200"
+                >
+                  <Lock className="w-3.5 h-3.5 text-indigo-600" />
+                  <span>Đăng nhập Bot</span>
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </header>
@@ -315,7 +319,17 @@ function App() {
         ) : activeTab === 'remind' ? (
           <RemindLeadTable pagesList={pagesList} zaloPages={zaloPages} />
         ) : activeTab === 'bot' ? (
-          <BulkMessengerDashboard />
+          !isAuthenticated ? (
+            <LoginPage
+              embedded={true}
+              onLoginSuccess={(user) => {
+                setCurrentUser(user);
+                setIsAuthenticated(true);
+              }}
+            />
+          ) : (
+            <BulkMessengerDashboard />
+          )
         ) : (
           <>
             {/* Filter Panel */}

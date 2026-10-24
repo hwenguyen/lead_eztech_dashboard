@@ -13,9 +13,10 @@ import { loginApi, type AuthUser } from '../services/api';
 
 interface LoginPageProps {
   onLoginSuccess: (user: AuthUser) => void;
+  embedded?: boolean;
 }
 
-export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
+export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, embedded = false }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(true);
@@ -52,24 +53,34 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-navy to-slate-950 flex items-center justify-center p-4 relative overflow-hidden text-gray-800">
-      {/* Decorative Glow Elements */}
-      <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
+    <div className={embedded ? "py-6 flex items-center justify-center p-2 relative text-gray-800" : "min-h-screen bg-gradient-to-br from-slate-900 via-navy to-slate-950 flex items-center justify-center p-4 relative overflow-hidden text-gray-800"}>
+      {/* Decorative Glow Elements for standalone */}
+      {!embedded && (
+        <>
+          <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
+          <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
+        </>
+      )}
 
       <div className="max-w-md w-full relative z-10">
         {/* Card Container */}
-        <div className="bg-white/95 backdrop-blur-xl rounded-3xl shadow-2xl border border-white/20 p-8 sm:p-10 space-y-6">
+        <div className={embedded ? "bg-white rounded-3xl shadow-xl border border-gray-200 p-8 sm:p-10 space-y-6" : "bg-white/95 backdrop-blur-xl rounded-3xl shadow-2xl border border-white/20 p-8 sm:p-10 space-y-6"}>
           {/* Header & Logo */}
           <div className="text-center space-y-2">
             <div className="inline-flex items-center justify-center p-3 rounded-2xl bg-gradient-to-tr from-indigo-50 to-blue-50 border border-indigo-100 shadow-inner mb-1">
-              <img src="/logo.png" alt="EzTech Logo" className="h-12 object-contain" />
+              {embedded ? (
+                <Lock className="w-8 h-8 text-indigo-600" />
+              ) : (
+                <img src="/logo.png" alt="EzTech Logo" className="h-12 object-contain" />
+              )}
             </div>
             <h1 className="text-2xl font-extrabold text-navy tracking-tight">
-              EzTech Lead Dashboard
+              {embedded ? "Xác Thực Quyền Quản Trị Bot" : "EzTech Lead Dashboard"}
             </h1>
-            <p className="text-xs text-gray-500">
-              Hệ thống Báo cáo & Tự động hóa Pancake
+            <p className="text-xs text-gray-500 max-w-xs mx-auto">
+              {embedded
+                ? "Tính năng gửi tin hàng loạt Pancake API yêu cầu đăng nhập tài khoản quản trị để đảm bảo an toàn."
+                : "Hệ thống Báo cáo & Tự động hóa Pancake"}
             </p>
           </div>
 
