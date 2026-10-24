@@ -135,6 +135,11 @@ FastAPI backend (`backend/`) + React frontend (`frontend-react/`) trên Render (
 
 
 ### 2026-10-24 — Đã hoàn thành
+- Tái cấu trúc và nâng cấp UI/UX theo phong cách Modern Minimalism chuẩn nhận diện EzTech:
+  - Đồng nhất bảng màu thương hiệu: Navy `#0A1F44` (nội dung/số liệu chính), EzTech Blue `#1E5BD6` / `#EEF4FF` (chủ đạo/active), EzTech Gold `#F5B400` / `#FFFBEB` (chỉ số chuyển đổi SĐT & Deal Win), nền `#F8FAFC`.
+  - Cấu hình typography sắc nét: Cặp font Inter + JetBrains Mono, bật `tabular-nums` và font-mono cho SĐT, ngày giờ, KPI và phần trăm.
+  - Tối ưu layout: Chuyển khung Bộ lọc thành thanh Inline Toolbar gọn gàng, tiết kiệm chiều dọc; lưới KPI 6 cột trực quan; header kính mờ `backdrop-blur-md`; sidebar đồng nhất chỉ báo chọn tab màu EzTech.
+  - Chuẩn hoá biểu đồ & bảng dữ liệu: Dot-badge viền mảnh cho trạng thái và tag, avatar tinh giản, tooltip và pagination đồng bộ.
 - Chuyển đổi biểu đồ SĐT thu được:
   - Thay thế biểu đồ "SĐT thu được / Nhân viên" thành biểu đồ tròn "SĐT thu được / Lead Other & Đào tạo" (`phone_tag_stats`) thể hiện cơ cấu SĐT thu được giữa các nhóm phân loại Lead Other, Đào tạo (và Other).
   - Cập nhật backend `backend/main.py` và `backend/schemas.py`: tính toán `phone_tag_stats` cho các lead có SĐT thu được theo phân loại tag.
