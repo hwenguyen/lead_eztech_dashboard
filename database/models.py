@@ -177,6 +177,12 @@ class DealWin(Base):
         return self.timestamp
 
 
+class AppConfig(Base):
+    """Bảng lưu trữ cấu hình hệ thống bền vững (Pancake Tokens, cài đặt Bot...)."""
+    __tablename__ = "app_configs"
 
-
+    id = Column(Integer, primary_key=True, index=True)
+    config_key = Column(String, unique=True, index=True, nullable=False)
+    config_value = Column(Text, nullable=True)
+    updated_at = Column(DateTime, default=get_vn_now, onupdate=get_vn_now)
 

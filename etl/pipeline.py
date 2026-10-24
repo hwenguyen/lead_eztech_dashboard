@@ -417,8 +417,91 @@ def upsert_post_data(db: Session, post_data: dict, page_name: str, commit: bool 
         logger.error(f"Lỗi khi upsert post {post_data.get('post_id')}: {e}")
 
 
-def load_pancake_pages_config() -> List[Dict[str, Any]]:
-    """Nạp danh sách Fanpage và token từ các biến môi trường PANCAKE_PAGES_JSON hoặc PAGE_IDS."""
+def _parse_pages_config_raw(raw_cfg: str) -> List[Dict[str, Any]]:
+    """Hàm phụ trợ parse chuỗi JSON/Dict cấu hình page & token."""
+    import json, ast
+    result: List[Dict[str, Any]] = []
+    if not raw_cfg or not raw_cfg.strip():
+        return result
+    raw_cfg = raw_cfg.strip()
+    try:
+        try:
+            cfg_data = json.loads(raw_cfg)
+        except Exception:
+            cfg_data = ast.literal_eval(raw_cfg)
+
+        if isinstance(cfg_data, dict):
+            for pid, pdata in cfg_data.items():
+                if isinstance(pdata, dict):
+                    result.append({
+                        "page_id": str(pid).strip(),
+                        "page_name": pdata.get("name") or pdata.get("page_name"),
+                        "token": pdata.get("token")
+                    })
+                elif isinstance(pdata, str):
+                    result.append({
+                        "page_id": str(pid).strip(),
+                        "page_name": None,
+                        "token": pdata.strip()
+                    })
+        elif isinstance(cfg_data, list):
+            for item in cfg_data:
+                if isinstance(item, dict) and "page_id" in item:
+                    result.append(item)
+    except Exception as e:
+        logger.warning(f"Không thể parse cấu hình JSON/Dict: {e}")
+    return result
+
+
+def sync_tokens_to_db(pages_list: List[Dict[str, Any]], default_token: Optional[str] = None):
+    """Lưu đồng bộ danh sách token các Page vào bảng app_configs trên Neon DB để Web Backend trên Render sử dụng."""
+    import json
+    from database.models import AppConfig
+    valid_pages = [p for p in pages_list if p.get("page_id") and p.get("token")]
+    if not valid_pages and not default_token:
+        return
+    db = SessionLocal()
+    try:
+        if valid_pages:
+            rec = db.query(AppConfig).filter_by(config_key="PANCAKE_PAGES_CONFIG_JSON").first()
+            json_val = json.dumps(valid_pages, ensure_ascii=False)
+            if not rec:
+                db.add(AppConfig(config_key="PANCAKE_PAGES_CONFIG_JSON", config_value=json_val))
+            else:
+                rec.config_value = json_val
+        if default_token:
+            rec_tok = db.query(AppConfig).filter_by(config_key="PANCAKE_DEFAULT_TOKEN").first()
+            if not rec_tok:
+                db.add(AppConfig(config_key="PANCAKE_DEFAULT_TOKEN", config_value=default_token.strip()))
+            else:
+                rec_tok.config_value = default_token.strip()
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        logger.debug(f"Không thể lưu đồng bộ token vào app_configs: {e}")
+    finally:
+        db.close()
+
+
+def load_tokens_from_db() -> tuple:
+    """Đọc cấu hình pages và default_token từ bảng app_configs trên Neon DB."""
+    from database.models import AppConfig
+    db = SessionLocal()
+    try:
+        rec_pages = db.query(AppConfig).filter_by(config_key="PANCAKE_PAGES_CONFIG_JSON").first()
+        rec_tok = db.query(AppConfig).filter_by(config_key="PANCAKE_DEFAULT_TOKEN").first()
+        pages_from_db = _parse_pages_config_raw(rec_pages.config_value) if (rec_pages and rec_pages.config_value) else []
+        def_tok = rec_tok.config_value.strip() if (rec_tok and rec_tok.config_value) else None
+        return pages_from_db, def_tok
+    except Exception as e:
+        logger.debug(f"Không thể đọc token từ app_configs: {e}")
+        return [], None
+    finally:
+        db.close()
+
+
+def load_pancake_pages_config(sync_db: bool = True) -> List[Dict[str, Any]]:
+    """Nạp danh sách Fanpage và token từ biến môi trường (hoặc fallback từ Neon DB app_configs)."""
     pages_to_process: List[Dict[str, Any]] = []
 
     # 1. Hỗ trợ cấu hình dạng JSON / Dict qua secret PANCAKE_PAGES_JSON, PANCAKE_CONFIG hoặc PANCAKE_API_TOKENS
@@ -428,53 +511,26 @@ def load_pancake_pages_config() -> List[Dict[str, Any]]:
         pages_json_env = pancake_api_tokens_env
 
     if pages_json_env and pages_json_env.strip():
-        try:
-            import json, ast
-            raw_cfg = pages_json_env.strip()
-            try:
-                cfg_data = json.loads(raw_cfg)
-            except Exception:
-                cfg_data = ast.literal_eval(raw_cfg)
-            
-            if isinstance(cfg_data, dict):
-                for pid, pdata in cfg_data.items():
-                    if isinstance(pdata, dict):
-                        pages_to_process.append({
-                            "page_id": str(pid).strip(),
-                            "page_name": pdata.get("name"),
-                            "token": pdata.get("token")
-                        })
-                    elif isinstance(pdata, str):
-                        pages_to_process.append({
-                            "page_id": str(pid).strip(),
-                            "page_name": None,
-                            "token": pdata.strip()
-                        })
-            elif isinstance(cfg_data, list):
-                for item in cfg_data:
-                    if isinstance(item, dict) and "page_id" in item:
-                        pages_to_process.append(item)
-            logger.info(f"Đã nạp {len(pages_to_process)} Fanpage từ cấu hình JSON/Dict.")
-        except Exception as e:
-            logger.warning(f"Không thể parse cấu hình JSON/Dict: {e}")
+        pages_to_process.extend(_parse_pages_config_raw(pages_json_env))
+        if pages_to_process:
+            logger.info(f"Đã nạp {len(pages_to_process)} Fanpage từ cấu hình JSON/Dict môi trường.")
 
-    # 2. Bổ sung các page từ PAGE_IDS nếu chưa có trong danh sách (hoặc nạp toàn bộ nếu chưa có JSON)
+    # 2. Bổ sung các page từ PAGE_IDS nếu chưa có trong danh sách
     page_ids_env = os.getenv("PAGE_IDS", "")
     page_ids = [p.strip() for p in page_ids_env.split(",") if p.strip()]
-    
+    single_token = os.getenv("PANCAKE_API_TOKEN", "").strip()
+    tokens_env = os.getenv("PANCAKE_API_TOKENS", "").strip()
+    tokens = [t.strip() for t in tokens_env.split(",") if t.strip()] if (tokens_env and not tokens_env.startswith(("{", "["))) else []
+    default_token = single_token or (tokens[0] if tokens else None)
+    if not default_token and pages_to_process:
+        for p in pages_to_process:
+            if p.get("token"):
+                default_token = p.get("token")
+                break
+
     if page_ids:
         existing_pids = {str(p.get("page_id", "")).strip() for p in pages_to_process}
         existing_pids |= {re.sub(r"^(pzl_|tt_|fb_)", "", pid) for pid in existing_pids}
-
-        single_token = os.getenv("PANCAKE_API_TOKEN", "").strip()
-        tokens_env = os.getenv("PANCAKE_API_TOKENS", "").strip()
-        tokens = [t.strip() for t in tokens_env.split(",") if t.strip()] if (tokens_env and not tokens_env.startswith(("{", "["))) else []
-        default_token = single_token or (tokens[0] if tokens else None)
-        if not default_token and pages_to_process:
-            for p in pages_to_process:
-                if p.get("token"):
-                    default_token = p.get("token")
-                    break
 
         for i, page_id in enumerate(page_ids):
             clean_pid = re.sub(r"^(pzl_|tt_|fb_)", "", page_id)
@@ -487,7 +543,57 @@ def load_pancake_pages_config() -> List[Dict[str, Any]]:
                 })
                 logger.info(f"Bổ sung Page ID '{page_id}' từ PAGE_IDS vào danh sách cào.")
 
+    # 3. Đồng bộ chiều đi (từ Env -> DB) nếu có token trong Env, hoặc chiều về (từ DB -> RAM) nếu Env trên Render trống
+    if pages_to_process or default_token:
+        if sync_db:
+            sync_tokens_to_db(pages_to_process, default_token)
+    else:
+        db_pages, db_default_tok = load_tokens_from_db()
+        if db_pages:
+            pages_to_process = db_pages
+        elif db_default_tok:
+            from etl.utils import PAGE_NAME_TO_API_ID
+            for api_pid in sorted(set(PAGE_NAME_TO_API_ID.values())):
+                pages_to_process.append({
+                    "page_id": api_pid,
+                    "page_name": resolve_canonical_page_name(api_pid),
+                    "token": db_default_tok
+                })
+
     return pages_to_process
+
+
+def get_token_for_page(page_id_or_name: Optional[str] = None, conversation_id: Optional[str] = None) -> Optional[str]:
+    """Tra cứu đúng token cho một Page cụ thể từ biến môi trường hoặc bảng app_configs trong DB."""
+    from etl.utils import resolve_api_page_id
+    target_api_id = resolve_api_page_id(page_id_or_name, conversation_id) if (page_id_or_name or conversation_id) else ""
+    target_num = re.sub(r"^(pzl_|tt_|fb_)", "", target_api_id) if target_api_id else ""
+    canonical_name = resolve_canonical_page_name(page_id_or_name or target_api_id, fallback="")
+
+    pages_cfg = load_pancake_pages_config(sync_db=False)
+    for p in pages_cfg:
+        pid = str(p.get("page_id") or "").strip()
+        pid_num = re.sub(r"^(pzl_|tt_|fb_)", "", pid)
+        pname = str(p.get("page_name") or p.get("name") or "").strip()
+        tok = p.get("token")
+        if not tok:
+            continue
+        if target_api_id and (pid == target_api_id or (target_num and pid_num == target_num)):
+            return tok
+        if canonical_name and (pname == canonical_name or resolve_canonical_page_name(pid, fallback="") == canonical_name):
+            return tok
+
+    # Fallback: lấy token mặc định từ biến môi trường hoặc DB
+    env_tok = os.getenv("PANCAKE_API_TOKEN", "").strip()
+    if env_tok:
+        return env_tok
+    _, db_def_tok = load_tokens_from_db()
+    if db_def_tok:
+        return db_def_tok
+    for p in pages_cfg:
+        if p.get("token"):
+            return p.get("token")
+    return None
 
 
 def run_etl_pipeline():

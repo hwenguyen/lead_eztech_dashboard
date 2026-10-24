@@ -8,7 +8,25 @@ from typing import List, Dict, Any, Optional, Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
-from etl.utils import is_page_id, resolve_canonical_page_name, KNOWN_PAGE_NAMES, parse_pancake_date, VN_TZ, clean_html, normalize_phone, extract_phone_number, build_post_url
+import threading
+from etl.utils import (
+    is_page_id,
+    resolve_canonical_page_name,
+    KNOWN_PAGE_NAMES,
+    parse_pancake_date,
+    VN_TZ,
+    clean_html,
+    normalize_phone,
+    extract_phone_number,
+    build_post_url,
+    resolve_api_page_id,
+    get_candidate_api_page_ids,
+    is_zalo_channel,
+)
+
+_TOKEN_CACHE_LOCK = threading.Lock()
+_PAGE_TOKEN_CACHE: Dict[str, tuple] = {}  # key -> (timestamp, ptoken, resolved_page_id, resolved_page_name)
+_PAGE_TOKEN_TTL = 1800.0
 
 
 logger = logging.getLogger(__name__)
@@ -37,90 +55,100 @@ class PancakeClient:
         self.base_url = "https://pages.fm/api/v1"
         self.session = create_http_session()
 
-    def _get_page_access_token(self, page_id_or_name: str) -> tuple:
+    def _get_page_access_token(self, page_id_or_name: str, conversation_id: Optional[str] = None) -> tuple:
         """
         Lấy page_access_token và page_id chính xác.
         Hỗ trợ cả User Access Token (tự sinh page_access_token) và Page Access Token truyền trực tiếp.
+        Có bộ nhớ đệm (cache 30 phút) để không gọi lặp lại /pages và /generate_page_access_token cho mỗi tin nhắn.
         """
-        if not self.api_token:
-            logger.error(f"Không có PANCAKE_API_TOKEN để kết nối Pancake API cho Page '{page_id_or_name}'.")
-            return None, None, None
+        # 1. Phân giải chuẩn xác page_id thực tế của Pancake API từ tên chữ hoặc conversation_id
+        resolved_page_id = resolve_api_page_id(page_id_or_name, conversation_id) or str(page_id_or_name or "").strip()
+        resolved_page_name = resolve_canonical_page_name(page_id_or_name or resolved_page_id, fallback=None)
+        if resolved_page_name == resolved_page_id and is_page_id(resolved_page_id):
+            resolved_page_name = None
+
+        # Nếu self.api_token chưa được truyền lúc khởi tạo, tự động tra cứu từ cấu hình hệ thống / DB theo từng Page
+        active_token = self.api_token
+        if not active_token:
+            try:
+                from etl.pipeline import get_token_for_page
+                active_token = get_token_for_page(resolved_page_id, conversation_id)
+            except Exception as e:
+                logger.debug(f"Không thể tra cứu get_token_for_page: {e}")
+
+        if not active_token:
+            logger.error(f"Không có PANCAKE_API_TOKEN để kết nối Pancake API cho Page '{page_id_or_name}' (resolved: '{resolved_page_id}').")
+            return None, resolved_page_id, resolved_page_name
+
+        cache_key = f"{active_token[:16]}:{resolved_page_id}"
+        now_ts = time.time()
+        with _TOKEN_CACHE_LOCK:
+            if cache_key in _PAGE_TOKEN_CACHE:
+                ts, cached_ptoken, cached_pid, cached_pname = _PAGE_TOKEN_CACHE[cache_key]
+                if now_ts - ts < _PAGE_TOKEN_TTL and cached_ptoken:
+                    return cached_ptoken, cached_pid, cached_pname
 
         headers = {
-            "Authorization": f"Bearer {self.api_token}",
+            "Authorization": f"Bearer {active_token}",
             "User-Agent": "Pancake-Python-Client/1.0",
             "Accept": "application/json"
         }
 
-        # 1. Thử phân giải page_id và tên page
-        resolved_page_id = str(page_id_or_name).strip()
-        resolved_page_name = resolve_canonical_page_name(page_id_or_name, fallback=None)
-        if resolved_page_name == resolved_page_id and is_page_id(resolved_page_id):
-            resolved_page_name = None
-
+        # 2. Thử tra cứu qua /pages nếu active_token là User Access Token
         try:
             res = self.session.get(
                 f"{self.base_url}/pages",
-                params={"access_token": self.api_token},
+                params={"access_token": active_token},
                 headers=headers,
-                timeout=25
+                timeout=15
             )
             if res.status_code == 200:
                 data = res.json()
                 pages = data.get("data", [])
                 if not pages and "categorized" in data:
                     pages = data["categorized"].get("activated", [])
-                target = str(page_id_or_name).strip()
+                target = resolved_page_id
                 target_num = re.sub(r"^(pzl_|tt_|fb_)", "", target)
                 for p in pages:
                     p_id = str(p.get("id"))
                     p_name = p.get("name")
-                    if p_id in (target, target_num) or (p_name and p_name in (target, resolved_page_name)):
+                    if p_id in (target, target_num) or (p_name and p_name in (str(page_id_or_name).strip(), resolved_page_name)):
                         resolved_page_id = p_id
                         resolved_page_name = p_name or resolved_page_name
+                        # Nếu trong danh sách /pages trả về sẵn page_access_token hoặc settings.page_access_token
+                        direct_ptoken = p.get("page_access_token") or (p.get("settings") or {}).get("page_access_token")
+                        if direct_ptoken:
+                            with _TOKEN_CACHE_LOCK:
+                                _PAGE_TOKEN_CACHE[cache_key] = (now_ts, direct_ptoken, resolved_page_id, resolved_page_name)
+                            return direct_ptoken, resolved_page_id, resolved_page_name
                         break
         except Exception as e:
             logger.debug(f"Không thể tra cứu danh sách page qua /pages: {e}")
 
-        # 2. Thử tạo page_access_token qua User Access Token
-        try:
-            res_token = self.session.post(
-                f"{self.base_url}/pages/{resolved_page_id}/generate_page_access_token",
-                params={"access_token": self.api_token},
-                timeout=25
-            )
-            token_data = res_token.json()
-            if token_data.get("success") and token_data.get("page_access_token"):
-                return token_data["page_access_token"], resolved_page_id, resolved_page_name
-            else:
-                logger.info(f"API generate_page_access_token phản hồi: {token_data.get('message', 'Không thành công')}. Thử dùng token cấu hình làm Page Access Token trực tiếp...")
-        except Exception as e:
-            logger.debug(f"Lỗi khi gọi generate_page_access_token: {e}")
+        # 3. Thử tạo page_access_token qua User Access Token với các biến thể ID (có prefix và không prefix)
+        candidate_ids = get_candidate_api_page_ids(resolved_page_id, conversation_id) or [resolved_page_id]
+        for cand_id in candidate_ids:
+            try:
+                res_token = self.session.post(
+                    f"{self.base_url}/pages/{cand_id}/generate_page_access_token",
+                    params={"access_token": active_token},
+                    timeout=15
+                )
+                if res_token.status_code == 200:
+                    token_data = res_token.json()
+                    if token_data.get("success") and token_data.get("page_access_token"):
+                        ptoken = token_data["page_access_token"]
+                        with _TOKEN_CACHE_LOCK:
+                            _PAGE_TOKEN_CACHE[cache_key] = (now_ts, ptoken, cand_id, resolved_page_name)
+                        return ptoken, cand_id, resolved_page_name
+            except Exception as e:
+                logger.debug(f"Lỗi khi gọi generate_page_access_token cho {cand_id}: {e}")
 
-        # Fallback thử lấy thông tin page đơn lẻ nếu là Page Access Token
-        if not resolved_page_name and is_page_id(resolved_page_id):
-            clean_num = re.sub(r"^(pzl_|tt_|fb_)", "", str(resolved_page_id))
-            for candidate_id in (resolved_page_id, clean_num):
-                try:
-                    res_single = self.session.get(
-                        f"{self.base_url}/pages/{candidate_id}",
-                        params={"access_token": self.api_token},
-                        headers=headers,
-                        timeout=20
-                    )
-                    if res_single.status_code == 200:
-                        p_info = res_single.json()
-                        p_data = p_info.get("data") or p_info.get("page") or p_info
-                        if isinstance(p_data, dict) and p_data.get("name"):
-                            resolved_page_name = p_data.get("name")
-                            resolved_page_id = candidate_id
-                            break
-                except Exception as e:
-                    logger.debug(f"Không thể tra cứu tên page từ /pages/{candidate_id}: {e}")
-
-        # 3. Fallback: Bản thân token cấu hình có thể chính là Page Access Token
+        # 4. Fallback: Bản thân active_token chính là Page Access Token của Page đó
         resolved_page_name = resolved_page_name or resolve_canonical_page_name(resolved_page_id, fallback=None)
-        return self.api_token, resolved_page_id, resolved_page_name
+        with _TOKEN_CACHE_LOCK:
+            _PAGE_TOKEN_CACHE[cache_key] = (now_ts, active_token, resolved_page_id, resolved_page_name)
+        return active_token, resolved_page_id, resolved_page_name
 
     def get_conversations(
         self,
@@ -924,12 +952,20 @@ class PancakeClient:
             message: Nội dung tin nhắn gửi cho khách
             action: Hành động gửi ('reply_inbox', 'reply_comment', 'private_replies'). Mặc định là 'reply_inbox'.
         """
-        ptoken, resolved_page_id, _ = self._get_page_access_token(page_id)
+        ptoken, resolved_page_id, _ = self._get_page_access_token(page_id, conversation_id=conversation_id)
         if not ptoken:
-            return {"success": False, "message": f"Không lấy được token cho Page {page_id}"}
+            return {
+                "success": False,
+                "message": f"Thiếu Pancake Token cho kênh '{page_id}'. Vui lòng bấm 'Cấu hình Token Pancake' trên giao diện để nhập Token."
+            }
 
-        # Phát hiện TikTok page
-        is_tiktok = str(page_id).startswith("tt_") or str(resolved_page_id).startswith("tt_")
+        # Đảm bảo resolved_page_id luôn là ID hợp lệ của Pancake API (không phải tên tiếng Việt)
+        resolved_page_id = resolve_api_page_id(resolved_page_id or page_id, conversation_id) or resolved_page_id
+        candidate_page_ids = get_candidate_api_page_ids(resolved_page_id, conversation_id) or [resolved_page_id]
+
+        # Phát hiện TikTok / Zalo page
+        is_tiktok = str(page_id).startswith("tt_") or str(resolved_page_id).startswith("tt_") or str(conversation_id).startswith("tt_")
+        is_zalo = is_zalo_channel(page_id, conversation_id)
 
         url = f"https://pages.fm/api/public_api/v1/pages/{resolved_page_id}/conversations/{conversation_id}/messages"
         params = {"page_access_token": ptoken}
@@ -1028,80 +1064,105 @@ class PancakeClient:
             if k not in payload and v is not None:
                 payload[k] = v
 
+        # Danh sách payload dự phòng: ưu tiên chuẩn OpenAPI {"action": "reply_inbox", "message": ...},
+        # nếu Zalo/TikTok từ chối trường action thì fallback sang {"message": ...}
+        payload_variants = [payload]
+        if (is_zalo or is_tiktok) and action == "reply_inbox":
+            minimal_payload = {"message": message}
+            if minimal_payload not in payload_variants:
+                payload_variants.append(minimal_payload)
+
         max_retries = 3
         last_error = None
-        for attempt in range(1, max_retries + 1):
-            try:
-                resp = self.session.post(url, params=params, json=payload, timeout=30)
-                if resp.status_code in (200, 201):
+
+        for pid_idx, cand_pid in enumerate(candidate_page_ids):
+            target_url = f"https://pages.fm/api/public_api/v1/pages/{cand_pid}/conversations/{conversation_id}/messages"
+
+            for p_idx, active_payload in enumerate(payload_variants):
+                for attempt in range(1, max_retries + 1):
                     try:
-                        data = resp.json()
-                    except Exception:
-                        data = {"text": resp.text}
+                        resp = self.session.post(target_url, params=params, json=active_payload, timeout=30)
+                        if resp.status_code in (200, 201):
+                            try:
+                                data = resp.json()
+                            except Exception:
+                                data = {"text": resp.text}
 
-                    # Pancake API có thể trả 200 nhưng success=false hoặc trả message_code
-                    if "success" not in data:
-                        data["success"] = True if data.get("id") else False
-                    elif not data.get("success"):
-                        details = []
-                        if data.get("message"):
-                            details.append(str(data.get("message")))
-                        if data.get("message_code"):
-                            details.append(f"code: {data.get('message_code')}")
-                        if data.get("error_code"):
-                            details.append(f"err: {data.get('error_code')}")
-                        if data.get("description"):
-                            details.append(str(data.get("description")))
-                        err_str = " | ".join(details) if details else "Sending message failed"
+                            if "success" not in data:
+                                data["success"] = True if data.get("id") else False
 
-                        # Chỉ thử lại với lỗi server nội bộ tạm thời thực sự
-                        # KHÔNG thử lại các lỗi từ chối nền tảng (failed to send comment, live ended, v.v.)
-                        if "server internal error" in err_str.lower():
-                            if attempt < max_retries:
+                            if data.get("success"):
+                                return data
+
+                            # Xử lý khi HTTP 200 nhưng success=False
+                            details = []
+                            if data.get("message"):
+                                details.append(str(data.get("message")))
+                            if data.get("message_code"):
+                                details.append(f"code: {data.get('message_code')}")
+                            if data.get("error_code"):
+                                details.append(f"err: {data.get('error_code')}")
+                            if data.get("description"):
+                                details.append(str(data.get("description")))
+                            err_str = " | ".join(details) if details else "Sending message failed"
+                            last_error = err_str
+
+                            # Nếu lỗi do sai định dạng Page ID (vd cần pzl_ hoặc bỏ pzl_), thử candidate_page_id tiếp theo
+                            if pid_idx + 1 < len(candidate_page_ids) and any(
+                                k in err_str.lower() for k in ("page", "not found", "invalid", "102", "190", "permission")
+                            ):
+                                logger.info(f"[PANCAKE API] Thử lại với biến thể Page ID '{candidate_page_ids[pid_idx + 1]}' (lỗi cũ: {err_str})")
+                                break
+
+                            # Nếu còn biến thể payload tối giản cho Zalo/TikTok, thử tiếp
+                            if p_idx + 1 < len(payload_variants):
+                                logger.info(f"[PANCAKE API] Thử lại với payload tối giản cho {cand_pid} (lỗi cũ: {err_str})")
+                                break
+
+                            if "server internal error" in err_str.lower() and attempt < max_retries:
                                 wait_time = 2.0 * attempt
-                                logger.warning(
-                                    f"[PANCAKE API] Server trả lỗi tạm thời ({err_str}). "
-                                    f"Đang thử lại lần {attempt}/{max_retries} sau {wait_time:.1f}s..."
-                                )
                                 time.sleep(wait_time)
                                 continue
 
-                        data["message"] = err_str
-                        logger.warning(f"[PANCAKE API] Gửi tin nhắn thất bại ({action}) [Payload: message_id={payload.get('message_id')}]: {data}")
-                    return data
-                elif resp.status_code in (500, 502, 503, 504):
-                    last_error = f"HTTP {resp.status_code}: {resp.text}"
-                    if attempt < max_retries:
-                        wait_time = 2.0 * attempt
-                        logger.warning(
-                            f"[PANCAKE API] Server trả HTTP {resp.status_code} ({action}): {resp.text[:100]}. "
-                            f"Đang thử lại lần {attempt}/{max_retries} sau {wait_time:.1f}s..."
-                        )
-                        time.sleep(wait_time)
-                        continue
-                    logger.warning(f"[PANCAKE API] HTTP {resp.status_code} ({action}): {resp.text}")
-                    return {"success": False, "status_code": resp.status_code, "message": resp.text}
-                elif resp.status_code == 429:
-                    last_error = "Rate limit 429"
-                    if attempt < max_retries:
-                        logger.warning(f"[PANCAKE API] HTTP 429 Rate Limit ({action}). Đang đợi 5s thử lại lần {attempt}/{max_retries}...")
-                        time.sleep(5.0)
-                        continue
-                    return {"success": False, "status_code": 429, "message": "Rate limit exceeded"}
-                else:
-                    logger.warning(f"[PANCAKE API] HTTP {resp.status_code} ({action}): {resp.text}")
-                    return {"success": False, "status_code": resp.status_code, "message": resp.text}
-            except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
-                last_error = str(e)
-                if attempt < max_retries:
-                    wait_time = 2.5 * attempt
-                    logger.warning(f"[PANCAKE API] Kết nối timeout/lỗi ({action}) [Lần {attempt}/{max_retries}]: {e}. Đợi {wait_time:.1f}s...")
-                    time.sleep(wait_time)
-                    continue
-                return {"success": False, "message": str(e)}
-            except Exception as e:
-                logger.error(f"[PANCAKE API] Lỗi không xác định khi gửi ({action}): {e}")
-                return {"success": False, "message": str(e)}
+                            data["message"] = f"[{cand_pid}] {err_str}"
+                            logger.warning(f"[PANCAKE API] Gửi tin nhắn thất bại ({action}) [Page={cand_pid}, Conv={conversation_id}]: {data}")
+                            return data
+
+                        elif resp.status_code in (400, 404, 422):
+                            last_error = f"HTTP {resp.status_code}: {resp.text[:200]}"
+                            # Thử biến thể Page ID hoặc payload tiếp theo nếu có
+                            if p_idx + 1 < len(payload_variants) or pid_idx + 1 < len(candidate_page_ids):
+                                break
+                            return {"success": False, "status_code": resp.status_code, "message": f"[{cand_pid}] {last_error}"}
+
+                        elif resp.status_code in (500, 502, 503, 504):
+                            last_error = f"HTTP {resp.status_code}: {resp.text[:200]}"
+                            if p_idx + 1 < len(payload_variants):
+                                break
+                            if attempt < max_retries:
+                                time.sleep(2.0 * attempt)
+                                continue
+                            return {"success": False, "status_code": resp.status_code, "message": last_error}
+
+                        elif resp.status_code == 429:
+                            last_error = "HTTP 429: Quá giới hạn tốc độ gửi (Rate limit exceeded)"
+                            if attempt < max_retries:
+                                time.sleep(6.0 * attempt)
+                                continue
+                            return {"success": False, "status_code": 429, "message": last_error}
+
+                        else:
+                            last_error = f"HTTP {resp.status_code}: {resp.text[:200]}"
+                            return {"success": False, "status_code": resp.status_code, "message": last_error}
+
+                    except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
+                        last_error = f"Lỗi kết nối mạng: {e}"
+                        if attempt < max_retries:
+                            time.sleep(2.5 * attempt)
+                            continue
+                    except Exception as e:
+                        logger.error(f"[PANCAKE API] Lỗi ngoại lệ khi gửi ({action}): {e}")
+                        return {"success": False, "message": str(e)}
 
         return {"success": False, "message": last_error or "Thất bại sau các lần thử lại"}
 

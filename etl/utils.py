@@ -311,3 +311,137 @@ def is_source_page(page_id_or_name: Any) -> bool:
     return not (s.startswith("pzl_") or s in zalo_page_keys())
 
 
+# Bản đồ ánh xạ ngược từ Tên hiển thị / ID sang đúng Page ID chuẩn gọi Pancake API
+PAGE_NAME_TO_API_ID: Dict[str, str] = {
+    # 1. Eztech Phân Tích Dữ Liệu (Zalo cá nhân)
+    "Eztech Phân Tích Dữ Liệu": "pzl_629476615535063343",
+    "629476615535063343": "pzl_629476615535063343",
+    "pzl_629476615535063343": "pzl_629476615535063343",
+    "pzl_84377024368": "pzl_629476615535063343",
+
+    # 2. Anh Kế toán làm Data (TikTok)
+    "Anh Kế toán làm Data (TikTok)": "tt_7196601676597871618",
+    "Anh Kế toán làm Data": "tt_7196601676597871618",
+    "7196601676597871618": "tt_7196601676597871618",
+    "tt_7196601676597871618": "tt_7196601676597871618",
+    "tt_tuananhdata": "tt_7196601676597871618",
+
+    # 3. Anh Kế toán làm Data (Facebook)
+    "Anh Kế toán làm Data (Facebook)": "514400205095512",
+    "514400205095512": "514400205095512",
+    "fb_514400205095512": "514400205095512",
+
+    # 4. Hành trang cho kế toán (TikTok)
+    "Hành trang cho kế toán": "tt_7456003523327919120",
+    "Anh Gà Kế Toán": "tt_7456003523327919120",
+    "7456003523327919120": "tt_7456003523327919120",
+    "tt_7456003523327919120": "tt_7456003523327919120",
+    "tt_anhgadata": "tt_7456003523327919120",
+
+    # 5. Hiền Minh Eztech (Zalo cá nhân)
+    "Hiền Minh Eztech": "pzl_131986891507252646",
+    "131986891507252646": "pzl_131986891507252646",
+    "pzl_131986891507252646": "pzl_131986891507252646",
+    "pzl_84898276368": "pzl_131986891507252646",
+
+    # 6. Tuấn Anh Data (Zalo cá nhân)
+    "Tuấn Anh Data": "pzl_788602135347404973",
+    "788602135347404973": "pzl_788602135347404973",
+    "pzl_788602135347404973": "pzl_788602135347404973",
+    "pzl_84389528224": "pzl_788602135347404973",
+
+    # 7. Chị Kế Toán GenZ (TikTok)
+    "Chị Kế Toán GenZ": "tt_7661860189083943944",
+    "7661860189083943944": "tt_7661860189083943944",
+    "tt_7661860189083943944": "tt_7661860189083943944",
+    "tt_chiketoangenz": "tt_7661860189083943944",
+}
+
+
+def resolve_api_page_id(page_id_or_name: Any, conversation_id: Optional[str] = None) -> str:
+    """
+    Phân giải Tên Fanpage (vd 'Eztech Phân Tích Dữ Liệu') hoặc conversation_id
+    về đúng mã page_id thực tế để gọi Pancake Public API (/pages/{page_id}/...).
+    """
+    # 1. Bóc tách trực tiếp từ conversation_id nếu có (độ chính xác cao nhất vì gắn liền với hội thoại)
+    if conversation_id:
+        cid = str(conversation_id).strip()
+        if cid.startswith("pzl_"):
+            parts = cid.split("_")
+            # Định dạng chuẩn: pzl_u_629476615535063343_...
+            if len(parts) >= 3 and parts[2].isdigit():
+                return f"pzl_{parts[2]}"
+            if len(parts) >= 2 and parts[1].isdigit():
+                return f"pzl_{parts[1]}"
+        elif cid.startswith("tt_"):
+            parts = cid.split(":")
+            if len(parts) >= 3 and parts[-1].isdigit():
+                return f"tt_{parts[-1]}"
+        elif cid.startswith("fb_"):
+            parts = cid.split("_")
+            if len(parts) >= 2 and parts[1].isdigit():
+                return parts[1]
+        elif "_" in cid and not cid.startswith(("pzl_", "tt_")):
+            parts = cid.split("_")
+            if parts[0].isdigit() and len(parts[0]) >= 10:
+                # Kiểm tra xem ID số này có phải Zalo/TikTok trong KNOWN_PAGE_NAMES không
+                if f"pzl_{parts[0]}" in KNOWN_PAGE_NAMES:
+                    return f"pzl_{parts[0]}"
+                if f"tt_{parts[0]}" in KNOWN_PAGE_NAMES:
+                    return f"tt_{parts[0]}"
+                return parts[0]
+
+    # 2. Tra cứu từ page_id_or_name
+    if page_id_or_name:
+        s = str(page_id_or_name).strip()
+        if s in PAGE_NAME_TO_API_ID:
+            return PAGE_NAME_TO_API_ID[s]
+        canonical = resolve_canonical_page_name(s, fallback=None)
+        if canonical and canonical in PAGE_NAME_TO_API_ID:
+            return PAGE_NAME_TO_API_ID[canonical]
+        # Tìm ngược trong KNOWN_PAGE_NAMES (ưu tiên key có prefix pzl_ hoặc tt_ hoặc số)
+        for k, v in KNOWN_PAGE_NAMES.items():
+            if v == s or v == canonical:
+                if k.startswith(("pzl_", "tt_")):
+                    return k
+        for k, v in KNOWN_PAGE_NAMES.items():
+            if v == s or v == canonical:
+                if is_page_id(k):
+                    return k
+        return s
+
+    return ""
+
+
+def get_candidate_api_page_ids(page_id_or_name: Any, conversation_id: Optional[str] = None) -> List[str]:
+    """Trả về danh sách các biến thể page_id (có prefix và không prefix) để fallback khi gọi Pancake API."""
+    primary = resolve_api_page_id(page_id_or_name, conversation_id)
+    if not primary:
+        return []
+    candidates = [primary]
+    clean_num = re.sub(r"^(pzl_|tt_|fb_)", "", primary)
+    if clean_num and clean_num != primary and clean_num not in candidates:
+        candidates.append(clean_num)
+    if primary.isdigit():
+        if f"pzl_{primary}" in KNOWN_PAGE_NAMES and f"pzl_{primary}" not in candidates:
+            candidates.insert(0, f"pzl_{primary}")
+        elif f"tt_{primary}" in KNOWN_PAGE_NAMES and f"tt_{primary}" not in candidates:
+            candidates.insert(0, f"tt_{primary}")
+    return candidates
+
+
+def is_zalo_channel(page_id_or_name: Any, conversation_id: Optional[str] = None) -> bool:
+    """Kiểm tra xem hội thoại hoặc Page có phải là kênh Zalo cá nhân (pzl_) hay không."""
+    if conversation_id and str(conversation_id).strip().startswith("pzl_"):
+        return True
+    api_pid = resolve_api_page_id(page_id_or_name, conversation_id)
+    if api_pid.startswith("pzl_"):
+        return True
+    if page_id_or_name:
+        s = str(page_id_or_name).strip()
+        if s.startswith("pzl_") or s in zalo_page_keys():
+            return True
+        canonical = resolve_canonical_page_name(s, fallback="")
+        if canonical in ZALO_PAGE_NAMES:
+            return True
+    return False

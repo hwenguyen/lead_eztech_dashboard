@@ -283,10 +283,13 @@ export const syncDealsWithLeads = async (): Promise<{ status: string; total_deal
 
 export interface BroadcastOptions {
   pages: string[];
+  source_pages: string[];
   zalo_pages: string[];
   employees: string[];
   tags: string[];
-  gender_options: Array<{ id: string; label: string }>;
+  gender_options: Array<{ value: string; label: string }>;
+  has_token_configured?: boolean;
+  configured_pages_count?: number;
 }
 
 export interface BroadcastPreviewParams {
@@ -295,7 +298,9 @@ export interface BroadcastPreviewParams {
   employee?: string;
   gender?: string;
   tag?: string;
+  time_filter?: string;
   days_ago?: number;
+  phone_filter?: string;
   limit?: number;
   template: string;
   exclude_already_sent?: boolean;
@@ -311,16 +316,21 @@ export interface BroadcastRecipientItem {
   gender_title: string;
   phone_number?: string;
   page_id: string;
+  api_page_id?: string;
+  is_zalo?: boolean;
   status_tag?: string;
   assigned_users?: string;
   rendered_message: string;
   first_created_at?: string;
+  last_contacted_at?: string;
+  days_since_contact?: number;
   pancake_url?: string;
 }
 
 export interface BroadcastPreviewResponse {
   total_matching: number;
   limit: number;
+  zalo_count?: number;
   recipients: BroadcastRecipientItem[];
 }
 
@@ -332,12 +342,35 @@ export interface BroadcastStartParams {
   employee?: string;
   gender?: string;
   tag?: string;
+  time_filter?: string;
   days_ago?: number;
+  phone_filter?: string;
   limit: number;
   delay: number;
   dry_run: boolean;
   exclude_already_sent: boolean;
   target_conversation_ids?: string[];
+  zalo_protection?: boolean;
+  zalo_min_delay?: number;
+  zalo_max_delay?: number;
+  zalo_batch_size?: number;
+  zalo_batch_pause?: number;
+  enable_spintax?: boolean;
+  max_consecutive_errors?: number;
+  custom_token?: string;
+}
+
+export interface TokenChannelStatus {
+  page_name: string;
+  api_page_id: string;
+  is_zalo: boolean;
+  has_token: boolean;
+  masked_token?: string;
+}
+
+export interface TokenStatusResponse {
+  has_token: boolean;
+  channels: TokenChannelStatus[];
 }
 
 export interface BroadcastStatusResponse {
@@ -420,6 +453,26 @@ export const fetchBroadcastHistory = async (campaignName?: string, limit: number
   const params: any = { limit };
   if (campaignName && campaignName !== 'all') params.campaign_name = campaignName;
   const res = await apiClient.get<{ campaigns: BroadcastCampaignSummary[]; logs: BroadcastHistoryItem[] }>('/broadcast/history', { params });
+  return res.data;
+};
+
+export const fetchTokenStatus = async (): Promise<TokenStatusResponse> => {
+  const res = await apiClient.get<TokenStatusResponse>('/broadcast/token-status');
+  return res.data;
+};
+
+export const saveTokenConfig = async (defaultToken?: string, pagesJson?: string): Promise<{ status: string; message: string; token_status: TokenStatusResponse }> => {
+  const res = await apiClient.post('/broadcast/token-config', {
+    default_token: defaultToken,
+    pages_json: pagesJson
+  });
+  return res.data;
+};
+
+export const clearFailedBroadcastLogs = async (campaignName?: string): Promise<{ status: string; deleted_count: number; message: string }> => {
+  const params: any = {};
+  if (campaignName && campaignName !== 'all') params.campaign_name = campaignName;
+  const res = await apiClient.post('/broadcast/clear-failed', null, { params });
   return res.data;
 };
 

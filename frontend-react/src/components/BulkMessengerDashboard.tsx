@@ -4,7 +4,6 @@ import {
   Bot,
   Filter,
   History,
-  Settings,
   Users,
   CheckCircle2,
   XCircle,
@@ -15,12 +14,14 @@ import {
   RefreshCw,
   ExternalLink,
   Clock,
-  Sparkles,
   Info,
   ShieldAlert,
+  ShieldCheck,
   Trash2,
   RotateCcw,
-  Check
+  Check,
+  Key,
+  Phone
 } from 'lucide-react';
 import {
   fetchBroadcastOptions,
@@ -29,37 +30,59 @@ import {
   fetchBroadcastStatus,
   stopBroadcast,
   fetchBroadcastHistory,
+  fetchTokenStatus,
+  saveTokenConfig,
+  clearFailedBroadcastLogs,
   type BroadcastOptions,
   type BroadcastRecipientItem,
   type BroadcastCampaignSummary,
   type BroadcastHistoryItem,
-  type BroadcastStatusResponse
+  type BroadcastStatusResponse,
+  type TokenStatusResponse
 } from '../services/api';
 
 export const BulkMessengerDashboard: React.FC = () => {
   // Navigation sub-tabs
   const [subTab, setSubTab] = useState<'compose' | 'history'>('compose');
 
-  // Options from Backend
+  // Options & Token Status from Backend
   const [options, setOptions] = useState<BroadcastOptions | null>(null);
   const [loadingOptions, setLoadingOptions] = useState(false);
+  const [tokenStatus, setTokenStatus] = useState<TokenStatusResponse | null>(null);
+  const [showTokenModal, setShowTokenModal] = useState(false);
+  const [tokenInput, setTokenInput] = useState('');
+  const [pagesJsonInput, setPagesJsonInput] = useState('');
+  const [savingToken, setSavingToken] = useState(false);
 
   // Settings & Filters Form State
-  const [campaignName, setCampaignName] = useState(`campaign_${new Date().toISOString().slice(0, 10).replace(/-/g, '')}`);
+  const [campaignName, setCampaignName] = useState(
+    `campaign_${new Date().toISOString().slice(0, 10).replace(/-/g, '')}`
+  );
   const [pageId, setPageId] = useState<string>('all');
   const [nameFilter, setNameFilter] = useState<string>('');
   const [employee, setEmployee] = useState<string>('all');
   const [gender, setGender] = useState<string>('all');
   const [tag, setTag] = useState<string>('all');
-  const [daysAgo, setDaysAgo] = useState<number | undefined>(1); // Default 1 day for FB 24h compliance
-  const [limit, setLimit] = useState<number>(20);
-  const [delay, setDelay] = useState<number>(1.2);
+  const [timeFilter, setTimeFilter] = useState<string>('all'); // Default 'all' so filters don't hide existing leads
+  const [phoneFilter, setPhoneFilter] = useState<string>('all');
+  const [limit, setLimit] = useState<number>(50);
+  const [delay, setDelay] = useState<number>(1.5);
   const [dryRun, setDryRun] = useState<boolean>(true);
   const [excludeAlreadySent, setExcludeAlreadySent] = useState<boolean>(true);
 
+  // Zalo Personal Anti-Ban & Rate Limit Protection State
+  const [zaloProtection, setZaloProtection] = useState<boolean>(true);
+  const [zaloPreset, setZaloPreset] = useState<'fast' | 'recommended' | 'ultra'>('recommended');
+  const [zaloMinDelay, setZaloMinDelay] = useState<number>(8);
+  const [zaloMaxDelay, setZaloMaxDelay] = useState<number>(15);
+  const [zaloBatchSize, setZaloBatchSize] = useState<number>(10);
+  const [zaloBatchPause, setZaloBatchPause] = useState<number>(45);
+  const [enableSpintax, setEnableSpintax] = useState<boolean>(true);
+  const [maxConsecutiveErrors, setMaxConsecutiveErrors] = useState<number>(5);
+
   // Message Content & Template
   const [template, setTemplate] = useState<string>(
-    'Chào {gender_title} {name}, bên em gửi {gender_title_lower} thông tin ưu đãi mới nhất từ hệ thống ạ!'
+    '{Chào|Xin chào|Dạ chào} {gender_title} {name}, bên em gửi {gender_title_lower} thông tin ưu đãi mới nhất từ hệ thống ạ!'
   );
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -72,10 +95,43 @@ export const BulkMessengerDashboard: React.FC = () => {
   const [loadingPreview, setLoadingPreview] = useState<boolean>(false);
   const [hasPreviewed, setHasPreviewed] = useState<boolean>(false);
 
+  // Active Broadcast Execution State
+  const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
+  const [taskStatus, setTaskStatus] = useState<BroadcastStatusResponse | null>(null);
+  const [isStarting, setIsStarting] = useState<boolean>(false);
+  const [showConfirmModal, setShowConfirmModal] = useState<boolean>(false);
+
+  // History State
+  const [campaignSummaries, setCampaignSummaries] = useState<BroadcastCampaignSummary[]>([]);
+  const [historyLogs, setHistoryLogs] = useState<BroadcastHistoryItem[]>([]);
+  const [selectedHistoryCampaign, setSelectedHistoryCampaign] = useState<string>('all');
+  const [loadingHistory, setLoadingHistory] = useState<boolean>(false);
+
+  // Áp dụng preset tốc độ Zalo cá nhân
+  const handleSelectZaloPreset = (preset: 'fast' | 'recommended' | 'ultra') => {
+    setZaloPreset(preset);
+    if (preset === 'fast') {
+      setZaloMinDelay(5);
+      setZaloMaxDelay(10);
+      setZaloBatchSize(12);
+      setZaloBatchPause(30);
+    } else if (preset === 'recommended') {
+      setZaloMinDelay(8);
+      setZaloMaxDelay(15);
+      setZaloBatchSize(10);
+      setZaloBatchPause(45);
+    } else {
+      setZaloMinDelay(15);
+      setZaloMaxDelay(28);
+      setZaloBatchSize(8);
+      setZaloBatchPause(65);
+    }
+  };
+
   // Xóa 1 khách khỏi danh sách xem trước
   const handleRemoveSingleRecipient = (convId: string) => {
-    setPreviewRecipients(prev => prev.filter(r => r.conversation_id !== convId));
-    setSelectedConvIds(prev => {
+    setPreviewRecipients((prev) => prev.filter((r) => r.conversation_id !== convId));
+    setSelectedConvIds((prev) => {
       const next = new Set(prev);
       next.delete(convId);
       return next;
@@ -85,7 +141,7 @@ export const BulkMessengerDashboard: React.FC = () => {
 
   // Chọn / bỏ chọn 1 khách bằng checkbox
   const handleToggleSelectRecipient = (convId: string) => {
-    setSelectedConvIds(prev => {
+    setSelectedConvIds((prev) => {
       const next = new Set(prev);
       if (next.has(convId)) {
         next.delete(convId);
@@ -101,14 +157,14 @@ export const BulkMessengerDashboard: React.FC = () => {
     if (selectedConvIds.size === previewRecipients.length && previewRecipients.length > 0) {
       setSelectedConvIds(new Set());
     } else {
-      setSelectedConvIds(new Set(previewRecipients.map(r => r.conversation_id)));
+      setSelectedConvIds(new Set(previewRecipients.map((r) => r.conversation_id)));
     }
   };
 
   // Xóa hàng loạt các khách đã chọn
   const handleRemoveSelectedRecipients = () => {
     if (selectedConvIds.size === 0) return;
-    setPreviewRecipients(prev => prev.filter(r => !selectedConvIds.has(r.conversation_id)));
+    setPreviewRecipients((prev) => prev.filter((r) => !selectedConvIds.has(r.conversation_id)));
     setSelectedConvIds(new Set());
     setIsCustomListApplied(false);
   };
@@ -129,24 +185,16 @@ export const BulkMessengerDashboard: React.FC = () => {
     setIsCustomListApplied(false);
   };
 
-  // Active Broadcast Execution State
-  const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
-  const [taskStatus, setTaskStatus] = useState<BroadcastStatusResponse | null>(null);
-  const [isStarting, setIsStarting] = useState<boolean>(false);
-  const [showConfirmModal, setShowConfirmModal] = useState<boolean>(false);
-
-  // History State
-  const [campaignSummaries, setCampaignSummaries] = useState<BroadcastCampaignSummary[]>([]);
-  const [historyLogs, setHistoryLogs] = useState<BroadcastHistoryItem[]>([]);
-  const [selectedHistoryCampaign, setSelectedHistoryCampaign] = useState<string>('all');
-  const [loadingHistory, setLoadingHistory] = useState<boolean>(false);
-
-  // 1. Tải danh sách Options (Kênh, Nhân viên, Tags, Giới tính)
+  // 1. Tải danh sách Options & Token Status
   const loadOptions = async () => {
     setLoadingOptions(true);
     try {
-      const data = await fetchBroadcastOptions();
-      setOptions(data);
+      const [optData, tokData] = await Promise.all([
+        fetchBroadcastOptions(),
+        fetchTokenStatus().catch(() => null)
+      ]);
+      setOptions(optData);
+      if (tokData) setTokenStatus(tokData);
     } catch (err) {
       console.error('Lỗi tải broadcast options:', err);
     } finally {
@@ -158,7 +206,7 @@ export const BulkMessengerDashboard: React.FC = () => {
   const loadHistory = async (camp?: string) => {
     setLoadingHistory(true);
     try {
-      const data = await fetchBroadcastHistory(camp, 100);
+      const data = await fetchBroadcastHistory(camp, 150);
       setCampaignSummaries(data.campaigns);
       setHistoryLogs(data.logs);
     } catch (err) {
@@ -183,15 +231,50 @@ export const BulkMessengerDashboard: React.FC = () => {
         setTaskStatus(res);
         if (!res.is_running) {
           clearInterval(interval);
-          loadHistory(); // Reload lịch sử khi hoàn thành
+          loadHistory();
         }
       } catch (err) {
         console.error('Lỗi kiểm tra tiến độ:', err);
       }
-    }, 1500);
+    }, 1200);
 
     return () => clearInterval(interval);
   }, [activeTaskId]);
+
+  // Lưu cấu hình Token Pancake
+  const handleSaveTokenConfig = async () => {
+    if (!tokenInput.trim() && !pagesJsonInput.trim()) {
+      alert('Vui lòng nhập Pancake Token hoặc cấu hình JSON.');
+      return;
+    }
+    setSavingToken(true);
+    try {
+      const res = await saveTokenConfig(tokenInput.trim(), pagesJsonInput.trim());
+      setTokenStatus(res.token_status);
+      setTokenInput('');
+      setPagesJsonInput('');
+      setShowTokenModal(false);
+      alert(res.message);
+    } catch (err: any) {
+      alert('Lỗi lưu Token: ' + (err.response?.data?.detail || err.message));
+    } finally {
+      setSavingToken(false);
+    }
+  };
+
+  // Xóa các bản ghi lỗi FAILED cũ
+  const handleClearFailedLogs = async () => {
+    if (!window.confirm('Bạn có muốn xóa toàn bộ các bản ghi lỗi (FAILED) để làm sạch lịch sử và gửi lại không?')) {
+      return;
+    }
+    try {
+      const res = await clearFailedBroadcastLogs(selectedHistoryCampaign);
+      alert(res.message);
+      loadHistory(selectedHistoryCampaign);
+    } catch (err: any) {
+      alert('Không thể xóa log lỗi: ' + (err.response?.data?.detail || err.message));
+    }
+  };
 
   // Chèn biến nhanh vào con trỏ chuột trong Textarea
   const insertVariable = (varName: string) => {
@@ -218,7 +301,8 @@ export const BulkMessengerDashboard: React.FC = () => {
         employee: employee,
         gender: gender,
         tag: tag,
-        days_ago: daysAgo,
+        time_filter: timeFilter,
+        phone_filter: phoneFilter,
         limit: limit,
         template: template,
         exclude_already_sent: excludeAlreadySent,
@@ -243,11 +327,13 @@ export const BulkMessengerDashboard: React.FC = () => {
     setShowConfirmModal(false);
     setIsStarting(true);
     try {
-      // Nếu có danh sách custom (đã áp dụng hoặc đã chỉnh sửa xóa bớt khách), ưu tiên truyền target_conversation_ids
-      const isCustomMode = isCustomListApplied || (hasPreviewed && previewRecipients.length > 0 && previewRecipients.length !== originalRecipients.length);
-      const targetConvIds = isCustomMode || (hasPreviewed && previewRecipients.length > 0)
-        ? previewRecipients.map(r => r.conversation_id)
-        : undefined;
+      const isCustomMode =
+        isCustomListApplied ||
+        (hasPreviewed && previewRecipients.length > 0 && previewRecipients.length !== originalRecipients.length);
+      const targetConvIds =
+        isCustomMode || (hasPreviewed && previewRecipients.length > 0)
+          ? previewRecipients.map((r) => r.conversation_id)
+          : undefined;
 
       const res = await startBroadcast({
         campaign_name: campaignName,
@@ -257,17 +343,29 @@ export const BulkMessengerDashboard: React.FC = () => {
         employee: employee,
         gender: gender,
         tag: tag,
-        days_ago: daysAgo,
+        time_filter: timeFilter,
+        phone_filter: phoneFilter,
         limit: targetConvIds ? targetConvIds.length : limit,
         delay: delay,
         dry_run: dryRun,
         exclude_already_sent: excludeAlreadySent,
-        target_conversation_ids: targetConvIds
+        target_conversation_ids: targetConvIds,
+        zalo_protection: zaloProtection,
+        zalo_min_delay: zaloMinDelay,
+        zalo_max_delay: zaloMaxDelay,
+        zalo_batch_size: zaloBatchSize,
+        zalo_batch_pause: zaloBatchPause,
+        enable_spintax: enableSpintax,
+        max_consecutive_errors: maxConsecutiveErrors
       });
       setActiveTaskId(res.task_id);
     } catch (err: any) {
       console.error('Lỗi khởi động broadcast:', err);
-      alert('Lỗi: ' + (err.response?.data?.detail || 'Không thể bắt đầu gửi tin'));
+      const errDetail = err.response?.data?.detail || 'Không thể bắt đầu gửi tin';
+      alert('Lỗi: ' + errDetail);
+      if (String(errDetail).toLowerCase().includes('token')) {
+        setShowTokenModal(true);
+      }
     } finally {
       setIsStarting(false);
     }
@@ -279,11 +377,17 @@ export const BulkMessengerDashboard: React.FC = () => {
     if (!window.confirm('Bạn có chắc chắn muốn dừng tác vụ gửi tin này không?')) return;
     try {
       await stopBroadcast(activeTaskId);
-      alert('Đã gửi yêu cầu dừng tác vụ.');
     } catch (err) {
       console.error('Lỗi dừng broadcast:', err);
     }
   };
+
+  // Kiểm tra xem lựa chọn hiện tại có bao gồm kênh Zalo cá nhân hay không
+  const hasZaloInSelection =
+    pageId === 'all' ||
+    pageId === 'all_zalo' ||
+    (options?.zalo_pages || []).includes(pageId) ||
+    previewRecipients.some((r) => r.is_zalo);
 
   // Tính mẫu hiển thị xem trước trực tiếp (Live Preview)
   const sampleRecipient = previewRecipients[0] || {
@@ -291,366 +395,658 @@ export const BulkMessengerDashboard: React.FC = () => {
     gender: 'male',
     gender_title: 'Anh',
     phone_number: '0987654321',
-    page_id: pageId !== 'all' ? pageId : 'EzTech Official'
+    page_id: pageId !== 'all' && pageId !== 'all_zalo' && pageId !== 'all_source' ? pageId : 'Eztech Phân Tích Dữ Liệu'
   };
 
   const sampleRenderedText = template
-    .replace('{name}', sampleRecipient.name || 'anh/chị')
-    .replace('{gender_title}', sampleRecipient.gender_title || 'Anh')
-    .replace('{gender_title_lower}', sampleRecipient.gender === 'male' ? 'anh' : sampleRecipient.gender === 'female' ? 'chị' : 'anh/chị')
-    .replace('{phone}', sampleRecipient.phone_number || '0987654321')
-    .replace('{page_id}', sampleRecipient.page_id || 'Page')
-    .replace('{customer_id}', 'cust_101')
-    .replace('{staff}', 'Chăm sóc khách hàng');
+    .replace(/\{([^{}]*\|[^{}]*)\}/g, (_, group) => group.split('|')[0])
+    .replace(/\{name\}/g, sampleRecipient.name || 'anh/chị')
+    .replace(/\{gender_title\}/g, sampleRecipient.gender_title || 'Anh')
+    .replace(
+      /\{gender_title_lower\}/g,
+      sampleRecipient.gender === 'male' ? 'anh' : sampleRecipient.gender === 'female' ? 'chị' : 'anh/chị'
+    )
+    .replace(/\{phone\}/g, sampleRecipient.phone_number || '0987654321')
+    .replace(/\{page_id\}/g, sampleRecipient.page_id || 'Page')
+    .replace(/\{customer_id\}/g, 'cust_101')
+    .replace(/\{staff\}/g, 'Chăm sóc khách hàng');
 
   return (
     <div className="space-y-6">
       {/* Top Banner Navigation */}
-      <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+      <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 shadow-sm flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
         <div className="flex items-center gap-3.5">
-          <div className="w-11 h-11 rounded-xl bg-gradient-to-tr from-indigo-600 to-blue-500 flex items-center justify-center text-white shadow-md shadow-indigo-100">
+          <div className="w-11 h-11 rounded-xl bg-gradient-to-tr from-indigo-600 to-blue-500 flex items-center justify-center text-white shadow-md shadow-indigo-100 flex-shrink-0">
             <Bot className="w-6 h-6" />
           </div>
           <div>
-            <div className="flex items-center gap-2">
-              <h2 className="text-lg font-bold text-navy">Bot Gửi Tin Nhắn Tự Động</h2>
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2 className="text-lg font-bold text-navy">Bot Gửi Tin Nhắn Hàng Loạt</h2>
               <span className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-full">
                 Pancake API v1
               </span>
+              {tokenStatus?.has_token ? (
+                <span className="px-2.5 py-0.5 text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full flex items-center gap-1">
+                  <CheckCircle2 className="w-3 h-3" /> Đã kết nối Token Pancake
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setShowTokenModal(true)}
+                  className="px-2.5 py-0.5 text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-300 rounded-full flex items-center gap-1 hover:bg-amber-100 transition-colors"
+                >
+                  <AlertTriangle className="w-3 h-3 text-amber-600" /> Chưa có Token gửi thật (Bấm để cài)
+                </button>
+              )}
             </div>
             <p className="text-xs text-[#4B5563] mt-0.5">
-              Gửi tin nhắn hàng loạt theo bộ lọc lead thông minh, chống spam và kiểm soát an toàn tốc độ gửi.
+              Lọc khách chuẩn xác theo Kênh / Tag / SĐT / Thời gian tương tác, tích hợp chống Rate Limit & bảo vệ Zalo cá nhân.
             </p>
           </div>
         </div>
 
-        {/* Sub-tab Switcher */}
-        <div className="flex items-center gap-1 bg-gray-100 p-1 rounded-xl w-full md:w-auto">
+        {/* Right Actions & Sub-tab Switcher */}
+        <div className="flex items-center gap-2.5 w-full lg:w-auto justify-end flex-wrap">
           <button
-            onClick={() => setSubTab('compose')}
-            className={`flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all ${
-              subTab === 'compose'
-                ? 'bg-white text-navy shadow-sm'
-                : 'text-[#4B5563] hover:text-navy hover:bg-white/50'
+            type="button"
+            onClick={() => setShowTokenModal(true)}
+            className={`px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 border transition-all ${
+              tokenStatus?.has_token
+                ? 'bg-gray-50 hover:bg-gray-100 text-gray-700 border-gray-200'
+                : 'bg-amber-500 hover:bg-amber-600 text-white border-amber-500 shadow-sm'
             }`}
           >
-            <Settings className="w-3.5 h-3.5 text-indigo-600" />
-            <span>Cấu hình & Gửi tin</span>
+            <Key className="w-3.5 h-3.5" />
+            <span>Cấu hình Token</span>
           </button>
-          <button
-            onClick={() => {
-              setSubTab('history');
-              loadHistory(selectedHistoryCampaign);
-            }}
-            className={`flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all ${
-              subTab === 'history'
-                ? 'bg-white text-navy shadow-sm'
-                : 'text-[#4B5563] hover:text-navy hover:bg-white/50'
-            }`}
-          >
-            <History className="w-3.5 h-3.5 text-blue-600" />
-            <span>Lịch sử từng lần chạy</span>
-            {campaignSummaries.length > 0 && (
-              <span className="px-1.5 py-0.2 bg-blue-100 text-blue-700 rounded-full text-[10px]">
-                {campaignSummaries.length}
-              </span>
-            )}
-          </button>
+
+          <div className="flex items-center gap-1 bg-gray-100 p-1 rounded-xl">
+            <button
+              onClick={() => setSubTab('compose')}
+              className={`flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                subTab === 'compose' ? 'bg-white text-navy shadow-sm' : 'text-gray-500 hover:text-navy'
+              }`}
+            >
+              <Filter className="w-3.5 h-3.5" />
+              <span>Thiết lập & Gửi tin</span>
+            </button>
+
+            <button
+              onClick={() => {
+                setSubTab('history');
+                loadHistory(selectedHistoryCampaign);
+              }}
+              className={`flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                subTab === 'history' ? 'bg-white text-navy shadow-sm' : 'text-gray-500 hover:text-navy'
+              }`}
+            >
+              <History className="w-3.5 h-3.5" />
+              <span>Lịch sử chạy Bot</span>
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Progress Notification Banner (nếu có task đang chạy) */}
-      {taskStatus && taskStatus.is_running && (
-        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-2xl p-4 shadow-sm animate-pulse">
-          <div className="flex items-center justify-between gap-4">
+      {/* ========================================================================= */}
+      {/* THANH TIẾN TRÌNH REAL-TIME NẾU CÓ TÁC VỤ ĐANG CHẠY */}
+      {/* ========================================================================= */}
+      {taskStatus && (
+        <div
+          className={`rounded-2xl border p-5 shadow-sm transition-all ${
+            taskStatus.is_running
+              ? 'bg-indigo-50/60 border-indigo-200'
+              : taskStatus.failed > 0 && taskStatus.success === 0
+              ? 'bg-rose-50/50 border-rose-200'
+              : 'bg-emerald-50/50 border-emerald-200'
+          }`}
+        >
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-3">
             <div className="flex items-center gap-3">
-              <div className="w-3 h-3 rounded-full bg-blue-600 animate-ping" />
+              {taskStatus.is_running ? (
+                <RefreshCw className="w-5 h-5 text-indigo-600 animate-spin flex-shrink-0" />
+              ) : taskStatus.failed > 0 && taskStatus.success === 0 ? (
+                <XCircle className="w-5 h-5 text-rose-600 flex-shrink-0" />
+              ) : (
+                <CheckCircle2 className="w-5 h-5 text-emerald-600 flex-shrink-0" />
+              )}
               <div>
-                <h4 className="text-sm font-bold text-navy flex items-center gap-2">
-                  Đang chạy chiến dịch: <span className="text-blue-600 font-mono">{taskStatus.campaign_name}</span>
-                  {taskStatus.dry_run && (
-                    <span className="px-2 py-0.5 bg-amber-100 text-amber-800 rounded text-xs font-medium">Mô phỏng</span>
-                  )}
-                </h4>
-                <p className="text-xs text-[#4B5563] mt-0.5">
-                  Đang xử lý: {taskStatus.processed}/{taskStatus.total} tin (Thành công: {taskStatus.success}, Thất bại: {taskStatus.failed})
-                  {taskStatus.current_recipient && ` — Đang gửi: ${taskStatus.current_recipient}`}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-sm font-bold text-navy">
+                    Chiến dịch: {taskStatus.campaign_name}
+                  </span>
+                  <span
+                    className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                      taskStatus.dry_run
+                        ? 'bg-blue-100 text-blue-700'
+                        : 'bg-red-100 text-red-700'
+                    }`}
+                  >
+                    {taskStatus.dry_run ? 'Mô phỏng (Dry-Run)' : 'Gửi Thật (Live)'}
+                  </span>
+                </div>
+                <p className="text-xs text-gray-600 mt-0.5">
+                  {taskStatus.is_running
+                    ? taskStatus.current_recipient || 'Đang xử lý...'
+                    : `Đã kết thúc lúc ${taskStatus.finished_at}`}
                 </p>
               </div>
             </div>
-            <button
-              onClick={handleStopBroadcast}
-              className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-sm transition-colors"
-            >
-              <Square className="w-3.5 h-3.5" />
-              Dừng khẩn cấp
-            </button>
+
+            <div className="flex items-center gap-4 text-xs">
+              <div className="text-center">
+                <span className="text-gray-500 block">Tiến độ</span>
+                <span className="font-bold text-navy">
+                  {taskStatus.processed} / {taskStatus.total}
+                </span>
+              </div>
+              <div className="text-center">
+                <span className="text-gray-500 block">Thành công</span>
+                <span className="font-bold text-emerald-600">{taskStatus.success}</span>
+              </div>
+              <div className="text-center">
+                <span className="text-gray-500 block">Thất bại</span>
+                <span className="font-bold text-red-600">{taskStatus.failed}</span>
+              </div>
+
+              {taskStatus.is_running && (
+                <button
+                  onClick={handleStopBroadcast}
+                  className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg font-semibold flex items-center gap-1.5 shadow-sm transition-colors"
+                >
+                  <Square className="w-3.5 h-3.5" />
+                  <span>Dừng khẩn cấp</span>
+                </button>
+              )}
+            </div>
           </div>
+
           {/* Progress Bar */}
-          <div className="w-full bg-blue-200 rounded-full h-2 mt-3 overflow-hidden">
+          <div className="w-full bg-gray-200 h-2.5 rounded-full overflow-hidden">
             <div
-              className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-              style={{ width: `${taskStatus.total > 0 ? (taskStatus.processed / taskStatus.total) * 100 : 0}%` }}
+              className={`h-full transition-all duration-300 ${
+                taskStatus.dry_run ? 'bg-blue-600' : 'bg-emerald-600'
+              }`}
+              style={{
+                width: `${
+                  taskStatus.total > 0
+                    ? Math.min(100, Math.round((taskStatus.processed / taskStatus.total) * 100))
+                    : 0
+                }%`
+              }}
             />
           </div>
+
+          {/* Danh sách log vừa chạy */}
+          {taskStatus.logs && taskStatus.logs.length > 0 && (
+            <div className="mt-3 max-h-44 overflow-y-auto bg-white/90 rounded-xl p-2.5 border border-gray-200 text-[11px] font-mono space-y-1">
+              {taskStatus.logs
+                .slice()
+                .reverse()
+                .map((lg, i) => (
+                  <div key={i} className="flex items-start justify-between py-1 border-b border-gray-100 last:border-0 gap-2">
+                    <span className="text-gray-700">
+                      [{lg.time}] #{lg.index} - <strong>{lg.customer_name}</strong> ({lg.phone_number}) -{' '}
+                      <span className="text-indigo-600">{lg.page_id}</span>
+                    </span>
+                    <span
+                      className={`font-bold flex-shrink-0 ${
+                        lg.status === 'SENT'
+                          ? 'text-emerald-600'
+                          : lg.status === 'DRY_RUN'
+                          ? 'text-blue-600'
+                          : 'text-red-600'
+                      }`}
+                    >
+                      {lg.status} {lg.error_message ? `(${lg.error_message})` : ''}
+                    </span>
+                  </div>
+                ))}
+            </div>
+          )}
         </div>
       )}
 
       {/* ========================================================================= */}
-      {/* SUB-TAB 1: CẤU HÌNH & GỬI TIN */}
+      {/* SUB-TAB 1: THIẾT LẬP SETTINGS, BỘ LỌC & SOẠN TIN NHẮN */}
       {/* ========================================================================= */}
       {subTab === 'compose' && (
         <div className="space-y-6">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            {/* CỘT TRÁI: BỘ LỌC CHI TIẾT (7 Cột) */}
-            <div className="lg:col-span-7 bg-white rounded-2xl border border-[#E5E7EB] p-5 shadow-sm space-y-5">
-              <div className="flex items-center justify-between pb-3 border-b border-gray-100">
-                <div className="flex items-center gap-2">
-                  <Filter className="w-4 h-4 text-indigo-600" />
-                  <h3 className="text-sm font-bold text-navy">Bộ lọc khách hàng mục tiêu & Cài đặt</h3>
+            {/* CỘT TRÁI: BỘ LỌC CHI TIẾT & CHỐNG RATE LIMIT ZALO (7 Cột) */}
+            <div className="lg:col-span-7 space-y-5">
+              {/* KHỐI 1: BỘ LỌC KHÁCH HÀNG */}
+              <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 shadow-sm space-y-4">
+                <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+                  <div className="flex items-center gap-2">
+                    <Filter className="w-4 h-4 text-indigo-600" />
+                    <h3 className="text-sm font-bold text-navy">
+                      1. Bộ lọc khách hàng chính xác
+                    </h3>
+                  </div>
+                  <button
+                    onClick={loadOptions}
+                    disabled={loadingOptions}
+                    className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1"
+                  >
+                    <RefreshCw className={`w-3 h-3 ${loadingOptions ? 'animate-spin' : ''}`} />
+                    <span>Làm mới bộ lọc</span>
+                  </button>
                 </div>
-                <button
-                  onClick={loadOptions}
-                  className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1"
-                  title="Làm mới danh sách filter"
-                >
-                  <RefreshCw className={`w-3 h-3 ${loadingOptions ? 'animate-spin' : ''}`} />
-                  Làm mới
-                </button>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                  {/* 1. Tên chiến dịch */}
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">
+                      Tên chiến dịch (Lưu lịch sử & chống gửi trùng)
+                    </label>
+                    <input
+                      type="text"
+                      value={campaignName}
+                      onChange={(e) => setCampaignName(e.target.value)}
+                      placeholder="VD: chao_uu_dai_thang_10"
+                      className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-xs focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all font-mono"
+                    />
+                  </div>
+
+                  {/* 2. Lọc theo Kênh (Tách rõ Zalo cá nhân & Fanpage nguồn) */}
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">
+                      Tên Kênh (Fanpage / Zalo cá nhân)
+                    </label>
+                    <select
+                      value={pageId}
+                      onChange={(e) => setPageId(e.target.value)}
+                      className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-xs focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all font-medium"
+                    >
+                      <option value="all">🌐 Tất cả các kênh (Fanpage + Zalo)</option>
+                      <option value="all_zalo">💬 Tất cả kênh Zalo cá nhân (3 kênh)</option>
+                      <option value="all_source">📢 Tất cả kênh Nguồn Lead (FB & TikTok)</option>
+                      {options?.zalo_pages && options.zalo_pages.length > 0 && (
+                        <optgroup label="💬 Kênh Zalo Cá Nhân (Chăm sóc)">
+                          {options.zalo_pages.map((p) => (
+                            <option key={p} value={p}>
+                              💬 {p}
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
+                      {options?.source_pages && options.source_pages.length > 0 && (
+                        <optgroup label="📢 Kênh Nguồn Lead (Facebook / TikTok)">
+                          {options.source_pages.map((p) => (
+                            <option key={p} value={p}>
+                              📢 {p}
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
+                    </select>
+                  </div>
+
+                  {/* 3. Lọc theo Nhân viên phụ trách */}
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">
+                      Nhân viên phụ trách (Sale)
+                    </label>
+                    <select
+                      value={employee}
+                      onChange={(e) => setEmployee(e.target.value)}
+                      className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-xs focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all"
+                    >
+                      <option value="all">👤 Tất cả nhân viên</option>
+                      {options?.employees.map((emp) => (
+                        <option key={emp} value={emp}>
+                          {emp === 'Chưa phân công' ? '⚪ Chưa phân công' : `👤 ${emp}`}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* 4. Lọc theo Thẻ (Tags) */}
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">
+                      Thẻ phân loại (Tags)
+                    </label>
+                    <select
+                      value={tag}
+                      onChange={(e) => setTag(e.target.value)}
+                      className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-xs focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all"
+                    >
+                      <option value="all">🏷️ Tất cả thẻ (Tags)</option>
+                      <option value="no_tag">⚪ Chưa gắn thẻ (Không có tag)</option>
+                      {options?.tags.map((t) => (
+                        <option key={t} value={t}>
+                          🏷️ {t}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* 5. Thời gian tương tác gần nhất */}
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1 flex items-center gap-1">
+                      <Clock className="w-3 h-3 text-indigo-600" />
+                      <span>Thời gian tương tác cuối</span>
+                    </label>
+                    <select
+                      value={timeFilter}
+                      onChange={(e) => setTimeFilter(e.target.value)}
+                      className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-xs focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all"
+                    >
+                      <option value="all">♾️ Mọi thời gian (Tất cả khách)</option>
+                      <optgroup label="Khách mới tương tác gần đây">
+                        <option value="1">⚡ Trong 24 giờ qua (An toàn 24h Facebook)</option>
+                        <option value="3">🕒 Trong 3 ngày qua</option>
+                        <option value="7">📅 Trong 7 ngày qua</option>
+                        <option value="30">🗓️ Trong 30 ngày qua</option>
+                      </optgroup>
+                      <optgroup label="Khách cần chăm sóc lại (Theo mốc Remind)">
+                        <option value="remind_1_3">🔔 Chưa tương tác 1 – 3 ngày</option>
+                        <option value="remind_4_7">🟠 Chưa tương tác 4 – 7 ngày</option>
+                        <option value="remind_over_7">🔴 Chưa tương tác &gt; 7 ngày</option>
+                      </optgroup>
+                    </select>
+                  </div>
+
+                  {/* 6. Lọc Số điện thoại */}
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1 flex items-center gap-1">
+                      <Phone className="w-3 h-3 text-indigo-600" />
+                      <span>Tình trạng Số điện thoại</span>
+                    </label>
+                    <select
+                      value={phoneFilter}
+                      onChange={(e) => setPhoneFilter(e.target.value)}
+                      className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-xs focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all"
+                    >
+                      <option value="all">📱 Tất cả (Có hoặc chưa có SĐT)</option>
+                      <option value="has_phone">✅ Chỉ khách ĐÃ CÓ SĐT (hoặc tag Đã add)</option>
+                      <option value="no_phone">❓ Chỉ khách CHƯA CÓ SĐT (Cần xin số)</option>
+                    </select>
+                  </div>
+
+                  {/* 7. Lọc theo Giới tính */}
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">
+                      Giới tính (Tự nhận diện từ tên Tiếng Việt)
+                    </label>
+                    <select
+                      value={gender}
+                      onChange={(e) => setGender(e.target.value)}
+                      className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-xs focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all"
+                    >
+                      <option value="all">👥 Tất cả giới tính</option>
+                      <option value="female">👩 Nữ (Xưng hô: Chị)</option>
+                      <option value="male">👨 Nam (Xưng hô: Anh)</option>
+                      <option value="unknown">❓ Chưa rõ (Xưng hô: Anh/Chị)</option>
+                    </select>
+                  </div>
+
+                  {/* 8. Tìm kiếm theo Tên khách / SĐT */}
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">
+                      Tìm theo Tên khách hoặc SĐT
+                    </label>
+                    <input
+                      type="text"
+                      value={nameFilter}
+                      onChange={(e) => setNameFilter(e.target.value)}
+                      placeholder="Nhập tên (có/không dấu) hoặc SĐT..."
+                      className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-xs focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all"
+                    />
+                  </div>
+
+                  {/* 9. Giới hạn số lượng */}
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">
+                      Số lượng lấy tối đa
+                    </label>
+                    <select
+                      value={limit}
+                      onChange={(e) => setLimit(Number(e.target.value))}
+                      className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-xs focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all"
+                    >
+                      <option value={10}>10 khách</option>
+                      <option value={20}>20 khách</option>
+                      <option value={30}>30 khách (Khuyến nghị cho 1 đợt Zalo)</option>
+                      <option value={50}>50 khách</option>
+                      <option value={100}>100 khách</option>
+                      <option value={200}>200 khách</option>
+                      <option value={500}>500 khách</option>
+                    </select>
+                  </div>
+
+                  {/* 10. Tốc độ gửi cho Fanpage thường */}
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1 flex items-center justify-between">
+                      <span>Nghỉ giữa 2 tin Fanpage (giây)</span>
+                      <span className="text-[10px] text-gray-500">FB/TikTok &le; 5 req/s</span>
+                    </label>
+                    <input
+                      type="number"
+                      step="0.2"
+                      min="0.5"
+                      max="10.0"
+                      value={delay}
+                      onChange={(e) => setDelay(Number(e.target.value))}
+                      className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-xs focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all"
+                    />
+                  </div>
+                </div>
+
+                {/* Chống gửi lặp lại */}
+                <div className="pt-2 border-t border-gray-100">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={excludeAlreadySent}
+                      onChange={(e) => setExcludeAlreadySent(e.target.checked)}
+                      className="rounded text-indigo-600 focus:ring-indigo-500 w-4 h-4"
+                    />
+                    <span className="text-xs text-gray-700 font-medium">
+                      Không gửi lặp lại cho khách đã nhận thành công chiến dịch này (Anti-Spam)
+                    </span>
+                  </label>
+                </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {/* 1. Tên chiến dịch */}
-                <div className="sm:col-span-2">
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    Tên chiến dịch (Campaign ID) <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={campaignName}
-                    onChange={(e) => setCampaignName(e.target.value)}
-                    placeholder="vd: uu_dai_hoc_vien_t10"
-                    className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-xs font-mono focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all"
-                  />
-                  <p className="text-[11px] text-gray-500 mt-1">
-                    Dùng để quản lý lịch sử và ngăn ngừa gửi tin nhắn trùng lặp tới cùng 1 khách hàng.
-                  </p>
-                </div>
-
-                {/* 2. Tên Kênh / Fanpage */}
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    Kênh / Fanpage Pancake
-                  </label>
-                  <select
-                    value={pageId}
-                    onChange={(e) => setPageId(e.target.value)}
-                    className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-xs focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all"
-                  >
-                    <option value="all">Tất cả kênh / Fanpage</option>
-                    {options?.pages.map((p) => (
-                      <option key={p} value={p}>
-                        {p}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* 3. Nhân viên phụ trách */}
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    Nhân viên phụ trách
-                  </label>
-                  <select
-                    value={employee}
-                    onChange={(e) => setEmployee(e.target.value)}
-                    className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-xs focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all"
-                  >
-                    <option value="all">Tất cả nhân viên</option>
-                    {options?.employees.map((emp) => (
-                      <option key={emp} value={emp}>
-                        {emp}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* 4. Giới tính */}
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1 flex items-center gap-1">
-                    <Sparkles className="w-3 h-3 text-amber-500" />
-                    Lọc theo Giới tính
-                  </label>
-                  <select
-                    value={gender}
-                    onChange={(e) => setGender(e.target.value)}
-                    className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-xs focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all"
-                  >
-                    {options?.gender_options.map((g) => (
-                      <option key={g.id} value={g.id}>
-                        {g.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* 5. Thẻ Tags trạng thái */}
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    Lọc theo Thẻ (Tags)
-                  </label>
-                  <select
-                    value={tag}
-                    onChange={(e) => setTag(e.target.value)}
-                    className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-xs focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all"
-                  >
-                    <option value="all">Tất cả các thẻ tags</option>
-                    {options?.tags.map((t) => (
-                      <option key={t} value={t}>
-                        {t}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* 6. Lọc theo Tên khách hàng */}
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    Tìm kiếm theo Tên khách
-                  </label>
-                  <input
-                    type="text"
-                    value={nameFilter}
-                    onChange={(e) => setNameFilter(e.target.value)}
-                    placeholder="vd: Nguyễn, Mai, Hương..."
-                    className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-xs focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all"
-                  />
-                </div>
-
-                {/* 7. Khoảng thời gian tương tác gần nhất */}
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1 flex items-center justify-between">
-                    <span>Thời gian tương tác</span>
-                    <span className="text-[10px] text-blue-600 font-medium">Chính sách FB 24h</span>
-                  </label>
-                  <select
-                    value={daysAgo ?? 'all'}
-                    onChange={(e) => setDaysAgo(e.target.value === 'all' ? undefined : Number(e.target.value))}
-                    className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-xs focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all"
-                  >
-                    <option value={1}>Trong 24 giờ qua (Khuyên dùng cho Facebook)</option>
-                    <option value={3}>Trong 3 ngày qua</option>
-                    <option value={7}>Trong 7 ngày qua (Hỗ trợ Private Reply)</option>
-                    <option value={30}>Trong 30 ngày qua</option>
-                    <option value="all">Tất cả thời gian</option>
-                  </select>
-                </div>
-
-                {/* 8. Giới hạn số lượng & Tốc độ gửi */}
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    Số lượng gửi tối đa
-                  </label>
-                  <select
-                    value={limit}
-                    onChange={(e) => setLimit(Number(e.target.value))}
-                    className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-xs focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all"
-                  >
-                    <option value={10}>10 tin</option>
-                    <option value={20}>20 tin</option>
-                    <option value={50}>50 tin</option>
-                    <option value={100}>100 tin</option>
-                    <option value={200}>200 tin</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1 flex items-center justify-between">
-                    <span>Nghỉ giữa 2 tin (giây)</span>
-                    <span className="text-[10px] text-gray-500">Rate Limit: &le; 5 req/s</span>
-                  </label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    min="0.5"
-                    max="5.0"
-                    value={delay}
-                    onChange={(e) => setDelay(Number(e.target.value))}
-                    className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-xs focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all"
-                  />
-                </div>
-              </div>
-
-              {/* Tùy chọn an toàn */}
-              <div className="pt-3 border-t border-gray-100 space-y-3">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={excludeAlreadySent}
-                    onChange={(e) => setExcludeAlreadySent(e.target.checked)}
-                    className="rounded text-indigo-600 focus:ring-indigo-500 w-4 h-4"
-                  />
-                  <span className="text-xs text-gray-700 font-medium">
-                    Không gửi lặp lại cho khách đã từng nhận chiến dịch này (Anti-Spam)
-                  </span>
-                </label>
-
-                {/* Toggle Chế độ Dry-run */}
-                <div className={`p-3 rounded-xl border flex items-center justify-between ${
-                  dryRun ? 'bg-blue-50/50 border-blue-200' : 'bg-red-50/50 border-red-200'
-                }`}>
+              {/* KHỐI 2: CƠ CHẾ HẠN CHẾ RATE LIMIT & BẢO VỆ ZALO CÁ NHÂN */}
+              <div
+                className={`rounded-2xl border p-5 shadow-sm space-y-4 transition-all ${
+                  zaloProtection
+                    ? 'bg-gradient-to-br from-emerald-50/70 via-white to-teal-50/40 border-emerald-200'
+                    : 'bg-white border-gray-200'
+                }`}
+              >
+                <div className="flex items-start justify-between gap-3">
                   <div className="flex items-center gap-2.5">
-                    {dryRun ? (
-                      <Info className="w-4 h-4 text-blue-600" />
-                    ) : (
-                      <ShieldAlert className="w-4 h-4 text-red-600" />
-                    )}
+                    <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center shadow-sm flex-shrink-0">
+                      <ShieldCheck className="w-5 h-5" />
+                    </div>
                     <div>
-                      <p className={`text-xs font-bold ${dryRun ? 'text-blue-900' : 'text-red-900'}`}>
-                        {dryRun ? 'Chế độ Mô phỏng an toàn (DRY-RUN)' : 'CẢNH BÁO: CHẾ ĐỘ GỬI THẬT (LIVE)'}
-                      </p>
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-sm font-bold text-navy">
+                          2. Chống Rate Limit &amp; Bảo Vệ Nick Zalo Cá Nhân
+                        </h3>
+                        {hasZaloInSelection && (
+                          <span className="px-2 py-0.5 text-[10px] font-bold bg-emerald-100 text-emerald-800 rounded-full">
+                            Đang áp dụng cho Zalo
+                          </span>
+                        )}
+                      </div>
                       <p className="text-[11px] text-gray-600">
-                        {dryRun
-                          ? 'Mô phỏng gửi và ghi log thử nghiệm, không gửi tin nhắn thật đến khách.'
-                          : 'Tin nhắn sẽ được gửi trực tiếp đến Facebook/Zalo của khách hàng qua Pancake.'}
+                        Giãn cách ngẫu nhiên + nghỉ giải lao theo chặng + đảo từ Spintax để Zalo không chặn gửi tin hoặc khóa tài khoản.
                       </p>
                     </div>
                   </div>
 
                   <button
                     type="button"
-                    onClick={() => setDryRun(!dryRun)}
-                    className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                      dryRun ? 'bg-blue-600' : 'bg-red-600'
+                    onClick={() => setZaloProtection(!zaloProtection)}
+                    className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
+                      zaloProtection ? 'bg-emerald-600' : 'bg-gray-300'
                     }`}
                   >
                     <span
-                      className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                        dryRun ? 'translate-x-0' : 'translate-x-5'
+                      className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow transition duration-200 ease-in-out ${
+                        zaloProtection ? 'translate-x-5' : 'translate-x-0'
                       }`}
                     />
                   </button>
                 </div>
+
+                {zaloProtection && (
+                  <div className="space-y-3.5 pt-2 border-t border-emerald-100">
+                    {/* Chọn mức độ bảo vệ nhanh */}
+                    <div>
+                      <span className="block text-[11px] font-semibold text-gray-700 mb-1.5">
+                        Chế độ giãn cách Zalo cá nhân:
+                      </span>
+                      <div className="grid grid-cols-3 gap-2">
+                        {[
+                          {
+                            id: 'fast',
+                            title: '⚡ Nhanh vừa',
+                            desc: 'Nghỉ 5-10s/tin, giải lao 30s mỗi 12 tin (<15 khách)'
+                          },
+                          {
+                            id: 'recommended',
+                            title: '🛡️ Khuyến nghị',
+                            desc: 'Nghỉ 8-15s/tin, giải lao 45s mỗi 10 tin (An toàn)'
+                          },
+                          {
+                            id: 'ultra',
+                            title: '🔒 Siêu an toàn',
+                            desc: 'Nghỉ 15-28s/tin, giải lao 65s mỗi 8 tin (Số lượng lớn)'
+                          }
+                        ].map((p) => (
+                          <button
+                            key={p.id}
+                            type="button"
+                            onClick={() => handleSelectZaloPreset(p.id as any)}
+                            className={`p-2.5 rounded-xl border text-left transition-all ${
+                              zaloPreset === p.id
+                                ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
+                                : 'bg-white hover:bg-emerald-50/50 text-gray-700 border-gray-200'
+                            }`}
+                          >
+                            <div className="text-xs font-bold">{p.title}</div>
+                            <div
+                              className={`text-[10px] mt-0.5 leading-tight ${
+                                zaloPreset === p.id ? 'text-emerald-50' : 'text-gray-500'
+                              }`}
+                            >
+                              {p.desc}
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Thông số chi tiết */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                      <div>
+                        <label className="block text-[11px] font-semibold text-gray-700 mb-1">
+                          Nghỉ tối thiểu (s)
+                        </label>
+                        <input
+                          type="number"
+                          min={2}
+                          max={60}
+                          value={zaloMinDelay}
+                          onChange={(e) => setZaloMinDelay(Number(e.target.value))}
+                          className="w-full px-2.5 py-1.5 bg-white border border-gray-300 rounded-lg text-xs"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-semibold text-gray-700 mb-1">
+                          Nghỉ tối đa (s)
+                        </label>
+                        <input
+                          type="number"
+                          min={3}
+                          max={120}
+                          value={zaloMaxDelay}
+                          onChange={(e) => setZaloMaxDelay(Number(e.target.value))}
+                          className="w-full px-2.5 py-1.5 bg-white border border-gray-300 rounded-lg text-xs"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-semibold text-gray-700 mb-1">
+                          Mỗi chặng (số tin)
+                        </label>
+                        <input
+                          type="number"
+                          min={3}
+                          max={50}
+                          value={zaloBatchSize}
+                          onChange={(e) => setZaloBatchSize(Number(e.target.value))}
+                          className="w-full px-2.5 py-1.5 bg-white border border-gray-300 rounded-lg text-xs"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-semibold text-gray-700 mb-1">
+                          Nghỉ giữa chặng (s)
+                        </label>
+                        <input
+                          type="number"
+                          min={10}
+                          max={300}
+                          value={zaloBatchPause}
+                          onChange={(e) => setZaloBatchPause(Number(e.target.value))}
+                          className="w-full px-2.5 py-1.5 bg-white border border-gray-300 rounded-lg text-xs"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={enableSpintax}
+                          onChange={(e) => setEnableSpintax(e.target.checked)}
+                          className="rounded text-emerald-600 focus:ring-emerald-500 w-3.5 h-3.5"
+                        />
+                        <span className="text-[11px] text-gray-700 font-medium">
+                          Bật Spintax <code className="bg-white px-1 rounded border">{'{Chào|Xin chào}'}</code> &amp; biến thiên chữ ký tin nhắn chống Zalo quét trùng lặp
+                        </span>
+                      </label>
+
+                      <div className="flex items-center gap-1.5 text-[11px] text-gray-600">
+                        <span>Ngắt bảo vệ nếu lỗi liên tiếp:</span>
+                        <input
+                          type="number"
+                          min={2}
+                          max={20}
+                          value={maxConsecutiveErrors}
+                          onChange={(e) => setMaxConsecutiveErrors(Number(e.target.value))}
+                          className="w-12 px-1.5 py-0.5 bg-white border border-gray-300 rounded text-xs text-center font-bold"
+                        />
+                        <span>lần</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
-            {/* CỘT PHẢI: SOẠN NỘI DUNG & LIVE PREVIEW (5 Cột) */}
+            {/* CỘT PHẢI: SOẠN NỘI DUNG, CHẾ ĐỘ GỬI & LIVE PREVIEW (5 Cột) */}
             <div className="lg:col-span-5 space-y-5">
-              {/* Soạn nội dung tin nhắn */}
-              <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 shadow-sm space-y-3">
+              <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 shadow-sm space-y-4">
                 <div className="flex items-center justify-between">
                   <h3 className="text-sm font-bold text-navy flex items-center gap-2">
                     <Send className="w-4 h-4 text-indigo-600" />
-                    Nội dung tin nhắn
+                    3. Soạn nội dung tin nhắn
                   </h3>
                   <span className="text-[11px] text-gray-400 font-mono">
                     {template.length} ký tự
                   </span>
                 </div>
 
-                {/* Danh sách biến động chèn nhanh */}
+                {/* Danh sách biến động & Spintax chèn nhanh */}
                 <div>
-                  <p className="text-[11px] font-semibold text-gray-600 mb-1.5">Chèn biến động:</p>
+                  <p className="text-[11px] font-semibold text-gray-600 mb-1.5">
+                    Chèn biến cá nhân hóa &amp; Spintax chống spam:
+                  </p>
                   <div className="flex flex-wrap gap-1.5">
                     {[
                       { tag: '{gender_title}', label: 'Anh/Chị' },
@@ -658,7 +1054,9 @@ export const BulkMessengerDashboard: React.FC = () => {
                       { tag: '{gender_title_lower}', label: 'anh/chị' },
                       { tag: '{phone}', label: 'SĐT' },
                       { tag: '{page_id}', label: 'Tên Kênh' },
-                      { tag: '{staff}', label: 'Nhân viên' }
+                      { tag: '{staff}', label: 'Nhân viên' },
+                      { tag: '{Chào|Xin chào|Dạ chào}', label: '🔀 Spintax Chào' },
+                      { tag: '{ạ|nhé ạ|nha}', label: '🔀 Spintax Cuối câu' }
                     ].map((b) => (
                       <button
                         key={b.tag}
@@ -689,7 +1087,7 @@ export const BulkMessengerDashboard: React.FC = () => {
                       Xem trước hiển thị thực tế:
                     </span>
                     <span className="text-[10px] bg-white px-2 py-0.5 rounded border border-gray-200">
-                      Mẫu cho: {sampleRecipient.name} ({sampleRecipient.gender === 'female' ? 'Nữ' : 'Nam'})
+                      Mẫu: {sampleRecipient.name} ({sampleRecipient.gender === 'female' ? 'Nữ' : 'Nam'})
                     </span>
                   </div>
 
@@ -700,20 +1098,59 @@ export const BulkMessengerDashboard: React.FC = () => {
                   </div>
                 </div>
 
+                {/* Toggle Chế độ Dry-run / Gửi thật */}
+                <div
+                  className={`p-3 rounded-xl border flex items-center justify-between ${
+                    dryRun ? 'bg-blue-50/50 border-blue-200' : 'bg-red-50/60 border-red-200'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5">
+                    {dryRun ? (
+                      <Info className="w-4 h-4 text-blue-600 flex-shrink-0" />
+                    ) : (
+                      <ShieldAlert className="w-4 h-4 text-red-600 flex-shrink-0" />
+                    )}
+                    <div>
+                      <p className={`text-xs font-bold ${dryRun ? 'text-blue-900' : 'text-red-900'}`}>
+                        {dryRun ? 'Chế độ Mô phỏng an toàn (DRY-RUN)' : 'CHẾ ĐỘ GỬI THẬT (LIVE)'}
+                      </p>
+                      <p className="text-[11px] text-gray-600">
+                        {dryRun
+                          ? 'Chỉ chạy thử nghiệm và ghi log, không gửi tin thật đến khách.'
+                          : 'Gửi tin nhắn trực tiếp đến Zalo / Fanpage của khách qua Pancake API.'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setDryRun(!dryRun)}
+                    className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                      dryRun ? 'bg-blue-600' : 'bg-red-600'
+                    }`}
+                  >
+                    <span
+                      className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                        dryRun ? 'translate-x-0' : 'translate-x-5'
+                      }`}
+                    />
+                  </button>
+                </div>
+
                 {/* Nút Hành động */}
-                <div className="pt-2 flex items-center gap-3">
+                <div className="pt-1 flex items-center gap-3">
                   <button
                     type="button"
                     onClick={handlePreview}
                     disabled={loadingPreview}
-                    className="flex-1 px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-navy rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-all border border-gray-300"
+                    className="flex-1 px-4 py-2.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-900 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all border border-indigo-200"
                   >
                     {loadingPreview ? (
                       <RefreshCw className="w-3.5 h-3.5 animate-spin" />
                     ) : (
-                      <Eye className="w-3.5 h-3.5 text-gray-600" />
+                      <Eye className="w-3.5 h-3.5 text-indigo-600" />
                     )}
-                    <span>Xem trước ({limit} khách)</span>
+                    <span>Xem trước khách ({limit})</span>
                   </button>
 
                   <button
@@ -723,7 +1160,7 @@ export const BulkMessengerDashboard: React.FC = () => {
                     className={`flex-1 px-4 py-2.5 rounded-xl text-xs font-bold text-white flex items-center justify-center gap-2 shadow-sm transition-all ${
                       dryRun
                         ? 'bg-blue-600 hover:bg-blue-700'
-                        : 'bg-red-600 hover:bg-red-700 animate-pulse'
+                        : 'bg-red-600 hover:bg-red-700'
                     }`}
                   >
                     <Play className="w-3.5 h-3.5" />
@@ -741,7 +1178,9 @@ export const BulkMessengerDashboard: React.FC = () => {
                 <div>
                   <h3 className="text-sm font-bold text-navy flex items-center gap-2 flex-wrap">
                     <Users className="w-4 h-4 text-indigo-600" />
-                    <span>Danh sách người nhận ({previewRecipients.length}/{totalMatching} khách)</span>
+                    <span>
+                      Danh sách người nhận ({previewRecipients.length} hiển thị / Tổng {totalMatching} khách khớp lọc)
+                    </span>
                     {isCustomListApplied ? (
                       <span className="px-2 py-0.5 text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-300 rounded-full flex items-center gap-1">
                         <Check className="w-3 h-3 text-emerald-600" /> Danh sách custom đã áp dụng
@@ -753,7 +1192,7 @@ export const BulkMessengerDashboard: React.FC = () => {
                     ) : null}
                   </h3>
                   <p className="text-xs text-[#4B5563] mt-0.5">
-                    Tick chọn và bấm "Xóa" hoặc bấm biểu tượng thùng rác ở từng khách để loại trừ, sau đó bấm "Áp dụng" để tạo danh sách custom.
+                    Tick chọn và bấm &quot;Xóa&quot; hoặc bấm biểu tượng thùng rác ở từng dòng để loại trừ khách không muốn gửi, sau đó bấm &quot;Áp dụng&quot; để tạo danh sách custom.
                   </p>
                 </div>
 
@@ -782,7 +1221,11 @@ export const BulkMessengerDashboard: React.FC = () => {
                     title="Khóa và áp dụng danh sách khách hàng này cho lần gửi bot"
                   >
                     <Check className="w-3.5 h-3.5" />
-                    <span>{isCustomListApplied ? `Đã Áp Dụng (${previewRecipients.length} khách)` : `Áp Dụng Danh Sách Custom (${previewRecipients.length})`}</span>
+                    <span>
+                      {isCustomListApplied
+                        ? `Đã Áp Dụng (${previewRecipients.length} khách)`
+                        : `Áp Dụng Danh Sách Custom (${previewRecipients.length})`}
+                    </span>
                   </button>
 
                   {previewRecipients.length !== originalRecipients.length && (
@@ -805,7 +1248,8 @@ export const BulkMessengerDashboard: React.FC = () => {
                   <div className="flex items-center gap-2">
                     <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
                     <span>
-                      <strong>Đã áp dụng danh sách custom ({previewRecipients.length} khách):</strong> Hệ thống sẽ gửi tin nhắn đến chính xác {previewRecipients.length} khách hàng này (Đã loại trừ {originalRecipients.length - previewRecipients.length} khách khỏi danh sách gốc).
+                      <strong>Đã áp dụng danh sách custom ({previewRecipients.length} khách):</strong> Hệ thống sẽ gửi tin nhắn đến chính xác {previewRecipients.length} khách hàng này (Đã loại trừ{' '}
+                      {originalRecipients.length - previewRecipients.length} khách khỏi danh sách gốc).
                     </span>
                   </div>
                   <button
@@ -816,7 +1260,11 @@ export const BulkMessengerDashboard: React.FC = () => {
                     }`}
                   >
                     <Play className="w-3 h-3" />
-                    <span>{dryRun ? `Mô phỏng ${previewRecipients.length} khách` : `Gửi thật ${previewRecipients.length} khách`}</span>
+                    <span>
+                      {dryRun
+                        ? `Mô phỏng ${previewRecipients.length} khách`
+                        : `Gửi thật ${previewRecipients.length} khách`}
+                    </span>
                   </button>
                 </div>
               )}
@@ -840,7 +1288,7 @@ export const BulkMessengerDashboard: React.FC = () => {
                     </button>
                   ) : (
                     <p className="text-[11px] text-gray-400 mt-1">
-                      Hãy thử nới lỏng bộ lọc: mở rộng thời gian, chọn Tất cả kênh hoặc bỏ bớt thẻ tags.
+                      Hãy thử chọn &quot;Mọi thời gian&quot;, chọn &quot;Tất cả các kênh&quot; hoặc bỏ bớt điều kiện lọc.
                     </p>
                   )}
                 </div>
@@ -852,7 +1300,10 @@ export const BulkMessengerDashboard: React.FC = () => {
                         <th className="py-2.5 px-3 text-center w-10">
                           <input
                             type="checkbox"
-                            checked={previewRecipients.length > 0 && selectedConvIds.size === previewRecipients.length}
+                            checked={
+                              previewRecipients.length > 0 &&
+                              selectedConvIds.size === previewRecipients.length
+                            }
                             onChange={handleToggleSelectAll}
                             className="rounded text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5 cursor-pointer"
                             title="Chọn tất cả / Bỏ chọn tất cả"
@@ -862,10 +1313,11 @@ export const BulkMessengerDashboard: React.FC = () => {
                         <th className="py-2.5 px-3 font-semibold">Khách hàng</th>
                         <th className="py-2.5 px-3 font-semibold">Giới tính</th>
                         <th className="py-2.5 px-3 font-semibold">Kênh / Page</th>
-                        <th className="py-2.5 px-3 font-semibold">Tags</th>
+                        <th className="py-2.5 px-3 font-semibold">Tags &amp; Sale</th>
+                        <th className="py-2.5 px-3 font-semibold">Liên hệ cuối</th>
                         <th className="py-2.5 px-3 font-semibold">Nội dung tin nhắn gửi đi</th>
-                        <th className="py-2.5 px-3 font-semibold text-center">Hội thoại</th>
-                        <th className="py-2.5 px-3 font-semibold text-center w-16">Xóa</th>
+                        <th className="py-2.5 px-3 font-semibold text-center">Pancake</th>
+                        <th className="py-2.5 px-3 font-semibold text-center w-14">Xóa</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
@@ -886,31 +1338,78 @@ export const BulkMessengerDashboard: React.FC = () => {
                                 className="rounded text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5 cursor-pointer"
                               />
                             </td>
-                            <td className="py-2 px-2 text-gray-400 font-mono text-center">{idx + 1}</td>
+                            <td className="py-2 px-2 text-gray-400 font-mono text-center">
+                              {idx + 1}
+                            </td>
                             <td className="py-2 px-3">
                               <span className="font-semibold text-navy">{r.name}</span>
-                              {r.phone_number && (
-                                <span className="block text-[11px] text-gray-500">{r.phone_number}</span>
+                              {r.phone_number ? (
+                                <span className="block text-[11px] text-emerald-700 font-mono">
+                                  {r.phone_number}
+                                </span>
+                              ) : (
+                                <span className="block text-[10px] text-gray-400">Chưa có SĐT</span>
                               )}
                             </td>
                             <td className="py-2 px-3">
-                              <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
-                                r.gender === 'female'
-                                  ? 'bg-pink-100 text-pink-700'
+                              <span
+                                className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
+                                  r.gender === 'female'
+                                    ? 'bg-pink-100 text-pink-700'
+                                    : r.gender === 'male'
+                                    ? 'bg-blue-100 text-blue-700'
+                                    : 'bg-gray-100 text-gray-600'
+                                }`}
+                              >
+                                {r.gender === 'female'
+                                  ? 'Nữ (Chị)'
                                   : r.gender === 'male'
-                                  ? 'bg-blue-100 text-blue-700'
-                                  : 'bg-gray-100 text-gray-600'
-                              }`}>
-                                {r.gender === 'female' ? 'Nữ (Chị)' : r.gender === 'male' ? 'Nam (Anh)' : 'Chưa rõ'}
+                                  ? 'Nam (Anh)'
+                                  : 'Chưa rõ'}
                               </span>
                             </td>
-                            <td className="py-2 px-3 text-gray-600">{r.page_id}</td>
                             <td className="py-2 px-3">
-                              <span className="px-2 py-0.5 bg-gray-100 text-gray-700 rounded text-[10px]">
+                              <div className="flex items-center gap-1.5">
+                                <span
+                                  className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ${
+                                    r.is_zalo
+                                      ? 'bg-teal-100 text-teal-800'
+                                      : 'bg-indigo-50 text-indigo-700'
+                                  }`}
+                                >
+                                  {r.is_zalo ? 'Zalo' : 'Page'}
+                                </span>
+                                <span className="text-gray-700 font-medium">{r.page_id}</span>
+                              </div>
+                            </td>
+                            <td className="py-2 px-3">
+                              <span className="px-2 py-0.5 bg-gray-100 text-gray-700 rounded text-[10px] block w-fit">
                                 {r.status_tag || 'Chưa gắn tag'}
                               </span>
+                              {r.assigned_users && (
+                                <span className="text-[10px] text-gray-400 block mt-0.5">
+                                  NV: {r.assigned_users}
+                                </span>
+                              )}
                             </td>
-                            <td className="py-2 px-3 text-gray-800 max-w-md truncate" title={r.rendered_message}>
+                            <td className="py-2 px-3 text-[11px] text-gray-600">
+                              {r.days_since_contact !== undefined ? (
+                                <span className="font-semibold text-navy">
+                                  {r.days_since_contact === 0
+                                    ? 'Hôm nay'
+                                    : `${r.days_since_contact} ngày trước`}
+                                </span>
+                              ) : null}
+                              {r.last_contacted_at && (
+                                <span className="block text-[10px] text-gray-400 font-mono">
+                                  {r.last_contacted_at}
+                                </span>
+                              )}
+                            </td>
+                            <td
+                              className="py-2 px-3 text-gray-800 max-w-xs truncate"
+                              title={r.rendered_message}
+                            >
                               {r.rendered_message}
                             </td>
                             <td className="py-2 px-3 text-center">
@@ -957,7 +1456,7 @@ export const BulkMessengerDashboard: React.FC = () => {
         <div className="space-y-6">
           {/* BẢNG 1: TỔNG HỢP CÁC CHIẾN DỊCH ĐÃ CHẠY */}
           <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 shadow-sm space-y-4">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <h3 className="text-sm font-bold text-navy flex items-center gap-2">
                   <History className="w-4 h-4 text-blue-600" />
@@ -967,13 +1466,22 @@ export const BulkMessengerDashboard: React.FC = () => {
                   Thống kê kết quả gửi tin theo từng chiến dịch (Tổng số tin, Thành công, Thất bại, Mô phỏng).
                 </p>
               </div>
-              <button
-                onClick={() => loadHistory(selectedHistoryCampaign)}
-                className="px-3 py-1.5 text-xs text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg flex items-center gap-1.5 transition-colors"
-              >
-                <RefreshCw className={`w-3 h-3 ${loadingHistory ? 'animate-spin' : ''}`} />
-                Làm mới
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleClearFailedLogs}
+                  className="px-3 py-1.5 text-xs text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg flex items-center gap-1.5 transition-colors font-semibold"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Xóa các log lỗi (FAILED)</span>
+                </button>
+                <button
+                  onClick={() => loadHistory(selectedHistoryCampaign)}
+                  className="px-3 py-1.5 text-xs text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg flex items-center gap-1.5 transition-colors font-semibold"
+                >
+                  <RefreshCw className={`w-3 h-3 ${loadingHistory ? 'animate-spin' : ''}`} />
+                  <span>Làm mới</span>
+                </button>
+              </div>
             </div>
 
             {campaignSummaries.length === 0 ? (
@@ -1004,14 +1512,18 @@ export const BulkMessengerDashboard: React.FC = () => {
                           loadHistory(camp.campaign_name);
                         }}
                         className={`cursor-pointer transition-colors ${
-                          selectedHistoryCampaign === camp.campaign_name ? 'bg-blue-50/50' : 'hover:bg-gray-50'
+                          selectedHistoryCampaign === camp.campaign_name
+                            ? 'bg-blue-50/50'
+                            : 'hover:bg-gray-50'
                         }`}
                       >
                         <td className="py-2.5 px-3 font-semibold text-navy font-mono">
                           {camp.campaign_name}
                         </td>
                         <td className="py-2.5 px-3 text-gray-600">{camp.page_id || 'Tất cả'}</td>
-                        <td className="py-2.5 px-3 text-center font-bold text-gray-800">{camp.total_messages}</td>
+                        <td className="py-2.5 px-3 text-center font-bold text-gray-800">
+                          {camp.total_messages}
+                        </td>
                         <td className="py-2.5 px-3 text-center font-bold text-emerald-600">
                           {camp.success_count}
                         </td>
@@ -1022,16 +1534,20 @@ export const BulkMessengerDashboard: React.FC = () => {
                           {camp.dry_run_count}
                         </td>
                         <td className="py-2.5 px-3 text-gray-500 font-mono text-[11px]">
-                          {camp.last_sent_at || 'N/A'}
+                          {camp.last_sent_at}
                         </td>
                         <td className="py-2.5 px-3 text-center">
-                          <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
-                            camp.status === 'Hoàn thành'
-                              ? 'bg-emerald-100 text-emerald-800'
-                              : camp.status === 'Mô phỏng (Dry-run)'
-                              ? 'bg-blue-100 text-blue-800'
-                              : 'bg-red-100 text-red-800'
-                          }`}>
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                              camp.status === 'COMPLETED'
+                                ? 'bg-emerald-100 text-emerald-700'
+                                : camp.status === 'DRY_RUN'
+                                ? 'bg-blue-100 text-blue-700'
+                                : camp.status === 'FAILED'
+                                ? 'bg-red-100 text-red-700'
+                                : 'bg-amber-100 text-amber-700'
+                            }`}
+                          >
                             {camp.status}
                           </span>
                         </td>
@@ -1043,43 +1559,37 @@ export const BulkMessengerDashboard: React.FC = () => {
             )}
           </div>
 
-          {/* BẢNG 2: CHI TIẾT TỪNG TIN NHẮN ĐÃ GỬI (LOGS) */}
+          {/* BẢNG 2: CHI TIẾT LOG TỪNG TIN NHẮN ĐÃ GỬI */}
           <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 shadow-sm space-y-4">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
-                <h3 className="text-sm font-bold text-navy flex items-center gap-2">
-                  <Clock className="w-4 h-4 text-indigo-600" />
-                  Chi tiết từng tin nhắn (Lịch sử gửi bot)
+                <h3 className="text-sm font-bold text-navy">
+                  Chi tiết lịch sử từng tin nhắn
                 </h3>
                 <p className="text-xs text-[#4B5563]">
-                  Xem nội dung tin nhắn, thời gian và phản hồi từ Pancake API cho từng hội thoại.
+                  Đang lọc theo chiến dịch:{' '}
+                  <span className="font-mono font-semibold text-indigo-600">
+                    {selectedHistoryCampaign === 'all' ? 'Tất cả chiến dịch' : selectedHistoryCampaign}
+                  </span>
                 </p>
               </div>
 
-              {/* Lọc theo chiến dịch */}
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-gray-500 font-medium">Chiến dịch:</span>
-                <select
-                  value={selectedHistoryCampaign}
-                  onChange={(e) => {
-                    setSelectedHistoryCampaign(e.target.value);
-                    loadHistory(e.target.value);
+              {selectedHistoryCampaign !== 'all' && (
+                <button
+                  onClick={() => {
+                    setSelectedHistoryCampaign('all');
+                    loadHistory('all');
                   }}
-                  className="px-2.5 py-1.5 bg-gray-50 border border-gray-300 rounded-lg text-xs font-mono focus:outline-none"
+                  className="text-xs text-gray-600 hover:text-navy underline"
                 >
-                  <option value="all">Tất cả chiến dịch</option>
-                  {campaignSummaries.map((c) => (
-                    <option key={c.campaign_name} value={c.campaign_name}>
-                      {c.campaign_name}
-                    </option>
-                  ))}
-                </select>
-              </div>
+                  Xem tất cả chiến dịch
+                </button>
+              )}
             </div>
 
             {historyLogs.length === 0 ? (
               <div className="text-center py-8 bg-gray-50 rounded-xl text-xs text-gray-500">
-                Không tìm thấy bản ghi log nào thỏa mãn.
+                Không có bản ghi lịch sử nào.
               </div>
             ) : (
               <div className="overflow-x-auto border border-gray-200 rounded-xl">
@@ -1091,49 +1601,48 @@ export const BulkMessengerDashboard: React.FC = () => {
                       <th className="py-2.5 px-3 font-semibold">Khách hàng</th>
                       <th className="py-2.5 px-3 font-semibold">Kênh</th>
                       <th className="py-2.5 px-3 font-semibold">Nội dung đã gửi</th>
-                      <th className="py-2.5 px-3 font-semibold text-center">Kết quả</th>
-                      <th className="py-2.5 px-3 font-semibold">Lỗi chi tiết</th>
+                      <th className="py-2.5 px-3 font-semibold text-center">Trạng thái</th>
                       <th className="py-2.5 px-3 font-semibold text-center">Hội thoại</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
                     {historyLogs.map((log) => (
-                      <tr key={log.id} className="hover:bg-gray-50/50 transition-colors">
+                      <tr key={log.id} className="hover:bg-gray-50 transition-colors">
                         <td className="py-2 px-3 text-gray-500 font-mono text-[11px] whitespace-nowrap">
                           {log.sent_at}
                         </td>
-                        <td className="py-2 px-3 font-mono text-navy font-medium">
+                        <td className="py-2 px-3 font-mono font-medium text-navy">
                           {log.campaign_name}
                         </td>
                         <td className="py-2 px-3">
-                          <span className="font-semibold text-navy">{log.customer_name || 'Khách'}</span>
+                          <span className="font-semibold text-gray-800">{log.customer_name}</span>
                           {log.phone_number && (
-                            <span className="block text-[10px] text-gray-400 font-mono">{log.phone_number}</span>
+                            <span className="block text-[10px] text-gray-500">{log.phone_number}</span>
                           )}
                         </td>
                         <td className="py-2 px-3 text-gray-600">{log.page_id}</td>
-                        <td className="py-2 px-3 text-gray-800 max-w-xs truncate" title={log.message}>
-                          {log.message}
-                        </td>
-                        <td className="py-2 px-3 text-center">
-                          {log.status === 'SENT' ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800">
-                              <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                              SENT
-                            </span>
-                          ) : log.status === 'DRY_RUN' ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-800">
-                              DRY_RUN
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-red-100 text-red-800">
-                              <XCircle className="w-3 h-3 text-red-600" />
-                              FAILED
-                            </span>
+                        <td className="py-2 px-3 text-gray-700 max-w-md">
+                          <div className="truncate" title={log.message}>
+                            {log.message}
+                          </div>
+                          {log.error_message && (
+                            <div className="text-[10px] text-rose-600 font-mono mt-0.5">
+                              Lỗi: {log.error_message}
+                            </div>
                           )}
                         </td>
-                        <td className="py-2 px-3 text-red-600 text-[11px] max-w-xs truncate" title={log.error_message || ''}>
-                          {log.error_message || <span className="text-gray-300">-</span>}
+                        <td className="py-2 px-3 text-center">
+                          <span
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                              log.status === 'SENT'
+                                ? 'bg-emerald-100 text-emerald-700'
+                                : log.status === 'DRY_RUN'
+                                ? 'bg-blue-100 text-blue-700'
+                                : 'bg-red-100 text-red-700'
+                            }`}
+                          >
+                            {log.status}
+                          </span>
                         </td>
                         <td className="py-2 px-3 text-center">
                           {log.pancake_url ? (
@@ -1160,14 +1669,128 @@ export const BulkMessengerDashboard: React.FC = () => {
         </div>
       )}
 
+      {/* ========================================================================= */}
+      {/* MODAL CẤU HÌNH TOKEN PANCAKE */}
+      {/* ========================================================================= */}
+      {showTokenModal && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-gray-200 space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center">
+                  <Key className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-navy">Cấu hình Pancake API Token</h3>
+                  <p className="text-xs text-gray-500">
+                    Lưu trữ an toàn trong Database để gửi tin nhắn thật từ Web
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowTokenModal(false)}
+                className="text-gray-400 hover:text-gray-600 text-sm font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Trạng thái các kênh hiện tại */}
+            {tokenStatus && (
+              <div className="bg-gray-50 rounded-xl p-3 border border-gray-200 space-y-1.5">
+                <p className="text-[11px] font-bold text-gray-700 mb-1">
+                  Trạng thái Token theo từng kênh hiện tại:
+                </p>
+                <div className="grid grid-cols-1 gap-1 max-h-36 overflow-y-auto">
+                  {tokenStatus.channels.map((ch) => (
+                    <div
+                      key={ch.page_name}
+                      className="flex items-center justify-between text-[11px] bg-white px-2.5 py-1.5 rounded border border-gray-100"
+                    >
+                      <span className="font-medium text-navy">
+                        {ch.is_zalo ? '💬 ' : '📢 '}
+                        {ch.page_name}{' '}
+                        <span className="text-[10px] text-gray-400 font-mono">
+                          ({ch.api_page_id})
+                        </span>
+                      </span>
+                      {ch.has_token ? (
+                        <span className="text-emerald-600 font-bold text-[10px]">
+                          ✓ Đã có ({ch.masked_token})
+                        </span>
+                      ) : (
+                        <span className="text-rose-600 font-semibold text-[10px]">
+                          ✗ Chưa có Token
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                  Cách 1: Nhập Pancake Token chung (User Access Token hoặc Page Access Token)
+                </label>
+                <input
+                  type="password"
+                  value={tokenInput}
+                  onChange={(e) => setTokenInput(e.target.value)}
+                  placeholder="Dán PANCAKE_API_TOKEN của bạn vào đây..."
+                  className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-xl text-xs font-mono focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                  Cách 2 (Tùy chọn): Dán cấu hình JSON nhiều Page (PANCAKE_PAGES_JSON)
+                </label>
+                <textarea
+                  rows={3}
+                  value={pagesJsonInput}
+                  onChange={(e) => setPagesJsonInput(e.target.value)}
+                  placeholder='VD: {"pzl_629476615535063343": "token_1", "514400205095512": "token_2"}'
+                  className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-xl text-xs font-mono focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowTokenModal(false)}
+                className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-xs font-semibold"
+              >
+                Đóng
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveTokenConfig}
+                disabled={savingToken}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-sm"
+              >
+                {savingToken ? 'Đang lưu...' : 'Lưu Token vào Hệ thống'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
       {/* MODAL XÁC NHẬN AN TOÀN TRƯỚC KHI BẮT ĐẦU */}
+      {/* ========================================================================= */}
       {showConfirmModal && (
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-200 space-y-4">
             <div className="flex items-center gap-3">
-              <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                dryRun ? 'bg-blue-100 text-blue-600' : 'bg-red-100 text-red-600'
-              }`}>
+              <div
+                className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                  dryRun ? 'bg-blue-100 text-blue-600' : 'bg-red-100 text-red-600'
+                }`}
+              >
                 {dryRun ? <Play className="w-5 h-5" /> : <ShieldAlert className="w-5 h-5" />}
               </div>
               <div>
@@ -1183,19 +1806,34 @@ export const BulkMessengerDashboard: React.FC = () => {
             <div className="bg-gray-50 p-3.5 rounded-xl text-xs space-y-2 border border-gray-200">
               <div className="flex justify-between">
                 <span className="text-gray-500">Kênh gửi:</span>
-                <span className="font-semibold text-gray-800">{pageId === 'all' ? 'Tất cả kênh' : pageId}</span>
+                <span className="font-semibold text-gray-800">
+                  {pageId === 'all'
+                    ? 'Tất cả các kênh'
+                    : pageId === 'all_zalo'
+                    ? 'Tất cả kênh Zalo cá nhân'
+                    : pageId === 'all_source'
+                    ? 'Tất cả kênh Nguồn Lead'
+                    : pageId}
+                </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-500">Đối tượng gửi:</span>
                 <span className="font-semibold text-gray-800">
-                  {isCustomListApplied || (hasPreviewed && previewRecipients.length > 0 && previewRecipients.length !== originalRecipients.length)
+                  {isCustomListApplied ||
+                  (hasPreviewed &&
+                    previewRecipients.length > 0 &&
+                    previewRecipients.length !== originalRecipients.length)
                     ? `Danh sách Custom (${previewRecipients.length} khách đã chọn)`
                     : `${hasPreviewed ? previewRecipients.length : limit} khách hàng`}
                 </span>
               </div>
               <div className="flex justify-between">
-                <span className="text-gray-500">Tốc độ gửi:</span>
-                <span className="font-semibold text-gray-800">{delay} giây/tin (An toàn &le; 5 req/s)</span>
+                <span className="text-gray-500">Bảo vệ Zalo cá nhân:</span>
+                <span className="font-semibold text-emerald-700">
+                  {zaloProtection
+                    ? `Bật (Nghỉ ${zaloMinDelay}-${zaloMaxDelay}s, giải lao ${zaloBatchPause}s mỗi ${zaloBatchSize} tin)`
+                    : `Tắt (${delay}s/tin)`}
+                </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-500">Chế độ:</span>
