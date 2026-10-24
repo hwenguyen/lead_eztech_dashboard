@@ -180,6 +180,7 @@ class BroadcastStartRequest(BaseModel):
     delay: float = 1.2
     dry_run: bool = True
     exclude_already_sent: bool = True
+    target_conversation_ids: Optional[List[str]] = None
 
 class BroadcastStatusResponse(BaseModel):
     task_id: str
@@ -247,6 +248,12 @@ def _run_broadcast_worker(task_id: str, req_data: Dict[str, Any]):
         dry_run = bool(req_data.get("dry_run", True))
         exclude_already_sent = bool(req_data.get("exclude_already_sent", True))
 
+        target_conv_ids = req_data.get("target_conversation_ids")
+        if target_conv_ids and isinstance(target_conv_ids, list):
+            target_conv_ids = [str(cid).strip() for cid in target_conv_ids if cid and str(cid).strip()]
+        else:
+            target_conv_ids = None
+
         # 1. Truy vấn danh sách khách hàng
         query = db.query(
             DimLead.id.label("lead_id"),
@@ -260,60 +267,90 @@ def _run_broadcast_worker(task_id: str, req_data: Dict[str, Any]):
             FactLeadActivity.assigned_users
         ).join(FactLeadActivity, DimLead.id == FactLeadActivity.lead_id)
 
-        if page_id and page_id.strip() and page_id != "all":
-            clean_pid = page_id.strip()
-            canonical = resolve_canonical_page_name(clean_pid, fallback=clean_pid)
-            query = query.filter(or_(DimLead.page_id == clean_pid, DimLead.page_id == canonical))
-
-        if employee and employee.strip() and employee != "all":
-            query = query.filter(FactLeadActivity.assigned_users.ilike(f"%{employee.strip()}%"))
-
-        if tag_filter and tag_filter.strip() and tag_filter != "all":
-            query = query.filter(FactLeadActivity.status_tag.ilike(f"%{tag_filter.strip()}%"))
-
-        if name_filter and name_filter.strip():
-            query = query.filter(DimLead.name.ilike(f"%{name_filter.strip()}%"))
-
-        if days_ago and days_ago > 0:
-            cutoff = get_vn_now() - timedelta(days=days_ago)
-            query = query.filter(DimLead.first_created_at >= cutoff)
-
-        query = query.order_by(DimLead.first_created_at.desc())
-        raw_rows = query.limit(limit * 3).all()
-
-        # Loại trừ khách đã gửi
-        already_sent_convs = set()
-        if exclude_already_sent and campaign_name:
-            sent_logs = db.query(BotAutoReplyLog.conversation_id).filter(
-                BotAutoReplyLog.case_id == campaign_name,
-                BotAutoReplyLog.status == "SENT"
-            ).all()
-            already_sent_convs = {str(r[0]) for r in sent_logs if r[0]}
-
         recipients = []
-        for r in raw_rows:
-            conv_id = str(r.conversation_id) if r.conversation_id else None
-            if not conv_id or (exclude_already_sent and conv_id in already_sent_convs):
-                continue
 
-            inferred_gen = infer_vietnamese_gender(r.name)
-            if gender_filter and gender_filter != "all" and inferred_gen != gender_filter:
-                continue
+        if target_conv_ids:
+            # Chế độ gửi theo danh sách tùy chỉnh (Custom recipient list do user chọn/áp dụng)
+            query = query.filter(FactLeadActivity.conversation_id.in_(target_conv_ids))
+            raw_rows = query.all()
 
-            recipients.append({
-                "lead_id": r.lead_id,
-                "customer_id": r.customer_id,
-                "conversation_id": conv_id,
-                "name": r.name or "",
-                "gender": inferred_gen,
-                "phone_number": r.phone_number or "",
-                "page_id": str(r.page_id),
-                "status_tag": r.status_tag or "",
-                "assigned_users": r.assigned_users or ""
-            })
+            row_by_conv = {}
+            for r in raw_rows:
+                cid = str(r.conversation_id) if r.conversation_id else None
+                if cid and cid not in row_by_conv:
+                    row_by_conv[cid] = r
 
-            if len(recipients) >= limit:
-                break
+            for cid in target_conv_ids:
+                r = row_by_conv.get(cid)
+                if not r:
+                    continue
+                inferred_gen = infer_vietnamese_gender(r.name)
+                recipients.append({
+                    "lead_id": r.lead_id,
+                    "customer_id": r.customer_id,
+                    "conversation_id": cid,
+                    "name": r.name or "",
+                    "gender": inferred_gen,
+                    "phone_number": r.phone_number or "",
+                    "page_id": str(r.page_id),
+                    "status_tag": r.status_tag or "",
+                    "assigned_users": r.assigned_users or ""
+                })
+        else:
+            # Chế độ tự động lọc theo bộ lọc thông thường
+            if page_id and page_id.strip() and page_id != "all":
+                clean_pid = page_id.strip()
+                canonical = resolve_canonical_page_name(clean_pid, fallback=clean_pid)
+                query = query.filter(or_(DimLead.page_id == clean_pid, DimLead.page_id == canonical))
+
+            if employee and employee.strip() and employee != "all":
+                query = query.filter(FactLeadActivity.assigned_users.ilike(f"%{employee.strip()}%"))
+
+            if tag_filter and tag_filter.strip() and tag_filter != "all":
+                query = query.filter(FactLeadActivity.status_tag.ilike(f"%{tag_filter.strip()}%"))
+
+            if name_filter and name_filter.strip():
+                query = query.filter(DimLead.name.ilike(f"%{name_filter.strip()}%"))
+
+            if days_ago and days_ago > 0:
+                cutoff = get_vn_now() - timedelta(days=days_ago)
+                query = query.filter(DimLead.first_created_at >= cutoff)
+
+            query = query.order_by(DimLead.first_created_at.desc())
+            raw_rows = query.limit(limit * 3).all()
+
+            # Loại trừ khách đã gửi
+            already_sent_convs = set()
+            if exclude_already_sent and campaign_name:
+                sent_logs = db.query(BotAutoReplyLog.conversation_id).filter(
+                    BotAutoReplyLog.case_id == campaign_name,
+                    BotAutoReplyLog.status == "SENT"
+                ).all()
+                already_sent_convs = {str(r[0]) for r in sent_logs if r[0]}
+
+            for r in raw_rows:
+                conv_id = str(r.conversation_id) if r.conversation_id else None
+                if not conv_id or (exclude_already_sent and conv_id in already_sent_convs):
+                    continue
+
+                inferred_gen = infer_vietnamese_gender(r.name)
+                if gender_filter and gender_filter != "all" and inferred_gen != gender_filter:
+                    continue
+
+                recipients.append({
+                    "lead_id": r.lead_id,
+                    "customer_id": r.customer_id,
+                    "conversation_id": conv_id,
+                    "name": r.name or "",
+                    "gender": inferred_gen,
+                    "phone_number": r.phone_number or "",
+                    "page_id": str(r.page_id),
+                    "status_tag": r.status_tag or "",
+                    "assigned_users": r.assigned_users or ""
+                })
+
+                if len(recipients) >= limit:
+                    break
 
         with _BROADCAST_LOCK:
             if task_id in _BROADCAST_TASKS:

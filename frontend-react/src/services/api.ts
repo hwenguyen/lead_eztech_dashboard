@@ -337,6 +337,7 @@ export interface BroadcastStartParams {
   delay: number;
   dry_run: boolean;
   exclude_already_sent: boolean;
+  target_conversation_ids?: string[];
 }
 
 export interface BroadcastStatusResponse {

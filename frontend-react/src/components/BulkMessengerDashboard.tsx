@@ -17,7 +17,10 @@ import {
   Clock,
   Sparkles,
   Info,
-  ShieldAlert
+  ShieldAlert,
+  Trash2,
+  RotateCcw,
+  Check
 } from 'lucide-react';
 import {
   fetchBroadcastOptions,
@@ -60,11 +63,71 @@ export const BulkMessengerDashboard: React.FC = () => {
   );
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Preview State
+  // Preview State & Custom Recipient Management
+  const [originalRecipients, setOriginalRecipients] = useState<BroadcastRecipientItem[]>([]);
   const [previewRecipients, setPreviewRecipients] = useState<BroadcastRecipientItem[]>([]);
+  const [selectedConvIds, setSelectedConvIds] = useState<Set<string>>(new Set());
+  const [isCustomListApplied, setIsCustomListApplied] = useState<boolean>(false);
   const [totalMatching, setTotalMatching] = useState<number>(0);
   const [loadingPreview, setLoadingPreview] = useState<boolean>(false);
   const [hasPreviewed, setHasPreviewed] = useState<boolean>(false);
+
+  // Xóa 1 khách khỏi danh sách xem trước
+  const handleRemoveSingleRecipient = (convId: string) => {
+    setPreviewRecipients(prev => prev.filter(r => r.conversation_id !== convId));
+    setSelectedConvIds(prev => {
+      const next = new Set(prev);
+      next.delete(convId);
+      return next;
+    });
+    setIsCustomListApplied(false);
+  };
+
+  // Chọn / bỏ chọn 1 khách bằng checkbox
+  const handleToggleSelectRecipient = (convId: string) => {
+    setSelectedConvIds(prev => {
+      const next = new Set(prev);
+      if (next.has(convId)) {
+        next.delete(convId);
+      } else {
+        next.add(convId);
+      }
+      return next;
+    });
+  };
+
+  // Chọn tất cả / Bỏ chọn tất cả
+  const handleToggleSelectAll = () => {
+    if (selectedConvIds.size === previewRecipients.length && previewRecipients.length > 0) {
+      setSelectedConvIds(new Set());
+    } else {
+      setSelectedConvIds(new Set(previewRecipients.map(r => r.conversation_id)));
+    }
+  };
+
+  // Xóa hàng loạt các khách đã chọn
+  const handleRemoveSelectedRecipients = () => {
+    if (selectedConvIds.size === 0) return;
+    setPreviewRecipients(prev => prev.filter(r => !selectedConvIds.has(r.conversation_id)));
+    setSelectedConvIds(new Set());
+    setIsCustomListApplied(false);
+  };
+
+  // Áp dụng danh sách custom
+  const handleApplyCustomList = () => {
+    if (previewRecipients.length === 0) {
+      alert('Danh sách đang trống, không thể áp dụng.');
+      return;
+    }
+    setIsCustomListApplied(true);
+  };
+
+  // Khôi phục danh sách gốc ban đầu
+  const handleRestoreOriginalRecipients = () => {
+    setPreviewRecipients([...originalRecipients]);
+    setSelectedConvIds(new Set());
+    setIsCustomListApplied(false);
+  };
 
   // Active Broadcast Execution State
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
@@ -161,7 +224,10 @@ export const BulkMessengerDashboard: React.FC = () => {
         exclude_already_sent: excludeAlreadySent,
         campaign_name: campaignName
       });
+      setOriginalRecipients(res.recipients);
       setPreviewRecipients(res.recipients);
+      setSelectedConvIds(new Set());
+      setIsCustomListApplied(false);
       setTotalMatching(res.total_matching);
       setHasPreviewed(true);
     } catch (err) {
@@ -177,6 +243,12 @@ export const BulkMessengerDashboard: React.FC = () => {
     setShowConfirmModal(false);
     setIsStarting(true);
     try {
+      // Nếu có danh sách custom (đã áp dụng hoặc đã chỉnh sửa xóa bớt khách), ưu tiên truyền target_conversation_ids
+      const isCustomMode = isCustomListApplied || (hasPreviewed && previewRecipients.length > 0 && previewRecipients.length !== originalRecipients.length);
+      const targetConvIds = isCustomMode || (hasPreviewed && previewRecipients.length > 0)
+        ? previewRecipients.map(r => r.conversation_id)
+        : undefined;
+
       const res = await startBroadcast({
         campaign_name: campaignName,
         template: template,
@@ -186,10 +258,11 @@ export const BulkMessengerDashboard: React.FC = () => {
         gender: gender,
         tag: tag,
         days_ago: daysAgo,
-        limit: limit,
+        limit: targetConvIds ? targetConvIds.length : limit,
         delay: delay,
         dry_run: dryRun,
-        exclude_already_sent: excludeAlreadySent
+        exclude_already_sent: excludeAlreadySent,
+        target_conversation_ids: targetConvIds
       });
       setActiveTaskId(res.task_id);
     } catch (err: any) {
@@ -664,89 +737,210 @@ export const BulkMessengerDashboard: React.FC = () => {
           {/* BẢNG XEM TRƯỚC DANH SÁCH (PREVIEW TABLE) */}
           {hasPreviewed && (
             <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 shadow-sm space-y-4">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                 <div>
-                  <h3 className="text-sm font-bold text-navy flex items-center gap-2">
+                  <h3 className="text-sm font-bold text-navy flex items-center gap-2 flex-wrap">
                     <Users className="w-4 h-4 text-indigo-600" />
-                    Danh sách người nhận thỏa mãn ({previewRecipients.length}/{totalMatching} khách hàng)
+                    <span>Danh sách người nhận ({previewRecipients.length}/{totalMatching} khách)</span>
+                    {isCustomListApplied ? (
+                      <span className="px-2 py-0.5 text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-300 rounded-full flex items-center gap-1">
+                        <Check className="w-3 h-3 text-emerald-600" /> Danh sách custom đã áp dụng
+                      </span>
+                    ) : previewRecipients.length !== originalRecipients.length ? (
+                      <span className="px-2 py-0.5 text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-300 rounded-full">
+                        Đã loại {originalRecipients.length - previewRecipients.length} khách (Chưa bấm Áp dụng)
+                      </span>
+                    ) : null}
                   </h3>
-                  <p className="text-xs text-[#4B5563]">
-                    Kiểm tra nội dung tin nhắn cá nhân hóa trước khi chạy chiến dịch.
+                  <p className="text-xs text-[#4B5563] mt-0.5">
+                    Tick chọn và bấm "Xóa" hoặc bấm biểu tượng thùng rác ở từng khách để loại trừ, sau đó bấm "Áp dụng" để tạo danh sách custom.
                   </p>
                 </div>
+
+                {/* Toolbar các nút tùy biến danh sách */}
+                <div className="flex items-center gap-2 flex-wrap self-end sm:self-auto">
+                  {selectedConvIds.size > 0 && (
+                    <button
+                      type="button"
+                      onClick={handleRemoveSelectedRecipients}
+                      className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-sm"
+                      title="Xóa các khách đang tick chọn khỏi danh sách gửi"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Xóa {selectedConvIds.size} khách</span>
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={handleApplyCustomList}
+                    className={`px-3.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all ${
+                      isCustomListApplied
+                        ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                        : 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                    }`}
+                    title="Khóa và áp dụng danh sách khách hàng này cho lần gửi bot"
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    <span>{isCustomListApplied ? `Đã Áp Dụng (${previewRecipients.length} khách)` : `Áp Dụng Danh Sách Custom (${previewRecipients.length})`}</span>
+                  </button>
+
+                  {previewRecipients.length !== originalRecipients.length && (
+                    <button
+                      type="button"
+                      onClick={handleRestoreOriginalRecipients}
+                      className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors border border-gray-200"
+                      title="Khôi phục lại toàn bộ danh sách ban đầu từ bộ lọc"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5 text-gray-500" />
+                      <span>Khôi phục gốc ({originalRecipients.length})</span>
+                    </button>
+                  )}
+                </div>
               </div>
+
+              {/* Banner thông báo khi danh sách custom được áp dụng */}
+              {isCustomListApplied && (
+                <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-emerald-900">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                    <span>
+                      <strong>Đã áp dụng danh sách custom ({previewRecipients.length} khách):</strong> Hệ thống sẽ gửi tin nhắn đến chính xác {previewRecipients.length} khách hàng này (Đã loại trừ {originalRecipients.length - previewRecipients.length} khách khỏi danh sách gốc).
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmModal(true)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold text-white flex items-center justify-center gap-1.5 shadow-sm transition-all flex-shrink-0 ${
+                      dryRun ? 'bg-blue-600 hover:bg-blue-700' : 'bg-red-600 hover:bg-red-700'
+                    }`}
+                  >
+                    <Play className="w-3 h-3" />
+                    <span>{dryRun ? `Mô phỏng ${previewRecipients.length} khách` : `Gửi thật ${previewRecipients.length} khách`}</span>
+                  </button>
+                </div>
+              )}
 
               {previewRecipients.length === 0 ? (
                 <div className="text-center py-10 bg-gray-50 rounded-xl">
                   <AlertTriangle className="w-8 h-8 text-amber-500 mx-auto mb-2" />
                   <p className="text-xs text-gray-600 font-semibold">
-                    Không tìm thấy khách hàng nào khớp với các điều kiện lọc trên.
+                    {originalRecipients.length > 0
+                      ? 'Bạn đã xóa hết tất cả khách hàng trong danh sách xem trước.'
+                      : 'Không tìm thấy khách hàng nào khớp với các điều kiện lọc trên.'}
                   </p>
-                  <p className="text-[11px] text-gray-400 mt-1">
-                    Hãy thử nới lỏng bộ lọc: mở rộng thời gian, chọn Tất cả kênh hoặc bỏ bớt thẻ tags.
-                  </p>
+                  {originalRecipients.length > 0 ? (
+                    <button
+                      type="button"
+                      onClick={handleRestoreOriginalRecipients}
+                      className="mt-3 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 transition-colors"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span>Khôi phục lại {originalRecipients.length} khách ban đầu</span>
+                    </button>
+                  ) : (
+                    <p className="text-[11px] text-gray-400 mt-1">
+                      Hãy thử nới lỏng bộ lọc: mở rộng thời gian, chọn Tất cả kênh hoặc bỏ bớt thẻ tags.
+                    </p>
+                  )}
                 </div>
               ) : (
                 <div className="overflow-x-auto border border-gray-200 rounded-xl">
                   <table className="w-full text-left text-xs">
                     <thead className="bg-gray-50 text-gray-600 border-b border-gray-200">
                       <tr>
-                        <th className="py-2.5 px-3 font-semibold">STT</th>
+                        <th className="py-2.5 px-3 text-center w-10">
+                          <input
+                            type="checkbox"
+                            checked={previewRecipients.length > 0 && selectedConvIds.size === previewRecipients.length}
+                            onChange={handleToggleSelectAll}
+                            className="rounded text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5 cursor-pointer"
+                            title="Chọn tất cả / Bỏ chọn tất cả"
+                          />
+                        </th>
+                        <th className="py-2.5 px-2 font-semibold text-center w-12">STT</th>
                         <th className="py-2.5 px-3 font-semibold">Khách hàng</th>
                         <th className="py-2.5 px-3 font-semibold">Giới tính</th>
                         <th className="py-2.5 px-3 font-semibold">Kênh / Page</th>
                         <th className="py-2.5 px-3 font-semibold">Tags</th>
                         <th className="py-2.5 px-3 font-semibold">Nội dung tin nhắn gửi đi</th>
                         <th className="py-2.5 px-3 font-semibold text-center">Hội thoại</th>
+                        <th className="py-2.5 px-3 font-semibold text-center w-16">Xóa</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
-                      {previewRecipients.map((r, idx) => (
-                        <tr key={r.conversation_id} className="hover:bg-blue-50/30 transition-colors">
-                          <td className="py-2 px-3 text-gray-400 font-mono">{idx + 1}</td>
-                          <td className="py-2 px-3">
-                            <span className="font-semibold text-navy">{r.name}</span>
-                            {r.phone_number && (
-                              <span className="block text-[11px] text-gray-500">{r.phone_number}</span>
-                            )}
-                          </td>
-                          <td className="py-2 px-3">
-                            <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
-                              r.gender === 'female'
-                                ? 'bg-pink-100 text-pink-700'
-                                : r.gender === 'male'
-                                ? 'bg-blue-100 text-blue-700'
-                                : 'bg-gray-100 text-gray-600'
-                            }`}>
-                              {r.gender === 'female' ? 'Nữ (Chị)' : r.gender === 'male' ? 'Nam (Anh)' : 'Chưa rõ'}
-                            </span>
-                          </td>
-                          <td className="py-2 px-3 text-gray-600">{r.page_id}</td>
-                          <td className="py-2 px-3">
-                            <span className="px-2 py-0.5 bg-gray-100 text-gray-700 rounded text-[10px]">
-                              {r.status_tag || 'Chưa gắn tag'}
-                            </span>
-                          </td>
-                          <td className="py-2 px-3 text-gray-800 max-w-md truncate" title={r.rendered_message}>
-                            {r.rendered_message}
-                          </td>
-                          <td className="py-2 px-3 text-center">
-                            {r.pancake_url ? (
-                              <a
-                                href={r.pancake_url}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="inline-flex items-center gap-1 text-[11px] text-blue-600 hover:text-blue-800"
+                      {previewRecipients.map((r, idx) => {
+                        const isSelected = selectedConvIds.has(r.conversation_id);
+                        return (
+                          <tr
+                            key={r.conversation_id}
+                            className={`transition-colors ${
+                              isSelected ? 'bg-indigo-50/50' : 'hover:bg-blue-50/30'
+                            }`}
+                          >
+                            <td className="py-2 px-3 text-center">
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={() => handleToggleSelectRecipient(r.conversation_id)}
+                                className="rounded text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5 cursor-pointer"
+                              />
+                            </td>
+                            <td className="py-2 px-2 text-gray-400 font-mono text-center">{idx + 1}</td>
+                            <td className="py-2 px-3">
+                              <span className="font-semibold text-navy">{r.name}</span>
+                              {r.phone_number && (
+                                <span className="block text-[11px] text-gray-500">{r.phone_number}</span>
+                              )}
+                            </td>
+                            <td className="py-2 px-3">
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
+                                r.gender === 'female'
+                                  ? 'bg-pink-100 text-pink-700'
+                                  : r.gender === 'male'
+                                  ? 'bg-blue-100 text-blue-700'
+                                  : 'bg-gray-100 text-gray-600'
+                              }`}>
+                                {r.gender === 'female' ? 'Nữ (Chị)' : r.gender === 'male' ? 'Nam (Anh)' : 'Chưa rõ'}
+                              </span>
+                            </td>
+                            <td className="py-2 px-3 text-gray-600">{r.page_id}</td>
+                            <td className="py-2 px-3">
+                              <span className="px-2 py-0.5 bg-gray-100 text-gray-700 rounded text-[10px]">
+                                {r.status_tag || 'Chưa gắn tag'}
+                              </span>
+                            </td>
+                            <td className="py-2 px-3 text-gray-800 max-w-md truncate" title={r.rendered_message}>
+                              {r.rendered_message}
+                            </td>
+                            <td className="py-2 px-3 text-center">
+                              {r.pancake_url ? (
+                                <a
+                                  href={r.pancake_url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="inline-flex items-center gap-1 text-[11px] text-blue-600 hover:text-blue-800"
+                                >
+                                  <span>Mở</span>
+                                  <ExternalLink className="w-3 h-3" />
+                                </a>
+                              ) : (
+                                <span className="text-gray-300">-</span>
+                              )}
+                            </td>
+                            <td className="py-2 px-3 text-center">
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveSingleRecipient(r.conversation_id)}
+                                className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                                title="Xóa khách này khỏi danh sách gửi"
                               >
-                                <span>Mở</span>
-                                <ExternalLink className="w-3 h-3" />
-                              </a>
-                            ) : (
-                              <span className="text-gray-300">-</span>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -992,8 +1186,12 @@ export const BulkMessengerDashboard: React.FC = () => {
                 <span className="font-semibold text-gray-800">{pageId === 'all' ? 'Tất cả kênh' : pageId}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-gray-500">Giới hạn số lượng:</span>
-                <span className="font-semibold text-gray-800">{limit} khách hàng</span>
+                <span className="text-gray-500">Đối tượng gửi:</span>
+                <span className="font-semibold text-gray-800">
+                  {isCustomListApplied || (hasPreviewed && previewRecipients.length > 0 && previewRecipients.length !== originalRecipients.length)
+                    ? `Danh sách Custom (${previewRecipients.length} khách đã chọn)`
+                    : `${hasPreviewed ? previewRecipients.length : limit} khách hàng`}
+                </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-500">Tốc độ gửi:</span>
