@@ -58,7 +58,7 @@ class PancakeClient:
         self.base_url = "https://pages.fm/api/v1"
         self.session = create_http_session()
 
-    def _get_page_access_token(self, page_id_or_name: str, conversation_id: Optional[str] = None) -> tuple:
+    def _get_page_access_token(self, page_id_or_name: str, conversation_id: Optional[str] = None, force_refresh: bool = False) -> tuple:
         """
         Lấy page_access_token và page_id chính xác.
         Hỗ trợ cả User Access Token (tự sinh page_access_token) và Page Access Token truyền trực tiếp.
@@ -70,6 +70,8 @@ class PancakeClient:
         if resolved_page_name == resolved_page_id and is_page_id(resolved_page_id):
             resolved_page_name = None
 
+        master_user_token = os.getenv("PANCAKE_API_TOKEN") or DEFAULT_FALLBACK_PANCAKE_TOKEN
+
         # Nếu self.api_token chưa được truyền lúc khởi tạo, tự động tra cứu từ cấu hình hệ thống / DB theo từng Page
         active_token = self.api_token
         if not active_token:
@@ -80,16 +82,21 @@ class PancakeClient:
                 logger.debug(f"Không thể tra cứu get_token_for_page: {e}")
 
         if not active_token:
+            active_token = master_user_token
+
+        if not active_token:
             logger.error(f"Không có PANCAKE_API_TOKEN để kết nối Pancake API cho Page '{page_id_or_name}' (resolved: '{resolved_page_id}').")
             return None, resolved_page_id, resolved_page_name
 
         cache_key = f"{active_token[:16]}:{resolved_page_id}"
         now_ts = time.time()
         with _TOKEN_CACHE_LOCK:
-            if cache_key in _PAGE_TOKEN_CACHE:
+            if not force_refresh and cache_key in _PAGE_TOKEN_CACHE:
                 ts, cached_ptoken, cached_pid, cached_pname = _PAGE_TOKEN_CACHE[cache_key]
                 if now_ts - ts < _PAGE_TOKEN_TTL and cached_ptoken:
                     return cached_ptoken, cached_pid, cached_pname
+            elif force_refresh and cache_key in _PAGE_TOKEN_CACHE:
+                _PAGE_TOKEN_CACHE.pop(cache_key, None)
 
         headers = {
             "Authorization": f"Bearer {active_token}",
@@ -130,22 +137,27 @@ class PancakeClient:
 
         # 3. Thử tạo page_access_token qua User Access Token với các biến thể ID (có prefix và không prefix)
         candidate_ids = get_candidate_api_page_ids(resolved_page_id, conversation_id) or [resolved_page_id]
-        for cand_id in candidate_ids:
-            try:
-                res_token = self.session.post(
-                    f"{self.base_url}/pages/{cand_id}/generate_page_access_token",
-                    params={"access_token": active_token},
-                    timeout=15
-                )
-                if res_token.status_code == 200:
-                    token_data = res_token.json()
-                    if token_data.get("success") and token_data.get("page_access_token"):
-                        ptoken = token_data["page_access_token"]
-                        with _TOKEN_CACHE_LOCK:
-                            _PAGE_TOKEN_CACHE[cache_key] = (now_ts, ptoken, cand_id, resolved_page_name)
-                        return ptoken, cand_id, resolved_page_name
-            except Exception as e:
-                logger.debug(f"Lỗi khi gọi generate_page_access_token cho {cand_id}: {e}")
+        tokens_to_try = [active_token]
+        if master_user_token and master_user_token != active_token:
+            tokens_to_try.append(master_user_token)
+
+        for u_tok in tokens_to_try:
+            for cand_id in candidate_ids:
+                try:
+                    res_token = self.session.post(
+                        f"{self.base_url}/pages/{cand_id}/generate_page_access_token",
+                        params={"access_token": u_tok},
+                        timeout=15
+                    )
+                    if res_token.status_code == 200:
+                        token_data = res_token.json()
+                        if token_data.get("success") and token_data.get("page_access_token"):
+                            ptoken = token_data["page_access_token"]
+                            with _TOKEN_CACHE_LOCK:
+                                _PAGE_TOKEN_CACHE[cache_key] = (now_ts, ptoken, cand_id, resolved_page_name)
+                            return ptoken, cand_id, resolved_page_name
+                except Exception as e:
+                    logger.debug(f"Lỗi khi gọi generate_page_access_token cho {cand_id}: {e}")
 
         # 4. Fallback: Bản thân active_token chính là Page Access Token của Page đó
         resolved_page_name = resolved_page_name or resolve_canonical_page_name(resolved_page_id, fallback=None)
@@ -1105,6 +1117,17 @@ class PancakeClient:
                         err_str = " | ".join(details) if details else "Sending message failed"
                         last_error = err_str
                         last_resp_data = data
+
+                        # Nếu token bị lỗi (hết hạn, đổi token, error 102/190/access_token renewed), tự động xin token mới và thử lại
+                        if attempt < max_retries and any(
+                            k in err_str.lower() for k in ("invalid access_token", "access_token renewed", "102", "190")
+                        ):
+                            logger.info(f"[PANCAKE API] Token không hợp lệ ({err_str}). Đang tự động làm mới token cho Page '{cand_pid}'...")
+                            fresh_ptoken, _, _ = self._get_page_access_token(cand_pid, conversation_id=conversation_id, force_refresh=True)
+                            if fresh_ptoken and fresh_ptoken != params.get("page_access_token"):
+                                params["page_access_token"] = fresh_ptoken
+                                time.sleep(1.0)
+                                continue
 
                         # Nếu lỗi do sai định dạng Page ID (vd cần pzl_ hoặc token không khớp), thử candidate_page_id tiếp theo
                         if pid_idx + 1 < len(candidate_page_ids) and any(
