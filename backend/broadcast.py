@@ -20,7 +20,8 @@ import logging
 import threading
 import unicodedata
 from datetime import datetime, timedelta
-from typing import List, Dict, Any, Optional, Tuple, Set
+from typing import List, Dict, Any, Optional, Tuple, Set, Iterable
+from collections import defaultdict
 
 from fastapi import APIRouter, Depends, Query, HTTPException, BackgroundTasks
 from pydantic import BaseModel, Field
@@ -224,7 +225,9 @@ class BroadcastOptionsResponse(BaseModel):
     source_pages: List[str]
     zalo_pages: List[str]
     employees: List[str]
+    employees_by_page: Dict[str, List[str]] = Field(default_factory=dict)
     tags: List[str]
+    tags_by_page: Dict[str, List[str]] = Field(default_factory=dict)
     gender_options: List[Dict[str, str]]
     has_token_configured: bool = False
     configured_pages_count: int = 0
@@ -887,8 +890,11 @@ def _run_broadcast_worker(task_id: str, req_data: Dict[str, Any]):
 # ==============================================================================
 
 @router.get("/options", response_model=BroadcastOptionsResponse)
-def get_broadcast_options(db: Session = Depends(get_db)):
-    """Lấy danh sách Kênh (tách rõ Nguồn & Zalo), Nhân viên, Tags, Giới tính và trạng thái Token."""
+def get_broadcast_options(
+    page_id: Optional[str] = Query(None, description="Lọc danh sách thẻ và nhân viên theo Kênh cụ thể"),
+    db: Session = Depends(get_db)
+):
+    """Lấy danh sách Kênh (tách rõ Nguồn & Zalo), Nhân viên, Tags (phân tách theo Kênh), Giới tính và trạng thái Token."""
     # 1. Danh sách Pages
     page_results = db.query(DimLead.page_id).distinct().all()
     pages_set: Set[str] = set()
@@ -904,35 +910,116 @@ def get_broadcast_options(db: Session = Depends(get_db)):
     zalo_pages = sorted([p for p in sorted_pages if p in ZALO_PAGE_NAMES])
     source_pages = sorted([p for p in sorted_pages if p not in ZALO_PAGE_NAMES])
 
-    # 2. Danh sách Nhân viên
-    emp_results = db.query(FactLeadActivity.assigned_users).filter(
-        ~FactLeadActivity.conversation_id.like("pzl_g_%")
+    # 2. Danh sách Nhân viên (toàn bộ & phân bổ theo Kênh)
+    emp_rows = db.query(
+        DimLead.page_id,
+        FactLeadActivity.conversation_id,
+        FactLeadActivity.assigned_users
+    ).join(FactLeadActivity, DimLead.id == FactLeadActivity.lead_id).filter(
+        ~FactLeadActivity.conversation_id.like("pzl_g_%"),
+        FactLeadActivity.assigned_users.isnot(None),
+        FactLeadActivity.assigned_users != "",
     ).distinct().all()
-    emp_set: Set[str] = set()
-    for (users,) in emp_results:
-        if users:
-            for u in users.split(","):
-                u_clean = u.strip()
-                if u_clean and u_clean != "Chưa phân công":
-                    emp_set.add(u_clean)
-    sorted_employees = ["Chưa phân công"] + sorted(list(emp_set))
 
-    # 3. Danh sách Tags (đưa các tag quan trọng lên đầu)
-    tag_results = db.query(FactLeadActivity.status_tag).filter(
-        ~FactLeadActivity.conversation_id.like("pzl_g_%")
+    emp_map: Dict[str, Set[str]] = defaultdict(set)
+    all_emp_set: Set[str] = set()
+    zalo_emp_set: Set[str] = set()
+    source_emp_set: Set[str] = set()
+
+    for raw_pg, cid, users in emp_rows:
+        if not users:
+            continue
+        c_page = resolve_canonical_page_name(raw_pg, fallback=str(raw_pg or "").strip())
+        is_zalo = is_zalo_channel(raw_pg, cid)
+        api_pid = resolve_api_page_id(raw_pg, cid)
+        if (not c_page or is_page_id(c_page)) and api_pid:
+            c_page = resolve_canonical_page_name(api_pid, fallback=c_page)
+
+        for u in users.split(","):
+            u_clean = u.strip()
+            if u_clean and u_clean != "Chưa phân công":
+                all_emp_set.add(u_clean)
+                if is_zalo:
+                    zalo_emp_set.add(u_clean)
+                else:
+                    source_emp_set.add(u_clean)
+                if c_page:
+                    emp_map[c_page].add(u_clean)
+
+    employees_by_page: Dict[str, List[str]] = {
+        "all": ["Chưa phân công"] + sorted(list(all_emp_set)),
+        "all_zalo": ["Chưa phân công"] + sorted(list(zalo_emp_set)),
+        "all_source": ["Chưa phân công"] + sorted(list(source_emp_set)),
+    }
+    for pg in sorted_pages:
+        employees_by_page[pg] = ["Chưa phân công"] + sorted(list(emp_map.get(pg, set())))
+    sorted_employees = employees_by_page["all"]
+
+    # 3. Danh sách Tags (toàn bộ & phân bổ chính xác theo từng Kênh)
+    tag_rows = db.query(
+        DimLead.page_id,
+        FactLeadActivity.conversation_id,
+        FactLeadActivity.status_tag
+    ).join(FactLeadActivity, DimLead.id == FactLeadActivity.lead_id).filter(
+        ~FactLeadActivity.conversation_id.like("pzl_g_%"),
+        FactLeadActivity.status_tag.isnot(None),
+        FactLeadActivity.status_tag != "",
     ).distinct().all()
-    tag_set: Set[str] = set()
-    for (t_str,) in tag_results:
-        if t_str:
-            for t in t_str.split(","):
-                t_clean = t.strip()
-                if t_clean:
-                    tag_set.add(t_clean)
 
     priority_tags = ["Remind", "Đào tạo", "Lead Other", "Đã add", "Đã là học viên", "Có thông tin", "Quan tâm sâu"]
-    ordered_tags = [pt for pt in priority_tags if pt in tag_set]
-    remaining_tags = sorted([t for t in tag_set if t not in ordered_tags])
-    sorted_tags = ordered_tags + remaining_tags
+
+    def _sort_tags(tags: Iterable[str]) -> List[str]:
+        t_set = set(tags)
+        ordered = [pt for pt in priority_tags if pt in t_set]
+        remaining = sorted([t for t in t_set if t not in ordered])
+        return ordered + remaining
+
+    tags_map: Dict[str, Set[str]] = defaultdict(set)
+    all_tags_set: Set[str] = set()
+    zalo_tags_set: Set[str] = set()
+    source_tags_set: Set[str] = set()
+
+    for raw_pg, cid, t_str in tag_rows:
+        if not t_str:
+            continue
+        c_page = resolve_canonical_page_name(raw_pg, fallback=str(raw_pg or "").strip())
+        is_zalo = is_zalo_channel(raw_pg, cid)
+        api_pid = resolve_api_page_id(raw_pg, cid)
+        if (not c_page or is_page_id(c_page)) and api_pid:
+            c_page = resolve_canonical_page_name(api_pid, fallback=c_page)
+
+        for t in t_str.split(","):
+            t_clean = t.strip()
+            if t_clean:
+                all_tags_set.add(t_clean)
+                if is_zalo:
+                    zalo_tags_set.add(t_clean)
+                else:
+                    source_tags_set.add(t_clean)
+                if c_page:
+                    tags_map[c_page].add(t_clean)
+
+    tags_by_page: Dict[str, List[str]] = {
+        "all": _sort_tags(all_tags_set),
+        "all_zalo": _sort_tags(zalo_tags_set),
+        "all_source": _sort_tags(source_tags_set),
+    }
+    for pg in sorted_pages:
+        tags_by_page[pg] = _sort_tags(tags_map.get(pg, set()))
+
+    # Xác định danh sách tags và nhân viên được chọn (nếu có truyền query page_id)
+    target_pg = (page_id or "all").strip()
+    if target_pg and target_pg in tags_by_page:
+        sorted_tags = tags_by_page[target_pg]
+        selected_employees = employees_by_page.get(target_pg, sorted_employees)
+    else:
+        c_target = resolve_canonical_page_name(target_pg, fallback=None)
+        if c_target and c_target in tags_by_page:
+            sorted_tags = tags_by_page[c_target]
+            selected_employees = employees_by_page.get(c_target, sorted_employees)
+        else:
+            sorted_tags = tags_by_page["all"]
+            selected_employees = sorted_employees
 
     gender_options = [
         {"value": "all", "label": "Tất cả giới tính"},
@@ -950,8 +1037,10 @@ def get_broadcast_options(db: Session = Depends(get_db)):
         pages=sorted_pages,
         source_pages=source_pages,
         zalo_pages=zalo_pages,
-        employees=sorted_employees,
+        employees=selected_employees,
+        employees_by_page=employees_by_page,
         tags=sorted_tags,
+        tags_by_page=tags_by_page,
         gender_options=gender_options,
         has_token_configured=has_tok,
         configured_pages_count=len([p for p in pages_cfg if p.get("token")]) or (7 if def_tok else 0),

@@ -286,7 +286,9 @@ export interface BroadcastOptions {
   source_pages: string[];
   zalo_pages: string[];
   employees: string[];
+  employees_by_page?: Record<string, string[]>;
   tags: string[];
+  tags_by_page?: Record<string, string[]>;
   gender_options: Array<{ value: string; label: string }>;
   has_token_configured?: boolean;
   configured_pages_count?: number;
@@ -424,8 +426,12 @@ export interface BroadcastCampaignSummary {
   status: string;
 }
 
-export const fetchBroadcastOptions = async (): Promise<BroadcastOptions> => {
-  const res = await apiClient.get<BroadcastOptions>('/broadcast/options');
+export const fetchBroadcastOptions = async (pageId?: string): Promise<BroadcastOptions> => {
+  const params: any = {};
+  if (pageId && pageId !== 'all') {
+    params.page_id = pageId;
+  }
+  const res = await apiClient.get<BroadcastOptions>('/broadcast/options', { params });
   return res.data;
 };
 

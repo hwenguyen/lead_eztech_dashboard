@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Send,
   Bot,
@@ -184,11 +184,12 @@ export const BulkMessengerDashboard: React.FC = () => {
   };
 
   // 1. Tải danh sách Options & Token Status
-  const loadOptions = async () => {
+  const loadOptions = async (targetPageId?: string) => {
     setLoadingOptions(true);
     try {
+      const pageToFetch = typeof targetPageId === 'string' ? targetPageId : undefined;
       const [optData, tokData] = await Promise.all([
-        fetchBroadcastOptions(),
+        fetchBroadcastOptions(pageToFetch),
         fetchTokenStatus().catch(() => null)
       ]);
       setOptions(optData);
@@ -199,6 +200,81 @@ export const BulkMessengerDashboard: React.FC = () => {
       setLoadingOptions(false);
     }
   };
+
+  // Danh sách Thẻ phân loại (Tags) được lọc CHỈ trả về các thẻ thuộc Tên Kênh đang chọn
+  const availableTags = useMemo(() => {
+    if (!options) return [];
+    if (options.tags_by_page) {
+      if (options.tags_by_page[pageId]) {
+        return options.tags_by_page[pageId];
+      }
+      const matchedKey = Object.keys(options.tags_by_page).find(
+        (k) => k.toLowerCase() === pageId.toLowerCase()
+      );
+      if (matchedKey && options.tags_by_page[matchedKey]) {
+        return options.tags_by_page[matchedKey];
+      }
+    }
+    if (pageId === 'all') {
+      return options.tags_by_page?.all || options.tags || [];
+    }
+    return options.tags || [];
+  }, [options, pageId]);
+
+  // Danh sách Nhân viên phụ trách được lọc theo Tên Kênh đang chọn
+  const availableEmployees = useMemo(() => {
+    if (!options) return [];
+    if (options.employees_by_page) {
+      if (options.employees_by_page[pageId]) {
+        return options.employees_by_page[pageId];
+      }
+      const matchedKey = Object.keys(options.employees_by_page).find(
+        (k) => k.toLowerCase() === pageId.toLowerCase()
+      );
+      if (matchedKey && options.employees_by_page[matchedKey]) {
+        return options.employees_by_page[matchedKey];
+      }
+    }
+    if (pageId === 'all') {
+      return options.employees_by_page?.all || options.employees || [];
+    }
+    return options.employees || [];
+  }, [options, pageId]);
+
+  // Xử lý khi thay đổi Tên Kênh (tự động reset tag/nhân viên nếu không thuộc kênh mới)
+  const handlePageChange = (newPageId: string) => {
+    setPageId(newPageId);
+    if (tag !== 'all' && tag !== 'no_tag') {
+      const nextTags = options?.tags_by_page?.[newPageId] || [];
+      if (nextTags.length > 0 && !nextTags.includes(tag)) {
+        setTag('all');
+      }
+    }
+    if (employee !== 'all') {
+      const nextEmps = options?.employees_by_page?.[newPageId] || [];
+      if (nextEmps.length > 0 && !nextEmps.includes(employee)) {
+        setEmployee('all');
+      }
+    }
+  };
+
+  // Tự động kiểm tra và reset tag nếu không còn thuộc kênh đang chọn
+  useEffect(() => {
+    if (tag !== 'all' && tag !== 'no_tag') {
+      if (availableTags.length > 0 && !availableTags.includes(tag)) {
+        setTag('all');
+      }
+    }
+  }, [availableTags, tag]);
+
+  // Tự động kiểm tra và reset nhân viên nếu không còn thuộc kênh đang chọn
+  useEffect(() => {
+    if (employee !== 'all') {
+      if (availableEmployees.length > 0 && !availableEmployees.includes(employee)) {
+        setEmployee('all');
+      }
+    }
+  }, [availableEmployees, employee]);
 
   // 2. Tải lịch sử
   const loadHistory = async (camp?: string) => {
@@ -622,7 +698,7 @@ export const BulkMessengerDashboard: React.FC = () => {
                     </h3>
                   </div>
                   <button
-                    onClick={loadOptions}
+                    onClick={() => loadOptions()}
                     disabled={loadingOptions}
                     className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1"
                   >
@@ -653,7 +729,7 @@ export const BulkMessengerDashboard: React.FC = () => {
                     </label>
                     <select
                       value={pageId}
-                      onChange={(e) => setPageId(e.target.value)}
+                      onChange={(e) => handlePageChange(e.target.value)}
                       className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-xs focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all font-medium"
                     >
                       <option value="all">Tất cả các kênh (Fanpage + Zalo)</option>
@@ -682,16 +758,23 @@ export const BulkMessengerDashboard: React.FC = () => {
 
                   {/* 3. Lọc theo Nhân viên phụ trách */}
                   <div>
-                    <label className="block text-xs font-semibold text-gray-700 mb-1">
-                      Nhân viên phụ trách (Sale)
-                    </label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-xs font-semibold text-gray-700">
+                        Nhân viên phụ trách (Sale)
+                      </label>
+                      {pageId !== 'all' && (
+                        <span className="text-[10px] font-medium text-slate-500">
+                          {availableEmployees.length} nhân viên
+                        </span>
+                      )}
+                    </div>
                     <select
                       value={employee}
                       onChange={(e) => setEmployee(e.target.value)}
                       className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-xs focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all"
                     >
-                      <option value="all">Tất cả nhân viên</option>
-                      {options?.employees.map((emp) => (
+                      <option value="all">Tất cả nhân viên ({availableEmployees.length})</option>
+                      {availableEmployees.map((emp) => (
                         <option key={emp} value={emp}>
                           {emp}
                         </option>
@@ -699,23 +782,38 @@ export const BulkMessengerDashboard: React.FC = () => {
                     </select>
                   </div>
 
-                  {/* 4. Lọc theo Thẻ (Tags) */}
+                  {/* 4. Lọc theo Thẻ (Tags - CHỈ trả về các thẻ thuộc Tên Kênh) */}
                   <div>
-                    <label className="block text-xs font-semibold text-gray-700 mb-1">
-                      Thẻ phân loại (Tags)
-                    </label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-xs font-semibold text-gray-700">
+                        Thẻ phân loại (Tags)
+                      </label>
+                      {pageId !== 'all' && (
+                        <span className="text-[10px] font-medium text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded">
+                          Chỉ thẻ thuộc kênh ({availableTags.length})
+                        </span>
+                      )}
+                    </div>
                     <select
                       value={tag}
                       onChange={(e) => setTag(e.target.value)}
-                      className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-xs focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all"
+                      className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-xs focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all font-medium"
                     >
-                      <option value="all">Tất cả thẻ (Tags)</option>
+                      <option value="all">
+                        {pageId !== 'all'
+                          ? `Tất cả thẻ thuộc kênh (${availableTags.length})`
+                          : `Tất cả thẻ (${availableTags.length})`}
+                      </option>
                       <option value="no_tag">Chưa gắn thẻ (Không có tag)</option>
-                      {options?.tags.map((t) => (
-                        <option key={t} value={t}>
-                          {t}
-                        </option>
-                      ))}
+                      {availableTags.length === 0 && pageId !== 'all' ? (
+                        <option disabled value="">(Kênh này chưa có thẻ nào)</option>
+                      ) : (
+                        availableTags.map((t) => (
+                          <option key={t} value={t}>
+                            {t}
+                          </option>
+                        ))
+                      )}
                     </select>
                   </div>
 
