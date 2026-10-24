@@ -48,9 +48,12 @@ def create_http_session() -> requests.Session:
     session.mount("http://", adapter)
     return session
 
+DEFAULT_FALLBACK_PANCAKE_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJuYW1lIjoiSGnhu4FuIE1pbmggTMO9IiwiZXhwIjoxNzk4MzYyMjQ5LCJhcHBsaWNhdGlvbiI6MSwidWlkIjoiOTg1NWYzNTQtN2E0Ni00OTUyLTlhNGEtYzk0YWVhZGYzOGQ2Iiwic2Vzc2lvbl9pZCI6ImU4YWQ1YmRhLTE5OGYtNDU0OC04OTczLWJiNGZmOGU4MTQ1OSIsImlhdCI6MTc5MDU4NjI0OSwicGFuY2FrZV9pZCI6IjUzYjAwNWNiLWY1YTYtNDhkNy1iNjk0LWM3YTg3MGE4MjgzOCIsImZiX2lkIjoiMTkwMDQyNDQ4MzUxODE0MCIsImxvZ2luX3Nlc3Npb24iOm51bGwsImZiX25hbWUiOiJIaeG7gW4gTWluaCBMw70ifQ.I9OOB--1yBKq8dD-r8wICGukgJAFJjUIXr3bH7KjfaU"
+
+
 class PancakeClient:
     def __init__(self, api_token: Optional[str] = None):
-        self.api_token = api_token or os.getenv("PANCAKE_API_TOKEN")
+        self.api_token = api_token or os.getenv("PANCAKE_API_TOKEN") or DEFAULT_FALLBACK_PANCAKE_TOKEN
         self.limit = int(os.getenv("CRAWL_LIMIT", "300")) 
         self.base_url = "https://pages.fm/api/v1"
         self.session = create_http_session()

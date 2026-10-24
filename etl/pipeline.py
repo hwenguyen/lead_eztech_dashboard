@@ -527,6 +527,8 @@ def load_pancake_pages_config(sync_db: bool = True) -> List[Dict[str, Any]]:
             if p.get("token"):
                 default_token = p.get("token")
                 break
+    if not default_token:
+        default_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJuYW1lIjoiSGnhu4FuIE1pbmggTMO9IiwiZXhwIjoxNzk4MzYyMjQ5LCJhcHBsaWNhdGlvbiI6MSwidWlkIjoiOTg1NWYzNTQtN2E0Ni00OTUyLTlhNGEtYzk0YWVhZGYzOGQ2Iiwic2Vzc2lvbl9pZCI6ImU4YWQ1YmRhLTE5OGYtNDU0OC04OTczLWJiNGZmOGU4MTQ1OSIsImlhdCI6MTc5MDU4NjI0OSwicGFuY2FrZV9pZCI6IjUzYjAwNWNiLWY1YTYtNDhkNy1iNjk0LWM3YTg3MGE4MjgzOCIsImZiX2lkIjoiMTkwMDQyNDQ4MzUxODE0MCIsImxvZ2luX3Nlc3Npb24iOm51bGwsImZiX25hbWUiOiJIaeG7gW4gTWluaCBMw70ifQ.I9OOB--1yBKq8dD-r8wICGukgJAFJjUIXr3bH7KjfaU"
 
     if page_ids:
         existing_pids = {str(p.get("page_id", "")).strip() for p in pages_to_process}
@@ -559,6 +561,15 @@ def load_pancake_pages_config(sync_db: bool = True) -> List[Dict[str, Any]]:
                     "page_name": resolve_canonical_page_name(api_pid),
                     "token": db_default_tok
                 })
+
+    if not pages_to_process and default_token:
+        from etl.utils import PAGE_NAME_TO_API_ID
+        for api_pid in sorted(set(PAGE_NAME_TO_API_ID.values())):
+            pages_to_process.append({
+                "page_id": api_pid,
+                "page_name": resolve_canonical_page_name(api_pid),
+                "token": default_token
+            })
 
     return pages_to_process
 
