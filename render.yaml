@@ -21,7 +21,7 @@ services:
 
   # 3. React Frontend (Mới)
   - type: web
-    name: pancake-eztech-dashboard
+    name: pancake-react-dashboard
     env: static
     buildCommand: cd frontend-react && npm install && npm run build
     staticPublishPath: frontend-react/dist
