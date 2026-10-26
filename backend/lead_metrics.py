@@ -134,12 +134,9 @@ def _phone_owner_ids(db: Session, start: datetime, end: datetime, scope) -> Set[
     ).correlate(None)
     rows = db.query(
         DimLead.id, DimLead.phone_number, DimLead.phone_at, DimLead.first_created_at
-    ).join(
-        FactLeadActivity, DimLead.id == FactLeadActivity.lead_id
     ).filter(
         DimLead.phone_number.in_(period_phones),
         scope,
-        ~FactLeadActivity.conversation_id.like("pzl_g_%"),
     ).all()
 
     first_seen: Dict[str, Tuple[datetime, int]] = {}

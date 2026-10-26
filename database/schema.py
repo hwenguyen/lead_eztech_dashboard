@@ -1,11 +1,16 @@
 """Đồng bộ schema DB: tạo bảng, thêm cột và index còn thiếu cho bảng đã tồn tại (create_all không tự làm việc này)."""
+import os
 import logging
 import time
+import threading
 from sqlalchemy import inspect, text
 from database.db import engine, Base
 import database.models  # noqa: F401 - đăng ký model vào Base.metadata
 
 logger = logging.getLogger(__name__)
+
+_SCHEMA_ENSURED = False
+_SCHEMA_LOCK = threading.Lock()
 
 INDEX_DDL = [
     "CREATE INDEX IF NOT EXISTS ix_deal_wins_timestamp ON deal_wins (timestamp)",
@@ -68,21 +73,38 @@ def _add_missing_columns():
         logger.info("Đã cập nhật các cột mới vào database schema.")
 
 
-def ensure_schema(retries: int = 5):
-    """Gọi khi khởi động Backend và đầu mỗi lần chạy ETL. Thiếu cột thì raise để không chạy nửa vời."""
-    Base.metadata.create_all(bind=engine)
+def ensure_schema(retries: int = 5, force: bool = False):
+    """Gọi khi khởi động Backend và đầu mỗi lần chạy ETL. Thiếu cột thì raise để không chạy nửa vời.
+    Ghi nhớ _SCHEMA_ENSURED trong tiến trình để không chạy lại 18 câu DDL lặp đi lặp lại tốn băng thông Neon."""
+    global _SCHEMA_ENSURED
 
-    for attempt in range(1, retries + 1):
+    if _SCHEMA_ENSURED and not force:
+        return
+
+    with _SCHEMA_LOCK:
+        if _SCHEMA_ENSURED and not force:
+            return
+
+        if os.getenv("SKIP_ENSURE_SCHEMA", "").strip().lower() in ("true", "1", "yes"):
+            _SCHEMA_ENSURED = True
+            logger.info("Bỏ qua ensure_schema do SKIP_ENSURE_SCHEMA=true.")
+            return
+
+        Base.metadata.create_all(bind=engine)
+
+        for attempt in range(1, retries + 1):
+            try:
+                _add_missing_columns()
+                break
+            except Exception as e:
+                if attempt == retries:
+                    raise
+                logger.warning(f"Chưa thêm được cột (lần {attempt}/{retries}): {e}")
+                time.sleep(5)
+
         try:
-            _add_missing_columns()
-            break
+            _run_ddl(INDEX_DDL)
         except Exception as e:
-            if attempt == retries:
-                raise
-            logger.warning(f"Chưa thêm được cột (lần {attempt}/{retries}): {e}")
-            time.sleep(5)
+            logger.error(f"Create index error: {e}")
 
-    try:
-        _run_ddl(INDEX_DDL)
-    except Exception as e:
-        logger.error(f"Create index error: {e}")
+        _SCHEMA_ENSURED = True

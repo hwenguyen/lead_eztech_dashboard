@@ -21,6 +21,19 @@ FastAPI backend (`backend/`) + React frontend (`frontend-react/`) trên Render (
 
 ## Session
 
+### 2026-10-26 — Tối ưu triệt để Network Transfer Egress (Neon DB 3.35/5 GB)
+- **Truy vấn định danh khách cũ (`etl/auto_reply_bot.py`)**: Thay thế `get_existing_inbox_customer_ids` (trước đó quét sequential `raw_conversations` và kéo 3.461 IDs/lần, tạo 1.835 câu query trả về 3,1 triệu dòng ~367 MB) bằng hàm `customer_has_prior_interaction` dùng `EXISTS` O(1) trên index của `dim_leads` và `bot_auto_replies` (trả về 1 byte thay vì 70 KB/lần).
+- **Prefetch log gửi bot (`etl/auto_reply_bot.py`)**: Gom 200+ câu query đơn lẻ kiểm tra `SENT` và `FAILED` trong vòng lặp thành 2 câu query theo lô `IN (conv_ids)` trước vòng lặp, cắt giảm 98% lượt truy vấn lên Neon.
+- **Tối ưu đồng bộ Deal Win (`database/deal_sync.py`, `etl/pipeline.py`)**:
+  - `sync_all_deals_with_dim_leads` trước đây quét toàn bộ 1.548 deal và 3 đợt query JOIN `fact_lead_activities` + `dim_leads` mỗi 60 phút (tạo hơn 2 triệu dòng truyền tải qua mạng).
+  - Giờ đây chỉ đồng bộ các deal có SĐT liên quan đến các hội thoại thực sự thay đổi trong lượt chạy đó (`target_phones=all_changed_phones`). Nếu không có lead thay đổi thì tốn 0 câu query vào DB.
+- **In-Memory TTL Caching cho Broadcast (`backend/broadcast.py`, `backend/main.py`)**: Thêm `_CANDIDATES_CACHE` (TTL 15 phút, thread-safe lock) cho hàm `_filter_broadcast_candidates`. Khi chuyển tab, xem preview hoặc đổi filter, 12.471 dòng được đọc trực tiếp từ RAM (< 250ms), tốn 0 byte băng thông egress từ Neon. Bổ sung `clear_broadcast_cache()` vào endpoint `/api/admin/clear-cache`.
+- **Tối ưu `_phone_owner_ids` (`backend/lead_metrics.py`)**: Bỏ JOIN thừa lần 2 với `fact_lead_activities` khi truy vấn danh sách `dim_leads`, loại bỏ các dòng trùng lặp và giảm kích thước payload trả về.
+- **Khắc phục Lazy-Load Payload (`etl/pipeline.py`)**: Bỏ qua truy cập `raw_record.payload` khi `raw_data` không có messages mới, tránh trigger SQLAlchemy phát sinh câu query `SELECT payload` kéo 30 KB JSON qua mạng cho mỗi hội thoại.
+- **Giảm tải đồng bộ Posts (`etl/pipeline.py`)**: Giảm mặc định `POSTS_DAYS_BACK` từ 7 xuống 2 ngày, `POSTS_LIMIT` từ 50 xuống 20 bài cho daily run.
+- **Khắc phục lặp DDL Index (`database/schema.py`)**: Thêm cờ `_SCHEMA_ENSURED` trong tiến trình để `ensure_schema()` không chạy lại 18 câu `CREATE INDEX IF NOT EXISTS` và kiểm tra bảng nhiều lần trong cùng một lượt chạy.
+
+
 ### 2026-10-09 — Đã hoàn thành
 - Trang thống kê chăm sóc Lead Remind (`/api/leads/remind` + `RemindLeadTable.tsx`):
   - Hỗ trợ xem **Tất cả Lead** (8.700 khách) hoặc lọc riêng theo bất kỳ **Thẻ (Tag)** nào (`Remind`, `Có thông tin`, `Quan tâm sâu`,...).

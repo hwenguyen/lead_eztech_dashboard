@@ -344,6 +344,22 @@ class BroadcastCampaignSummary(BaseModel):
     status: str
 
 
+_CANDIDATES_CACHE_LOCK = threading.RLock()
+_CANDIDATES_CACHE_DATA: Optional[List[Any]] = None
+_CANDIDATES_CACHE_TIME: float = 0.0
+_CANDIDATES_CACHE_TTL: float = 900.0  # Cache in-memory 15 phút (tiết kiệm 99% băng thông Neon Egress)
+
+def clear_broadcast_cache():
+    """Xoá cache dữ liệu Broadcast."""
+    global _CANDIDATES_CACHE_DATA, _CANDIDATES_CACHE_TIME, _OPTIONS_CACHE_DATA, _OPTIONS_CACHE_TIME
+    with _CANDIDATES_CACHE_LOCK:
+        _CANDIDATES_CACHE_DATA = None
+        _CANDIDATES_CACHE_TIME = 0.0
+    with _OPTIONS_CACHE_LOCK:
+        _OPTIONS_CACHE_DATA = None
+        _OPTIONS_CACHE_TIME = 0.0
+
+
 class TokenConfigRequest(BaseModel):
     default_token: Optional[str] = None
     pages_json: Optional[str] = None
@@ -432,9 +448,17 @@ def _filter_broadcast_candidates(
             return custom_results
 
     # 2. Sắp xếp ưu tiên khách tương tác gần nhất lên đầu
-    all_rows = query.order_by(
-        func.coalesce(FactLeadActivity.contacted_at, DimLead.first_created_at).desc()
-    ).all()
+    global _CANDIDATES_CACHE_DATA, _CANDIDATES_CACHE_TIME
+    now_ts = time.time()
+    with _CANDIDATES_CACHE_LOCK:
+        if _CANDIDATES_CACHE_DATA is not None and (now_ts - _CANDIDATES_CACHE_TIME < _CANDIDATES_CACHE_TTL):
+            all_rows = _CANDIDATES_CACHE_DATA
+        else:
+            all_rows = query.order_by(
+                func.coalesce(FactLeadActivity.contacted_at, DimLead.first_created_at).desc()
+            ).all()
+            _CANDIDATES_CACHE_DATA = all_rows
+            _CANDIDATES_CACHE_TIME = now_ts
 
     # Tập hợp các conversation_id đã gửi thành công trong chiến dịch này
     already_sent_convs: Set[str] = set()

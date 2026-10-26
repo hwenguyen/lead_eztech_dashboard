@@ -89,13 +89,10 @@ def upsert_lead_data(db: Session, raw_data: dict, page_id: str, commit: bool = T
             if prefetched is not None:
                 prefetched["raw"][conv_id] = raw_record
         else:
-            # Chỉ đọc raw_record.payload từ DB khi raw_data bị rỗng messages (hiếm gặp), tránh lazy-load tốn băng thông Neon
-            if not raw_data.get('messages'):
-                old_payload = raw_record.payload or {}
-                if old_payload.get('messages'):
-                    raw_data['messages'] = old_payload.get('messages')
-                
-            raw_record.payload = raw_data
+            # Nếu raw_data có messages mới, cập nhật payload; nếu không có tin nhắn mới (chỉ đổi tag/nhân viên),
+            # giữ nguyên payload cũ trên DB mà KHÔNG lazy-load raw_record.payload để tiết kiệm băng thông Neon
+            if raw_data.get('messages'):
+                raw_record.payload = raw_data
             if not raw_record.page_id or is_page_id(raw_record.page_id):
                 raw_record.page_id = page_id
 
@@ -626,6 +623,7 @@ def run_etl_pipeline():
     comment_daily_days_back = int(os.getenv("COMMENT_DAILY_DAYS_BACK", str(daily_days_back)))
 
     db = SessionLocal()
+    all_changed_phones = set()
     
     try:
         for p_info in pages_to_process:
@@ -759,6 +757,9 @@ def run_etl_pipeline():
                         batch = changed[start:start + DB_BATCH]
                         prefetched = prefetch_records(db, batch)
                         for conv in batch:
+                            p_ph, _ = resolve_phone(conv)
+                            if p_ph:
+                                all_changed_phones.add(p_ph)
                             upsert_lead_data(db, conv, canonical_page_name, commit=False, prefetched=prefetched)
                         db.commit()
                         logger.info(f"Đã lưu vào DB: {min(start + DB_BATCH, total)}/{total} hội thoại...")
@@ -891,8 +892,8 @@ def run_etl_pipeline():
                     # 5. Cào và đồng bộ danh sách Bài viết (Posts) vào bảng posts
                     enable_posts_sync = os.getenv("ENABLE_POSTS_SYNC", "true").strip().lower() not in ("false", "0", "off", "no")
                     if enable_posts_sync:
-                        posts_days_back = int(os.getenv("POSTS_DAYS_BACK", "7"))
-                        posts_limit = int(os.getenv("POSTS_LIMIT", "50"))
+                        posts_days_back = int(os.getenv("POSTS_DAYS_BACK", "2"))
+                        posts_limit = int(os.getenv("POSTS_LIMIT", "20"))
                         try:
                             posts_data = client.get_posts(
                                 page_id=page_id,
@@ -930,7 +931,7 @@ def run_etl_pipeline():
     try:
         from database.deal_sync import sync_all_deals_with_dim_leads
         db_sync = SessionLocal()
-        total_deals, students, care_updated = sync_all_deals_with_dim_leads(db_sync)
+        total_deals, students, care_updated = sync_all_deals_with_dim_leads(db_sync, target_phones=all_changed_phones)
         logger.info(f"[DEAL_WINS] ✅ Đã đồng bộ Deal Win: {total_deals} deal, {students} học viên có tag 'Đã là học viên', {care_updated} lượt cập nhật care_by từ Pancake.")
         db_sync.close()
     except Exception as sync_err:

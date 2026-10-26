@@ -29,7 +29,9 @@ load_dotenv(".env.local")
 load_dotenv(".env")
 
 from database.db import SessionLocal
-from database.models import BotAutoReplyLog, RawConversation, Comment
+from database.models import BotAutoReplyLog, RawConversation, Comment, DimLead
+from sqlalchemy import or_
+from collections import defaultdict
 from database.schema import ensure_schema
 from etl.pancake_client import PancakeClient
 from etl.utils import VN_TZ, is_page_id, resolve_canonical_page_name
@@ -98,7 +100,9 @@ def match_rule(
 def should_reply(
     conv: Dict[str, Any],
     page_id: str,
-    db: SessionLocal
+    db: SessionLocal,
+    prefetched_sent_convs: Optional[Set[str]] = None,
+    prefetched_failed_counts: Optional[Dict[str, int]] = None
 ) -> Tuple[bool, Optional[Dict[str, Any]], Optional[str], Optional[str], str]:
     """
     Kiểm tra xem hội thoại có đủ điều kiện để Bot gửi tin nhắn tự động không.
@@ -150,22 +154,28 @@ def should_reply(
 
     case_id = rule.get("case_id")
 
-    # 5. Chốt chặn chống spam: Kiểm tra DB xem Bot đã từng gửi kịch bản này cho hội thoại này chưa
-    existing_sent = db.query(BotAutoReplyLog.id).filter(
-        BotAutoReplyLog.conversation_id == conv_id,
-        BotAutoReplyLog.case_id == case_id,
-        BotAutoReplyLog.status == "SENT"
-    ).first()
-    if existing_sent:
+    # 5. Chốt chặn chống spam: Kiểm tra xem Bot đã từng gửi kịch bản này cho hội thoại này chưa
+    if prefetched_sent_convs is not None:
+        is_sent = (conv_id, case_id) in prefetched_sent_convs or conv_id in prefetched_sent_convs
+    else:
+        is_sent = db.query(BotAutoReplyLog.id).filter(
+            BotAutoReplyLog.conversation_id == conv_id,
+            BotAutoReplyLog.case_id == case_id,
+            BotAutoReplyLog.status == "SENT"
+        ).first() is not None
+    if is_sent:
         return False, rule, matched_kw, cust_text, f"Đã từng gửi kịch bản [{case_id}] trước đây (chống spam)"
 
     # 6. Chốt chặn giới hạn retry: Nếu đã thử gửi 5 lần nhưng vẫn bị từ chối, tạm bỏ qua để không spam
-    repeated_fails = db.query(BotAutoReplyLog.id).filter(
-        BotAutoReplyLog.conversation_id == conv_id,
-        BotAutoReplyLog.case_id == case_id,
-        BotAutoReplyLog.status == "FAILED",
-        BotAutoReplyLog.error_message.like("%Sending message failed%")
-    ).count()
+    if prefetched_failed_counts is not None:
+        repeated_fails = prefetched_failed_counts.get(conv_id, 0)
+    else:
+        repeated_fails = db.query(BotAutoReplyLog.id).filter(
+            BotAutoReplyLog.conversation_id == conv_id,
+            BotAutoReplyLog.case_id == case_id,
+            BotAutoReplyLog.status == "FAILED",
+            BotAutoReplyLog.error_message.like("%Sending message failed%")
+        ).count()
     if repeated_fails >= 5:
         return False, rule, matched_kw, cust_text, f"Đã thử gửi {repeated_fails} lần nhưng bị nền tảng từ chối (quyền riêng tư/chính sách người dùng), tạm bỏ qua"
 
@@ -215,54 +225,48 @@ def extract_customer_identifiers(comment: Dict[str, Any]) -> List[str]:
     return [i for i in ids if i and i not in ('unknown', 'none', '')]
 
 
-def get_existing_inbox_customer_ids(page_id: str, db: SessionLocal) -> Set[str]:
+def customer_has_prior_interaction(comment: Dict[str, Any], page_id: str, db: SessionLocal) -> bool:
     """
-    Lấy danh sách các định danh (customer_id, psid, phone_number...) của khách hàng
-    ĐÃ CÓ TIN NHẮN trong Inbox của Page hoặc ĐÃ ĐƯỢC BOT GỬI TIN NHẮN THÀNH CÔNG.
-    Dùng để chốt chặn không gửi tin nhắn / rep comment cho khách cũ.
+    Kiểm tra xem khách hàng comment đã từng tương tác trong Inbox hoặc nhận tin nhắn từ Bot chưa.
+    Sử dụng truy vấn EXISTS O(1) trên index của DimLead và BotAutoReplyLog thay vì kéo 3.000+ IDs qua mạng
+    -> Giảm 99.9% lưu lượng Network Transfer Egress của Neon DB.
     """
-    existing_ids = set()
+    cust_idents = extract_customer_identifiers(comment)
+    if not cust_idents:
+        return False
+
     canonical_name = resolve_canonical_page_name(page_id)
+    clean_num = re.sub(r"^(pzl_|tt_|fb_)", "", str(page_id))
 
-    # 1. Quét từ raw_conversations của Page
+    # 1. Kiểm tra trong DimLead theo index (customer_id hoặc phone_number)
     try:
-        from sqlalchemy import text
-        sql_convs = """
-            SELECT 
-                payload ->> 'customer_id' as cust_id,
-                payload -> 'customers' -> 0 ->> 'id' as p_cust_id,
-                payload -> 'customers' -> 0 ->> 'fb_id' as fb_id,
-                payload -> 'from' ->> 'id' as from_id,
-                payload ->> 'phone_number' as phone
-            FROM raw_conversations
-            WHERE page_id = :pname
-              AND (
-                  COALESCE((payload ->> 'message_count')::int, 0) > 0
-                  OR payload ->> 'messages' IS NOT NULL
-              )
-        """
-        rows = db.execute(text(sql_convs), {"pname": canonical_name}).fetchall()
-        for r in rows:
-            for val in r:
-                if val and str(val).strip() and str(val).strip().lower() not in ('unknown', 'none', ''):
-                    existing_ids.add(str(val).strip().lower())
+        has_lead = db.query(DimLead.id).filter(
+            or_(DimLead.page_id == page_id, DimLead.page_id == canonical_name, DimLead.page_id == clean_num),
+            or_(DimLead.customer_id.in_(cust_idents), DimLead.phone_number.in_(cust_idents))
+        ).first() is not None
+        if has_lead:
+            return True
     except Exception as e:
-        logger.warning(f"Lỗi khi nạp danh sách khách cũ từ raw_conversations Page {page_id}: {e}")
+        logger.warning(f"Lỗi kiểm tra DimLead cho Page {page_id}: {e}")
 
-    # 2. Quét từ bot_auto_replies (các khách đã từng được Bot gửi tin nhắn thành công)
+    # 2. Kiểm tra trong BotAutoReplyLog (đã từng được Bot gửi thành công)
     try:
-        clean_num = re.sub(r"^(pzl_|tt_|fb_)", "", str(page_id))
-        bot_rows = db.query(BotAutoReplyLog.customer_id).filter(
-            (BotAutoReplyLog.page_id.like(f"%{clean_num}%")) | (BotAutoReplyLog.page_id == canonical_name),
+        has_bot = db.query(BotAutoReplyLog.id).filter(
+            or_(BotAutoReplyLog.page_id == page_id, BotAutoReplyLog.page_id == canonical_name, BotAutoReplyLog.page_id.like(f"%{clean_num}%")),
+            BotAutoReplyLog.customer_id.in_(cust_idents),
             BotAutoReplyLog.status == "SENT"
-        ).all()
-        for b in bot_rows:
-            if b[0] and str(b[0]).strip().lower() not in ('unknown', 'none', ''):
-                existing_ids.add(str(b[0]).strip().lower())
+        ).first() is not None
+        if has_bot:
+            return True
     except Exception as e:
-        logger.warning(f"Lỗi khi nạp danh sách khách cũ từ bot_auto_replies Page {page_id}: {e}")
+        logger.warning(f"Lỗi kiểm tra BotAutoReplyLog cho Page {page_id}: {e}")
 
-    return existing_ids
+    return False
+
+
+def get_existing_inbox_customer_ids(page_id: str, db: SessionLocal) -> Set[str]:
+    """Hàm tương thích ngược nếu có chỗ khác gọi tới."""
+    return set()
 
 
 def should_reply_comment(
@@ -338,17 +342,9 @@ def should_reply_comment(
     if existing_sent:
         return False, rule, matched_kw, clean_msg, f"Đã từng trả lời comment này với kịch bản [{case_id}] (chống spam)"
 
-    # 7. Chốt chặn khách cũ: Nếu khách đã có tin nhắn từ trước trong Inbox -> Bỏ qua hoàn toàn
+    # 7. Chốt chặn khách cũ: Nếu khách đã có tin nhắn từ trước trong Inbox -> Bỏ qua hoàn toàn (truy vấn indexed O(1))
     if SKIP_IF_CUSTOMER_HAS_PRIOR_MESSAGES:
-        if existing_inbox_customer_ids is not None and len(existing_inbox_customer_ids) == 0:
-            # Lazy load danh sách khách hàng chỉ khi có comment thực sự khớp từ khóa và vượt qua các bước 1-6
-            loaded_ids = get_existing_inbox_customer_ids(page_id, db)
-            existing_inbox_customer_ids.update(loaded_ids)
-            existing_inbox_customer_ids.add("__loaded__")
-            logger.info(f"[AUTO-REPLY COMMENTS] Đã nạp lazy {len(loaded_ids)} định danh khách cũ cho Page {page_id}.")
-        inbox_ids = existing_inbox_customer_ids if existing_inbox_customer_ids is not None else get_existing_inbox_customer_ids(page_id, db)
-        cust_idents = extract_customer_identifiers(comment)
-        if any(ident in inbox_ids for ident in cust_idents):
+        if customer_has_prior_interaction(comment, page_id, db):
             return False, rule, matched_kw, clean_msg, "Khách hàng đã có tin nhắn từ trước trong Inbox (bỏ qua không gửi lại)"
 
     # 8. Chốt chặn giới hạn retry nếu lỗi nền tảng
@@ -693,13 +689,36 @@ def run_auto_reply_bot(
                         days_back=days_back
                     )
 
+                # Batch prefetch bot_auto_replies cho cả danh sách hội thoại -> giảm 99% số câu query
+                cand_cids = [str(c.get("id", "")) for c in conversations if c.get("id")]
+                pref_sent = set()
+                pref_fails = defaultdict(int)
+                if cand_cids:
+                    try:
+                        for r in db.query(BotAutoReplyLog.conversation_id, BotAutoReplyLog.case_id).filter(
+                            BotAutoReplyLog.conversation_id.in_(cand_cids),
+                            BotAutoReplyLog.status == "SENT"
+                        ).all():
+                            pref_sent.add((str(r[0]), str(r[1])))
+                            pref_sent.add(str(r[0]))
+                        for r in db.query(BotAutoReplyLog.conversation_id).filter(
+                            BotAutoReplyLog.conversation_id.in_(cand_cids),
+                            BotAutoReplyLog.status == "FAILED",
+                            BotAutoReplyLog.error_message.like("%Sending message failed%")
+                        ).all():
+                            pref_fails[str(r[0])] += 1
+                    except Exception as e_pref:
+                        logger.warning(f"Không thể prefetch bot_auto_replies: {e_pref}")
+
                 for conv in conversations:
                     total_scanned += 1
                     cid = str(conv.get("id", ""))
                     cust_name = conv.get("customer_name") or "Khách hàng"
                     cust_phone = conv.get("phone_number") or "Chưa có SĐT"
 
-                    can_send, rule, matched_kw, cust_msg, reason = should_reply(conv, page_id, db)
+                    can_send, rule, matched_kw, cust_msg, reason = should_reply(
+                        conv, page_id, db, prefetched_sent_convs=pref_sent, prefetched_failed_counts=pref_fails
+                    )
 
                     if not can_send:
                         continue

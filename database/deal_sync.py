@@ -1,8 +1,11 @@
 """Module đồng bộ và map thông tin giữa DealWin (Google Sheet) và DimLead / FactLeadActivity (Pancake)."""
 import re
-from typing import Optional, Tuple
+from datetime import datetime, timedelta
+from typing import Optional, Tuple, Iterable, Set
+from sqlalchemy import or_
 from sqlalchemy.orm import Session, defer
 from database.models import DealWin, DimLead, FactLeadActivity
+from etl.utils import VN_TZ
 
 def normalize_sale_name(raw: Optional[str]) -> Optional[str]:
     """
@@ -140,16 +143,39 @@ def find_lead_info_by_phone(phone: Optional[str], db: Session) -> Tuple[Optional
     return lead_ids[0], is_student, assigned_user, combined_tags[:255] if combined_tags else None
 
 
-def sync_all_deals_with_dim_leads(db: Session) -> Tuple[int, int, int]:
+def sync_all_deals_with_dim_leads(
+    db: Session,
+    full_scan: bool = False,
+    target_phones: Optional[Iterable[str]] = None
+) -> Tuple[int, int, int]:
     """
-    Quét và đồng bộ toàn bộ bảng deal_wins với dim_leads:
-    - Dùng defer(DealWin.raw_data) để không tải 2MB JSON raw_data qua mạng
-    - Chỉ truy vấn DimLead theo đúng danh sách SĐT có trong deal_wins (thay vì quét toàn bộ 13.000 dòng)
-    - Chỉ gán nhân viên chăm sóc (care_by) từ chính hội thoại CÓ TAG 'học viên' (hoặc 'Đã là học viên')
-    - Chỉ ghi DB khi có trường thay đổi thực sự
+    Quét và đồng bộ bảng deal_wins với dim_leads:
+    - Nếu target_phones được cung cấp (từ các lead có tương tác trong lượt chạy ETL hiện tại):
+      chỉ truy vấn các deal khớp với những SĐT này -> tiết kiệm >99% băng thông Neon.
+    - Nếu full_scan=False (mặc định cho các lượt chạy tự động):
+      chỉ quét các deal chưa được map (dim_lead_id IS NULL) hoặc mới cập nhật trong 48h gần nhất.
+    - Nếu full_scan=True: quét toàn bộ 1.500+ deal (dùng khi bấm nút thủ công trên Dashboard).
+    - Dùng defer(DealWin.raw_data) để không tải JSON raw_data qua mạng.
     Trả về: (total_processed, student_count, care_by_updated)
     """
-    deals = db.query(DealWin).options(defer(DealWin.raw_data)).all()
+    query = db.query(DealWin).options(defer(DealWin.raw_data))
+
+    if target_phones is not None:
+        clean_targets = list({str(p).strip() for p in target_phones if p and str(p).strip()})
+        if not clean_targets:
+            # Không có SĐT nào phát sinh trong đợt chạy -> không cần query DB
+            return 0, 0, 0
+        query = query.filter(DealWin.phone_number.in_(clean_targets))
+    elif not full_scan:
+        cutoff = datetime.now(VN_TZ).replace(tzinfo=None) - timedelta(days=2)
+        query = query.filter(
+            or_(
+                DealWin.dim_lead_id.is_(None),
+                DealWin.updated_at >= cutoff
+            )
+        )
+
+    deals = query.all()
     if not deals:
         return 0, 0, 0
 

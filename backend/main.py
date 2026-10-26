@@ -43,7 +43,7 @@ from etl.utils import (
 
 logger = logging.getLogger(__name__)
 
-from backend.broadcast import router as broadcast_router
+from backend.broadcast import router as broadcast_router, clear_broadcast_cache
 from backend.auth import router as auth_router
 
 app = FastAPI(title="Pancake Lead Reporting API")
@@ -500,6 +500,7 @@ def _fetch_tag_timelines(db: Session, conv_ids: List[str]) -> Dict[str, List[dic
 def clear_cache():
     """Xoá toàn bộ cache metrics, page list, tin nhắn cuối, remind leads & deal wins."""
     clear_metrics_cache()
+    clear_broadcast_cache()
     with _PAGES_LOCK:
         _PAGES_CACHE.clear()
     with _REMIND_LOCK:
@@ -977,7 +978,7 @@ async def receive_deal_webhook(request: Request, db: Session = Depends(get_db)):
 def trigger_deal_leads_sync(db: Session = Depends(get_db)):
     """Đồng bộ Deal Win với DimLead (map SĐT, kiểm tra tag Đã là học viên, cập nhật nhân viên chăm sóc từ Pancake)."""
     from database.deal_sync import sync_all_deals_with_dim_leads, normalize_sale_name
-    total, students, updated = sync_all_deals_with_dim_leads(db)
+    total, students, updated = sync_all_deals_with_dim_leads(db, full_scan=True)
     with _DEAL_CACHE_LOCK:
         _DEAL_CACHE.clear()
     return {
