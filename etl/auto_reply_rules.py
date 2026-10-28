@@ -34,8 +34,7 @@ AUTO_REPLY_RULES = [
             "template", "mẫu báo cáo", "mau bao cao", "mẫu", "mau",
             "prompt", "xin prompt", "promt", "xin promt", "câu lệnh", "cau lenh", "xin câu lệnh",
             "hướng dẫn", "huong dan", "xin hướng dẫn", "file hướng dẫn",
-            "cho em xin với", "cho mình xin với", "gửi em với", "gửi mình với",
-            "cho em xin", "cho mình xin", "gửi file", "gui file", "sheet"
+             "gửi file", "gui file", "sheet"
         ],
         "message": (
             "Chào bạn, mình thấy bạn quan tâm đến các bộ file và tài liệu chia sẻ về ứng dụng Excel, Power Query & AI trong công việc. Bạn nhắn mình SĐT để bạn quản lý lớp bên mình add ZL và gửi bạn thông tin chi tiết nhé"
