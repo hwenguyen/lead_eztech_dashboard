@@ -582,10 +582,18 @@ export interface DealPaymentApp {
 
 export interface SalesDealRecord {
   id: string;
+  dealWinId?: number | null;
   ngayThu: string;
   ngayContact: string;
   sdt: string;
   hoTen: string;
+  email?: string;
+  namSinh?: string;
+  diaChi?: string;
+  linhVuc?: string;
+  kyVong?: string;
+  isStudent?: boolean;
+  leadTag?: string;
   zalo: string;
   nhomCS: string;
   chuongTrinh: string;
@@ -607,6 +615,7 @@ export interface SalesDealRecord {
   thuNo: number;
   daThuNo: number;
   conNo: number;
+  isIncomplete?: boolean;
   apps?: DealPaymentApp[];
 }
 

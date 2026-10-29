@@ -22,6 +22,12 @@ import {
   Wallet,
   CreditCard,
   TrendingUp,
+  ChevronLeft,
+  ChevronRight,
+  MapPin,
+  Mail,
+  Briefcase,
+  Link2,
 } from 'lucide-react';
 import {
   fetchDealEntryInit,
@@ -57,6 +63,18 @@ const parseMoneyInput = (raw: string): number => {
   return digits ? parseInt(digits, 10) : 0;
 };
 
+const isUrl = (s: string | undefined | null) => {
+  if (!s) return false;
+  const trimmed = s.trim().toLowerCase();
+  return trimmed.startsWith('http://') || trimmed.startsWith('https://') || trimmed.startsWith('zalo.me/');
+};
+
+const toSafeHref = (s: string) => {
+  const trimmed = s.trim();
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) return trimmed;
+  return `https://${trimmed}`;
+};
+
 export function AppScriptTool() {
   const currentUser = getStoredAuth().user;
   const actorName = currentUser?.username || 'admin';
@@ -80,6 +98,7 @@ export function AppScriptTool() {
     lop: [],
   });
   const [statuses, setStatuses] = useState<string[]>([
+    'Chờ bổ sung',
     'Hoàn thành',
     'Còn nợ',
     'Thu nợ',
@@ -91,6 +110,8 @@ export function AppScriptTool() {
   const [logs, setLogs] = useState<DealAuditLogItem[]>([]);
 
   // Bộ lọc bảng Deals
+  const [completionFilter, setCompletionFilter] = useState<'all' | 'incomplete' | 'completed'>('all');
+  const [onlyStudentFilter, setOnlyStudentFilter] = useState<boolean>(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStartDate, setFilterStartDate] = useState('');
   const [filterEndDate, setFilterEndDate] = useState('');
@@ -98,14 +119,22 @@ export function AppScriptTool() {
   const [filterClass, setFilterClass] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
   const [filterSale, setFilterSale] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 25;
 
   // Modal Nhập / Sửa Deal
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingDealWinId, setEditingDealWinId] = useState<number | null | undefined>(null);
   const [formNgThu, setFormNgThu] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [formNgContact, setFormNgContact] = useState('');
   const [formSdt, setFormSdt] = useState('');
   const [formHoTen, setFormHoTen] = useState('');
+  const [formEmail, setFormEmail] = useState('');
+  const [formNamSinh, setFormNamSinh] = useState('');
+  const [formDiaChi, setFormDiaChi] = useState('');
+  const [formLinhVuc, setFormLinhVuc] = useState('');
+  const [formKyVong, setFormKyVong] = useState('');
   const [formZalo, setFormZalo] = useState('');
   const [formNhomCS, setFormNhomCS] = useState('');
   const [formChuongTrinh, setFormChuongTrinh] = useState('');
@@ -177,9 +206,14 @@ export function AppScriptTool() {
     }
   }, [subTab]);
 
-  // Tự động tra cứu SĐT khi người dùng nhập đủ 10 chữ số
+  // Reset về trang 1 khi thay đổi bộ lọc
   useEffect(() => {
-    if (!isModalOpen) return;
+    setCurrentPage(1);
+  }, [completionFilter, onlyStudentFilter, searchQuery, filterStartDate, filterEndDate, filterProgram, filterClass, filterStatus, filterSale]);
+
+  // Tự động tra cứu SĐT khi người dùng nhập đủ 10 chữ số ở chế độ tạo mới
+  useEffect(() => {
+    if (!isModalOpen || editingId) return;
     const clean = formSdt.replace(/\D/g, '');
     if (clean.length < 10) {
       setPhoneLookup(null);
@@ -189,9 +223,9 @@ export function AppScriptTool() {
     const timer = setTimeout(async () => {
       setLookingUpPhone(true);
       try {
-        const res = await lookupDealPhone(clean, editingId || undefined);
+        const res = await lookupDealPhone(clean);
         setPhoneLookup(res);
-        if (res.found && !editingId) {
+        if (res.found) {
           if (res.hoTen && !formHoTen) setFormHoTen(res.hoTen);
           if (res.ngayContact && !formNgContact) setFormNgContact(res.ngayContact);
           if (res.zalo && !formZalo) setFormZalo(res.zalo);
@@ -214,13 +248,18 @@ export function AppScriptTool() {
     return () => clearTimeout(timer);
   }, [formSdt, isModalOpen, editingId]);
 
-  // Mở modal thêm mới
   const openCreateModal = () => {
     setEditingId(null);
+    setEditingDealWinId(null);
     setFormNgThu(format(new Date(), 'yyyy-MM-dd'));
     setFormNgContact('');
     setFormSdt('');
     setFormHoTen('');
+    setFormEmail('');
+    setFormNamSinh('');
+    setFormDiaChi('');
+    setFormLinhVuc('');
+    setFormKyVong('');
     setFormZalo('');
     setFormNhomCS('');
     setFormChuongTrinh(lists.chuongTrinh[0] || '');
@@ -240,33 +279,39 @@ export function AppScriptTool() {
     setIsModalOpen(true);
   };
 
-  // Mở modal sửa deal
   const openEditModal = (d: SalesDealRecord) => {
     setEditingId(d.id);
+    setEditingDealWinId(d.dealWinId);
     setFormNgThu(d.ngayThu || format(new Date(), 'yyyy-MM-dd'));
     setFormNgContact(d.ngayContact || '');
     setFormSdt(d.sdt || '');
     setFormHoTen(d.hoTen || '');
+    setFormEmail(d.email || '');
+    setFormNamSinh(d.namSinh || '');
+    setFormDiaChi(d.diaChi || '');
+    setFormLinhVuc(d.linhVuc || '');
+    setFormKyVong(d.kyVong || '');
     setFormZalo(d.zalo || '');
     setFormNhomCS(d.nhomCS || '');
-    setFormChuongTrinh(d.chuongTrinh || '');
+    setFormChuongTrinh(d.chuongTrinh || lists.chuongTrinh[0] || '');
     setFormLop(d.lop || []);
     setNewClassInput('');
     setFormChucVu(d.chucVu || '');
     setFormNvCS(d.nvCS || '');
-    setFormZaloCS(d.zaloCS || '');
+    setFormZaloCS(d.zaloCS || lists.zaloCS[0] || '');
     setFormNguon(d.nguon || '');
     setFormDaThu(d.daThu || 0);
     setFormPhaiThu(d.phaiThu || 0);
     setFormTongTien(d.tongTien || 0);
     setFormNgThuAR(d.ngayThuAR || '');
-    setFormTrangThai(d.trangThai || 'Hoàn thành');
+    setFormTrangThai(
+      d.trangThai === 'Chờ bổ sung' ? 'Hoàn thành' : d.trangThai || 'Hoàn thành'
+    );
     setFormNote(d.note || '');
     setPhoneLookup(null);
     setIsModalOpen(true);
   };
 
-  // Mở modal Thu nợ nhanh từ dòng deal hoặc bảng công nợ
   const openCollectDebtModal = (item: {
     sdt: string;
     hoTen: string;
@@ -277,10 +322,16 @@ export function AppScriptTool() {
     nvCS?: string;
   }) => {
     setEditingId(null);
+    setEditingDealWinId(null);
     setFormNgThu(format(new Date(), 'yyyy-MM-dd'));
     setFormNgContact('');
     setFormSdt(item.sdt);
     setFormHoTen(item.hoTen);
+    setFormEmail('');
+    setFormNamSinh('');
+    setFormDiaChi('');
+    setFormLinhVuc('');
+    setFormKyVong('');
     setFormZalo('');
     setFormNhomCS('');
     setFormChuongTrinh(item.chuongTrinh || '');
@@ -303,13 +354,16 @@ export function AppScriptTool() {
     setFormDaThu(val);
     if (formTrangThai !== 'Thu nợ') {
       setFormTongTien(val + formPhaiThu);
+      if (val > 0 && formPhaiThu === 0 && formTrangThai === 'Chờ bổ sung') {
+        setFormTrangThai('Hoàn thành');
+      }
     }
   };
 
   const handlePhaiThuChange = (val: number) => {
     setFormPhaiThu(val);
     setFormTongTien(formDaThu + val);
-    if (val > 0 && formTrangThai === 'Hoàn thành') {
+    if (val > 0 && (formTrangThai === 'Hoàn thành' || formTrangThai === 'Chờ bổ sung')) {
       setFormTrangThai('Còn nợ');
     } else if (val === 0 && formTrangThai === 'Còn nợ') {
       setFormTrangThai('Hoàn thành');
@@ -345,6 +399,11 @@ export function AppScriptTool() {
         ngayContact: formNgContact,
         sdt: formSdt,
         hoTen: formHoTen,
+        email: formEmail,
+        namSinh: formNamSinh,
+        diaChi: formDiaChi,
+        linhVuc: formLinhVuc,
+        kyVong: formKyVong,
         zalo: formZalo,
         nhomCS: formNhomCS,
         chuongTrinh: formChuongTrinh,
@@ -429,9 +488,27 @@ export function AppScriptTool() {
     }
   };
 
+  // Đếm số lượng chờ bổ sung thông tin
+  const countsByCompletion = useMemo(() => {
+    const base = onlyStudentFilter ? deals.filter((d) => d.isStudent !== false) : deals;
+    let incomplete = 0;
+    let completed = 0;
+    for (const d of base) {
+      const missingInfo = (d.daThu === 0 && d.phaiThu === 0) || (d.lop || []).length === 0 || !(d.nhomCS || '').trim();
+      if (missingInfo) incomplete++;
+      else completed++;
+    }
+    return { total: base.length, incomplete, completed };
+  }, [deals, onlyStudentFilter]);
+
   // Lọc danh sách Deals
   const filteredDeals = useMemo(() => {
     return deals.filter((d) => {
+      if (onlyStudentFilter && d.isStudent === false) return false;
+      const missingInfo = (d.daThu === 0 && d.phaiThu === 0) || (d.lop || []).length === 0 || !(d.nhomCS || '').trim();
+      if (completionFilter === 'incomplete' && !missingInfo) return false;
+      if (completionFilter === 'completed' && missingInfo) return false;
+
       if (filterStartDate && d.ngayThu < filterStartDate) return false;
       if (filterEndDate && d.ngayThu > filterEndDate) return false;
       if (filterProgram && d.chuongTrinh !== filterProgram) return false;
@@ -442,13 +519,32 @@ export function AppScriptTool() {
         const q = searchQuery.toLowerCase().trim();
         const matchName = (d.hoTen || '').toLowerCase().includes(q);
         const matchPhone = (d.sdt || '').toLowerCase().includes(q);
+        const matchEmail = (d.email || '').toLowerCase().includes(q);
         const matchNote = (d.note || '').toLowerCase().includes(q);
+        const matchJob = (d.chucVu || '').toLowerCase().includes(q);
         const matchClass = (d.lop || []).some((c) => c.toLowerCase().includes(q));
-        if (!matchName && !matchPhone && !matchNote && !matchClass) return false;
+        if (!matchName && !matchPhone && !matchEmail && !matchNote && !matchJob && !matchClass) return false;
       }
       return true;
     });
-  }, [deals, filterStartDate, filterEndDate, filterProgram, filterClass, filterStatus, filterSale, searchQuery]);
+  }, [
+    deals,
+    onlyStudentFilter,
+    completionFilter,
+    filterStartDate,
+    filterEndDate,
+    filterProgram,
+    filterClass,
+    filterStatus,
+    filterSale,
+    searchQuery,
+  ]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredDeals.length / pageSize));
+  const pagedDeals = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredDeals.slice(start, start + pageSize);
+  }, [filteredDeals, currentPage, pageSize]);
 
   // Tính toán chỉ số KPI theo bộ lọc hiện tại
   const kpiStats = useMemo(() => {
@@ -483,21 +579,23 @@ export function AppScriptTool() {
     deals.forEach((d) => {
       if (d.nvCS) s.add(d.nvCS);
     });
-    return Array.from(s);
+    return Array.from(s).sort();
   }, [deals]);
 
   // Xuất CSV
   const exportDealsCsv = () => {
     const headers = [
-      'ID', 'Ngày thu tiền', 'Ngày contact đầu tiên', 'Số điện thoại', 'Họ tên',
-      'Zalo (link Pancake)', 'Nhóm CS 1-1', 'Chương trình học', 'Lớp học', 'Chức vụ',
+      'ID', 'Ngày thu tiền', 'Ngày contact đầu tiên', 'Số điện thoại', 'Họ tên', 'Email',
+      'Năm sinh', 'Địa chỉ', 'Lĩnh vực', 'Chức vụ', 'Kỳ vọng',
+      'Zalo (link Pancake)', 'Nhóm CS 1-1', 'Chương trình học', 'Lớp học',
       'NV chăm sóc', 'Zalo chăm sóc', 'Nguồn', 'Số tiền thu được', 'Phải thu khách hàng',
       'Tổng tiền', 'Ngày thu AR', 'Trạng thái', 'Note', 'Người nhập', 'Tạo lúc',
       'Trong đó thu nợ cũ', 'Đã thu nợ', 'Còn nợ'
     ];
     const rows = filteredDeals.map((d) => [
-      d.id, fmtDateVi(d.ngayThu), fmtDateVi(d.ngayContact), `'${d.sdt}`, d.hoTen,
-      d.zalo, d.nhomCS, d.chuongTrinh, (d.lop || []).join(', '), d.chucVu,
+      d.id, fmtDateVi(d.ngayThu), fmtDateVi(d.ngayContact), `'${d.sdt}`, d.hoTen, d.email || '',
+      d.namSinh || '', d.diaChi || '', d.linhVuc || '', d.chucVu || '', d.kyVong || '',
+      d.zalo, d.nhomCS, d.chuongTrinh, (d.lop || []).join(', '),
       d.nvCS, d.zaloCS, d.nguon, d.daThu, d.phaiThu,
       d.tongTien, fmtDateVi(d.ngayThuAR), d.trangThai, d.note, d.nguoiNhap, d.taoLuc,
       d.thuNo, d.daThuNo, d.conNo
@@ -517,6 +615,9 @@ export function AppScriptTool() {
 
   const getStatusBadgeStyle = (st: string) => {
     const lower = (st || '').toLowerCase();
+    if (lower.includes('chờ bổ sung')) {
+      return 'bg-orange-50 text-orange-700 border-orange-200';
+    }
     if (lower.includes('còn nợ')) {
       return 'bg-amber-50 text-amber-700 border-amber-200';
     }
@@ -539,13 +640,13 @@ export function AppScriptTool() {
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="text-sm font-bold text-navy">Quản Lý Nhập Deal & Công Nợ Học Viên</h2>
+              <h2 className="text-sm font-bold text-navy">Quản Lý Deal Win, Bổ Sung Học Phí & Công Nợ</h2>
               <span className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-eztech-light text-eztech rounded-md border border-eztech-border">
-                EzTech CRM Native
+                Đồng bộ từ DB Deal Win
               </span>
             </div>
             <p className="text-xs text-slate-500 mt-0.5">
-              Tự động tra cứu SĐT từ Pancake, đồng bộ Lớp học và đối trừ Công nợ FIFO
+              Tự động lấy danh sách học viên từ bảng Deal Win — Nhân viên vào điền nốt Số tiền thu được, Lớp học, Link nhóm 1-1
             </p>
           </div>
         </div>
@@ -562,7 +663,7 @@ export function AppScriptTool() {
               }`}
             >
               <FileSpreadsheet className="w-3.5 h-3.5 text-eztech" />
-              <span>Danh sách Deal ({deals.length})</span>
+              <span>Danh sách Deal ({countsByCompletion.total})</span>
             </button>
 
             <button
@@ -612,7 +713,7 @@ export function AppScriptTool() {
             className="flex items-center gap-1.5 px-3.5 py-2 bg-eztech hover:bg-eztech-dark text-white text-xs font-semibold rounded-xl shadow-sm transition-all cursor-pointer"
           >
             <Plus className="w-4 h-4" />
-            <span>Nhập Deal Mới</span>
+            <span>+ Nhập Deal / Thu Nợ</span>
           </button>
         </div>
       </div>
@@ -673,13 +774,13 @@ export function AppScriptTool() {
 
         <div className="bg-white rounded-xl border border-slate-200/80 shadow-card p-3.5 flex items-center justify-between">
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Số Lượng Giao Dịch</p>
-            <p className="text-lg font-bold font-mono text-navy mt-1 tabular-nums">
-              {kpiStats.dealCount} <span className="text-xs font-normal text-slate-400">deal</span>
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Chờ Điền Thông Tin</p>
+            <p className="text-lg font-bold font-mono text-orange-600 mt-1 tabular-nums">
+              {countsByCompletion.incomplete} <span className="text-xs font-normal text-slate-400">/ {countsByCompletion.total}</span>
             </p>
-            <p className="text-[11px] text-slate-400 mt-0.5">{kpiStats.studentCount} học viên duy nhất</p>
+            <p className="text-[11px] text-slate-400 mt-0.5">Thiếu tiền / Lớp / Nhóm 1-1</p>
           </div>
-          <div className="w-9 h-9 rounded-lg bg-slate-100 text-navy flex items-center justify-center">
+          <div className="w-9 h-9 rounded-lg bg-orange-50 text-orange-600 flex items-center justify-center">
             <UserCheck className="w-4 h-4" />
           </div>
         </div>
@@ -688,96 +789,148 @@ export function AppScriptTool() {
       {/* 3. Nội dung từng Sub-tab */}
       {subTab === 'deals' && (
         <div className="space-y-3">
-          {/* Thanh bộ lọc */}
-          <div className="bg-white rounded-xl border border-slate-200/80 shadow-card p-3 flex flex-wrap items-center gap-2.5">
-            <div className="relative flex-1 min-w-[220px]">
-              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                placeholder="Tìm SĐT, Họ tên, Lớp học, Ghi chú..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-eztech/20 focus:border-eztech"
-              />
+          {/* Thanh lọc nhanh trạng thái điền thông tin */}
+          <div className="bg-white rounded-xl border border-slate-200/80 shadow-card p-3 space-y-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-slate-100">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <button
+                  onClick={() => setCompletionFilter('all')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                    completionFilter === 'all'
+                      ? 'bg-navy text-white shadow-2xs'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  Tất cả ({countsByCompletion.total})
+                </button>
+
+                <button
+                  onClick={() => setCompletionFilter('incomplete')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+                    completionFilter === 'incomplete'
+                      ? 'bg-orange-600 text-white shadow-2xs'
+                      : 'bg-orange-50 text-orange-700 border border-orange-200 hover:bg-orange-100'
+                  }`}
+                >
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                  <span>Cần điền Tiền / Lớp / Nhóm 1-1 ({countsByCompletion.incomplete})</span>
+                </button>
+
+                <button
+                  onClick={() => setCompletionFilter('completed')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+                    completionFilter === 'completed'
+                      ? 'bg-emerald-600 text-white shadow-2xs'
+                      : 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100'
+                  }`}
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>Đã điền đủ ({countsByCompletion.completed})</span>
+                </button>
+              </div>
+
+              <label className="inline-flex items-center gap-2 text-xs font-medium text-navy cursor-pointer select-none bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200">
+                <input
+                  type="checkbox"
+                  checked={onlyStudentFilter}
+                  onChange={(e) => setOnlyStudentFilter(e.target.checked)}
+                  className="rounded border-slate-300 text-eztech focus:ring-eztech"
+                />
+                <span>Chỉ hiển thị tag "Đã là học viên"</span>
+              </label>
             </div>
 
-            <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1">
-              <span className="text-[11px] text-slate-500 font-medium">Ngày thu:</span>
-              <input
-                type="date"
-                value={filterStartDate}
-                onChange={(e) => setFilterStartDate(e.target.value)}
-                className="bg-transparent text-xs font-mono text-navy focus:outline-none"
-              />
-              <span className="text-slate-300 text-xs">→</span>
-              <input
-                type="date"
-                value={filterEndDate}
-                onChange={(e) => setFilterEndDate(e.target.value)}
-                className="bg-transparent text-xs font-mono text-navy focus:outline-none"
-              />
+            {/* Bộ lọc chi tiết */}
+            <div className="flex flex-wrap items-center gap-2.5">
+              <div className="relative flex-1 min-w-[220px]">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Tìm SĐT, Họ tên, Email, Chức vụ, Lớp học, Ghi chú..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-eztech/20 focus:border-eztech"
+                />
+              </div>
+
+              <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1">
+                <span className="text-[11px] text-slate-500 font-medium">Ngày:</span>
+                <input
+                  type="date"
+                  value={filterStartDate}
+                  onChange={(e) => setFilterStartDate(e.target.value)}
+                  className="bg-transparent text-xs font-mono text-navy focus:outline-none"
+                />
+                <span className="text-slate-300 text-xs">→</span>
+                <input
+                  type="date"
+                  value={filterEndDate}
+                  onChange={(e) => setFilterEndDate(e.target.value)}
+                  className="bg-transparent text-xs font-mono text-navy focus:outline-none"
+                />
+              </div>
+
+              <select
+                value={filterProgram}
+                onChange={(e) => setFilterProgram(e.target.value)}
+                className="px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg bg-white text-navy"
+              >
+                <option value="">Tất cả Chương trình</option>
+                {lists.chuongTrinh.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+
+              <select
+                value={filterClass}
+                onChange={(e) => setFilterClass(e.target.value)}
+                className="px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg bg-white text-navy"
+              >
+                <option value="">Tất cả Lớp học</option>
+                {lists.lop.map((l) => (
+                  <option key={l} value={l}>{l}</option>
+                ))}
+              </select>
+
+              <select
+                value={filterStatus}
+                onChange={(e) => setFilterStatus(e.target.value)}
+                className="px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg bg-white text-navy"
+              >
+                <option value="">Tất cả Trạng thái</option>
+                {statuses.map((st) => (
+                  <option key={st} value={st}>{st}</option>
+                ))}
+              </select>
+
+              <select
+                value={filterSale}
+                onChange={(e) => setFilterSale(e.target.value)}
+                className="px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg bg-white text-navy"
+              >
+                <option value="">Tất cả NV CS</option>
+                {distinctSales.map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+
+              <button
+                onClick={exportDealsCsv}
+                className="px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:text-navy bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg flex items-center gap-1 transition-colors"
+                title="Xuất file Excel / CSV"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Xuất CSV</span>
+              </button>
+
+              <button
+                onClick={() => loadAll(true)}
+                className="p-1.5 text-slate-500 hover:text-eztech bg-slate-50 hover:bg-eztech-light border border-slate-200 rounded-lg transition-colors"
+                title="Đồng bộ từ Deal Win & Làm mới dữ liệu"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+              </button>
             </div>
-
-            <select
-              value={filterProgram}
-              onChange={(e) => setFilterProgram(e.target.value)}
-              className="px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg bg-white text-navy"
-            >
-              <option value="">Tất cả Chương trình</option>
-              {lists.chuongTrinh.map((c) => (
-                <option key={c} value={c}>{c}</option>
-              ))}
-            </select>
-
-            <select
-              value={filterClass}
-              onChange={(e) => setFilterClass(e.target.value)}
-              className="px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg bg-white text-navy"
-            >
-              <option value="">Tất cả Lớp học</option>
-              {lists.lop.map((l) => (
-                <option key={l} value={l}>{l}</option>
-              ))}
-            </select>
-
-            <select
-              value={filterStatus}
-              onChange={(e) => setFilterStatus(e.target.value)}
-              className="px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg bg-white text-navy"
-            >
-              <option value="">Tất cả Trạng thái</option>
-              {statuses.map((st) => (
-                <option key={st} value={st}>{st}</option>
-              ))}
-            </select>
-
-            <select
-              value={filterSale}
-              onChange={(e) => setFilterSale(e.target.value)}
-              className="px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg bg-white text-navy"
-            >
-              <option value="">Tất cả NV CS</option>
-              {distinctSales.map((s) => (
-                <option key={s} value={s}>{s}</option>
-              ))}
-            </select>
-
-            <button
-              onClick={exportDealsCsv}
-              className="px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:text-navy bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg flex items-center gap-1 transition-colors"
-              title="Xuất file Excel / CSV"
-            >
-              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
-              <span>Xuất CSV</span>
-            </button>
-
-            <button
-              onClick={() => loadAll(true)}
-              className="p-1.5 text-slate-500 hover:text-eztech bg-slate-50 hover:bg-eztech-light border border-slate-200 rounded-lg transition-colors"
-              title="Làm mới dữ liệu"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-            </button>
           </div>
 
           {/* Bảng danh sách Deals */}
@@ -786,201 +939,327 @@ export function AppScriptTool() {
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="bg-slate-50/90 border-b border-slate-200 text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                    <th className="py-3 px-3 whitespace-nowrap">Ngày thu</th>
-                    <th className="py-3 px-3 whitespace-nowrap">Học viên & SĐT</th>
-                    <th className="py-3 px-3 whitespace-nowrap">Chương trình & Lớp</th>
+                    <th className="py-3 px-3 whitespace-nowrap">Ngày ĐK / Thu</th>
+                    <th className="py-3 px-3 whitespace-nowrap">Thông tin Học viên (Deal Win)</th>
+                    <th className="py-3 px-3 whitespace-nowrap">Ngành nghề & Kỳ vọng</th>
+                    <th className="py-3 px-3 whitespace-nowrap">Chương trình & Lớp học</th>
+                    <th className="py-3 px-3 whitespace-nowrap">Link Nhóm 1-1 & Zalo</th>
                     <th className="py-3 px-3 whitespace-nowrap text-right">Thực thu</th>
                     <th className="py-3 px-3 whitespace-nowrap text-right">Phải thu</th>
-                    <th className="py-3 px-3 whitespace-nowrap text-right">Tổng tiền</th>
                     <th className="py-3 px-3 whitespace-nowrap text-right">Còn nợ</th>
                     <th className="py-3 px-3 whitespace-nowrap">Trạng thái</th>
                     <th className="py-3 px-3 whitespace-nowrap">NV CS / Nguồn</th>
-                    <th className="py-3 px-3 whitespace-nowrap">Ghi chú</th>
-                    <th className="py-3 px-3 whitespace-nowrap text-right">Thao tác</th>
+                    <th className="py-3 px-3 whitespace-nowrap text-right">Điền / Thao tác</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-xs">
                   {loading ? (
                     <tr>
                       <td colSpan={11} className="py-12 text-center text-slate-400">
-                        Đang tải danh sách deal...
+                        Đang đồng bộ và tải danh sách học viên từ bảng Deal Win...
                       </td>
                     </tr>
-                  ) : filteredDeals.length === 0 ? (
+                  ) : pagedDeals.length === 0 ? (
                     <tr>
                       <td colSpan={11} className="py-12 text-center text-slate-400">
-                        Chưa có dữ liệu deal nào khớp bộ lọc. Hãy bấm <strong>"+ Nhập Deal Mới"</strong> để thêm deal đầu tiên!
+                        Không có học viên / deal nào khớp bộ lọc hiện tại.
                       </td>
                     </tr>
                   ) : (
-                    filteredDeals.map((d) => (
-                      <tr key={d.id} className="hover:bg-slate-50/80 transition-colors">
-                        <td className="py-2.5 px-3 whitespace-nowrap align-top">
-                          <div className="font-mono font-semibold text-navy">{fmtDateVi(d.ngayThu)}</div>
-                          {d.ngayContact && (
-                            <div className="text-[10px] text-slate-400 font-mono">
-                              Contact: {fmtDateVi(d.ngayContact)}
-                            </div>
-                          )}
-                        </td>
+                    pagedDeals.map((d) => {
+                      const missingMoney = d.daThu === 0 && d.phaiThu === 0;
+                      const missingClass = (d.lop || []).length === 0;
+                      const missingGroup = !(d.nhomCS || '').trim();
 
-                        <td className="py-2.5 px-3 align-top">
-                          <div className="font-semibold text-navy flex items-center gap-1.5">
-                            <span>{d.hoTen}</span>
-                            {d.zalo && (
-                              <a
-                                href={d.zalo}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-eztech hover:underline inline-flex items-center"
-                                title="Mở hội thoại Zalo / Pancake"
-                              >
-                                <ExternalLink className="w-3 h-3" />
-                              </a>
+                      return (
+                        <tr key={d.id} className="hover:bg-slate-50/80 transition-colors">
+                          {/* Ngày thu & Ngày contact */}
+                          <td className="py-2.5 px-3 whitespace-nowrap align-top">
+                            <div className="font-mono font-semibold text-navy">{fmtDateVi(d.ngayThu)}</div>
+                            {d.ngayContact && (
+                              <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+                                Contact: {fmtDateVi(d.ngayContact)}
+                              </div>
                             )}
-                          </div>
-                          <div className="font-mono text-[11px] text-slate-500">{d.sdt}</div>
-                          {(d.chucVu || d.nhomCS) && (
-                            <div className="text-[10px] text-slate-400 mt-0.5">
-                              {[d.chucVu, d.nhomCS ? `Nhóm: ${d.nhomCS}` : ''].filter(Boolean).join(' • ')}
-                            </div>
-                          )}
-                        </td>
-
-                        <td className="py-2.5 px-3 align-top">
-                          <div className="font-semibold text-navy">{d.chuongTrinh || '—'}</div>
-                          <div className="flex flex-wrap items-center gap-1 mt-1">
-                            {(d.lop || []).map((cl) => (
-                              <span
-                                key={cl}
-                                className="px-1.5 py-0.5 text-[10px] font-mono font-semibold bg-eztech-light text-eztech rounded border border-eztech-border"
-                              >
-                                {cl}
+                            {d.dealWinId && (
+                              <span className="inline-block mt-1 px-1.5 py-0.2 text-[9px] font-mono bg-slate-100 text-slate-500 rounded">
+                                DW #{d.dealWinId}
                               </span>
-                            ))}
-                            <button
-                              onClick={() => {
-                                setClassModalDeal(d);
-                                setQuickClasses(d.lop || []);
-                                setQuickNewClass('');
-                              }}
-                              className="px-1.5 py-0.5 text-[10px] text-slate-500 hover:text-navy bg-slate-100 hover:bg-slate-200 rounded inline-flex items-center gap-0.5"
-                              title="Sửa & đồng bộ lớp học cho SĐT này"
-                            >
-                              <Tag className="w-2.5 h-2.5" />
-                              <span>{(d.lop || []).length ? 'Sửa lớp' : '+ Gắn lớp'}</span>
-                            </button>
-                          </div>
-                        </td>
-
-                        <td className="py-2.5 px-3 whitespace-nowrap text-right align-top font-mono">
-                          <div className="font-bold text-emerald-600">{fmtMoney(d.daThu)}</div>
-                          {d.thuNo > 0 && (
-                            <div className="text-[10px] text-eztech font-medium">
-                              (Thu nợ cũ: {fmtMoney(d.thuNo)})
-                            </div>
-                          )}
-                        </td>
-
-                        <td className="py-2.5 px-3 whitespace-nowrap text-right align-top font-mono">
-                          <div className={d.phaiThu > 0 ? 'font-semibold text-slate-700' : 'text-slate-300'}>
-                            {fmtMoney(d.phaiThu)}
-                          </div>
-                          {d.daThuNo > 0 && (
-                            <div className="text-[10px] text-emerald-600">
-                              Đã thu nợ: {fmtMoney(d.daThuNo)}
-                            </div>
-                          )}
-                        </td>
-
-                        <td className="py-2.5 px-3 whitespace-nowrap text-right align-top font-mono font-semibold text-navy">
-                          {fmtMoney(d.tongTien)}
-                        </td>
-
-                        <td className="py-2.5 px-3 whitespace-nowrap text-right align-top font-mono">
-                          {d.conNo > 0 ? (
-                            <span className="font-bold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
-                              {fmtMoney(d.conNo)}
-                            </span>
-                          ) : (
-                            <span className="text-slate-300">0</span>
-                          )}
-                          {d.ngayThuAR && (
-                            <div className="text-[10px] text-slate-400 mt-0.5">
-                              AR: {fmtDateVi(d.ngayThuAR)}
-                            </div>
-                          )}
-                        </td>
-
-                        <td className="py-2.5 px-3 whitespace-nowrap align-top">
-                          <span
-                            className={`inline-block px-2 py-0.5 text-[11px] font-semibold rounded-full border ${getStatusBadgeStyle(
-                              d.trangThai
-                            )}`}
-                          >
-                            {d.trangThai || 'Hoàn thành'}
-                          </span>
-                        </td>
-
-                        <td className="py-2.5 px-3 align-top">
-                          <div className="font-medium text-navy">{d.nvCS || '—'}</div>
-                          <div className="text-[10px] text-slate-400">
-                            {[d.zaloCS, d.nguon].filter(Boolean).join(' • ')}
-                          </div>
-                        </td>
-
-                        <td className="py-2.5 px-3 align-top max-w-[200px]">
-                          <div className="text-slate-600 line-clamp-2" title={d.note}>
-                            {d.note || '—'}
-                          </div>
-                          <div className="text-[10px] text-slate-400 mt-0.5">
-                            Nhập: {d.nguoiNhap} ({d.taoLuc})
-                          </div>
-                        </td>
-
-                        <td className="py-2.5 px-3 whitespace-nowrap text-right align-top">
-                          <div className="flex items-center justify-end gap-1">
-                            {d.conNo > 0 && (
-                              <button
-                                onClick={() =>
-                                  openCollectDebtModal({
-                                    sdt: d.sdt,
-                                    hoTen: d.hoTen,
-                                    conNo: d.conNo,
-                                    ngayThuGoc: d.ngayThu,
-                                    chuongTrinh: d.chuongTrinh,
-                                    lop: d.lop,
-                                    nvCS: d.nvCS,
-                                  })
-                                }
-                                className="px-2 py-1 text-[11px] font-semibold bg-amber-500 hover:bg-amber-600 text-white rounded-md shadow-2xs transition-colors"
-                                title="Nhập giao dịch thu nợ cho khoản này"
-                              >
-                                Thu nợ
-                              </button>
                             )}
-                            <button
-                              onClick={() => openEditModal(d)}
-                              className="p-1.5 text-slate-500 hover:text-eztech hover:bg-eztech-light rounded-md transition-colors"
-                              title="Chỉnh sửa deal"
+                          </td>
+
+                          {/* Thông tin Học viên từ bảng Deal Win */}
+                          <td className="py-2.5 px-3 align-top min-w-[190px]">
+                            <div className="font-semibold text-navy flex items-center gap-1.5">
+                              <span>{d.hoTen}</span>
+                              {d.namSinh && (
+                                <span className="text-[10px] font-mono text-slate-400">({d.namSinh})</span>
+                              )}
+                            </div>
+                            <div className="font-mono text-[11px] font-semibold text-eztech mt-0.5">{d.sdt}</div>
+                            {d.email && (
+                              <div className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5 truncate max-w-[180px]" title={d.email}>
+                                <Mail className="w-2.5 h-2.5 shrink-0" />
+                                <span className="truncate">{d.email}</span>
+                              </div>
+                            )}
+                            {d.diaChi && (
+                              <div className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5">
+                                <MapPin className="w-2.5 h-2.5 shrink-0" />
+                                <span>{d.diaChi}</span>
+                              </div>
+                            )}
+                          </td>
+
+                          {/* Chức vụ, Lĩnh vực, Kỳ vọng */}
+                          <td className="py-2.5 px-3 align-top max-w-[210px]">
+                            {(d.chucVu || d.linhVuc) ? (
+                              <div className="text-[11px] font-medium text-navy flex items-start gap-1">
+                                <Briefcase className="w-3 h-3 text-slate-400 shrink-0 mt-0.5" />
+                                <span>{[d.chucVu, d.linhVuc].filter(Boolean).join(' • ')}</span>
+                              </div>
+                            ) : (
+                              <span className="text-slate-300 text-[11px]">—</span>
+                            )}
+                            {d.kyVong && (
+                              <div
+                                className="text-[10px] text-slate-500 line-clamp-2 mt-1 bg-slate-50 p-1 rounded border border-slate-100"
+                                title={d.kyVong}
+                              >
+                                Kì vọng: {d.kyVong}
+                              </div>
+                            )}
+                            {d.note && (
+                              <div className="text-[10px] text-eztech font-medium mt-0.5" title={d.note}>
+                                Note: {d.note}
+                              </div>
+                            )}
+                          </td>
+
+                          {/* Chương trình & Lớp học */}
+                          <td className="py-2.5 px-3 align-top min-w-[160px]">
+                            <div className="font-semibold text-navy">
+                              {d.chuongTrinh || (
+                                <span className="text-[11px] font-normal text-orange-500 italic">Chưa chọn CT học</span>
+                              )}
+                            </div>
+                            <div className="flex flex-wrap items-center gap-1 mt-1">
+                              {(d.lop || []).map((cl) => (
+                                <span
+                                  key={cl}
+                                  className="px-1.5 py-0.5 text-[10px] font-mono font-semibold bg-eztech-light text-eztech rounded border border-eztech-border"
+                                >
+                                  {cl}
+                                </span>
+                              ))}
+                              <button
+                                onClick={() => {
+                                  setClassModalDeal(d);
+                                  setQuickClasses(d.lop || []);
+                                  setQuickNewClass('');
+                                }}
+                                className={`px-1.5 py-0.5 text-[10px] rounded inline-flex items-center gap-0.5 cursor-pointer ${
+                                  missingClass
+                                    ? 'bg-orange-50 text-orange-700 border border-orange-200 font-semibold hover:bg-orange-100'
+                                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                }`}
+                                title="Sửa & đồng bộ lớp học cho SĐT này"
+                              >
+                                <Tag className="w-2.5 h-2.5" />
+                                <span>{missingClass ? '+ Gắn lớp' : 'Sửa'}</span>
+                              </button>
+                            </div>
+                          </td>
+
+                          {/* Nhóm CS 1-1 & Link Pancake */}
+                          <td className="py-2.5 px-3 align-top min-w-[150px]">
+                            {!missingGroup ? (
+                              isUrl(d.nhomCS) ? (
+                                <a
+                                  href={toSafeHref(d.nhomCS)}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded text-[11px] font-semibold hover:bg-emerald-100"
+                                >
+                                  <Link2 className="w-3 h-3" />
+                                  <span>Mở Nhóm 1-1</span>
+                                </a>
+                              ) : (
+                                <div className="text-[11px] font-medium text-navy">{d.nhomCS}</div>
+                              )
+                            ) : (
+                              <span className="text-[11px] text-orange-500 italic">Chưa có link 1-1</span>
+                            )}
+
+                            <div className="mt-1 flex items-center gap-2">
+                              {d.zalo && (
+                                <a
+                                  href={d.zalo}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 text-[10px] font-semibold text-eztech hover:underline"
+                                >
+                                  <ExternalLink className="w-2.5 h-2.5" />
+                                  <span>Pancake</span>
+                                </a>
+                              )}
+                              {d.zaloCS && (
+                                <span className="text-[10px] text-slate-400">• {d.zaloCS}</span>
+                              )}
+                            </div>
+                          </td>
+
+                          {/* Thực thu */}
+                          <td className="py-2.5 px-3 whitespace-nowrap text-right align-top font-mono">
+                            {missingMoney ? (
+                              <span className="text-[11px] font-sans text-orange-500 italic">Chưa nhập</span>
+                            ) : (
+                              <>
+                                <div className="font-bold text-emerald-600">{fmtMoney(d.daThu)}</div>
+                                {d.thuNo > 0 && (
+                                  <div className="text-[10px] text-eztech font-medium">
+                                    (Thu nợ: {fmtMoney(d.thuNo)})
+                                  </div>
+                                )}
+                              </>
+                            )}
+                          </td>
+
+                          {/* Phải thu */}
+                          <td className="py-2.5 px-3 whitespace-nowrap text-right align-top font-mono">
+                            <div className={d.phaiThu > 0 ? 'font-semibold text-slate-700' : 'text-slate-300'}>
+                              {fmtMoney(d.phaiThu)}
+                            </div>
+                            {d.daThuNo > 0 && (
+                              <div className="text-[10px] text-emerald-600">
+                                Đã thu nợ: {fmtMoney(d.daThuNo)}
+                              </div>
+                            )}
+                          </td>
+
+                          {/* Còn nợ */}
+                          <td className="py-2.5 px-3 whitespace-nowrap text-right align-top font-mono">
+                            {d.conNo > 0 ? (
+                              <span className="font-bold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
+                                {fmtMoney(d.conNo)}
+                              </span>
+                            ) : (
+                              <span className="text-slate-300">0</span>
+                            )}
+                            {d.ngayThuAR && (
+                              <div className="text-[10px] text-slate-400 mt-0.5">
+                                AR: {fmtDateVi(d.ngayThuAR)}
+                              </div>
+                            )}
+                          </td>
+
+                          {/* Trạng thái */}
+                          <td className="py-2.5 px-3 whitespace-nowrap align-top">
+                            <span
+                              className={`inline-block px-2 py-0.5 text-[11px] font-semibold rounded-full border ${getStatusBadgeStyle(
+                                d.trangThai
+                              )}`}
                             >
-                              <Edit3 className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              onClick={() => handleDeleteDeal(d)}
-                              className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-colors"
-                              title="Xoá deal"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))
+                              {d.trangThai || 'Chờ bổ sung'}
+                            </span>
+                          </td>
+
+                          {/* NV CS & Nguồn */}
+                          <td className="py-2.5 px-3 align-top">
+                            <div className="font-semibold text-navy">{d.nvCS || '—'}</div>
+                            <div className="text-[10px] text-slate-400 truncate max-w-[140px]" title={d.nguon}>
+                              {d.nguon || '—'}
+                            </div>
+                          </td>
+
+                          {/* Hành động */}
+                          <td className="py-2.5 px-3 whitespace-nowrap text-right align-top">
+                            <div className="flex items-center justify-end gap-1">
+                              {missingMoney || missingClass || missingGroup ? (
+                                <button
+                                  onClick={() => openEditModal(d)}
+                                  className="px-2.5 py-1 text-[11px] font-semibold bg-eztech hover:bg-eztech-dark text-white rounded-lg shadow-2xs transition-colors flex items-center gap-1 cursor-pointer"
+                                  title="Điền số tiền thu được, lớp học và link nhóm 1-1"
+                                >
+                                  <Edit3 className="w-3 h-3" />
+                                  <span>Điền thông tin</span>
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => openEditModal(d)}
+                                  className="p-1.5 text-slate-500 hover:text-eztech hover:bg-eztech-light rounded-md transition-colors cursor-pointer"
+                                  title="Chỉnh sửa deal"
+                                >
+                                  <Edit3 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+
+                              {d.conNo > 0 && (
+                                <button
+                                  onClick={() =>
+                                    openCollectDebtModal({
+                                      sdt: d.sdt,
+                                      hoTen: d.hoTen,
+                                      conNo: d.conNo,
+                                      ngayThuGoc: d.ngayThu,
+                                      chuongTrinh: d.chuongTrinh,
+                                      lop: d.lop,
+                                      nvCS: d.nvCS,
+                                    })
+                                  }
+                                  className="px-2 py-1 text-[11px] font-semibold bg-amber-500 hover:bg-amber-600 text-white rounded-lg shadow-2xs transition-colors cursor-pointer"
+                                  title="Nhập giao dịch thu nợ cho khoản này"
+                                >
+                                  Thu nợ
+                                </button>
+                              )}
+
+                              <button
+                                onClick={() => handleDeleteDeal(d)}
+                                className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-colors cursor-pointer"
+                                title="Xoá dòng này"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>
             </div>
+
+            {/* Phân trang */}
+            {totalPages > 1 && (
+              <div className="px-4 py-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
+                <div>
+                  Hiển thị <strong>{(currentPage - 1) * pageSize + 1}</strong> –{' '}
+                  <strong>{Math.min(currentPage * pageSize, filteredDeals.length)}</strong> trên tổng số{' '}
+                  <strong>{filteredDeals.length}</strong> bản ghi
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    disabled={currentPage <= 1}
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                    className="p-1.5 rounded-lg border border-slate-200 disabled:opacity-40 hover:bg-slate-50"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <span className="px-2 font-mono font-semibold text-navy">
+                    Trang {currentPage} / {totalPages}
+                  </span>
+                  <button
+                    disabled={currentPage >= totalPages}
+                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                    className="p-1.5 rounded-lg border border-slate-200 disabled:opacity-40 hover:bg-slate-50"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1183,7 +1462,7 @@ export function AppScriptTool() {
         <div className="bg-white rounded-xl border border-slate-200/80 shadow-card overflow-hidden">
           <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
             <h3 className="text-xs font-bold text-navy uppercase tracking-wider">
-              Nhật Ký Thao Tác Hệ Thống (150 hoạt động gần nhất)
+              Nhật Ký Thao Tác Hệ Thống (50 hoạt động gần nhất)
             </h3>
             <button
               onClick={loadLogs}
@@ -1232,7 +1511,7 @@ export function AppScriptTool() {
         </div>
       )}
 
-      {/* MODAL NHẬP / SỬA DEAL */}
+      {/* MODAL ĐIỀN THÔNG TIN / NHẬP & SỬA DEAL */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 bg-navy/50 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-3xl w-full overflow-hidden my-8">
@@ -1240,7 +1519,9 @@ export function AppScriptTool() {
               <div className="flex items-center gap-2">
                 <Sparkles className="w-4 h-4 text-gold" />
                 <h3 className="text-sm font-bold">
-                  {editingId ? 'Chỉnh Sửa Thông Tin Deal' : 'Nhập Deal Mới / Thu Nợ Học Viên'}
+                  {editingId
+                    ? `Điền Bổ Sung / Cập Nhật Học Viên ${editingDealWinId ? `(Deal Win #${editingDealWinId})` : ''}`
+                    : 'Nhập Deal Mới / Thu Nợ Học Viên'}
                 </h3>
               </div>
               <button
@@ -1251,9 +1532,9 @@ export function AppScriptTool() {
               </button>
             </div>
 
-            <form onSubmit={handleSubmitDeal} className="p-5 space-y-4 max-h-[82vh] overflow-y-auto">
+            <form onSubmit={handleSubmitDeal} className="p-5 space-y-4 max-h-[84vh] overflow-y-auto">
               {/* Cảnh báo công nợ hoặc Gợi ý tự động từ Pancake khi nhập SĐT */}
-              {phoneLookup?.found && (
+              {phoneLookup?.found && !editingId && (
                 <div className="space-y-2">
                   {phoneLookup.conNo && phoneLookup.conNo > 0 ? (
                     <div className="p-3 bg-amber-50 border border-amber-300 rounded-xl flex flex-wrap items-center justify-between gap-2">
@@ -1300,283 +1581,360 @@ export function AppScriptTool() {
                 </div>
               )}
 
-              {/* Nhóm 1: Thông tin học viên & Ngày tháng */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div>
-                  <label className="block text-[11px] font-semibold text-navy mb-1">
-                    Số điện thoại <span className="text-rose-500">*</span>
-                    {lookingUpPhone && <span className="ml-1 text-[10px] text-eztech">(Đang tra cứu...)</span>}
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="VD: 0987654321"
-                    value={formSdt}
-                    onChange={(e) => setFormSdt(e.target.value)}
-                    className="w-full px-3 py-2 text-xs font-mono font-semibold border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-eztech/20 focus:border-eztech"
-                  />
+              {/* PHẦN QUAN TRỌNG NHẤT: ĐIỀN SỐ TIỀN THU ĐƯỢC, LỚP HỌC, LINK NHÓM 1-1 */}
+              <div className="p-4 bg-eztech-light/40 rounded-xl border border-eztech-border space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-eztech uppercase tracking-wider">
+                    1. Điền Học Phí, Chương Trình, Lớp Học & Nhóm CS 1-1
+                  </span>
                 </div>
 
-                <div className="sm:col-span-2">
-                  <label className="block text-[11px] font-semibold text-navy mb-1">
-                    Họ và tên học viên <span className="text-rose-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Nhập họ và tên..."
-                    value={formHoTen}
-                    onChange={(e) => setFormHoTen(e.target.value)}
-                    className="w-full px-3 py-2 text-xs font-semibold border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-eztech/20 focus:border-eztech"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-semibold text-navy mb-1">
-                    Ngày thu tiền <span className="text-rose-500">*</span>
-                  </label>
-                  <input
-                    type="date"
-                    required
-                    value={formNgThu}
-                    onChange={(e) => setFormNgThu(e.target.value)}
-                    className="w-full px-3 py-2 text-xs font-mono border border-slate-200 rounded-lg focus:outline-none focus:border-eztech"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-semibold text-navy mb-1">
-                    Ngày contact đầu tiên
-                  </label>
-                  <input
-                    type="date"
-                    value={formNgContact}
-                    onChange={(e) => setFormNgContact(e.target.value)}
-                    className="w-full px-3 py-2 text-xs font-mono border border-slate-200 rounded-lg focus:outline-none focus:border-eztech"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-semibold text-navy mb-1">
-                    Chức vụ / Công việc
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="VD: Kế toán trưởng, FP&A..."
-                    value={formChucVu}
-                    onChange={(e) => setFormChucVu(e.target.value)}
-                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-eztech"
-                  />
-                </div>
-              </div>
-
-              {/* Nhóm 2: Số tiền & Trạng thái */}
-              <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200/80 grid grid-cols-1 sm:grid-cols-4 gap-3">
-                <div>
-                  <label className="block text-[11px] font-semibold text-emerald-700 mb-1">
-                    Số tiền thu được (VNĐ)
-                  </label>
-                  <input
-                    type="text"
-                    value={formDaThu ? fmtMoney(formDaThu) : ''}
-                    placeholder="0"
-                    onChange={(e) => handleDaThuChange(parseMoneyInput(e.target.value))}
-                    className="w-full px-3 py-2 text-xs font-mono font-bold text-emerald-700 bg-white border border-emerald-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-semibold text-amber-700 mb-1">
-                    Phải thu KH (Còn nợ)
-                  </label>
-                  <input
-                    type="text"
-                    value={formPhaiThu ? fmtMoney(formPhaiThu) : ''}
-                    placeholder="0"
-                    onChange={(e) => handlePhaiThuChange(parseMoneyInput(e.target.value))}
-                    className="w-full px-3 py-2 text-xs font-mono font-bold text-amber-700 bg-white border border-amber-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500/20"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-semibold text-navy mb-1">
-                    Tổng tiền khoá học
-                  </label>
-                  <input
-                    type="text"
-                    value={formTongTien ? fmtMoney(formTongTien) : ''}
-                    placeholder="0"
-                    onChange={(e) => setFormTongTien(parseMoneyInput(e.target.value))}
-                    className="w-full px-3 py-2 text-xs font-mono font-bold text-navy bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-eztech"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-semibold text-navy mb-1">
-                    Trạng thái deal
-                  </label>
-                  <select
-                    value={formTrangThai}
-                    onChange={(e) => setFormTrangThai(e.target.value)}
-                    className="w-full px-2.5 py-2 text-xs font-semibold bg-white border border-slate-200 rounded-lg text-navy focus:outline-none focus:border-eztech"
-                  >
-                    {statuses.map((st) => (
-                      <option key={st} value={st}>{st}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              {/* Nhóm 3: Chương trình, Nguồn, Nhân viên chăm sóc */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div>
-                  <label className="block text-[11px] font-semibold text-navy mb-1">
-                    Chương trình học
-                  </label>
-                  <select
-                    value={formChuongTrinh}
-                    onChange={(e) => setFormChuongTrinh(e.target.value)}
-                    className="w-full px-2.5 py-2 text-xs border border-slate-200 rounded-lg bg-white text-navy"
-                  >
-                    <option value="">-- Chọn chương trình --</option>
-                    {lists.chuongTrinh.map((c) => (
-                      <option key={c} value={c}>{c}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-semibold text-navy mb-1">
-                    Nguồn khách hàng
-                  </label>
-                  <select
-                    value={formNguon}
-                    onChange={(e) => setFormNguon(e.target.value)}
-                    className="w-full px-2.5 py-2 text-xs border border-slate-200 rounded-lg bg-white text-navy"
-                  >
-                    <option value="">-- Chọn nguồn --</option>
-                    {lists.nguon.map((n) => (
-                      <option key={n} value={n}>{n}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-semibold text-navy mb-1">
-                    Zalo chăm sóc
-                  </label>
-                  <select
-                    value={formZaloCS}
-                    onChange={(e) => setFormZaloCS(e.target.value)}
-                    className="w-full px-2.5 py-2 text-xs border border-slate-200 rounded-lg bg-white text-navy"
-                  >
-                    <option value="">-- Chọn Zalo CS --</option>
-                    {lists.zaloCS.map((z) => (
-                      <option key={z} value={z}>{z}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-semibold text-navy mb-1">
-                    NV chăm sóc (Sale)
-                  </label>
-                  <input
-                    type="text"
-                    value={formNvCS}
-                    onChange={(e) => setFormNvCS(e.target.value)}
-                    placeholder="Tên nhân viên sale..."
-                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-semibold text-navy mb-1">
-                    Nhóm CS 1-1
-                  </label>
-                  <input
-                    type="text"
-                    value={formNhomCS}
-                    onChange={(e) => setFormNhomCS(e.target.value)}
-                    placeholder="Tên nhóm Zalo hỗ trợ 1-1..."
-                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-semibold text-navy mb-1">
-                    Zalo (Link Pancake)
-                  </label>
-                  <input
-                    type="text"
-                    value={formZalo}
-                    onChange={(e) => setFormZalo(e.target.value)}
-                    placeholder="https://pancake.vn/..."
-                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg"
-                  />
-                </div>
-              </div>
-
-              {/* Nhóm 4: Chọn Lớp học (Đồng bộ mọi deal cùng SĐT) */}
-              <div>
-                <label className="block text-[11px] font-semibold text-navy mb-1.5">
-                  Lớp học (Tự động đồng bộ cho mọi deal cùng SĐT)
-                </label>
-                <div className="flex flex-wrap items-center gap-1.5 p-2.5 bg-slate-50 border border-slate-200 rounded-xl">
-                  {lists.lop.map((cls) => {
-                    const active = formLop.includes(cls);
-                    return (
-                      <button
-                        type="button"
-                        key={cls}
-                        onClick={() => toggleClassInForm(cls)}
-                        className={`px-2.5 py-1 rounded-lg text-xs font-mono font-semibold transition-all cursor-pointer ${
-                          active
-                            ? 'bg-eztech text-white shadow-2xs'
-                            : 'bg-white text-slate-600 border border-slate-200 hover:border-eztech'
-                        }`}
-                      >
-                        {cls}
-                      </button>
-                    );
-                  })}
-                  <div className="flex items-center gap-1 ml-auto">
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-emerald-700 mb-1">
+                      Số tiền thu được (VNĐ) <span className="text-rose-500">*</span>
+                    </label>
                     <input
                       type="text"
-                      placeholder="Thêm mã lớp mới..."
-                      value={newClassInput}
-                      onChange={(e) => setNewClassInput(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          addCustomClassToForm();
-                        }
-                      }}
-                      className="px-2 py-1 text-xs border border-slate-200 rounded-lg bg-white w-36"
+                      autoFocus
+                      value={formDaThu ? fmtMoney(formDaThu) : ''}
+                      placeholder="VD: 3,500,000"
+                      onChange={(e) => handleDaThuChange(parseMoneyInput(e.target.value))}
+                      className="w-full px-3 py-2 text-xs font-mono font-bold text-emerald-700 bg-white border border-emerald-400 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
                     />
-                    <button
-                      type="button"
-                      onClick={addCustomClassToForm}
-                      className="px-2 py-1 text-xs font-semibold bg-navy text-white rounded-lg"
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-amber-700 mb-1">
+                      Phải thu KH (Còn nợ)
+                    </label>
+                    <input
+                      type="text"
+                      value={formPhaiThu ? fmtMoney(formPhaiThu) : ''}
+                      placeholder="0"
+                      onChange={(e) => handlePhaiThuChange(parseMoneyInput(e.target.value))}
+                      className="w-full px-3 py-2 text-xs font-mono font-bold text-amber-700 bg-white border border-amber-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500/20"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-navy mb-1">
+                      Tổng tiền khoá học
+                    </label>
+                    <input
+                      type="text"
+                      value={formTongTien ? fmtMoney(formTongTien) : ''}
+                      placeholder="0"
+                      onChange={(e) => setFormTongTien(parseMoneyInput(e.target.value))}
+                      className="w-full px-3 py-2 text-xs font-mono font-bold text-navy bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-eztech"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-navy mb-1">
+                      Trạng thái deal
+                    </label>
+                    <select
+                      value={formTrangThai}
+                      onChange={(e) => setFormTrangThai(e.target.value)}
+                      className="w-full px-2.5 py-2 text-xs font-semibold bg-white border border-slate-200 rounded-lg text-navy focus:outline-none focus:border-eztech"
                     >
-                      + Thêm
-                    </button>
+                      {statuses.map((st) => (
+                        <option key={st} value={st}>{st}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-navy mb-1">
+                      Chương trình học
+                    </label>
+                    <select
+                      value={formChuongTrinh}
+                      onChange={(e) => setFormChuongTrinh(e.target.value)}
+                      className="w-full px-2.5 py-2 text-xs border border-slate-200 rounded-lg bg-white text-navy font-medium"
+                    >
+                      <option value="">-- Chọn chương trình --</option>
+                      {lists.chuongTrinh.map((c) => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="sm:col-span-2">
+                    <label className="block text-[11px] font-semibold text-navy mb-1">
+                      Link Nhóm CS 1-1 (Zalo Group / Tên nhóm)
+                    </label>
+                    <input
+                      type="text"
+                      value={formNhomCS}
+                      onChange={(e) => setFormNhomCS(e.target.value)}
+                      placeholder="Dán link nhóm Zalo 1-1 (https://zalo.me/g/...) hoặc tên nhóm..."
+                      className="w-full px-3 py-2 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-eztech"
+                    />
+                  </div>
+                </div>
+
+                {/* Chọn Lớp học */}
+                <div>
+                  <label className="block text-[11px] font-semibold text-navy mb-1">
+                    Lớp học (Tự động đồng bộ cho mọi deal cùng SĐT)
+                  </label>
+                  <div className="flex flex-wrap items-center gap-1.5 p-2.5 bg-white border border-slate-200 rounded-xl">
+                    {lists.lop.map((cls) => {
+                      const active = formLop.includes(cls);
+                      return (
+                        <button
+                          type="button"
+                          key={cls}
+                          onClick={() => toggleClassInForm(cls)}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-mono font-semibold transition-all cursor-pointer ${
+                            active
+                              ? 'bg-eztech text-white shadow-2xs'
+                              : 'bg-slate-50 text-slate-600 border border-slate-200 hover:border-eztech'
+                          }`}
+                        >
+                          {cls}
+                        </button>
+                      );
+                    })}
+                    <div className="flex items-center gap-1 ml-auto">
+                      <input
+                        type="text"
+                        placeholder="Thêm mã lớp mới..."
+                        value={newClassInput}
+                        onChange={(e) => setNewClassInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            addCustomClassToForm();
+                          }
+                        }}
+                        className="px-2 py-1 text-xs border border-slate-200 rounded-lg bg-slate-50 w-36"
+                      />
+                      <button
+                        type="button"
+                        onClick={addCustomClassToForm}
+                        className="px-2 py-1 text-xs font-semibold bg-navy text-white rounded-lg"
+                      >
+                        + Thêm
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
 
-              {/* Nhóm 5: Ghi chú */}
-              <div>
-                <label className="block text-[11px] font-semibold text-navy mb-1">
-                  Ghi chú (Note)
-                </label>
-                <textarea
-                  rows={2}
-                  value={formNote}
-                  onChange={(e) => setFormNote(e.target.value)}
-                  placeholder="Ghi chú thêm về lịch đóng tiền, ưu đãi học phí, hoặc yêu cầu của học viên..."
-                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-eztech"
-                />
+              {/* PHẦN 2: THÔNG TIN HỌC VIÊN TỪ BẢNG DEAL WIN & PANCAKE */}
+              <div className="space-y-3 pt-1">
+                <span className="block text-xs font-bold text-navy uppercase tracking-wider">
+                  2. Hồ Sơ Học Viên (Từ Bảng Deal Win & Pancake)
+                </span>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-navy mb-1">
+                      Số điện thoại <span className="text-rose-500">*</span>
+                      {lookingUpPhone && <span className="ml-1 text-[10px] text-eztech">(Đang tra cứu...)</span>}
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="VD: 0987654321"
+                      value={formSdt}
+                      onChange={(e) => setFormSdt(e.target.value)}
+                      className="w-full px-3 py-2 text-xs font-mono font-semibold border border-slate-200 rounded-lg"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-navy mb-1">
+                      Họ và tên học viên <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={formHoTen}
+                      onChange={(e) => setFormHoTen(e.target.value)}
+                      className="w-full px-3 py-2 text-xs font-semibold border border-slate-200 rounded-lg"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-navy mb-1">
+                      Email học viên
+                    </label>
+                    <input
+                      type="text"
+                      value={formEmail}
+                      onChange={(e) => setFormEmail(e.target.value)}
+                      placeholder="email@example.com"
+                      className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-navy mb-1">
+                      Ngày thu tiền / Đăng ký <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="date"
+                      required
+                      value={formNgThu}
+                      onChange={(e) => setFormNgThu(e.target.value)}
+                      className="w-full px-3 py-2 text-xs font-mono border border-slate-200 rounded-lg"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-navy mb-1">
+                      Ngày contact đầu tiên
+                    </label>
+                    <input
+                      type="date"
+                      value={formNgContact}
+                      onChange={(e) => setFormNgContact(e.target.value)}
+                      className="w-full px-3 py-2 text-xs font-mono border border-slate-200 rounded-lg"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-navy mb-1">
+                      Năm sinh & Địa chỉ
+                    </label>
+                    <div className="flex gap-1.5">
+                      <input
+                        type="text"
+                        placeholder="Năm sinh"
+                        value={formNamSinh}
+                        onChange={(e) => setFormNamSinh(e.target.value)}
+                        className="w-24 px-2.5 py-2 text-xs font-mono border border-slate-200 rounded-lg"
+                      />
+                      <input
+                        type="text"
+                        placeholder="Tỉnh / Thành phố"
+                        value={formDiaChi}
+                        onChange={(e) => setFormDiaChi(e.target.value)}
+                        className="flex-1 px-2.5 py-2 text-xs border border-slate-200 rounded-lg"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-navy mb-1">
+                      Chức vụ / Vị trí công việc
+                    </label>
+                    <input
+                      type="text"
+                      value={formChucVu}
+                      onChange={(e) => setFormChucVu(e.target.value)}
+                      placeholder="VD: Kế toán trưởng..."
+                      className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-navy mb-1">
+                      Lĩnh vực hoạt động
+                    </label>
+                    <input
+                      type="text"
+                      value={formLinhVuc}
+                      onChange={(e) => setFormLinhVuc(e.target.value)}
+                      placeholder="VD: Thương mại, Sản xuất..."
+                      className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-navy mb-1">
+                      NV chăm sóc (Sale)
+                    </label>
+                    <input
+                      type="text"
+                      value={formNvCS}
+                      onChange={(e) => setFormNvCS(e.target.value)}
+                      placeholder="Tên nhân viên sale..."
+                      className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-navy mb-1">
+                      Nguồn khách hàng
+                    </label>
+                    <input
+                      type="text"
+                      list="nguon-options"
+                      value={formNguon}
+                      onChange={(e) => setFormNguon(e.target.value)}
+                      placeholder="Chọn hoặc nhập nguồn..."
+                      className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg"
+                    />
+                    <datalist id="nguon-options">
+                      {lists.nguon.map((n) => (
+                        <option key={n} value={n} />
+                      ))}
+                    </datalist>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-navy mb-1">
+                      Zalo chăm sóc
+                    </label>
+                    <select
+                      value={formZaloCS}
+                      onChange={(e) => setFormZaloCS(e.target.value)}
+                      className="w-full px-2.5 py-2 text-xs border border-slate-200 rounded-lg bg-white text-navy"
+                    >
+                      <option value="">-- Chọn Zalo CS --</option>
+                      {lists.zaloCS.map((z) => (
+                        <option key={z} value={z}>{z}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-navy mb-1">
+                      Zalo (Link hội thoại Pancake)
+                    </label>
+                    <input
+                      type="text"
+                      value={formZalo}
+                      onChange={(e) => setFormZalo(e.target.value)}
+                      placeholder="https://pancake.vn/..."
+                      className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-navy mb-1">
+                      Mục đích / Kỳ vọng tham gia khoá học (Từ Form)
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={formKyVong}
+                      onChange={(e) => setFormKyVong(e.target.value)}
+                      className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg bg-slate-50"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-navy mb-1">
+                      Ghi chú nội bộ (Note học phí / Lịch hẹn đóng nợ)
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={formNote}
+                      onChange={(e) => setFormNote(e.target.value)}
+                      placeholder="Ghi chú thêm về lịch đóng tiền, ưu đãi học phí..."
+                      className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-eztech"
+                    />
+                  </div>
+                </div>
               </div>
 
               <div className="pt-2 border-t border-slate-100 flex items-center justify-end gap-2">
@@ -1592,7 +1950,7 @@ export function AppScriptTool() {
                   disabled={saving}
                   className="px-5 py-2 bg-eztech hover:bg-eztech-dark text-white text-xs font-semibold rounded-xl shadow-sm transition-colors cursor-pointer"
                 >
-                  {saving ? 'Đang lưu...' : editingId ? 'Lưu Thay Đổi' : 'Thêm Deal Mới'}
+                  {saving ? 'Đang lưu lên DB...' : 'Lưu Thông Tin Lên DB'}
                 </button>
               </div>
             </form>

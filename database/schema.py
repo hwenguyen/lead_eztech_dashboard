@@ -34,6 +34,7 @@ INDEX_DDL = [
     "CREATE INDEX IF NOT EXISTS ix_sales_deals_sdt ON sales_deals (sdt)",
     "CREATE INDEX IF NOT EXISTS ix_sales_deals_ngay_thu ON sales_deals (ngay_thu)",
     "CREATE INDEX IF NOT EXISTS ix_sales_deals_trang_thai ON sales_deals (trang_thai)",
+    "CREATE INDEX IF NOT EXISTS ix_sales_deals_deal_win_id ON sales_deals (deal_win_id)",
 ]
 
 
@@ -77,6 +78,21 @@ def _add_missing_columns():
             ddl_statements.append(f"ALTER TABLE posts ADD COLUMN {if_not_exists}share_count INTEGER DEFAULT 0")
         if "view_count" not in existing_posts:
             ddl_statements.append(f"ALTER TABLE posts ADD COLUMN {if_not_exists}view_count INTEGER DEFAULT 0")
+
+    if "sales_deals" in table_names:
+        existing_sd = {col["name"] for col in inspector.get_columns("sales_deals")}
+        for col_name, col_type in [
+            ("deal_win_id", "INTEGER"),
+            ("email", "VARCHAR(255)"),
+            ("nam_sinh", "VARCHAR(50)"),
+            ("dia_chi", "VARCHAR(255)"),
+            ("linh_vuc", "VARCHAR(255)"),
+            ("ky_vong", "TEXT"),
+            ("is_student", "BOOLEAN DEFAULT TRUE"),
+            ("lead_tag", "VARCHAR(255)"),
+        ]:
+            if col_name not in existing_sd:
+                ddl_statements.append(f"ALTER TABLE sales_deals ADD COLUMN {if_not_exists}{col_name} {col_type}")
 
     if ddl_statements:
         _run_ddl(ddl_statements)

@@ -195,10 +195,18 @@ class SalesDeal(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     deal_uid = Column(String, unique=True, index=True, nullable=False)      # UUID của deal
+    deal_win_id = Column(Integer, index=True, nullable=True)                # ID gốc từ bảng deal_wins (nếu đồng bộ sang)
     ngay_thu = Column(String, index=True, nullable=False)                   # Ngày thu tiền (YYYY-MM-DD)
     ngay_contact = Column(String, nullable=True)                            # Ngày contact đầu tiên (YYYY-MM-DD)
     sdt = Column(String, index=True, nullable=False)                        # Số điện thoại đã chuẩn hoá
     ho_ten = Column(String, index=True, nullable=False)                     # Họ tên học viên / khách hàng
+    email = Column(String, nullable=True)                                   # Email học viên (từ deal_wins)
+    nam_sinh = Column(String, nullable=True)                                # Năm sinh (từ deal_wins)
+    dia_chi = Column(String, nullable=True)                                 # Địa chỉ Tỉnh/TP (từ deal_wins)
+    linh_vuc = Column(String, nullable=True)                                # Lĩnh vực hoạt động (từ deal_wins)
+    ky_vong = Column(Text, nullable=True)                                   # Mục đích / Kỳ vọng khoá học (từ deal_wins)
+    is_student = Column(Boolean, default=True, nullable=True)               # Có tag Đã là học viên trên Pancake
+    lead_tag = Column(String, nullable=True)                                # Tag trên Pancake (từ deal_wins)
     zalo = Column(String, nullable=True)                                    # Zalo (link Pancake)
     nhom_cs = Column(String, nullable=True)                                 # Nhóm CS 1-1
     chuong_trinh = Column(String, index=True, nullable=True)                # Chương trình học

@@ -46,7 +46,7 @@ logger = logging.getLogger(__name__)
 
 from backend.broadcast import router as broadcast_router, clear_broadcast_cache
 from backend.auth import router as auth_router
-from backend.deal_entry import router as deal_entry_router
+from backend.deal_entry import router as deal_entry_router, invalidate_deal_entry_cache
 
 app = FastAPI(title="Pancake Lead Reporting API")
 app.include_router(auth_router)
@@ -514,6 +514,7 @@ def clear_cache():
         _TAG_TL_CACHE.clear()
     with _DEAL_CACHE_LOCK:
         _DEAL_CACHE.clear()
+    invalidate_deal_entry_cache()
     return {"status": "ok", "message": "All metrics, pages, last messages, remind, and deal caches have been cleared."}
 
 @app.post("/api/admin/repair", dependencies=[Depends(verify_admin_secret)])
@@ -970,6 +971,7 @@ async def receive_deal_webhook(request: Request, db: Session = Depends(get_db)):
     # Xóa cache Deal Win để dashboard cập nhật số liệu mới ngay
     with _DEAL_CACHE_LOCK:
         _DEAL_CACHE.clear()
+    invalidate_deal_entry_cache()
 
     return {
         "status": "ok",
@@ -986,6 +988,7 @@ def trigger_deal_leads_sync(db: Session = Depends(get_db)):
     total, students, updated = sync_all_deals_with_dim_leads(db, full_scan=True)
     with _DEAL_CACHE_LOCK:
         _DEAL_CACHE.clear()
+    invalidate_deal_entry_cache()
     return {
         "status": "ok",
         "total_deals": total,

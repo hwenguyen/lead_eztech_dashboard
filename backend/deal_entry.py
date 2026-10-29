@@ -1,10 +1,14 @@
 """
 Module Backend Quản lý Nhập Deal & Công nợ học viên (Deal Entry & Debt Management).
-Được chuyển đổi và nâng cấp trực tiếp từ Google Apps Script (Deal Win Backend) lên FastAPI + Neon Postgres.
-Tối ưu đặc biệt chống tốn băng thông Neon Egress:
-- In-Memory Cache cho danh sách Deals, Công nợ, Danh mục và Nhật ký (0 query lặp lại).
-- Reconcile công nợ cô lập theo đúng SĐT vừa thay đổi (chỉ đọc/ghi 1-3 dòng thay vì quét cả bảng).
-- Tra cứu Pancake chỉ SELECT đúng 5 cột text nhẹ bằng with_entities + Index Scan (tuyệt đối không kéo JSONB tag_timeline hay payload).
+Nối trực tiếp từ bảng `deal_wins` (DB Deal Win có sẵn) sang `sales_deals`:
+- Tự động kéo 100% thông tin học viên từ bảng `deal_wins` (Họ tên, SĐT, Email, Năm sinh, Địa chỉ, Lĩnh vực,
+  Chức vụ/Ngành nghề, Kỳ vọng, NV chăm sóc, Fanpage nguồn, Tag Pancake, Ngày contact đầu, Link Pancake).
+- Những học viên mới đổ về từ `deal_wins` chưa có Số tiền thu được / Lớp học / Link nhóm 1-1 sẽ mang trạng thái
+  "Chờ bổ sung" để nhân viên vào điền nốt và lưu thẳng lên DB.
+- Tối ưu chống tốn băng thông Neon Egress:
+  + Đồng bộ tăng trưởng theo `MAX(deal_wins.id)` (chỉ đọc dòng mới, bỏ qua cột JSON `raw_data` và `tag_timeline`).
+  + In-Memory Cache cho toàn bộ danh sách Deals, Công nợ, Danh mục, Nhật ký.
+  + Reconcile công nợ cô lập theo đúng SĐT vừa thay đổi (chỉ đọc/ghi 1-3 dòng).
 """
 
 import json
@@ -19,10 +23,10 @@ from typing import Optional, List, Dict, Any, Set, Tuple
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
-from sqlalchemy import desc, asc
+from sqlalchemy import desc, asc, func
 
 from database.db import get_db
-from database.models import SalesDeal, DealAuditLog, AppConfig, DimLead, FactLeadActivity
+from database.models import SalesDeal, DealAuditLog, AppConfig, DealWin, DimLead, FactLeadActivity
 from database.schema import ensure_schema
 from etl.utils import normalize_phone, resolve_canonical_page_name, build_pancake_url
 
@@ -42,7 +46,7 @@ def get_vn_now() -> datetime:
 _CACHE_LOCK = threading.Lock()
 _DEALS_CACHE: Optional[List[Dict[str, Any]]] = None
 _DEALS_CACHE_TS: float = 0.0
-DEALS_CACHE_TTL = 300  # 5 phút (tự động cập nhật tức thì khi có thao tác thêm/sửa/xoá)
+DEALS_CACHE_TTL = 300  # 5 phút
 
 _LISTS_CACHE: Optional[Dict[str, List[str]]] = None
 _LISTS_CACHE_TS: float = 0.0
@@ -55,12 +59,26 @@ LOGS_CACHE_TTL = 300  # 5 phút
 _PANCAKE_PHONE_CACHE: Dict[str, Tuple[float, Dict[str, Any]]] = {}
 PANCAKE_PHONE_TTL = 600  # 10 phút
 
+_LAST_SYNCED_DEAL_WIN_ID: int = -1
+_LAST_SYNC_CHECK_TS: float = 0.0
+SYNC_CHECK_INTERVAL = 120  # Chỉ kiểm tra MAX(id) của deal_wins mỗi 2 phút (4 bytes query)
+
+
+def invalidate_deal_entry_cache():
+    """Gọi khi bảng deal_wins có dữ liệu mới từ Webhook để trang Nhập Deal cập nhật ngay."""
+    global _DEALS_CACHE, _LAST_SYNCED_DEAL_WIN_ID, _LAST_SYNC_CHECK_TS
+    with _CACHE_LOCK:
+        _DEALS_CACHE = None
+        _LAST_SYNCED_DEAL_WIN_ID = -1
+        _LAST_SYNC_CHECK_TS = 0.0
+
 
 # ───────────────────────── Hằng số & Danh mục mặc định ─────────────────────────
 
 CONFIG_KEY_LISTS = "sales_deal_lists_v1"
 
 BASE_STATUSES = [
+    "Chờ bổ sung",
     "Hoàn thành",
     "Còn nợ",
     "Thu nợ",
@@ -171,27 +189,197 @@ def to_iso_date(val: Any) -> str:
     return s[:10] if len(s) >= 10 else ""
 
 
+# ───────────────────────── Đồng bộ trực tiếp từ bảng deal_wins (Zero-Bloat Egress) ─────────────────────────
+
+def sync_from_deal_wins(db: Session, force: bool = False) -> int:
+    """
+    Nối trực tiếp dữ liệu học viên từ bảng `deal_wins` sang `sales_deals`:
+    - Chỉ kiểm tra `SELECT MAX(id) FROM deal_wins` (4 bytes). Nếu không có dòng mới và không force -> tốn 0 Egress.
+    - Khi có học viên mới trong `deal_wins`, chỉ SELECT đúng các cột thông tin (bỏ qua `raw_data` JSON)
+      và nạp thông tin ngày contact đầu / link Pancake từ `dim_leads` (bỏ qua `tag_timeline` JSONB).
+    - Không bao giờ ghi đè lên Số tiền thu được, Lớp học, Chương trình học, Link nhóm 1-1 mà nhân viên đã điền.
+    """
+    global _LAST_SYNCED_DEAL_WIN_ID, _LAST_SYNC_CHECK_TS, _DEALS_CACHE
+    now_ts = time.time()
+
+    if not force and _LAST_SYNCED_DEAL_WIN_ID >= 0 and (now_ts - _LAST_SYNC_CHECK_TS) < SYNC_CHECK_INTERVAL:
+        return 0
+
+    max_dw_id = db.query(func.max(DealWin.id)).scalar() or 0
+    _LAST_SYNC_CHECK_TS = now_ts
+
+    if not force and _LAST_SYNCED_DEAL_WIN_ID >= max_dw_id:
+        return 0
+
+    # Lấy tập hợp các deal_win_id đã có trong sales_deals (chỉ đọc 1 cột integer)
+    existing_dw_rows = (
+        db.query(SalesDeal.deal_win_id)
+        .filter(SalesDeal.deal_win_id.isnot(None))
+        .all()
+    )
+    existing_dw_ids = {r[0] for r in existing_dw_rows if r[0] is not None}
+
+    # Chỉ truy vấn những bản ghi DealWin chưa có trong sales_deals (KHÔNG đọc raw_data)
+    dw_query = db.query(
+        DealWin.id,
+        DealWin.timestamp,
+        DealWin.email,
+        DealWin.full_name,
+        DealWin.phone_number,
+        DealWin.birth_year,
+        DealWin.address,
+        DealWin.industry,
+        DealWin.job_title,
+        DealWin.expectation,
+        DealWin.care_by,
+        DealWin.page_id,
+        DealWin.dim_lead_id,
+        DealWin.is_student,
+        DealWin.lead_tag,
+    )
+
+    if existing_dw_ids and not force:
+        dw_query = dw_query.filter(~DealWin.id.in_(existing_dw_ids))
+
+    dw_rows = dw_query.order_by(asc(DealWin.id)).all()
+    new_dw_rows = [r for r in dw_rows if r.id not in existing_dw_ids]
+
+    if not new_dw_rows:
+        _LAST_SYNCED_DEAL_WIN_ID = max_dw_id
+        return 0
+
+    # Batch lấy thông tin ngày contact đầu và link hội thoại Pancake cho các dim_lead_id
+    lead_ids = {r.dim_lead_id for r in new_dw_rows if r.dim_lead_id}
+    lead_info_map: Dict[int, Dict[str, str]] = {}
+
+    if lead_ids:
+        lead_act_rows = (
+            db.query(
+                DimLead.id,
+                DimLead.first_created_at,
+                DimLead.page_id,
+                FactLeadActivity.conversation_id,
+            )
+            .outerjoin(FactLeadActivity, DimLead.id == FactLeadActivity.lead_id)
+            .filter(DimLead.id.in_(lead_ids))
+            .all()
+        )
+        for lid, first_dt, l_page_id, conv_id in lead_act_rows:
+            entry = lead_info_map.setdefault(lid, {"ngay_contact": "", "zalo": ""})
+            if first_dt and not entry["ngay_contact"]:
+                entry["ngay_contact"] = first_dt.strftime("%Y-%m-%d")
+            if conv_id:
+                url = build_pancake_url(l_page_id, conv_id) or ""
+                if url and (not entry["zalo"] or str(conv_id).startswith("pzl_")):
+                    entry["zalo"] = url
+
+    # Lấy lớp học đã có theo SĐT (để đồng bộ nếu học viên đã có dòng trước đó)
+    phones_to_check = {clean_phone(r.phone_number) for r in new_dw_rows if r.phone_number}
+    phones_to_check.discard("")
+    phone_classes_map: Dict[str, str] = {}
+    if phones_to_check:
+        existing_phone_lop = (
+            db.query(SalesDeal.sdt, SalesDeal.lop)
+            .filter(SalesDeal.sdt.in_(phones_to_check), SalesDeal.lop.isnot(None), SalesDeal.lop != "")
+            .all()
+        )
+        for p_sdt, p_lop in existing_phone_lop:
+            if p_sdt and p_lop:
+                phone_classes_map[p_sdt] = p_lop
+
+    now = get_vn_now()
+    today_iso = now.strftime("%Y-%m-%d")
+    added_count = 0
+
+    for r in new_dw_rows:
+        phone = clean_phone(r.phone_number) or (str(r.phone_number or "").strip())
+        ho_ten = (r.full_name or "").strip() or "Học viên"
+        if not phone and not ho_ten:
+            continue
+
+        ngay_thu = r.timestamp.strftime("%Y-%m-%d") if r.timestamp else today_iso
+        l_info = lead_info_map.get(r.dim_lead_id or 0, {})
+        ngay_contact = l_info.get("ngay_contact") or ""
+        zalo_link = l_info.get("zalo") or ""
+        nguon_name = resolve_canonical_page_name(r.page_id, fallback=r.page_id) if r.page_id else ""
+
+        new_deal = SalesDeal(
+            deal_uid=str(uuid.uuid4()),
+            deal_win_id=r.id,
+            ngay_thu=ngay_thu,
+            ngay_contact=ngay_contact,
+            sdt=phone,
+            ho_ten=ho_ten,
+            email=(r.email or "").strip(),
+            nam_sinh=(r.birth_year or "").strip(),
+            dia_chi=(r.address or "").strip(),
+            linh_vuc=(r.industry or "").strip(),
+            chuc_vu=(r.job_title or "").strip(),
+            ky_vong=(r.expectation or "").strip(),
+            is_student=bool(r.is_student) if r.is_student is not None else True,
+            lead_tag=(r.lead_tag or "").strip(),
+            zalo=zalo_link,
+            nhom_cs="",
+            chuong_trinh="",
+            lop=phone_classes_map.get(phone, ""),
+            nv_cs=(r.care_by or "").strip(),
+            zalo_cs="",
+            nguon=nguon_name,
+            da_thu=0,
+            phai_thu=0,
+            tong_tien=0,
+            ngay_thu_ar="",
+            trang_thai="Chờ bổ sung",
+            note="",
+            nguoi_nhap="DealWin Sync",
+            tao_luc=r.timestamp or now,
+            thu_no=0,
+            da_thu_no=0,
+            con_no=0,
+        )
+        db.add(new_deal)
+        added_count += 1
+
+    if added_count > 0:
+        db.commit()
+        with _CACHE_LOCK:
+            _DEALS_CACHE = None
+
+    _LAST_SYNCED_DEAL_WIN_ID = max_dw_id
+    return added_count
+
+
 # ───────────────────────── Thuật toán Đối trừ Công nợ FIFO (settleDebts) ─────────────────────────
 
 def settle_debts(deals: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
     """
     Tính toán công nợ tự động theo nguyên tắc FIFO cho từng SĐT.
+    - Nếu deal từ bảng `deal_wins` mới đồng bộ sang chưa nhập tiền (`daThu == 0` và `phaiThu == 0`),
+      giữ trạng thái "Chờ bổ sung" để nhân viên nhận biết và điền nốt.
     """
     res: Dict[str, Dict[str, Any]] = {}
     by_phone: Dict[str, List[Dict[str, Any]]] = {}
 
     for d in deals:
         did = d["id"]
+        da_thu = int(d.get("daThu") or 0)
         phai_thu = int(d.get("phaiThu") or 0)
         trang_thai = str(d.get("trangThai") or "").strip()
         ngay_thu_ar = str(d.get("ngayThuAR") or "").strip()
+
+        if da_thu == 0 and phai_thu == 0:
+            default_st = trang_thai if trang_thai in ("Bảo lưu", "Hoàn học phí") else "Chờ bổ sung"
+        elif phai_thu > 0:
+            default_st = "Còn nợ"
+        else:
+            default_st = "Hoàn thành" if trang_thai in ("", "Chờ bổ sung", "Còn nợ") else trang_thai
 
         res[did] = {
             "thuNo": 0,
             "daThuNo": 0,
             "conNo": max(0, phai_thu),
             "apps": [],
-            "trangThai": trang_thai or ("Còn nợ" if phai_thu > 0 else "Hoàn thành"),
+            "trangThai": default_st,
             "ngayThuAR": ngay_thu_ar,
         }
 
@@ -215,6 +403,9 @@ def settle_debts(deals: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
             tong_tien = int(d.get("tongTien") or 0)
             trang_thai_lower = str(d.get("trangThai") or "").strip().lower()
 
+            if da_thu == 0 and phai_thu == 0:
+                continue
+
             is_debt_payment_row = (
                 trang_thai_lower in ("thu nợ", "thu no", "trả nợ", "thanh toán công nợ")
                 or (
@@ -222,6 +413,7 @@ def settle_debts(deals: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
                     and phai_thu == 0
                     and da_thu > 0
                     and not str(d.get("chuongTrinh") or "").strip()
+                    and not d.get("dealWinId")
                 )
             )
 
@@ -273,7 +465,7 @@ def settle_debts(deals: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
                 else:
                     r["trangThai"] = "Đã thu hết nợ"
             else:
-                if not is_debt_payment_row and not r["trangThai"]:
+                if not is_debt_payment_row and r["trangThai"] in ("", "Chờ bổ sung", "Còn nợ"):
                     r["trangThai"] = "Hoàn thành"
 
     return res
@@ -349,23 +541,38 @@ def write_lists(db: Session, lists_data: Dict[str, List[str]]) -> Dict[str, List
 
 
 def model_to_dict(row: SalesDeal) -> Dict[str, Any]:
+    da_thu = int(row.da_thu or 0)
+    phai_thu = int(row.phai_thu or 0)
+    lop_list = parse_classes(row.lop)
+    nhom_cs = row.nhom_cs or ""
+    # Đánh dấu dòng còn thiếu thông tin cần nhân viên điền nốt (Số tiền / Lớp học / Nhóm 1-1)
+    is_incomplete = (da_thu == 0 and phai_thu == 0) or len(lop_list) == 0 or not nhom_cs.strip()
+
     return {
         "_sort_id": row.id,
         "id": row.deal_uid,
+        "dealWinId": row.deal_win_id,
         "ngayThu": row.ngay_thu or "",
         "ngayContact": row.ngay_contact or "",
         "sdt": row.sdt or "",
         "hoTen": row.ho_ten or "",
+        "email": row.email or "",
+        "namSinh": row.nam_sinh or "",
+        "diaChi": row.dia_chi or "",
+        "linhVuc": row.linh_vuc or "",
+        "kyVong": row.ky_vong or "",
+        "isStudent": bool(row.is_student) if row.is_student is not None else True,
+        "leadTag": row.lead_tag or "",
         "zalo": row.zalo or "",
-        "nhomCS": row.nhom_cs or "",
+        "nhomCS": nhom_cs,
         "chuongTrinh": row.chuong_trinh or "",
-        "lop": parse_classes(row.lop),
+        "lop": lop_list,
         "chucVu": row.chuc_vu or "",
         "nvCS": row.nv_cs or "",
         "zaloCS": row.zalo_cs or "",
         "nguon": row.nguon or "",
-        "daThu": int(row.da_thu or 0),
-        "phaiThu": int(row.phai_thu or 0),
+        "daThu": da_thu,
+        "phaiThu": phai_thu,
         "tongTien": int(row.tong_tien or 0),
         "ngayThuAR": row.ngay_thu_ar or "",
         "trangThai": row.trang_thai or "",
@@ -377,16 +584,19 @@ def model_to_dict(row: SalesDeal) -> Dict[str, Any]:
         "thuNo": int(row.thu_no or 0),
         "daThuNo": int(row.da_thu_no or 0),
         "conNo": int(row.con_no or 0),
+        "isIncomplete": is_incomplete,
         "apps": [],
     }
 
 
 def get_cached_deals(db: Session, force_refresh: bool = False) -> List[Dict[str, Any]]:
     """
-    Trả về danh sách deals từ RAM nếu còn hạn TTL (tốn 0 bytes Neon Egress).
-    Chỉ truy vấn DB khi khởi động lần đầu hoặc hết TTL.
+    Tự động kiểm tra và nối dữ liệu mới từ `deal_wins` sang `sales_deals`,
+    sau đó trả về danh sách deals từ RAM Cache (tốn 0 bytes Neon Egress cho các lần đọc tiếp theo).
     """
     global _DEALS_CACHE, _DEALS_CACHE_TS
+    sync_from_deal_wins(db, force=force_refresh)
+
     now_ts = time.time()
     if not force_refresh and _DEALS_CACHE is not None and (now_ts - _DEALS_CACHE_TS) < DEALS_CACHE_TTL:
         return _DEALS_CACHE
@@ -485,7 +695,6 @@ def reconcile_phones_and_update_cache(db: Session, phones: Set[str]) -> List[Dic
     if dirty:
         db.commit()
 
-    # Nếu đã có cache trong RAM, chỉ thay thế đúng các dòng thuộc SĐT vừa cập nhật (0 query toàn bảng)
     if _DEALS_CACHE is not None:
         with _CACHE_LOCK:
             remaining = [d for d in _DEALS_CACHE if d.get("sdt") not in valid_phones]
@@ -577,6 +786,11 @@ class DealSavePayload(BaseModel):
     ngayContact: Optional[str] = ""
     sdt: str
     hoTen: str
+    email: Optional[str] = ""
+    namSinh: Optional[str] = ""
+    diaChi: Optional[str] = ""
+    linhVuc: Optional[str] = ""
+    kyVong: Optional[str] = ""
     zalo: Optional[str] = ""
     nhomCS: Optional[str] = ""
     chuongTrinh: Optional[str] = ""
@@ -608,7 +822,7 @@ class SaveListsPayload(BaseModel):
 
 @router.get("/init")
 def init_deal_entry(force: bool = Query(False), db: Session = Depends(get_db)):
-    """Khởi tạo dữ liệu cho trang Quản lý Nhập Deal & Công nợ (Đọc từ RAM Cache)."""
+    """Khởi tạo dữ liệu cho trang Quản lý Nhập Deal & Công nợ (Tự động nối từ deal_wins + Đọc từ RAM Cache)."""
     ensure_schema()
     lists = read_lists(db, use_cache=not force)
     deals = get_cached_deals(db, force_refresh=force)
@@ -710,7 +924,6 @@ def lookup_phone(
     if not phone or len(phone) < 9:
         return {"ok": True, "found": False}
 
-    # 1. Đọc từ _DEALS_CACHE trong RAM (0 Egress)
     deals = get_cached_deals(db)
     hit = None
     debt = 0
@@ -742,7 +955,6 @@ def lookup_phone(
             "trangThai": d["trangThai"],
         })
 
-    # 2. Tìm trên Pancake với truy vấn tối giản (chỉ 5 cột scalar)
     pancake_info = _lookup_pancake_lightweight(db, phone)
 
     if not hit and not pancake_info:
@@ -753,6 +965,11 @@ def lookup_phone(
         "found": True,
         "foundInDeals": hit is not None,
         "hoTen": (hit["hoTen"] if hit else pancake_info.get("hoTen")) or "",
+        "email": (hit.get("email") if hit else "") or "",
+        "namSinh": (hit.get("namSinh") if hit else "") or "",
+        "diaChi": (hit.get("diaChi") if hit else "") or "",
+        "linhVuc": (hit.get("linhVuc") if hit else "") or "",
+        "kyVong": (hit.get("kyVong") if hit else "") or "",
         "chucVu": (hit.get("chucVu") if hit else "") or "",
         "zalo": (hit.get("zalo") if hit else pancake_info.get("zalo")) or "",
         "nhomCS": (hit.get("nhomCS") if hit else "") or "",
@@ -770,7 +987,13 @@ def lookup_phone(
 
 @router.post("/deals")
 def save_deal(payload: DealSavePayload, db: Session = Depends(get_db)):
-    """Thêm mới hoặc Cập nhật Deal, chỉ reconcile đúng SĐT bị ảnh hưởng để tiết kiệm tối đa Egress."""
+    """
+    Thêm mới hoặc Điền bổ sung / Cập nhật Deal:
+    - Lưu đầy đủ thông tin Số tiền thu được, Phải thu, Lớp học, Link nhóm 1-1, Ghi chú...
+    - Nếu dòng này được nối từ `deal_wins` (`deal_win_id`), đồng bộ ngược các trường thông tin học viên
+      (`ho_ten`, `sdt`, `email`, `nam_sinh`, `dia_chi`, `linh_vuc`, `chuc_vu`, `ky_vong`, `nv_cs`) về bảng `deal_wins`.
+    - Chỉ reconcile đúng SĐT bị ảnh hưởng để tiết kiệm tối đa Egress.
+    """
     ensure_schema()
     phone = clean_phone(payload.sdt)
     if not phone:
@@ -826,6 +1049,16 @@ def save_deal(payload: DealSavePayload, db: Session = Depends(get_db)):
         db_row.ngay_contact = to_iso_date(payload.ngayContact)
         db_row.sdt = phone
         db_row.ho_ten = ho_ten
+        if payload.email is not None:
+            db_row.email = payload.email.strip()
+        if payload.namSinh is not None:
+            db_row.nam_sinh = payload.namSinh.strip()
+        if payload.diaChi is not None:
+            db_row.dia_chi = payload.diaChi.strip()
+        if payload.linhVuc is not None:
+            db_row.linh_vuc = payload.linhVuc.strip()
+        if payload.kyVong is not None:
+            db_row.ky_vong = payload.kyVong.strip()
         db_row.zalo = (payload.zalo or "").strip()
         db_row.nhom_cs = (payload.nhomCS or "").strip()
         db_row.chuong_trinh = (payload.chuongTrinh or "").strip()
@@ -844,14 +1077,31 @@ def save_deal(payload: DealSavePayload, db: Session = Depends(get_db)):
         db_row.nguoi_sua = actor
         db_row.sua_luc = now
 
+        # Đồng bộ ngược thông tin học viên sang bảng deal_wins (nếu dòng này nối từ deal_wins)
+        if db_row.deal_win_id:
+            db.query(DealWin).filter(DealWin.id == db_row.deal_win_id).update(
+                {
+                    DealWin.full_name: ho_ten,
+                    DealWin.phone_number: phone,
+                    DealWin.email: db_row.email,
+                    DealWin.birth_year: db_row.nam_sinh,
+                    DealWin.address: db_row.dia_chi,
+                    DealWin.industry: db_row.linh_vuc,
+                    DealWin.job_title: db_row.chuc_vu,
+                    DealWin.expectation: db_row.ky_vong,
+                    DealWin.care_by: db_row.nv_cs,
+                },
+                synchronize_session=False,
+            )
+
         deal_uid = db_row.deal_uid
         db.commit()
         write_audit_log(
             db,
             actor,
-            "Sửa deal",
+            "Cập nhật deal",
             deal_uid,
-            {"sdt": phone, "hoTen": ho_ten, "daThu": da_thu, "phaiThu": phai_thu, "trangThai": db_row.trang_thai},
+            {"sdt": phone, "hoTen": ho_ten, "daThu": da_thu, "phaiThu": phai_thu, "lop": merged_classes},
         )
     else:
         deal_uid = str(uuid.uuid4())
@@ -862,6 +1112,12 @@ def save_deal(payload: DealSavePayload, db: Session = Depends(get_db)):
             ngay_contact=to_iso_date(payload.ngayContact),
             sdt=phone,
             ho_ten=ho_ten,
+            email=(payload.email or "").strip(),
+            nam_sinh=(payload.namSinh or "").strip(),
+            dia_chi=(payload.diaChi or "").strip(),
+            linh_vuc=(payload.linhVuc or "").strip(),
+            ky_vong=(payload.kyVong or "").strip(),
+            is_student=True,
             zalo=(payload.zalo or "").strip(),
             nhom_cs=(payload.nhomCS or "").strip(),
             chuong_trinh=(payload.chuongTrinh or "").strip(),
@@ -886,10 +1142,9 @@ def save_deal(payload: DealSavePayload, db: Session = Depends(get_db)):
             actor,
             "Thêm deal",
             deal_uid,
-            {"sdt": phone, "hoTen": ho_ten, "daThu": da_thu, "phaiThu": phai_thu, "trangThai": db_row.trang_thai},
+            {"sdt": phone, "hoTen": ho_ten, "daThu": da_thu, "phaiThu": phai_thu, "lop": merged_classes},
         )
 
-    # Đồng bộ lớp học cho các dòng cùng SĐT đã nạp sẵn trong same_phone_rows (không cần SELECT lại)
     synced = False
     for r in same_phone_rows:
         if r.deal_uid == deal_uid:
