@@ -144,6 +144,10 @@ KNOWN_PAGE_NAMES: Dict[str, str] = {
     # 9. Anh kế toán Daily (TikTok)
     "7602128557942293512": "Anh kế toán Daily",
     "tt_7602128557942293512": "Anh kế toán Daily",
+    # 10. Eztech Consultant (Zalo)
+    "764881945463506349": "Eztech Consultant",
+    "pzl_764881945463506349": "Eztech Consultant",
+    "pzl_u_764881945463506349": "Eztech Consultant",
 }
 
 # Bản đồ ánh xạ từ Tên/ID Page sang Page Slug hiển thị trên Pancake URL (https://pancake.vn/[slug]?c_id=[conversation_id])
@@ -184,6 +188,12 @@ PAGE_NAME_TO_PANCAKE_ID: Dict[str, str] = {
     "Chị Kế Toán GenZ": "tt_chiketoangenz",
     "7661860189083943944": "tt_chiketoangenz",
     "tt_7661860189083943944": "tt_chiketoangenz",
+
+    # 8. Eztech Consultant: Zalo cá nhân
+    "Eztech Consultant": "pzl_764881945463506349",
+    "764881945463506349": "pzl_764881945463506349",
+    "pzl_764881945463506349": "pzl_764881945463506349",
+    "pzl_u_764881945463506349": "pzl_764881945463506349",
 }
 
 
@@ -380,6 +390,12 @@ PAGE_NAME_TO_API_ID: Dict[str, str] = {
     "Anh kế toán Daily": "tt_7602128557942293512",
     "7602128557942293512": "tt_7602128557942293512",
     "tt_7602128557942293512": "tt_7602128557942293512",
+
+    # 10. Eztech Consultant (Zalo cá nhân)
+    "Eztech Consultant": "pzl_764881945463506349",
+    "764881945463506349": "pzl_764881945463506349",
+    "pzl_764881945463506349": "pzl_764881945463506349",
+    "pzl_u_764881945463506349": "pzl_764881945463506349",
 }
 
 

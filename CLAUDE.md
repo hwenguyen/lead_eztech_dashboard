@@ -21,6 +21,10 @@ FastAPI backend (`backend/`) + React frontend (`frontend-react/`) trên Render (
 
 ## Session
 
+### 2026-10-29 — Thêm Page Zalo mới: Eztech Consultant (`764881945463506349`)
+- Cấu hình chuẩn hóa tên hiển thị, URL Pancake và Pancake API mapping trong `etl/utils.py` (`KNOWN_PAGE_NAMES`, `PAGE_NAME_TO_PANCAKE_ID`, `PAGE_NAME_TO_API_ID`).
+- Page được tự động xếp vào nhóm kênh Zalo chăm sóc (`ZALO_PAGE_NAMES`, prefix `pzl_`) và không cộng gộp vào tổng lead nguồn.
+
 ### 2026-10-26 — Tối ưu triệt để Network Transfer Egress (Neon DB 3.35/5 GB)
 - **Truy vấn định danh khách cũ (`etl/auto_reply_bot.py`)**: Thay thế `get_existing_inbox_customer_ids` (trước đó quét sequential `raw_conversations` và kéo 3.461 IDs/lần, tạo 1.835 câu query trả về 3,1 triệu dòng ~367 MB) bằng hàm `customer_has_prior_interaction` dùng `EXISTS` O(1) trên index của `dim_leads` và `bot_auto_replies` (trả về 1 byte thay vì 70 KB/lần).
 - **Prefetch log gửi bot (`etl/auto_reply_bot.py`)**: Gom 200+ câu query đơn lẻ kiểm tra `SENT` và `FAILED` trong vòng lặp thành 2 câu query theo lô `IN (conv_ids)` trước vòng lặp, cắt giảm 98% lượt truy vấn lên Neon.
