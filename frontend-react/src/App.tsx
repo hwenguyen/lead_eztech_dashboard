@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { format, subDays } from 'date-fns';
-import { Users, UserPlus, UserCheck, PhoneCall, PhoneForwarded, Percent, Calendar, RefreshCw, LayoutDashboard, Clock, Award, Bot, LogOut, KeyRound, Lock, Menu, X } from 'lucide-react';
+import { Users, UserPlus, UserCheck, PhoneCall, PhoneForwarded, Percent, Calendar, RefreshCw, LayoutDashboard, Clock, Award, Bot, LogOut, KeyRound, Lock, Menu, X, Sparkles } from 'lucide-react';
 import { KpiCard } from './components/KpiCard';
 import { TrendChart } from './components/TrendChart';
 import { LeadTable } from './components/LeadTable';
@@ -9,6 +9,7 @@ import { StatsPieChart } from './components/StatsPieChart';
 import { RemindLeadTable } from './components/RemindLeadTable';
 import { DealWinDashboard } from './components/DealWinDashboard';
 import { BulkMessengerDashboard } from './components/BulkMessengerDashboard';
+import { AppScriptTool } from './components/AppScriptTool';
 import { LoginPage } from './components/LoginPage';
 import { ChangePasswordModal } from './components/ChangePasswordModal';
 import { fetchSummary, fetchTrend, fetchLeads, fetchEmployees, fetchPages, getStoredAuth, logoutApi, type SummaryData, type TrendData, type Lead, type AuthUser } from './services/api';
@@ -36,7 +37,7 @@ function App() {
     }
   };
 
-  const [activeTab, setActiveTab] = useState<'overview' | 'remind' | 'deals' | 'bot'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'remind' | 'deals' | 'bot' | 'gas_tool'>('overview');
   const [startDate, setStartDate] = useState(format(subDays(new Date(), 7), 'yyyy-MM-dd'));
   const [endDate, setEndDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [pageId, setPageId] = useState('');
@@ -140,6 +141,7 @@ function App() {
     { id: 'overview' as const, label: 'Tổng quan & Chỉ số', icon: LayoutDashboard },
     { id: 'remind' as const, label: 'Chăm sóc Lead', icon: Clock },
     { id: 'deals' as const, label: 'Deal Win', icon: Award },
+    { id: 'gas_tool' as const, label: 'Nhập Deal & Công Nợ', icon: Sparkles, badge: 'CRM' },
     { id: 'bot' as const, label: 'Bot Gửi Tin', icon: Bot, badge: 'Pancake' },
   ];
 
@@ -336,6 +338,8 @@ function App() {
             ) : (
               <BulkMessengerDashboard />
             )
+          ) : activeTab === 'gas_tool' ? (
+            <AppScriptTool />
           ) : (
             <>
               {/* Compact Inline Filter Toolbar */}

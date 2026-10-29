@@ -31,6 +31,9 @@ INDEX_DDL = [
     "CREATE INDEX IF NOT EXISTS ix_posts_platform ON posts (platform)",
     "CREATE INDEX IF NOT EXISTS ix_posts_inserted_at ON posts (inserted_at)",
     "CREATE INDEX IF NOT EXISTS ix_posts_type ON posts (type)",
+    "CREATE INDEX IF NOT EXISTS ix_sales_deals_sdt ON sales_deals (sdt)",
+    "CREATE INDEX IF NOT EXISTS ix_sales_deals_ngay_thu ON sales_deals (ngay_thu)",
+    "CREATE INDEX IF NOT EXISTS ix_sales_deals_trang_thai ON sales_deals (trang_thai)",
 ]
 
 

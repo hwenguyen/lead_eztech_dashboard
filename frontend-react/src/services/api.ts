@@ -568,3 +568,164 @@ export const getStoredAuth = (): { token: string | null; user: AuthUser | null }
   }
   return { token, user };
 };
+
+
+// ==============================================================================
+// QUẢN LÝ NHẬP DEAL & CÔNG NỢ HỌC VIÊN (DEAL ENTRY & DEBT MANAGEMENT)
+// ==============================================================================
+
+export interface DealPaymentApp {
+  ngay: string;
+  soTien: number;
+  dealId: string;
+}
+
+export interface SalesDealRecord {
+  id: string;
+  ngayThu: string;
+  ngayContact: string;
+  sdt: string;
+  hoTen: string;
+  zalo: string;
+  nhomCS: string;
+  chuongTrinh: string;
+  lop: string[];
+  chucVu: string;
+  nvCS: string;
+  zaloCS: string;
+  nguon: string;
+  daThu: number;
+  phaiThu: number;
+  tongTien: number;
+  ngayThuAR: string;
+  trangThai: string;
+  note: string;
+  nguoiNhap: string;
+  taoLuc: string;
+  nguoiSua: string;
+  suaLuc: string;
+  thuNo: number;
+  daThuNo: number;
+  conNo: number;
+  apps?: DealPaymentApp[];
+}
+
+export interface DebtRecordItem {
+  id: string;
+  sdt: string;
+  hoTen: string;
+  ngayThuGoc: string;
+  thangPhatSinh: string;
+  phaiThuBanDau: number;
+  daThuNo: number;
+  conNo: number;
+  lanThuGanNhat: string;
+  nvCS: string;
+  nguoiNhap: string;
+  lop: string[];
+  chuongTrinh: string;
+  note: string;
+}
+
+export interface DebtSummaryData {
+  items: DebtRecordItem[];
+  totalPhaiThu: number;
+  totalDaThuNo: number;
+  totalConNo: number;
+  count: number;
+}
+
+export interface DealEntryLists {
+  zaloCS: string[];
+  nguon: string[];
+  chuongTrinh: string[];
+  lop: string[];
+}
+
+export interface DealEntryInitResponse {
+  ok: boolean;
+  statuses: string[];
+  lists: DealEntryLists;
+  deals: SalesDealRecord[];
+  debts: DebtSummaryData;
+}
+
+export interface PhoneLookupResponse {
+  ok: boolean;
+  found: boolean;
+  foundInDeals?: boolean;
+  hoTen?: string;
+  chucVu?: string;
+  zalo?: string;
+  nhomCS?: string;
+  nvCS?: string;
+  zaloCS?: string;
+  nguon?: string;
+  ngayContact?: string;
+  lop?: string[];
+  conNo?: number;
+  noTuNgay?: string;
+  previousDeals?: Array<{
+    id: string;
+    ngayThu: string;
+    chuongTrinh: string;
+    daThu: number;
+    phaiThu: number;
+    conNo: number;
+    trangThai: string;
+  }>;
+  pancake?: {
+    foundInPancake?: boolean;
+    hoTen?: string;
+    ngayContact?: string;
+    zalo?: string;
+    nguon?: string;
+    nvCS?: string;
+  };
+}
+
+export interface DealAuditLogItem {
+  id: number;
+  createdAt: string;
+  userEmail: string;
+  action: string;
+  dealId: string;
+  detail: string;
+}
+
+export const fetchDealEntryInit = async (): Promise<DealEntryInitResponse> => {
+  const res = await apiClient.get<DealEntryInitResponse>('/deal-entry/init');
+  return res.data;
+};
+
+export const lookupDealPhone = async (sdt: string, excludeId?: string): Promise<PhoneLookupResponse> => {
+  const params: Record<string, string> = { sdt };
+  if (excludeId) params.exclude_id = excludeId;
+  const res = await apiClient.get<PhoneLookupResponse>('/deal-entry/lookup-phone', { params });
+  return res.data;
+};
+
+export const saveSalesDeal = async (payload: Partial<SalesDealRecord> & { actor?: string }) => {
+  const res = await apiClient.post('/deal-entry/deals', payload);
+  return res.data;
+};
+
+export const updateSalesDealClasses = async (dealId: string, lop: string[], actor?: string) => {
+  const res = await apiClient.put(`/deal-entry/deals/${dealId}/classes`, { lop, actor });
+  return res.data;
+};
+
+export const deleteSalesDeal = async (dealId: string, actor?: string) => {
+  const res = await apiClient.delete(`/deal-entry/deals/${dealId}`, { params: { actor } });
+  return res.data;
+};
+
+export const saveDealEntryLists = async (lists: DealEntryLists, actor?: string) => {
+  const res = await apiClient.put('/deal-entry/lists', { lists, actor });
+  return res.data;
+};
+
+export const fetchDealEntryLogs = async (limit: number = 100): Promise<{ ok: boolean; logs: DealAuditLogItem[] }> => {
+  const res = await apiClient.get('/deal-entry/logs', { params: { limit } });
+  return res.data;
+};

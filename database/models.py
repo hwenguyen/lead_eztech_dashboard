@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, JSON, Boolean, ForeignKey, Text
+from sqlalchemy import Column, Integer, BigInteger, String, DateTime, JSON, Boolean, ForeignKey, Text
 from sqlalchemy.orm import relationship
 from database.db import Base
 from datetime import datetime, timezone, timedelta
@@ -187,3 +187,48 @@ class AppConfig(Base):
     config_value = Column(Text, nullable=True)
     updated_at = Column(DateTime, default=get_vn_now, onupdate=get_vn_now)
 
+
+
+class SalesDeal(Base):
+    """Bảng Quản lý Nhập Deal & Công nợ học viên (thay thế Google Apps Script Deal Win)."""
+    __tablename__ = "sales_deals"
+
+    id = Column(Integer, primary_key=True, index=True)
+    deal_uid = Column(String, unique=True, index=True, nullable=False)      # UUID của deal
+    ngay_thu = Column(String, index=True, nullable=False)                   # Ngày thu tiền (YYYY-MM-DD)
+    ngay_contact = Column(String, nullable=True)                            # Ngày contact đầu tiên (YYYY-MM-DD)
+    sdt = Column(String, index=True, nullable=False)                        # Số điện thoại đã chuẩn hoá
+    ho_ten = Column(String, index=True, nullable=False)                     # Họ tên học viên / khách hàng
+    zalo = Column(String, nullable=True)                                    # Zalo (link Pancake)
+    nhom_cs = Column(String, nullable=True)                                 # Nhóm CS 1-1
+    chuong_trinh = Column(String, index=True, nullable=True)                # Chương trình học
+    lop = Column(Text, nullable=True)                                       # Lớp học (ngăn cách bởi dấu phẩy)
+    chuc_vu = Column(String, nullable=True)                                 # Chức vụ
+    nv_cs = Column(String, index=True, nullable=True)                       # NV chăm sóc
+    zalo_cs = Column(String, nullable=True)                                 # Zalo chăm sóc
+    nguon = Column(String, index=True, nullable=True)                       # Nguồn
+    da_thu = Column(BigInteger, default=0, nullable=False)                  # Số tiền thu được
+    phai_thu = Column(BigInteger, default=0, nullable=False)                # Phải thu khách hàng
+    tong_tien = Column(BigInteger, default=0, nullable=False)               # Tổng tiền
+    ngay_thu_ar = Column(String, nullable=True)                             # Ngày thu AR (YYYY-MM-DD)
+    trang_thai = Column(String, index=True, nullable=True)                  # Trạng thái
+    note = Column(Text, nullable=True)                                      # Ghi chú (Note)
+    nguoi_nhap = Column(String, index=True, nullable=True)                  # Người nhập (username / email)
+    tao_luc = Column(DateTime, default=get_vn_now, index=True)              # Tạo lúc
+    nguoi_sua = Column(String, nullable=True)                               # Người sửa
+    sua_luc = Column(DateTime, nullable=True)                               # Sửa lúc
+    thu_no = Column(BigInteger, default=0, nullable=False)                  # Trong đó thu nợ cũ (hệ thống tự tính)
+    da_thu_no = Column(BigInteger, default=0, nullable=False)               # Đã thu nợ (hệ thống tự tính)
+    con_no = Column(BigInteger, default=0, nullable=False)                  # Còn nợ (hệ thống tự tính)
+
+
+class DealAuditLog(Base):
+    """Nhật ký thao tác trên hệ thống Nhập Deal & Công nợ."""
+    __tablename__ = "deal_audit_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    created_at = Column(DateTime, default=get_vn_now, index=True)
+    user_email = Column(String, index=True, nullable=False)
+    action = Column(String, index=True, nullable=False)
+    deal_id = Column(String, index=True, nullable=True)
+    detail = Column(Text, nullable=True)
