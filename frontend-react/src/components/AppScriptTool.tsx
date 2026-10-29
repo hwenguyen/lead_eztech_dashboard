@@ -944,7 +944,20 @@ export function AppScriptTool() {
                                 <span className="text-[10px] font-mono text-slate-400">({d.namSinh})</span>
                               )}
                             </div>
-                            <div className="font-mono text-[11px] font-semibold text-eztech mt-0.5">{d.sdt}</div>
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                              <span className="font-mono text-[11px] font-semibold text-eztech">{d.sdt}</span>
+                              {d.zalo && (
+                                <a
+                                  href={toSafeHref(d.zalo)}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="px-1.5 py-0.2 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded text-[10px] font-medium transition-colors"
+                                  title={`Mở hội thoại Pancake: ${d.zalo}`}
+                                >
+                                  Pancake ↗
+                                </a>
+                              )}
+                            </div>
                             {d.email && (
                               <div className="text-[10px] text-slate-400 mt-0.5 truncate max-w-[190px]" title={d.email}>
                                 {d.email}
@@ -1056,23 +1069,44 @@ export function AppScriptTool() {
                               )}
                             </div>
 
-                            <div className="mt-1.5 flex items-center gap-1.5">
-                              <button
-                                type="button"
-                                onClick={() => handleOpenPancake(d)}
-                                className="px-2 py-0.5 text-[11px] font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded transition-colors cursor-pointer"
-                                title={
-                                  d.zalo
-                                    ? `Mở trực tiếp hội thoại Pancake: ${d.zalo}`
-                                    : `Tra cứu hoặc sao chép SĐT (${d.sdt}) và mở Pancake`
-                                }
-                              >
-                                Mở Pancake ↗
-                              </button>
-                              {d.zaloCS && (
-                                <span className="text-[10px] text-slate-400 truncate max-w-[85px]" title={d.zaloCS}>
-                                  • {d.zaloCS}
-                                </span>
+                            <div className="mt-1.5 flex flex-col gap-1">
+                              <div className="flex items-center gap-1.5">
+                                {d.zalo ? (
+                                  <a
+                                    href={toSafeHref(d.zalo)}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="px-2 py-0.5 text-[11px] font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded transition-colors"
+                                    title={`Mở trực tiếp hội thoại Pancake: ${d.zalo}`}
+                                  >
+                                    Mở Pancake ↗
+                                  </a>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenPancake(d)}
+                                    className="px-2 py-0.5 text-[11px] font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded transition-colors cursor-pointer"
+                                    title={`Tra cứu hội thoại Pancake theo SĐT (${d.sdt})`}
+                                  >
+                                    Mở Pancake ↗
+                                  </button>
+                                )}
+                                {d.zaloCS && (
+                                  <span className="text-[10px] text-slate-400 truncate max-w-[85px]" title={d.zaloCS}>
+                                    • {d.zaloCS}
+                                  </span>
+                                )}
+                              </div>
+                              {d.zalo && (
+                                <a
+                                  href={toSafeHref(d.zalo)}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-[10px] font-mono text-slate-400 hover:text-eztech hover:underline truncate max-w-[180px]"
+                                  title={d.zalo}
+                                >
+                                  {d.zalo.replace(/^https?:\/\//i, '')}
+                                </a>
                               )}
                             </div>
                           </td>
@@ -1808,9 +1842,21 @@ export function AppScriptTool() {
                   </div>
 
                   <div>
-                    <label className="block text-[11px] font-semibold text-navy mb-1">
-                      Zalo (Link hội thoại Pancake)
-                    </label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-[11px] font-semibold text-navy">
+                        Zalo (Link hội thoại Pancake)
+                      </label>
+                      {formZalo && (
+                        <a
+                          href={toSafeHref(formZalo)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[11px] font-semibold text-eztech hover:underline"
+                        >
+                          Mở Pancake ↗
+                        </a>
+                      )}
+                    </div>
                     <input
                       type="text"
                       value={formZalo}

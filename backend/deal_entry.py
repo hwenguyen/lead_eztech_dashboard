@@ -23,7 +23,7 @@ from typing import Optional, List, Dict, Any, Set, Tuple
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
-from sqlalchemy import desc, asc, func
+from sqlalchemy import desc, asc, func, or_
 
 from database.db import get_db
 from database.models import SalesDeal, DealAuditLog, AppConfig, DealWin, DimLead, FactLeadActivity
@@ -62,15 +62,17 @@ PANCAKE_PHONE_TTL = 600  # 10 phút
 _LAST_SYNCED_DEAL_WIN_ID: int = -1
 _LAST_SYNC_CHECK_TS: float = 0.0
 SYNC_CHECK_INTERVAL = 120  # Chỉ kiểm tra MAX(id) của deal_wins mỗi 2 phút (4 bytes query)
+_PANCAKE_LINKS_BACKFILLED: bool = False
 
 
 def invalidate_deal_entry_cache():
     """Gọi khi bảng deal_wins có dữ liệu mới từ Webhook để trang Nhập Deal cập nhật ngay."""
-    global _DEALS_CACHE, _LAST_SYNCED_DEAL_WIN_ID, _LAST_SYNC_CHECK_TS
+    global _DEALS_CACHE, _LAST_SYNCED_DEAL_WIN_ID, _LAST_SYNC_CHECK_TS, _PANCAKE_LINKS_BACKFILLED
     with _CACHE_LOCK:
         _DEALS_CACHE = None
         _LAST_SYNCED_DEAL_WIN_ID = -1
         _LAST_SYNC_CHECK_TS = 0.0
+        _PANCAKE_LINKS_BACKFILLED = False
 
 
 # ───────────────────────── Hằng số & Danh mục mặc định ─────────────────────────
@@ -191,6 +193,156 @@ def to_iso_date(val: Any) -> str:
 
 # ───────────────────────── Đồng bộ trực tiếp từ bảng deal_wins (Zero-Bloat Egress) ─────────────────────────
 
+def _is_valid_pancake_conv_url(url: Optional[str]) -> bool:
+    """Kiểm tra link Pancake đã là URL hội thoại hợp lệ có ?c_id= (không phải page_id đơn thuần)."""
+    if not url:
+        return False
+    s = str(url).strip()
+    if "pancake.vn/" not in s or "?c_id=" not in s:
+        return False
+    cid = s.split("?c_id=", 1)[1].strip()
+    if not cid or cid.isdigit():
+        return False
+    return True
+
+
+def _resolve_pancake_info_batch(
+    db: Session,
+    lead_ids: Set[int],
+    phones: Set[str],
+) -> Tuple[Dict[int, Dict[str, str]], Dict[str, Dict[str, str]]]:
+    """
+    Truy vấn batch thông tin ngày contact đầu và URL hội thoại Pancake chuẩn (cùng logic trang Chăm sóc Lead)
+    cho tập hợp `lead_ids` và `phones` (không đọc các cột JSON nặng).
+    """
+    lead_info_map: Dict[int, Dict[str, Any]] = {}
+    phone_info_map: Dict[str, Dict[str, Any]] = {}
+
+    clean_ids = {int(lid) for lid in lead_ids if lid}
+    clean_phones = {clean_phone(p) for p in phones if p}
+    clean_phones.discard("")
+
+    if not clean_ids and not clean_phones:
+        return {}, {}
+
+    filters = []
+    if clean_ids:
+        filters.append(DimLead.id.in_(clean_ids))
+    if clean_phones:
+        filters.append(DimLead.phone_number.in_(clean_phones))
+
+    act_rows = (
+        db.query(
+            DimLead.id,
+            DimLead.phone_number,
+            DimLead.customer_id,
+            DimLead.page_id,
+            DimLead.first_created_at,
+            FactLeadActivity.conversation_id,
+            FactLeadActivity.status_tag,
+            FactLeadActivity.message_count,
+        )
+        .outerjoin(FactLeadActivity, DimLead.id == FactLeadActivity.lead_id)
+        .filter(or_(*filters))
+        .all()
+    )
+
+    for lid, p_num, cust_id, l_page_id, first_dt, conv_id, status_tag, msg_count in act_rows:
+        if conv_id and str(conv_id).startswith("pzl_g_"):
+            continue
+        url = (
+            build_pancake_url(
+                conversation_id=conv_id,
+                customer_id=cust_id,
+                page_name_or_id=l_page_id,
+            )
+            or ""
+        )
+        tag_lower = (status_tag or "").lower()
+        score = (
+            1 if "học viên" in tag_lower else 0,
+            1 if conv_id else 0,
+            1 if str(conv_id or "").startswith("pzl_") else 0,
+            int(msg_count or 0),
+        )
+        dt_str = first_dt.strftime("%Y-%m-%d") if first_dt else ""
+
+        if lid:
+            l_entry = lead_info_map.setdefault(lid, {"ngay_contact": "", "zalo": "", "_score": (-1, -1, -1, -1)})
+            if dt_str and (not l_entry["ngay_contact"] or dt_str < l_entry["ngay_contact"]):
+                l_entry["ngay_contact"] = dt_str
+            if url and score > l_entry["_score"]:
+                l_entry["zalo"] = url
+                l_entry["_score"] = score
+
+        c_p = clean_phone(p_num)
+        if c_p:
+            p_entry = phone_info_map.setdefault(c_p, {"ngay_contact": "", "zalo": "", "_score": (-1, -1, -1, -1)})
+            if dt_str and (not p_entry["ngay_contact"] or dt_str < p_entry["ngay_contact"]):
+                p_entry["ngay_contact"] = dt_str
+            if url and score > p_entry["_score"]:
+                p_entry["zalo"] = url
+                p_entry["_score"] = score
+
+    return (
+        {k: {"ngay_contact": v["ngay_contact"], "zalo": v["zalo"]} for k, v in lead_info_map.items()},
+        {k: {"ngay_contact": v["ngay_contact"], "zalo": v["zalo"]} for k, v in phone_info_map.items()},
+    )
+
+
+def _backfill_all_pancake_links(db: Session, rows: List[SalesDeal], force: bool = False) -> bool:
+    """
+    Điền tự động đường link hội thoại Pancake (giống trang Chăm sóc Lead) vào cột `zalo`
+    cho toàn bộ học viên trong `sales_deals` đang bị trống hoặc sai định dạng link.
+    """
+    global _PANCAKE_LINKS_BACKFILLED
+    if _PANCAKE_LINKS_BACKFILLED and not force:
+        return False
+
+    missing_rows = [r for r in rows if not _is_valid_pancake_conv_url(r.zalo)]
+    if not missing_rows:
+        _PANCAKE_LINKS_BACKFILLED = True
+        return False
+
+    dw_ids = {r.deal_win_id for r in missing_rows if r.deal_win_id}
+    dw_lead_map: Dict[int, int] = {}
+    if dw_ids:
+        dw_pairs = (
+            db.query(DealWin.id, DealWin.dim_lead_id)
+            .filter(DealWin.id.in_(dw_ids), DealWin.dim_lead_id.isnot(None))
+            .all()
+        )
+        for dw_id, d_lid in dw_pairs:
+            if dw_id and d_lid:
+                dw_lead_map[dw_id] = d_lid
+
+    lead_ids = set(dw_lead_map.values())
+    phones = {clean_phone(r.sdt) for r in missing_rows if r.sdt}
+    phones.discard("")
+
+    lead_info_map, phone_info_map = _resolve_pancake_info_batch(db, lead_ids, phones)
+
+    updated = False
+    for r in missing_rows:
+        lid = dw_lead_map.get(r.deal_win_id or 0, 0)
+        c_p = clean_phone(r.sdt)
+        l_info = lead_info_map.get(lid, {})
+        p_info = phone_info_map.get(c_p, {})
+
+        best_zalo = l_info.get("zalo") or p_info.get("zalo") or ""
+        best_contact = l_info.get("ngay_contact") or p_info.get("ngay_contact") or ""
+
+        if best_zalo and r.zalo != best_zalo:
+            r.zalo = best_zalo
+            updated = True
+        if best_contact and not r.ngay_contact:
+            r.ngay_contact = best_contact
+            updated = True
+
+    _PANCAKE_LINKS_BACKFILLED = True
+    return updated
+
+
 def sync_from_deal_wins(db: Session, force: bool = False) -> int:
     """
     Nối trực tiếp dữ liệu học viên từ bảng `deal_wins` sang `sales_deals`:
@@ -253,53 +405,7 @@ def sync_from_deal_wins(db: Session, force: bool = False) -> int:
     phones_to_check = {clean_phone(r.phone_number) for r in new_dw_rows if r.phone_number}
     phones_to_check.discard("")
 
-    lead_info_map: Dict[int, Dict[str, str]] = {}
-    phone_pancake_map: Dict[str, Dict[str, str]] = {}
-
-    if lead_ids:
-        lead_act_rows = (
-            db.query(
-                DimLead.id,
-                DimLead.first_created_at,
-                DimLead.page_id,
-                FactLeadActivity.conversation_id,
-            )
-            .outerjoin(FactLeadActivity, DimLead.id == FactLeadActivity.lead_id)
-            .filter(DimLead.id.in_(lead_ids))
-            .all()
-        )
-        for lid, first_dt, l_page_id, conv_id in lead_act_rows:
-            entry = lead_info_map.setdefault(lid, {"ngay_contact": "", "zalo": ""})
-            if first_dt and not entry["ngay_contact"]:
-                entry["ngay_contact"] = first_dt.strftime("%Y-%m-%d")
-            if conv_id:
-                url = build_pancake_url(l_page_id, conv_id) or ""
-                if url and (not entry["zalo"] or str(conv_id).startswith("pzl_")):
-                    entry["zalo"] = url
-
-    if phones_to_check:
-        phone_act_rows = (
-            db.query(
-                DimLead.phone_number,
-                DimLead.first_created_at,
-                DimLead.page_id,
-                FactLeadActivity.conversation_id,
-            )
-            .outerjoin(FactLeadActivity, DimLead.id == FactLeadActivity.lead_id)
-            .filter(DimLead.phone_number.in_(phones_to_check))
-            .all()
-        )
-        for p_phone, first_dt, l_page_id, conv_id in phone_act_rows:
-            if not p_phone:
-                continue
-            c_p = clean_phone(p_phone)
-            entry = phone_pancake_map.setdefault(c_p, {"ngay_contact": "", "zalo": ""})
-            if first_dt and not entry["ngay_contact"]:
-                entry["ngay_contact"] = first_dt.strftime("%Y-%m-%d")
-            if conv_id:
-                url = build_pancake_url(l_page_id, conv_id) or ""
-                if url and (not entry["zalo"] or str(conv_id).startswith("pzl_")):
-                    entry["zalo"] = url
+    lead_info_map, phone_pancake_map = _resolve_pancake_info_batch(db, lead_ids, phones_to_check)
 
     # Lấy lớp học đã có theo SĐT (để đồng bộ nếu học viên đã có dòng trước đó)
     phone_classes_map: Dict[str, str] = {}
@@ -367,37 +473,7 @@ def sync_from_deal_wins(db: Session, force: bool = False) -> int:
         db.add(new_deal)
         added_count += 1
 
-    # Tự động bù link Pancake cho các deal hiện có nếu chưa có zalo
-    backfilled = False
-    empty_deals = (
-        db.query(SalesDeal)
-        .filter((SalesDeal.zalo == None) | (SalesDeal.zalo == ""))
-        .limit(200)
-        .all()
-    )
-    if empty_deals:
-        ez_phones = {clean_phone(d.sdt) for d in empty_deals if d.sdt}
-        ez_phones.discard("")
-        if ez_phones:
-            phone_leads = (
-                db.query(DimLead.phone_number, DimLead.page_id, FactLeadActivity.conversation_id)
-                .outerjoin(FactLeadActivity, DimLead.id == FactLeadActivity.lead_id)
-                .filter(DimLead.phone_number.in_(ez_phones))
-                .all()
-            )
-            phone_to_zalo = {}
-            for p_num, p_page, p_cid in phone_leads:
-                if p_cid:
-                    u = build_pancake_url(p_page, p_cid)
-                    if u and (clean_phone(p_num) not in phone_to_zalo or str(p_cid).startswith("pzl_")):
-                        phone_to_zalo[clean_phone(p_num)] = u
-            for d in empty_deals:
-                p_c = clean_phone(d.sdt)
-                if p_c in phone_to_zalo and phone_to_zalo[p_c]:
-                    d.zalo = phone_to_zalo[p_c]
-                    backfilled = True
-
-    if added_count > 0 or backfilled:
+    if added_count > 0:
         db.commit()
         with _CACHE_LOCK:
             _DEALS_CACHE = None
@@ -659,11 +735,12 @@ def get_cached_deals(db: Session, force_refresh: bool = False) -> List[Dict[str,
         return _DEALS_CACHE
 
     rows = db.query(SalesDeal).order_by(asc(SalesDeal.ngay_thu), asc(SalesDeal.id)).all()
+    backfilled = _backfill_all_pancake_links(db, rows, force=force_refresh)
     deals = [model_to_dict(r) for r in rows]
     res = settle_debts(deals)
 
     row_map = {r.deal_uid: r for r in rows}
-    dirty = False
+    dirty = backfilled
 
     for d in deals:
         did = d["id"]
@@ -913,12 +990,15 @@ def _lookup_pancake_lightweight(db: Session, phone: str) -> Dict[str, Any]:
             DimLead.name,
             DimLead.first_created_at,
             DimLead.page_id,
+            DimLead.customer_id,
             FactLeadActivity.conversation_id,
             FactLeadActivity.assigned_users,
+            FactLeadActivity.status_tag,
+            FactLeadActivity.message_count,
         )
         .filter(DimLead.phone_number == phone)
         .order_by(asc(DimLead.first_created_at))
-        .limit(10)
+        .limit(15)
         .all()
     )
 
@@ -931,26 +1011,40 @@ def _lookup_pancake_lightweight(db: Session, phone: str) -> Dict[str, Any]:
     first_dt = rows[0][1]
     first_contact = first_dt.strftime("%Y-%m-%d") if first_dt else ""
     zalo_url = ""
+    best_score = (-1, -1, -1, -1)
     source_page = ""
     assigned_sale = ""
 
-    for name, _, page_id, conv_id, assigned_users in rows:
+    for name, _, page_id, cust_id, conv_id, assigned_users, status_tag, msg_count in rows:
         if name and not lead_name:
             lead_name = name
         pg_name = resolve_canonical_page_name(page_id) if page_id else ""
-        if conv_id and str(conv_id).startswith("pzl_") and not str(conv_id).startswith("pzl_g_"):
-            zalo_url = build_pancake_url(page_id, conv_id) or zalo_url
-        elif pg_name and not source_page:
+        if pg_name and not source_page:
             source_page = pg_name
         if assigned_users and not assigned_sale:
             assigned_sale = assigned_users.split(",")[0].strip()
 
-    if not zalo_url:
-        for _, _, page_id, conv_id, _ in rows:
-            if conv_id:
-                zalo_url = build_pancake_url(page_id, conv_id) or ""
-                if zalo_url:
-                    break
+        if conv_id and str(conv_id).startswith("pzl_g_"):
+            continue
+
+        candidate_url = (
+            build_pancake_url(
+                conversation_id=conv_id,
+                customer_id=cust_id,
+                page_name_or_id=page_id,
+            )
+            or ""
+        )
+        if candidate_url:
+            score = (
+                1 if "học viên" in (status_tag or "").lower() else 0,
+                1 if conv_id else 0,
+                1 if str(conv_id or "").startswith("pzl_") else 0,
+                int(msg_count or 0),
+            )
+            if score > best_score:
+                best_score = score
+                zalo_url = candidate_url
 
     info = {
         "foundInPancake": True,
