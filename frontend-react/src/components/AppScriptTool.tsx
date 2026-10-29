@@ -4,28 +4,11 @@ import {
   Plus,
   Search,
   RefreshCw,
-  Edit3,
-  DollarSign,
-  AlertTriangle,
   CheckCircle2,
-  Clock,
-  FileSpreadsheet,
-  ListChecks,
-  History,
-  ExternalLink,
   X,
-  Sparkles,
   Save,
-  UserCheck,
-  Wallet,
-  CreditCard,
-  TrendingUp,
   ChevronLeft,
   ChevronRight,
-  MapPin,
-  Mail,
-  Briefcase,
-  Link2,
 } from 'lucide-react';
 import {
   fetchDealEntryInit,
@@ -639,21 +622,16 @@ export function AppScriptTool() {
     <div className="space-y-4">
       {/* 1. Header & Sub-navigation */}
       <div className="bg-white rounded-xl border border-slate-200/80 shadow-card p-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-navy text-gold flex items-center justify-center shadow-sm">
-            <Wallet className="w-5 h-5" />
+        <div>
+          <div className="flex items-center gap-2">
+            <h2 className="text-sm font-bold text-navy">Quản Lý Deal Win, Bổ Sung Học Phí & Công Nợ</h2>
+            <span className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-slate-100 text-slate-700 rounded-md border border-slate-200">
+              Đồng bộ từ DB Deal Win
+            </span>
           </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h2 className="text-sm font-bold text-navy">Quản Lý Deal Win, Bổ Sung Học Phí & Công Nợ</h2>
-              <span className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-eztech-light text-eztech rounded-md border border-eztech-border">
-                Đồng bộ từ DB Deal Win
-              </span>
-            </div>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Tự động lấy danh sách học viên từ bảng Deal Win — Nhân viên vào điền nốt Số tiền thu được, Lớp học, Link nhóm 1-1
-            </p>
-          </div>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Tự động lấy danh sách học viên từ bảng Deal Win — Điền số tiền thu được, lớp học, link nhóm 1-1
+          </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -661,14 +639,13 @@ export function AppScriptTool() {
           <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200/70">
             <button
               onClick={() => setSubTab('deals')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                 subTab === 'deals'
                   ? 'bg-white text-navy shadow-xs'
                   : 'text-slate-600 hover:text-navy'
               }`}
             >
-              <FileSpreadsheet className="w-3.5 h-3.5 text-eztech" />
-              <span>Danh sách Deal ({countsByCompletion.total})</span>
+              Danh sách Deal ({countsByCompletion.total})
             </button>
 
             <button
@@ -679,10 +656,9 @@ export function AppScriptTool() {
                   : 'text-slate-600 hover:text-navy'
               }`}
             >
-              <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
               <span>Sổ Công Nợ</span>
               {debts.count > 0 && (
-                <span className="px-1.5 py-0.2 bg-amber-100 text-amber-800 rounded-full text-[10px] font-mono font-bold">
+                <span className="px-1.5 py-0.2 bg-slate-200 text-slate-700 rounded-full text-[10px] font-mono font-bold">
                   {debts.count}
                 </span>
               )}
@@ -690,26 +666,24 @@ export function AppScriptTool() {
 
             <button
               onClick={() => setSubTab('lists')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                 subTab === 'lists'
                   ? 'bg-white text-navy shadow-xs'
                   : 'text-slate-600 hover:text-navy'
               }`}
             >
-              <ListChecks className="w-3.5 h-3.5 text-emerald-600" />
-              <span>Danh mục</span>
+              Danh mục
             </button>
 
             <button
               onClick={() => setSubTab('logs')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                 subTab === 'logs'
                   ? 'bg-white text-navy shadow-xs'
                   : 'text-slate-600 hover:text-navy'
               }`}
             >
-              <History className="w-3.5 h-3.5 text-slate-500" />
-              <span>Nhật ký</span>
+              Nhật ký
             </button>
           </div>
 
@@ -725,69 +699,44 @@ export function AppScriptTool() {
 
       {/* 2. KPI Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-        <div className="bg-white rounded-xl border border-slate-200/80 shadow-card p-3.5 flex items-center justify-between">
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Tổng Doanh Thu</p>
-            <p className="text-lg font-bold font-mono text-navy mt-1 tabular-nums">
-              {fmtMoney(kpiStats.totalDoanhThu)} <span className="text-xs font-normal text-slate-400">đ</span>
-            </p>
-            <p className="text-[11px] text-slate-400 mt-0.5">Thực thu + Phải thu</p>
-          </div>
-          <div className="w-9 h-9 rounded-lg bg-eztech-light text-eztech flex items-center justify-center">
-            <TrendingUp className="w-4 h-4" />
-          </div>
+        <div className="bg-white rounded-xl border border-slate-200/80 shadow-card p-3.5">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Tổng Doanh Thu</p>
+          <p className="text-lg font-bold font-mono text-navy mt-1 tabular-nums">
+            {fmtMoney(kpiStats.totalDoanhThu)} <span className="text-xs font-normal text-slate-400">đ</span>
+          </p>
+          <p className="text-[11px] text-slate-400 mt-0.5">Thực thu + Phải thu</p>
         </div>
 
-        <div className="bg-white rounded-xl border border-slate-200/80 shadow-card p-3.5 flex items-center justify-between">
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Số Tiền Thực Thu</p>
-            <p className="text-lg font-bold font-mono text-emerald-600 mt-1 tabular-nums">
-              {fmtMoney(kpiStats.totalDaThu)} <span className="text-xs font-normal text-slate-400">đ</span>
-            </p>
-            <p className="text-[11px] text-slate-400 mt-0.5">Đã vào tài khoản</p>
-          </div>
-          <div className="w-9 h-9 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
-            <DollarSign className="w-4 h-4" />
-          </div>
+        <div className="bg-white rounded-xl border border-slate-200/80 shadow-card p-3.5">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Số Tiền Thực Thu</p>
+          <p className="text-lg font-bold font-mono text-emerald-600 mt-1 tabular-nums">
+            {fmtMoney(kpiStats.totalDaThu)} <span className="text-xs font-normal text-slate-400">đ</span>
+          </p>
+          <p className="text-[11px] text-slate-400 mt-0.5">Đã vào tài khoản</p>
         </div>
 
-        <div className="bg-white rounded-xl border border-slate-200/80 shadow-card p-3.5 flex items-center justify-between">
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Trong Đó Thu Nợ Cũ</p>
-            <p className="text-lg font-bold font-mono text-eztech mt-1 tabular-nums">
-              {fmtMoney(kpiStats.totalThuNo)} <span className="text-xs font-normal text-slate-400">đ</span>
-            </p>
-            <p className="text-[11px] text-slate-400 mt-0.5">Cấn trừ tự động FIFO</p>
-          </div>
-          <div className="w-9 h-9 rounded-lg bg-blue-50 text-eztech flex items-center justify-center">
-            <CreditCard className="w-4 h-4" />
-          </div>
+        <div className="bg-white rounded-xl border border-slate-200/80 shadow-card p-3.5">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Trong Đó Thu Nợ Cũ</p>
+          <p className="text-lg font-bold font-mono text-slate-700 mt-1 tabular-nums">
+            {fmtMoney(kpiStats.totalThuNo)} <span className="text-xs font-normal text-slate-400">đ</span>
+          </p>
+          <p className="text-[11px] text-slate-400 mt-0.5">Cấn trừ tự động FIFO</p>
         </div>
 
-        <div className="bg-white rounded-xl border border-amber-200/90 shadow-card p-3.5 flex items-center justify-between">
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-amber-700">Tổng Còn Nợ (AR)</p>
-            <p className="text-lg font-bold font-mono text-amber-600 mt-1 tabular-nums">
-              {fmtMoney(debts.totalConNo)} <span className="text-xs font-normal text-amber-500">đ</span>
-            </p>
-            <p className="text-[11px] text-amber-600/80 mt-0.5">{debts.count} khoản chưa tất toán</p>
-          </div>
-          <div className="w-9 h-9 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
-            <Clock className="w-4 h-4" />
-          </div>
+        <div className="bg-white rounded-xl border border-slate-200/80 shadow-card p-3.5">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Tổng Còn Nợ (AR)</p>
+          <p className="text-lg font-bold font-mono text-amber-600 mt-1 tabular-nums">
+            {fmtMoney(debts.totalConNo)} <span className="text-xs font-normal text-slate-400">đ</span>
+          </p>
+          <p className="text-[11px] text-slate-400 mt-0.5">{debts.count} khoản chưa tất toán</p>
         </div>
 
-        <div className="bg-white rounded-xl border border-slate-200/80 shadow-card p-3.5 flex items-center justify-between">
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Chờ Điền Thông Tin</p>
-            <p className="text-lg font-bold font-mono text-orange-600 mt-1 tabular-nums">
-              {countsByCompletion.incomplete} <span className="text-xs font-normal text-slate-400">/ {countsByCompletion.total}</span>
-            </p>
-            <p className="text-[11px] text-slate-400 mt-0.5">Thiếu tiền / Lớp / Nhóm 1-1</p>
-          </div>
-          <div className="w-9 h-9 rounded-lg bg-orange-50 text-orange-600 flex items-center justify-center">
-            <UserCheck className="w-4 h-4" />
-          </div>
+        <div className="bg-white rounded-xl border border-slate-200/80 shadow-card p-3.5">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Chờ Điền Thông Tin</p>
+          <p className="text-lg font-bold font-mono text-slate-700 mt-1 tabular-nums">
+            {countsByCompletion.incomplete} <span className="text-xs font-normal text-slate-400">/ {countsByCompletion.total}</span>
+          </p>
+          <p className="text-[11px] text-slate-400 mt-0.5">Thiếu tiền / Lớp / Nhóm 1-1</p>
         </div>
       </div>
 
@@ -811,26 +760,24 @@ export function AppScriptTool() {
 
                 <button
                   onClick={() => setCompletionFilter('incomplete')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                     completionFilter === 'incomplete'
-                      ? 'bg-orange-600 text-white shadow-2xs'
-                      : 'bg-orange-50 text-orange-700 border border-orange-200 hover:bg-orange-100'
+                      ? 'bg-slate-800 text-white shadow-2xs'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                   }`}
                 >
-                  <AlertTriangle className="w-3.5 h-3.5" />
-                  <span>Cần điền Tiền / Lớp / Nhóm 1-1 ({countsByCompletion.incomplete})</span>
+                  Cần điền ({countsByCompletion.incomplete})
                 </button>
 
                 <button
                   onClick={() => setCompletionFilter('completed')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                     completionFilter === 'completed'
-                      ? 'bg-emerald-600 text-white shadow-2xs'
-                      : 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100'
+                      ? 'bg-slate-800 text-white shadow-2xs'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                   }`}
                 >
-                  <CheckCircle2 className="w-3.5 h-3.5" />
-                  <span>Đã điền đủ ({countsByCompletion.completed})</span>
+                  Đã điền đủ ({countsByCompletion.completed})
                 </button>
               </div>
 
@@ -885,11 +832,10 @@ export function AppScriptTool() {
 
               <button
                 onClick={exportDealsCsv}
-                className="px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:text-navy bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg flex items-center gap-1 transition-colors cursor-pointer"
+                className="px-3 py-1.5 text-xs font-medium text-slate-700 hover:text-navy bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg transition-colors cursor-pointer"
                 title="Xuất file Excel / CSV"
               >
-                <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Xuất CSV</span>
+                Xuất CSV
               </button>
 
               <button
@@ -899,16 +845,6 @@ export function AppScriptTool() {
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
               </button>
-            </div>
-
-            {/* Banner hướng dẫn thao tác */}
-            <div className="bg-eztech-light/80 border border-eztech-border/90 rounded-xl px-4 py-2.5 flex items-center justify-between text-xs text-eztech">
-              <div className="flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-eztech shrink-0" />
-                <span>
-                  <strong>Hướng dẫn:</strong> Bấm nút <strong className="bg-eztech text-white px-2 py-0.5 rounded text-[10px] font-bold">✏️ Điền tiền & Lớp</strong> ngay dưới tên học viên để bổ sung Học phí, Lớp học, Link nhóm 1-1 và Lưu lên Database.
-                </span>
-              </div>
             </div>
           </div>
 
@@ -977,28 +913,25 @@ export function AppScriptTool() {
                             </div>
                             <div className="font-mono text-[11px] font-semibold text-eztech mt-0.5">{d.sdt}</div>
                             {d.email && (
-                              <div className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5 truncate max-w-[190px]" title={d.email}>
-                                <Mail className="w-2.5 h-2.5 shrink-0" />
-                                <span className="truncate">{d.email}</span>
+                              <div className="text-[10px] text-slate-400 mt-0.5 truncate max-w-[190px]" title={d.email}>
+                                {d.email}
                               </div>
                             )}
                             {d.diaChi && (
-                              <div className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5">
-                                <MapPin className="w-2.5 h-2.5 shrink-0" />
-                                <span>{d.diaChi}</span>
+                              <div className="text-[10px] text-slate-400 mt-0.5 truncate max-w-[190px]">
+                                {d.diaChi}
                               </div>
                             )}
 
-                            {/* NÚT DUY NHẤT ĐỂ ĐIỀN THÔNG TIN & LỚP DƯỚI TÊN HỌC VIÊN */}
-                            <div className="mt-2 flex items-center gap-1.5">
+                            {/* Nút thao tác dưới tên học viên */}
+                            <div className="mt-1.5 flex items-center gap-1.5">
                               <button
                                 type="button"
                                 onClick={() => openEditModal(d)}
-                                className="px-2.5 py-1 text-[11px] font-bold bg-eztech hover:bg-eztech-dark text-white rounded-lg shadow-2xs flex items-center gap-1 transition-all cursor-pointer"
+                                className="px-2.5 py-1 text-[11px] font-semibold bg-eztech hover:bg-eztech-dark text-white rounded-md transition-colors cursor-pointer"
                                 title="Điền số tiền thu được, lớp học, link nhóm 1-1 và Lưu lên DB"
                               >
-                                <Edit3 className="w-3 h-3" />
-                                <span>{missingMoney ? '✏️ Điền tiền & Lớp' : '✏️ Sửa Deal'}</span>
+                                {missingMoney ? 'Điền tiền & Lớp' : 'Sửa deal'}
                               </button>
 
                               {d.conNo > 0 && (
@@ -1015,7 +948,7 @@ export function AppScriptTool() {
                                       nvCS: d.nvCS,
                                     })
                                   }
-                                  className="px-2 py-0.8 text-[10px] font-bold bg-amber-500 hover:bg-amber-600 text-white rounded-md shadow-2xs cursor-pointer"
+                                  className="px-2 py-1 text-[10px] font-semibold bg-amber-500 hover:bg-amber-600 text-white rounded-md cursor-pointer"
                                   title="Nhập thu nợ"
                                 >
                                   Thu nợ
@@ -1027,9 +960,8 @@ export function AppScriptTool() {
                           {/* Chức vụ, Lĩnh vực, Kỳ vọng */}
                           <td className="py-2.5 px-3 align-top max-w-[210px]">
                             {(d.chucVu || d.linhVuc) ? (
-                              <div className="text-[11px] font-medium text-navy flex items-start gap-1">
-                                <Briefcase className="w-3 h-3 text-slate-400 shrink-0 mt-0.5" />
-                                <span>{[d.chucVu, d.linhVuc].filter(Boolean).join(' • ')}</span>
+                              <div className="text-[11px] font-medium text-navy">
+                                {[d.chucVu, d.linhVuc].filter(Boolean).join(' • ')}
                               </div>
                             ) : (
                               <span className="text-slate-300 text-[11px]">—</span>
@@ -1043,7 +975,7 @@ export function AppScriptTool() {
                               </div>
                             )}
                             {d.note && (
-                              <div className="text-[10px] text-eztech font-medium mt-0.5" title={d.note}>
+                              <div className="text-[10px] text-slate-600 font-medium mt-0.5" title={d.note}>
                                 Note: {d.note}
                               </div>
                             )}
@@ -1059,7 +991,7 @@ export function AppScriptTool() {
                                 (d.lop || []).map((cl) => (
                                   <span
                                     key={cl}
-                                    className="px-1.5 py-0.5 text-[10px] font-mono font-semibold bg-eztech-light text-eztech rounded border border-eztech-border"
+                                    className="px-1.5 py-0.5 text-[10px] font-mono font-semibold bg-slate-100 text-slate-700 rounded border border-slate-200"
                                   >
                                     {cl}
                                   </span>
@@ -1078,10 +1010,9 @@ export function AppScriptTool() {
                                   href={toSafeHref(d.nhomCS)}
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded text-[11px] font-semibold hover:bg-emerald-100"
+                                  className="text-eztech hover:underline text-[11px] font-medium"
                                 >
-                                  <Link2 className="w-3 h-3" />
-                                  <span>Mở Nhóm 1-1</span>
+                                  Nhóm 1-1 ↗
                                 </a>
                               ) : (
                                 <div className="text-[11px] font-medium text-navy">{d.nhomCS}</div>
@@ -1096,10 +1027,9 @@ export function AppScriptTool() {
                                   href={d.zalo}
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  className="inline-flex items-center gap-1 text-[10px] font-semibold text-eztech hover:underline"
+                                  className="text-[10px] text-slate-500 hover:underline"
                                 >
-                                  <ExternalLink className="w-2.5 h-2.5" />
-                                  <span>Pancake</span>
+                                  Pancake ↗
                                 </a>
                               )}
                               {d.zaloCS && (
@@ -1463,14 +1393,11 @@ export function AppScriptTool() {
         <div className="fixed inset-0 z-50 bg-navy/50 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-3xl w-full overflow-hidden my-8">
             <div className="px-5 py-3.5 bg-navy text-white flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-gold" />
-                <h3 className="text-sm font-bold">
-                  {editingId
-                    ? `Điền Bổ Sung / Cập Nhật Học Viên ${editingDealWinId ? `(Deal Win #${editingDealWinId})` : ''}`
-                    : 'Nhập Deal Mới / Thu Nợ Học Viên'}
-                </h3>
-              </div>
+              <h3 className="text-sm font-bold">
+                {editingId
+                  ? `Điền Bổ Sung / Cập Nhật Học Viên ${editingDealWinId ? `(Deal Win #${editingDealWinId})` : ''}`
+                  : 'Nhập Deal Mới / Thu Nợ Học Viên'}
+              </h3>
               <button
                 onClick={() => setIsModalOpen(false)}
                 className="p-1 text-slate-300 hover:text-white rounded-lg"
@@ -1485,8 +1412,7 @@ export function AppScriptTool() {
                 <div className="space-y-2">
                   {phoneLookup.conNo && phoneLookup.conNo > 0 ? (
                     <div className="p-3 bg-amber-50 border border-amber-300 rounded-xl flex flex-wrap items-center justify-between gap-2">
-                      <div className="flex items-center gap-2 text-xs text-amber-900">
-                        <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                      <div className="text-xs text-amber-900">
                         <span>
                           Học viên <strong>{phoneLookup.hoTen}</strong> đang còn nợ{' '}
                           <strong className="font-mono text-amber-700">{fmtMoney(phoneLookup.conNo)} đ</strong>
