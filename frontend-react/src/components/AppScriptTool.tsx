@@ -412,6 +412,39 @@ export function AppScriptTool() {
     }
   };
 
+  const handleOpenPancake = async (d: SalesDealRecord) => {
+    // 1. Nếu deal đã có link Zalo/Pancake hợp lệ
+    if (d.zalo && isUrl(d.zalo)) {
+      window.open(toSafeHref(d.zalo), '_blank');
+      return;
+    }
+
+    // 2. Thử tra cứu nhanh link Pancake từ SĐT
+    const cleanPhone = (d.sdt || '').replace(/\D/g, '');
+    if (cleanPhone && cleanPhone.length >= 9) {
+      try {
+        const lookup = await lookupDealPhone(cleanPhone);
+        if (lookup && lookup.zalo && isUrl(lookup.zalo)) {
+          window.open(toSafeHref(lookup.zalo), '_blank');
+          setDeals((prev) =>
+            prev.map((item) => (item.id === d.id ? { ...item, zalo: lookup.zalo! } : item))
+          );
+          return;
+        }
+      } catch (err) {
+        console.warn('Lỗi tra cứu Pancake link:', err);
+      }
+    }
+
+    // 3. Fallback: sao chép SĐT vào clipboard và mở trang chủ Pancake
+    if (d.sdt) {
+      try {
+        await navigator.clipboard.writeText(d.sdt);
+      } catch (_) {}
+    }
+    window.open('https://pancake.vn', '_blank');
+  };
+
   const handleSaveQuickClasses = async () => {
     if (!classModalDeal) return;
     setSaving(true);
@@ -858,7 +891,7 @@ export function AppScriptTool() {
                     <th className="py-3 px-3 whitespace-nowrap">Thông tin Học viên (Deal Win)</th>
                     <th className="py-3 px-3 whitespace-nowrap">Ngành nghề & Kỳ vọng</th>
                     <th className="py-3 px-3 whitespace-nowrap">Chương trình & Lớp học</th>
-                    <th className="py-3 px-3 whitespace-nowrap">Link Nhóm 1-1 & Zalo</th>
+                    <th className="py-3 px-3 whitespace-nowrap">Nhóm 1-1 & Pancake</th>
                     <th className="py-3 px-3 whitespace-nowrap text-right">Thực thu</th>
                     <th className="py-3 px-3 whitespace-nowrap text-right">Phải thu</th>
                     <th className="py-3 px-3 whitespace-nowrap text-right">Còn nợ</th>
@@ -1002,38 +1035,44 @@ export function AppScriptTool() {
                             </div>
                           </td>
 
-                          {/* Nhóm CS 1-1 & Link Pancake */}
+                          {/* Nhóm CS 1-1 & Nút Mở Pancake */}
                           <td className="py-2.5 px-3 align-top min-w-[150px]">
-                            {d.nhomCS ? (
-                              isUrl(d.nhomCS) ? (
-                                <a
-                                  href={toSafeHref(d.nhomCS)}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-eztech hover:underline text-[11px] font-medium"
-                                >
-                                  Nhóm 1-1 ↗
-                                </a>
+                            <div>
+                              {d.nhomCS ? (
+                                isUrl(d.nhomCS) ? (
+                                  <a
+                                    href={toSafeHref(d.nhomCS)}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-eztech hover:underline text-[11px] font-medium"
+                                  >
+                                    Nhóm 1-1 ↗
+                                  </a>
+                                ) : (
+                                  <div className="text-[11px] font-medium text-navy">{d.nhomCS}</div>
+                                )
                               ) : (
-                                <div className="text-[11px] font-medium text-navy">{d.nhomCS}</div>
-                              )
-                            ) : (
-                              <span className="text-slate-300 text-[11px]">—</span>
-                            )}
-
-                            <div className="mt-1 flex items-center gap-2">
-                              {d.zalo && (
-                                <a
-                                  href={d.zalo}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-[10px] text-slate-500 hover:underline"
-                                >
-                                  Pancake ↗
-                                </a>
+                                <span className="text-slate-300 text-[11px]">—</span>
                               )}
+                            </div>
+
+                            <div className="mt-1.5 flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => handleOpenPancake(d)}
+                                className="px-2 py-0.5 text-[11px] font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded transition-colors cursor-pointer"
+                                title={
+                                  d.zalo
+                                    ? `Mở trực tiếp hội thoại Pancake: ${d.zalo}`
+                                    : `Tra cứu hoặc sao chép SĐT (${d.sdt}) và mở Pancake`
+                                }
+                              >
+                                Mở Pancake ↗
+                              </button>
                               {d.zaloCS && (
-                                <span className="text-[10px] text-slate-400">• {d.zaloCS}</span>
+                                <span className="text-[10px] text-slate-400 truncate max-w-[85px]" title={d.zaloCS}>
+                                  • {d.zaloCS}
+                                </span>
                               )}
                             </div>
                           </td>

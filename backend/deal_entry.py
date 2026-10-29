@@ -248,9 +248,13 @@ def sync_from_deal_wins(db: Session, force: bool = False) -> int:
         _LAST_SYNCED_DEAL_WIN_ID = max_dw_id
         return 0
 
-    # Batch lấy thông tin ngày contact đầu và link hội thoại Pancake cho các dim_lead_id
+    # Batch lấy thông tin ngày contact đầu và link hội thoại Pancake cho các dim_lead_id và phone_number
     lead_ids = {r.dim_lead_id for r in new_dw_rows if r.dim_lead_id}
+    phones_to_check = {clean_phone(r.phone_number) for r in new_dw_rows if r.phone_number}
+    phones_to_check.discard("")
+
     lead_info_map: Dict[int, Dict[str, str]] = {}
+    phone_pancake_map: Dict[str, Dict[str, str]] = {}
 
     if lead_ids:
         lead_act_rows = (
@@ -273,9 +277,31 @@ def sync_from_deal_wins(db: Session, force: bool = False) -> int:
                 if url and (not entry["zalo"] or str(conv_id).startswith("pzl_")):
                     entry["zalo"] = url
 
+    if phones_to_check:
+        phone_act_rows = (
+            db.query(
+                DimLead.phone_number,
+                DimLead.first_created_at,
+                DimLead.page_id,
+                FactLeadActivity.conversation_id,
+            )
+            .outerjoin(FactLeadActivity, DimLead.id == FactLeadActivity.lead_id)
+            .filter(DimLead.phone_number.in_(phones_to_check))
+            .all()
+        )
+        for p_phone, first_dt, l_page_id, conv_id in phone_act_rows:
+            if not p_phone:
+                continue
+            c_p = clean_phone(p_phone)
+            entry = phone_pancake_map.setdefault(c_p, {"ngay_contact": "", "zalo": ""})
+            if first_dt and not entry["ngay_contact"]:
+                entry["ngay_contact"] = first_dt.strftime("%Y-%m-%d")
+            if conv_id:
+                url = build_pancake_url(l_page_id, conv_id) or ""
+                if url and (not entry["zalo"] or str(conv_id).startswith("pzl_")):
+                    entry["zalo"] = url
+
     # Lấy lớp học đã có theo SĐT (để đồng bộ nếu học viên đã có dòng trước đó)
-    phones_to_check = {clean_phone(r.phone_number) for r in new_dw_rows if r.phone_number}
-    phones_to_check.discard("")
     phone_classes_map: Dict[str, str] = {}
     if phones_to_check:
         existing_phone_lop = (
@@ -299,8 +325,9 @@ def sync_from_deal_wins(db: Session, force: bool = False) -> int:
 
         ngay_thu = r.timestamp.strftime("%Y-%m-%d") if r.timestamp else today_iso
         l_info = lead_info_map.get(r.dim_lead_id or 0, {})
-        ngay_contact = l_info.get("ngay_contact") or ""
-        zalo_link = l_info.get("zalo") or ""
+        p_info = phone_pancake_map.get(phone, {})
+        ngay_contact = l_info.get("ngay_contact") or p_info.get("ngay_contact") or ""
+        zalo_link = l_info.get("zalo") or p_info.get("zalo") or ""
         nguon_name = resolve_canonical_page_name(r.page_id, fallback=r.page_id) if r.page_id else ""
 
         new_deal = SalesDeal(
@@ -340,7 +367,37 @@ def sync_from_deal_wins(db: Session, force: bool = False) -> int:
         db.add(new_deal)
         added_count += 1
 
-    if added_count > 0:
+    # Tự động bù link Pancake cho các deal hiện có nếu chưa có zalo
+    backfilled = False
+    empty_deals = (
+        db.query(SalesDeal)
+        .filter((SalesDeal.zalo == None) | (SalesDeal.zalo == ""))
+        .limit(200)
+        .all()
+    )
+    if empty_deals:
+        ez_phones = {clean_phone(d.sdt) for d in empty_deals if d.sdt}
+        ez_phones.discard("")
+        if ez_phones:
+            phone_leads = (
+                db.query(DimLead.phone_number, DimLead.page_id, FactLeadActivity.conversation_id)
+                .outerjoin(FactLeadActivity, DimLead.id == FactLeadActivity.lead_id)
+                .filter(DimLead.phone_number.in_(ez_phones))
+                .all()
+            )
+            phone_to_zalo = {}
+            for p_num, p_page, p_cid in phone_leads:
+                if p_cid:
+                    u = build_pancake_url(p_page, p_cid)
+                    if u and (clean_phone(p_num) not in phone_to_zalo or str(p_cid).startswith("pzl_")):
+                        phone_to_zalo[clean_phone(p_num)] = u
+            for d in empty_deals:
+                p_c = clean_phone(d.sdt)
+                if p_c in phone_to_zalo and phone_to_zalo[p_c]:
+                    d.zalo = phone_to_zalo[p_c]
+                    backfilled = True
+
+    if added_count > 0 or backfilled:
         db.commit()
         with _CACHE_LOCK:
             _DEALS_CACHE = None
