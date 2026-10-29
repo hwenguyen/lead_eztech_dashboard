@@ -693,8 +693,10 @@ export interface DealAuditLogItem {
   detail: string;
 }
 
-export const fetchDealEntryInit = async (): Promise<DealEntryInitResponse> => {
-  const res = await apiClient.get<DealEntryInitResponse>('/deal-entry/init');
+export const fetchDealEntryInit = async (force: boolean = false): Promise<DealEntryInitResponse> => {
+  const res = await apiClient.get<DealEntryInitResponse>('/deal-entry/init', {
+    params: force ? { force: true } : undefined,
+  });
   return res.data;
 };
 

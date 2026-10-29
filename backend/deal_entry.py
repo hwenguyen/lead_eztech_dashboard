@@ -1,23 +1,28 @@
 """
 Module Backend Quản lý Nhập Deal & Công nợ học viên (Deal Entry & Debt Management).
 Được chuyển đổi và nâng cấp trực tiếp từ Google Apps Script (Deal Win Backend) lên FastAPI + Neon Postgres.
-Tích hợp tự động tra cứu thông tin khách hàng từ Pancake (dim_leads / fact_lead_activities).
+Tối ưu đặc biệt chống tốn băng thông Neon Egress:
+- In-Memory Cache cho danh sách Deals, Công nợ, Danh mục và Nhật ký (0 query lặp lại).
+- Reconcile công nợ cô lập theo đúng SĐT vừa thay đổi (chỉ đọc/ghi 1-3 dòng thay vì quét cả bảng).
+- Tra cứu Pancake chỉ SELECT đúng 5 cột text nhẹ bằng with_entities + Index Scan (tuyệt đối không kéo JSONB tag_timeline hay payload).
 """
 
 import json
 import re
+import time
 import uuid
 import logging
+import threading
 from datetime import datetime, timedelta, timezone
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Set, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
-from sqlalchemy import desc, asc, or_
+from sqlalchemy import desc, asc
 
 from database.db import get_db
-from database.models import SalesDeal, DealAuditLog, AppConfig, AppUser, DimLead, FactLeadActivity
+from database.models import SalesDeal, DealAuditLog, AppConfig, DimLead, FactLeadActivity
 from database.schema import ensure_schema
 from etl.utils import normalize_phone, resolve_canonical_page_name, build_pancake_url
 
@@ -30,6 +35,25 @@ VN_TZ = timezone(timedelta(hours=7))
 
 def get_vn_now() -> datetime:
     return datetime.now(VN_TZ).replace(tzinfo=None)
+
+
+# ───────────────────────── In-Memory Cache chống tốn Neon Egress ─────────────────────────
+
+_CACHE_LOCK = threading.Lock()
+_DEALS_CACHE: Optional[List[Dict[str, Any]]] = None
+_DEALS_CACHE_TS: float = 0.0
+DEALS_CACHE_TTL = 300  # 5 phút (tự động cập nhật tức thì khi có thao tác thêm/sửa/xoá)
+
+_LISTS_CACHE: Optional[Dict[str, List[str]]] = None
+_LISTS_CACHE_TS: float = 0.0
+LISTS_CACHE_TTL = 600  # 10 phút
+
+_LOGS_CACHE: Optional[List[Dict[str, Any]]] = None
+_LOGS_CACHE_TS: float = 0.0
+LOGS_CACHE_TTL = 300  # 5 phút
+
+_PANCAKE_PHONE_CACHE: Dict[str, Tuple[float, Dict[str, Any]]] = {}
+PANCAKE_PHONE_TTL = 600  # 10 phút
 
 
 # ───────────────────────── Hằng số & Danh mục mặc định ─────────────────────────
@@ -151,18 +175,13 @@ def to_iso_date(val: Any) -> str:
 
 def settle_debts(deals: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
     """
-    Tính toán công nợ tự động theo nguyên tắc FIFO cho từng SĐT:
-    - Mỗi deal có `daThu` (số tiền thu lần này) và `phaiThu` (số tiền khách còn nợ ở deal này).
-    - Khi có một dòng `trangThai == 'Thu nợ'` (hoặc `daThu > 0` và `phaiThu == 0` với ghi chú/trạng thái thu nợ,
-      hoặc `daThu > tongTien` khi đóng dư sang nợ cũ), số tiền thu nợ sẽ được cấn trừ lần lượt vào các khoản
-      nợ cũ (`phaiThu > 0`) của cùng SĐT theo thứ tự ngày thu tăng dần.
+    Tính toán công nợ tự động theo nguyên tắc FIFO cho từng SĐT.
     """
     res: Dict[str, Dict[str, Any]] = {}
     by_phone: Dict[str, List[Dict[str, Any]]] = {}
 
     for d in deals:
         did = d["id"]
-        da_thu = int(d.get("daThu") or 0)
         phai_thu = int(d.get("phaiThu") or 0)
         trang_thai = str(d.get("trangThai") or "").strip()
         ngay_thu_ar = str(d.get("ngayThuAR") or "").strip()
@@ -181,13 +200,11 @@ def settle_debts(deals: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
             by_phone.setdefault(phone, []).append(d)
 
     for phone, group in by_phone.items():
-        # Sắp xếp theo ngayThu tăng dần, sau đó theo thứ tự tạo
         sorted_group = sorted(
             group,
             key=lambda x: (x.get("ngayThu") or "9999-99-99", x.get("_sort_id") or 0)
         )
 
-        # Danh sách các khoản nợ đang mở của SĐT này
         open_debts: List[Dict[str, Any]] = []
 
         for d in sorted_group:
@@ -198,10 +215,6 @@ def settle_debts(deals: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
             tong_tien = int(d.get("tongTien") or 0)
             trang_thai_lower = str(d.get("trangThai") or "").strip().lower()
 
-            # Xác định số tiền trong giao dịch này dùng để trả nợ cũ:
-            # 1. Nếu trạng thái là "Thu nợ" -> toàn bộ daThu dùng để trả nợ cũ
-            # 2. Nếu có nợ cũ đang mở và dòng này có phaiThu == 0 và chuongTrinh trống hoặc ghi "Thu nợ"
-            # 3. Nếu daThu > tongTien (khi tongTien > 0 và phaiThu == 0) -> phần dư trả nợ cũ
             is_debt_payment_row = (
                 trang_thai_lower in ("thu nợ", "thu no", "trả nợ", "thanh toán công nợ")
                 or (
@@ -251,7 +264,6 @@ def settle_debts(deals: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
                 if is_debt_payment_row:
                     r["trangThai"] = "Thu nợ"
 
-            # Nếu bản thân deal này có phát sinh phải thu khách hàng (phaiThu > 0)
             if phai_thu > 0:
                 r["conNo"] = phai_thu - r["daThuNo"]
                 if r["conNo"] > 0:
@@ -267,20 +279,28 @@ def settle_debts(deals: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
     return res
 
 
-# ───────────────────────── Đọc / Ghi Danh mục & Deal ─────────────────────────
+# ───────────────────────── Đọc / Ghi Danh mục & Deal (Có Cache RAM) ─────────────────────────
 
-def read_lists(db: Session) -> Dict[str, List[str]]:
+def read_lists(db: Session, use_cache: bool = True) -> Dict[str, List[str]]:
+    global _LISTS_CACHE, _LISTS_CACHE_TS
+    now_ts = time.time()
+    if use_cache and _LISTS_CACHE is not None and (now_ts - _LISTS_CACHE_TS) < LISTS_CACHE_TTL:
+        return {k: list(v) for k, v in _LISTS_CACHE.items()}
+
     cfg = db.query(AppConfig).filter(AppConfig.config_key == CONFIG_KEY_LISTS).first()
     if not cfg or not cfg.config_value:
-        # Khởi tạo từ LIST_SEED
-        lists_data = dict(LIST_SEED)
+        lists_data = {k: list(v) for k, v in LIST_SEED.items()}
         cfg = AppConfig(
             config_key=CONFIG_KEY_LISTS,
             config_value=json.dumps(lists_data, ensure_ascii=False),
         )
         db.add(cfg)
         db.commit()
+        with _CACHE_LOCK:
+            _LISTS_CACHE = lists_data
+            _LISTS_CACHE_TS = now_ts
         return lists_data
+
     try:
         parsed = json.loads(cfg.config_value)
         out = {}
@@ -290,12 +310,16 @@ def read_lists(db: Session) -> Dict[str, List[str]]:
                 out[k] = [str(x).strip() for x in vals if str(x).strip()]
             else:
                 out[k] = list(default_vals)
-        return out
+        with _CACHE_LOCK:
+            _LISTS_CACHE = out
+            _LISTS_CACHE_TS = now_ts
+        return {k: list(v) for k, v in out.items()}
     except Exception:
-        return dict(LIST_SEED)
+        return {k: list(v) for k, v in LIST_SEED.items()}
 
 
 def write_lists(db: Session, lists_data: Dict[str, List[str]]) -> Dict[str, List[str]]:
+    global _LISTS_CACHE, _LISTS_CACHE_TS
     cleaned: Dict[str, List[str]] = {}
     for k in LIST_SEED.keys():
         raw_list = lists_data.get(k) or []
@@ -317,6 +341,10 @@ def write_lists(db: Session, lists_data: Dict[str, List[str]]) -> Dict[str, List
         cfg.config_value = json.dumps(cleaned, ensure_ascii=False)
         cfg.updated_at = get_vn_now()
     db.commit()
+
+    with _CACHE_LOCK:
+        _LISTS_CACHE = {k: list(v) for k, v in cleaned.items()}
+        _LISTS_CACHE_TS = time.time()
     return cleaned
 
 
@@ -353,11 +381,16 @@ def model_to_dict(row: SalesDeal) -> Dict[str, Any]:
     }
 
 
-def reconcile_all_deals(db: Session, actor_email: str = "system") -> List[Dict[str, Any]]:
+def get_cached_deals(db: Session, force_refresh: bool = False) -> List[Dict[str, Any]]:
     """
-    Đọc tất cả deal, tính lại công nợ FIFO, cập nhật những bản ghi có thay đổi xuống DB
-    và trả về danh sách deal đầy đủ kèm thông tin công nợ.
+    Trả về danh sách deals từ RAM nếu còn hạn TTL (tốn 0 bytes Neon Egress).
+    Chỉ truy vấn DB khi khởi động lần đầu hoặc hết TTL.
     """
+    global _DEALS_CACHE, _DEALS_CACHE_TS
+    now_ts = time.time()
+    if not force_refresh and _DEALS_CACHE is not None and (now_ts - _DEALS_CACHE_TS) < DEALS_CACHE_TTL:
+        return _DEALS_CACHE
+
     rows = db.query(SalesDeal).order_by(asc(SalesDeal.ngay_thu), asc(SalesDeal.id)).all()
     deals = [model_to_dict(r) for r in rows]
     res = settle_debts(deals)
@@ -394,13 +427,79 @@ def reconcile_all_deals(db: Session, actor_email: str = "system") -> List[Dict[s
     if dirty:
         db.commit()
 
-    # Trả về danh sách mới nhất lên đầu
     deals.sort(key=lambda x: (x.get("ngayThu") or "", x.get("_sort_id") or 0), reverse=True)
+    with _CACHE_LOCK:
+        _DEALS_CACHE = deals
+        _DEALS_CACHE_TS = time.time()
     return deals
 
 
+def reconcile_phones_and_update_cache(db: Session, phones: Set[str]) -> List[Dict[str, Any]]:
+    """
+    Tối ưu Egress: Khi thêm/sửa/xoá 1 deal, công nợ chỉ thay đổi trên đúng SĐT của deal đó.
+    Chỉ SELECT các dòng thuộc `phones` (1-3 dòng), tính lại công nợ và cập nhật trực tiếp vào _DEALS_CACHE trong RAM!
+    """
+    global _DEALS_CACHE, _DEALS_CACHE_TS
+    valid_phones = {p for p in phones if p}
+    if not valid_phones:
+        return get_cached_deals(db)
+
+    phone_rows = (
+        db.query(SalesDeal)
+        .filter(SalesDeal.sdt.in_(valid_phones))
+        .order_by(asc(SalesDeal.ngay_thu), asc(SalesDeal.id))
+        .all()
+    )
+    phone_deals = [model_to_dict(r) for r in phone_rows]
+    res = settle_debts(phone_deals)
+
+    row_map = {r.deal_uid: r for r in phone_rows}
+    dirty = False
+
+    for d in phone_deals:
+        did = d["id"]
+        r = res[did]
+        db_row = row_map[did]
+
+        if (
+            db_row.thu_no != r["thuNo"]
+            or db_row.da_thu_no != r["daThuNo"]
+            or db_row.con_no != r["conNo"]
+            or (db_row.trang_thai or "") != r["trangThai"]
+            or (db_row.ngay_thu_ar or "") != r["ngayThuAR"]
+        ):
+            db_row.thu_no = r["thuNo"]
+            db_row.da_thu_no = r["daThuNo"]
+            db_row.con_no = r["conNo"]
+            db_row.trang_thai = r["trangThai"]
+            db_row.ngay_thu_ar = r["ngayThuAR"]
+            dirty = True
+
+        d["thuNo"] = r["thuNo"]
+        d["daThuNo"] = r["daThuNo"]
+        d["conNo"] = r["conNo"]
+        d["apps"] = r["apps"]
+        d["trangThai"] = r["trangThai"]
+        d["ngayThuAR"] = r["ngayThuAR"]
+
+    if dirty:
+        db.commit()
+
+    # Nếu đã có cache trong RAM, chỉ thay thế đúng các dòng thuộc SĐT vừa cập nhật (0 query toàn bảng)
+    if _DEALS_CACHE is not None:
+        with _CACHE_LOCK:
+            remaining = [d for d in _DEALS_CACHE if d.get("sdt") not in valid_phones]
+            combined = remaining + phone_deals
+            combined.sort(key=lambda x: (x.get("ngayThu") or "", x.get("_sort_id") or 0), reverse=True)
+            _DEALS_CACHE = combined
+            _DEALS_CACHE_TS = time.time()
+            return _DEALS_CACHE
+
+    return get_cached_deals(db, force_refresh=True)
+
+
 def build_debt_summary(deals: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """Tạo bảng Công nợ (tương đương sheet CongNo trong Apps Script)."""
+    """Tạo bảng Công nợ từ danh sách deals trong RAM (tốn 0 DB query)."""
     open_deals = [d for d in deals if int(d.get("conNo") or 0) > 0]
     open_deals.sort(key=lambda x: (x.get("ngayThu") or "9999-99-99", x.get("_sort_id") or 0))
 
@@ -450,10 +549,11 @@ def build_debt_summary(deals: List[Dict[str, Any]]) -> Dict[str, Any]:
 
 
 def write_audit_log(db: Session, user_email: str, action: str, deal_id: str, detail: Any):
+    global _LOGS_CACHE
     try:
         text = json.dumps(detail or {}, ensure_ascii=False)
-        if len(text) > 5000:
-            text = text[:5000] + "…"
+        if len(text) > 1000:
+            text = text[:1000] + "…"
         log_row = DealAuditLog(
             created_at=get_vn_now(),
             user_email=user_email or "admin",
@@ -463,6 +563,8 @@ def write_audit_log(db: Session, user_email: str, action: str, deal_id: str, det
         )
         db.add(log_row)
         db.commit()
+        with _CACHE_LOCK:
+            _LOGS_CACHE = None
     except Exception as e:
         logger.warning(f"Không thể ghi audit log: {e}")
 
@@ -505,24 +607,12 @@ class SaveListsPayload(BaseModel):
 # ───────────────────────── API Endpoints ─────────────────────────
 
 @router.get("/init")
-def init_deal_entry(db: Session = Depends(get_db)):
-    """Khởi tạo toàn bộ dữ liệu cho trang Quản lý Nhập Deal & Công nợ."""
+def init_deal_entry(force: bool = Query(False), db: Session = Depends(get_db)):
+    """Khởi tạo dữ liệu cho trang Quản lý Nhập Deal & Công nợ (Đọc từ RAM Cache)."""
     ensure_schema()
-    lists = read_lists(db)
-    deals = reconcile_all_deals(db)
+    lists = read_lists(db, use_cache=not force)
+    deals = get_cached_deals(db, force_refresh=force)
     debts = build_debt_summary(deals)
-
-    # Tự động gộp các lớp đang có trong deal vào danh mục lop nếu chưa có
-    existing_classes: List[str] = list(lists.get("lop") or [])
-    changed_list = False
-    for d in deals:
-        for cl in d.get("lop") or []:
-            if cl and cl not in existing_classes:
-                existing_classes.append(cl)
-                changed_list = True
-    if changed_list:
-        lists["lop"] = existing_classes
-        write_lists(db, lists)
 
     return {
         "ok": True,
@@ -533,21 +623,95 @@ def init_deal_entry(db: Session = Depends(get_db)):
     }
 
 
-@router.get("/lookup-phone")
-def lookup_phone(sdt: str = Query(..., description="Số điện thoại cần tra cứu"), exclude_id: Optional[str] = None, db: Session = Depends(get_db)):
+def _lookup_pancake_lightweight(db: Session, phone: str) -> Dict[str, Any]:
     """
-    Tra cứu SĐT khi người dùng nhập vào form Deal:
-    1. Tìm trong bảng SalesDeal xem khách đã có deal cũ hay đang còn nợ không.
-    2. Tìm trong bảng DimLead / FactLeadActivity (Pancake) để tự động gợi ý Họ tên, Ngày contact đầu tiên,
-       Link Zalo Pancake, Nguồn page và Nhân viên chăm sóc!
+    Tra cứu thông tin khách trên Pancake cực nhẹ (Zero-Bloat Egress):
+    - Kiểm tra _PANCAKE_PHONE_CACHE trong RAM trước.
+    - Chỉ SELECT 5 cột scalar nhỏ bằng .with_entities(), tuyệt đối không đọc JSONB tag_timeline hay contacted_dates.
+    - Dùng exact match trên index ix_dim_leads_phone_number.
+    """
+    now_ts = time.time()
+    cached = _PANCAKE_PHONE_CACHE.get(phone)
+    if cached and (now_ts - cached[0]) < PANCAKE_PHONE_TTL:
+        return cached[1]
+
+    rows = (
+        db.query(DimLead, FactLeadActivity)
+        .outerjoin(FactLeadActivity, DimLead.id == FactLeadActivity.lead_id)
+        .with_entities(
+            DimLead.name,
+            DimLead.first_created_at,
+            DimLead.page_id,
+            FactLeadActivity.conversation_id,
+            FactLeadActivity.assigned_users,
+        )
+        .filter(DimLead.phone_number == phone)
+        .order_by(asc(DimLead.first_created_at))
+        .limit(10)
+        .all()
+    )
+
+    if not rows:
+        with _CACHE_LOCK:
+            _PANCAKE_PHONE_CACHE[phone] = (now_ts, {})
+        return {}
+
+    lead_name = rows[0][0] or ""
+    first_dt = rows[0][1]
+    first_contact = first_dt.strftime("%Y-%m-%d") if first_dt else ""
+    zalo_url = ""
+    source_page = ""
+    assigned_sale = ""
+
+    for name, _, page_id, conv_id, assigned_users in rows:
+        if name and not lead_name:
+            lead_name = name
+        pg_name = resolve_canonical_page_name(page_id) if page_id else ""
+        if conv_id and str(conv_id).startswith("pzl_") and not str(conv_id).startswith("pzl_g_"):
+            zalo_url = build_pancake_url(page_id, conv_id) or zalo_url
+        elif pg_name and not source_page:
+            source_page = pg_name
+        if assigned_users and not assigned_sale:
+            assigned_sale = assigned_users.split(",")[0].strip()
+
+    if not zalo_url:
+        for _, _, page_id, conv_id, _ in rows:
+            if conv_id:
+                zalo_url = build_pancake_url(page_id, conv_id) or ""
+                if zalo_url:
+                    break
+
+    info = {
+        "foundInPancake": True,
+        "hoTen": lead_name,
+        "ngayContact": first_contact,
+        "zalo": zalo_url,
+        "nguon": source_page,
+        "nvCS": assigned_sale,
+    }
+    with _CACHE_LOCK:
+        _PANCAKE_PHONE_CACHE[phone] = (now_ts, info)
+    return info
+
+
+@router.get("/lookup-phone")
+def lookup_phone(
+    sdt: str = Query(..., description="Số điện thoại cần tra cứu"),
+    exclude_id: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    """
+    Tra cứu SĐT siêu tốc và tiết kiệm Egress:
+    - Phần lịch sử Deal & Công nợ đọc 100% từ _DEALS_CACHE trong RAM (0 câu query DB).
+    - Phần Pancake dùng _lookup_pancake_lightweight (Index Scan + RAM Cache).
     """
     ensure_schema()
     phone = clean_phone(sdt)
     if not phone or len(phone) < 9:
         return {"ok": True, "found": False}
 
-    # 1. Tìm trong SalesDeal (công nợ & lớp học cũ)
-    deals = reconcile_all_deals(db)
+    # 1. Đọc từ _DEALS_CACHE trong RAM (0 Egress)
+    deals = get_cached_deals(db)
     hit = None
     debt = 0
     since = ""
@@ -578,52 +742,8 @@ def lookup_phone(sdt: str = Query(..., description="Số điện thoại cần t
             "trangThai": d["trangThai"],
         })
 
-    # 2. Tìm trong DimLead & FactLeadActivity (dữ liệu Pancake)
-    pancake_info: Dict[str, Any] = {}
-    lead_rows = (
-        db.query(DimLead, FactLeadActivity)
-        .outerjoin(FactLeadActivity, DimLead.id == FactLeadActivity.lead_id)
-        .filter(DimLead.phone_number.like(f"%{phone[-9:]}%"))
-        .order_by(asc(DimLead.first_created_at))
-        .all()
-    )
-
-    if lead_rows:
-        first_lead = lead_rows[0][0]
-        lead_name = first_lead.name or ""
-        first_contact = first_lead.first_created_at.strftime("%Y-%m-%d") if first_lead.first_created_at else ""
-        zalo_url = ""
-        source_page = ""
-        assigned_sale = ""
-
-        for ld, act in lead_rows:
-            if ld.name and not lead_name:
-                lead_name = ld.name
-            pg_name = resolve_canonical_page_name(ld.page_id) if ld.page_id else ""
-            conv_id = act.conversation_id if act else ""
-            if conv_id and str(conv_id).startswith("pzl_") and not str(conv_id).startswith("pzl_g_"):
-                zalo_url = build_pancake_url(ld.page_id, conv_id) or zalo_url
-            elif pg_name and not source_page:
-                source_page = pg_name
-            if act and act.assigned_users and not assigned_sale:
-                assigned_sale = act.assigned_users.split(",")[0].strip()
-
-        # Nếu chưa có link Zalo riêng thì lấy link hội thoại Pancake bất kỳ
-        if not zalo_url:
-            for ld, act in lead_rows:
-                if act and act.conversation_id:
-                    zalo_url = build_pancake_url(ld.page_id, act.conversation_id) or ""
-                    if zalo_url:
-                        break
-
-        pancake_info = {
-            "foundInPancake": True,
-            "hoTen": lead_name,
-            "ngayContact": first_contact,
-            "zalo": zalo_url,
-            "nguon": source_page,
-            "nvCS": assigned_sale,
-        }
+    # 2. Tìm trên Pancake với truy vấn tối giản (chỉ 5 cột scalar)
+    pancake_info = _lookup_pancake_lightweight(db, phone)
 
     if not hit and not pancake_info:
         return {"ok": True, "found": False}
@@ -650,7 +770,7 @@ def lookup_phone(sdt: str = Query(..., description="Số điện thoại cần t
 
 @router.post("/deals")
 def save_deal(payload: DealSavePayload, db: Session = Depends(get_db)):
-    """Thêm mới hoặc Cập nhật Deal, đồng bộ lớp học theo SĐT và tự động đối trừ công nợ FIFO."""
+    """Thêm mới hoặc Cập nhật Deal, chỉ reconcile đúng SĐT bị ảnh hưởng để tiết kiệm tối đa Egress."""
     ensure_schema()
     phone = clean_phone(payload.sdt)
     if not phone:
@@ -672,7 +792,6 @@ def save_deal(payload: DealSavePayload, db: Session = Depends(get_db)):
     actor = (payload.actor or "admin").strip()
     now = get_vn_now()
 
-    # Lấy các lớp hiện có của cùng SĐT để gộp đồng bộ
     same_phone_rows = db.query(SalesDeal).filter(SalesDeal.sdt == phone).all()
     existing_phone_classes: List[str] = []
     for r in same_phone_rows:
@@ -680,11 +799,8 @@ def save_deal(payload: DealSavePayload, db: Session = Depends(get_db)):
             continue
         existing_phone_classes = merge_classes(existing_phone_classes, parse_classes(r.lop))
 
-    merged_classes = merge_classes(existing_phone_classes, classes) if classes else existing_phone_classes
-    if classes:
-        merged_classes = classes  # Nếu người dùng chủ động chỉnh danh sách lớp thì ưu tiên theo lựa chọn mới
+    merged_classes = classes if classes else existing_phone_classes
 
-    # Tự động thêm lớp mới vào Danh mục nếu chưa có
     lists = read_lists(db)
     lop_list = list(lists.get("lop") or [])
     list_changed = False
@@ -696,12 +812,16 @@ def save_deal(payload: DealSavePayload, db: Session = Depends(get_db)):
         lists["lop"] = lop_list
         write_lists(db, lists)
 
+    affected_phones: Set[str] = {phone}
+
     if payload.id:
         db_row = db.query(SalesDeal).filter(SalesDeal.deal_uid == payload.id).first()
         if not db_row:
             raise HTTPException(status_code=404, detail="Không tìm thấy deal cần sửa")
 
-        before_snapshot = model_to_dict(db_row)
+        if db_row.sdt:
+            affected_phones.add(db_row.sdt)
+
         db_row.ngay_thu = ngay_thu
         db_row.ngay_contact = to_iso_date(payload.ngayContact)
         db_row.sdt = phone
@@ -726,7 +846,13 @@ def save_deal(payload: DealSavePayload, db: Session = Depends(get_db)):
 
         deal_uid = db_row.deal_uid
         db.commit()
-        write_audit_log(db, actor, "Sửa deal", deal_uid, {"truoc": before_snapshot, "sau": payload.dict()})
+        write_audit_log(
+            db,
+            actor,
+            "Sửa deal",
+            deal_uid,
+            {"sdt": phone, "hoTen": ho_ten, "daThu": da_thu, "phaiThu": phai_thu, "trangThai": db_row.trang_thai},
+        )
     else:
         deal_uid = str(uuid.uuid4())
         nv_cs = (payload.nvCS or "").strip() or actor
@@ -755,12 +881,19 @@ def save_deal(payload: DealSavePayload, db: Session = Depends(get_db)):
         )
         db.add(db_row)
         db.commit()
-        write_audit_log(db, actor, "Thêm deal", deal_uid, payload.dict())
+        write_audit_log(
+            db,
+            actor,
+            "Thêm deal",
+            deal_uid,
+            {"sdt": phone, "hoTen": ho_ten, "daThu": da_thu, "phaiThu": phai_thu, "trangThai": db_row.trang_thai},
+        )
 
-    # Đồng bộ lớp học cho tất cả các dòng khác cùng SĐT (syncClasses_)
-    other_rows = db.query(SalesDeal).filter(SalesDeal.sdt == phone, SalesDeal.deal_uid != deal_uid).all()
+    # Đồng bộ lớp học cho các dòng cùng SĐT đã nạp sẵn trong same_phone_rows (không cần SELECT lại)
     synced = False
-    for r in other_rows:
+    for r in same_phone_rows:
+        if r.deal_uid == deal_uid:
+            continue
         if not same_classes(parse_classes(r.lop), merged_classes):
             r.lop = ", ".join(merged_classes)
             r.nguoi_sua = actor
@@ -769,7 +902,7 @@ def save_deal(payload: DealSavePayload, db: Session = Depends(get_db)):
     if synced:
         db.commit()
 
-    deals = reconcile_all_deals(db, actor)
+    deals = reconcile_phones_and_update_cache(db, affected_phones)
     debts = build_debt_summary(deals)
     return {
         "ok": True,
@@ -782,7 +915,7 @@ def save_deal(payload: DealSavePayload, db: Session = Depends(get_db)):
 
 @router.put("/deals/{deal_id}/classes")
 def update_deal_classes(deal_id: str, payload: SetClassesPayload, db: Session = Depends(get_db)):
-    """Cập nhật nhanh Lớp học cho deal và tự động đồng bộ mọi deal cùng SĐT."""
+    """Cập nhật nhanh Lớp học cho deal và chỉ đồng bộ các dòng của đúng SĐT đó."""
     ensure_schema()
     db_row = db.query(SalesDeal).filter(SalesDeal.deal_uid == deal_id).first()
     if not db_row:
@@ -792,16 +925,15 @@ def update_deal_classes(deal_id: str, payload: SetClassesPayload, db: Session = 
     actor = (payload.actor or "admin").strip()
     now = get_vn_now()
     old_classes = parse_classes(db_row.lop)
+    phone = db_row.sdt
 
-    # Cập nhật tất cả deal cùng SĐT
-    same_phone_rows = db.query(SalesDeal).filter(SalesDeal.sdt == db_row.sdt).all()
+    same_phone_rows = db.query(SalesDeal).filter(SalesDeal.sdt == phone).all()
     for r in same_phone_rows:
         r.lop = ", ".join(classes)
         r.nguoi_sua = actor
         r.sua_luc = now
     db.commit()
 
-    # Bổ sung lớp mới vào Danh mục nếu chưa có
     lists = read_lists(db)
     lop_list = list(lists.get("lop") or [])
     changed = False
@@ -813,28 +945,35 @@ def update_deal_classes(deal_id: str, payload: SetClassesPayload, db: Session = 
         lists["lop"] = lop_list
         write_lists(db, lists)
 
-    write_audit_log(db, actor, "Sửa lớp", deal_id, {"sdt": db_row.sdt, "truoc": old_classes, "sau": classes})
+    write_audit_log(db, actor, "Sửa lớp", deal_id, {"sdt": phone, "truoc": old_classes, "sau": classes})
 
-    deals = reconcile_all_deals(db, actor)
+    deals = reconcile_phones_and_update_cache(db, {phone})
     debts = build_debt_summary(deals)
     return {"ok": True, "deals": deals, "debts": debts, "lists": lists}
 
 
 @router.delete("/deals/{deal_id}")
 def delete_deal(deal_id: str, actor: str = Query("admin"), db: Session = Depends(get_db)):
-    """Xoá 1 deal và tính lại công nợ."""
+    """Xoá 1 deal và chỉ tính lại công nợ cho SĐT của deal đó."""
+    global _DEALS_CACHE
     ensure_schema()
     db_row = db.query(SalesDeal).filter(SalesDeal.deal_uid == deal_id).first()
     if not db_row:
         raise HTTPException(status_code=404, detail="Không tìm thấy deal")
 
-    snapshot = model_to_dict(db_row)
+    phone = db_row.sdt
+    ho_ten = db_row.ho_ten
+    da_thu = int(db_row.da_thu or 0)
     db.delete(db_row)
     db.commit()
 
-    write_audit_log(db, actor, "Xoá deal", deal_id, snapshot)
+    if _DEALS_CACHE is not None:
+        with _CACHE_LOCK:
+            _DEALS_CACHE = [d for d in _DEALS_CACHE if d.get("id") != deal_id]
 
-    deals = reconcile_all_deals(db, actor)
+    write_audit_log(db, actor, "Xoá deal", deal_id, {"sdt": phone, "hoTen": ho_ten, "daThu": da_thu})
+
+    deals = reconcile_phones_and_update_cache(db, {phone})
     debts = build_debt_summary(deals)
     return {"ok": True, "deals": deals, "debts": debts}
 
@@ -844,26 +983,33 @@ def save_lists_endpoint(payload: SaveListsPayload, db: Session = Depends(get_db)
     """Lưu danh mục (Zalo chăm sóc, Nguồn, Chương trình học, Lớp học)."""
     ensure_schema()
     updated = write_lists(db, payload.lists)
-    write_audit_log(db, payload.actor or "admin", "Sửa danh mục", "", updated)
+    write_audit_log(db, payload.actor or "admin", "Sửa danh mục", "", {"keys": list(updated.keys())})
     return {"ok": True, "lists": updated}
 
 
 @router.get("/logs")
-def get_deal_logs(limit: int = Query(100, ge=1, le=500), db: Session = Depends(get_db)):
-    """Lấy lịch sử thao tác (sheet Log)."""
+def get_deal_logs(limit: int = Query(50, ge=1, le=200), db: Session = Depends(get_db)):
+    """Lấy lịch sử thao tác (đọc từ RAM cache nếu không có log mới)."""
+    global _LOGS_CACHE, _LOGS_CACHE_TS
     ensure_schema()
-    rows = db.query(DealAuditLog).order_by(desc(DealAuditLog.id)).limit(limit).all()
-    return {
-        "ok": True,
-        "logs": [
-            {
-                "id": r.id,
-                "createdAt": format_vn_datetime(r.created_at),
-                "userEmail": r.user_email,
-                "action": r.action,
-                "dealId": r.deal_id,
-                "detail": r.detail,
-            }
-            for r in rows
-        ],
-    }
+    now_ts = time.time()
+    if _LOGS_CACHE is not None and (now_ts - _LOGS_CACHE_TS) < LOGS_CACHE_TTL:
+        return {"ok": True, "logs": _LOGS_CACHE[:limit]}
+
+    rows = db.query(DealAuditLog).order_by(desc(DealAuditLog.id)).limit(100).all()
+    logs_list = [
+        {
+            "id": r.id,
+            "createdAt": format_vn_datetime(r.created_at),
+            "userEmail": r.user_email,
+            "action": r.action,
+            "dealId": r.deal_id,
+            "detail": r.detail,
+        }
+        for r in rows
+    ]
+    with _CACHE_LOCK:
+        _LOGS_CACHE = logs_list
+        _LOGS_CACHE_TS = now_ts
+
+    return {"ok": True, "logs": logs_list[:limit]}

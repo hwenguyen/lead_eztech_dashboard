@@ -140,10 +140,10 @@ export function AppScriptTool() {
   });
   const [newItemText, setNewItemText] = useState<Record<string, string>>({});
 
-  const loadAll = async () => {
+  const loadAll = async (force: boolean = false) => {
     setLoading(true);
     try {
-      const res = await fetchDealEntryInit();
+      const res = await fetchDealEntryInit(force);
       if (res.ok) {
         setDeals(res.deals || []);
         setDebts(res.debts || { items: [], totalPhaiThu: 0, totalDaThuNo: 0, totalConNo: 0, count: 0 });
@@ -160,7 +160,7 @@ export function AppScriptTool() {
 
   const loadLogs = async () => {
     try {
-      const res = await fetchDealEntryLogs(150);
+      const res = await fetchDealEntryLogs(50);
       if (res.ok) setLogs(res.logs || []);
     } catch (err) {
       console.error('Lỗi tải nhật ký:', err);
@@ -168,7 +168,7 @@ export function AppScriptTool() {
   };
 
   useEffect(() => {
-    loadAll();
+    loadAll(false);
   }, []);
 
   useEffect(() => {
@@ -177,11 +177,11 @@ export function AppScriptTool() {
     }
   }, [subTab]);
 
-  // Tự động tra cứu SĐT khi người dùng nhập đủ 9-10 chữ số
+  // Tự động tra cứu SĐT khi người dùng nhập đủ 10 chữ số
   useEffect(() => {
     if (!isModalOpen) return;
     const clean = formSdt.replace(/\D/g, '');
-    if (clean.length < 9) {
+    if (clean.length < 10) {
       setPhoneLookup(null);
       return;
     }
@@ -772,7 +772,7 @@ export function AppScriptTool() {
             </button>
 
             <button
-              onClick={loadAll}
+              onClick={() => loadAll(true)}
               className="p-1.5 text-slate-500 hover:text-eztech bg-slate-50 hover:bg-eztech-light border border-slate-200 rounded-lg transition-colors"
               title="Làm mới dữ liệu"
             >
