@@ -36,6 +36,8 @@ from database.schema import ensure_schema
 from etl.pancake_client import PancakeClient
 from etl.utils import VN_TZ, is_page_id, resolve_canonical_page_name
 from etl.auto_reply_rules import (
+    COURSE_KEYWORDS,
+    COURSE_TAGS,
     AUTO_REPLY_RULES,
     ALLOWED_SOURCE_PAGES,
     COMMENT_REPLY_RULES,
@@ -64,6 +66,22 @@ def normalize_message(text: str) -> Tuple[str, str]:
     lower = clean_text.lower()
     no_accents = strip_accents(clean_text)
     return lower, no_accents
+
+def is_course_related(text: str) -> Tuple[bool, Optional[str]]:
+    """
+    Kiểm tra xem nội dung tin nhắn hoặc comment có liên quan đến khóa học / đào tạo không.
+    Trả về (True, kw) nếu chứa từ khóa khóa học, ngược lại (False, None).
+    """
+    if not text:
+        return False, None
+    lower_msg, no_accents_msg = normalize_message(text)
+    for kw in COURSE_KEYWORDS:
+        kw_lower = kw.lower().strip()
+        kw_no_accents = strip_accents(kw)
+        if kw_lower in lower_msg or kw_no_accents in no_accents_msg:
+            return True, kw
+    return False, None
+
 
 
 def match_rule(
@@ -138,17 +156,38 @@ def should_reply(
     if str(last_msg.get("role")).lower() == "admin":
         return False, None, None, None, "Admin / Nhân viên đã trả lời tin nhắn cuối cùng"
 
-    # 4. Tìm tin nhắn gần nhất của khách hàng để so khớp
-    last_cust_msg = None
+    # 4. Chốt chặn Thẻ (Tags): Bỏ qua nếu hội thoại đã được gắn thẻ học viên / khóa học
+    tags = conv.get("tags") or []
+    if isinstance(tags, list):
+        for t in tags:
+            tag_str = str(t if isinstance(t, str) else t.get("name") or t.get("text") or "")
+            tag_lower = tag_str.lower()
+            is_c_tag, kw_t = is_course_related(tag_str)
+            if is_c_tag or any(strip_accents(ct) in strip_accents(tag_lower) for ct in COURSE_TAGS):
+                return False, None, None, None, f"Hội thoại đã gắn thẻ học viên/khóa học ({tag_str}) -> bỏ qua rep tự động"
+
+    # 5. Tìm toàn bộ tin nhắn gần nhất chưa được admin trả lời của khách hàng
+    unreplied_cust_msgs = []
     for m in reversed(valid_msgs):
-        if str(m.get("role")).lower() in ("khách hàng", "customer", "user"):
-            last_cust_msg = m
+        if str(m.get("role")).lower() == "admin":
             break
-    if not last_cust_msg:
+        if str(m.get("role")).lower() in ("khách hàng", "customer", "user"):
+            unreplied_cust_msgs.append(m)
+
+    if not unreplied_cust_msgs:
         return False, None, None, None, "Không tìm thấy tin nhắn nào của khách hàng"
 
+    # Lấy tin nhắn cuối cùng và toàn bộ nội dung khách đã nhắn trong lượt này
+    last_cust_msg = unreplied_cust_msgs[0]
     cust_text = str(last_cust_msg.get("message") or "").strip()
-    rule, matched_kw = match_rule(cust_text)
+    combined_cust_text = " ".join(str(m.get("message") or "").strip() for m in reversed(unreplied_cust_msgs))
+
+    # 5.5. Chốt chặn khóa học: Kiểm tra cả tin nhắn cuối lẫn chuỗi tin nhắn chưa trả lời
+    is_course, course_kw = is_course_related(combined_cust_text)
+    if is_course:
+        return False, None, None, cust_text, f"Tin nhắn liên quan đến khóa học (từ khóa: '{course_kw}') -> bỏ qua rep tự động"
+
+    rule, matched_kw = match_rule(combined_cust_text)
     if not rule:
         return False, None, None, cust_text, "Không khớp từ khóa của kịch bản nào"
 
@@ -326,6 +365,11 @@ def should_reply_comment(
     if not clean_msg and isinstance(payload, dict):
         clean_msg = payload.get("snippet", "")
 
+    # Chốt chặn: Bỏ qua comment liên quan đến khóa học / đào tạo để nhân viên tư vấn trực tiếp
+    is_course, course_kw = is_course_related(clean_msg)
+    if is_course:
+        return False, None, None, clean_msg, f"Comment liên quan đến khóa học (từ khóa: '{course_kw}') -> bỏ qua rep tự động"
+
     rules_to_check = COMMENT_REPLY_RULES if COMMENT_REPLY_RULES else AUTO_REPLY_RULES
     rule, matched_kw = match_rule(clean_msg, rules=rules_to_check)
     if not rule:
@@ -403,7 +447,7 @@ def process_page_comment_replies(
 
         if not can_reply:
             stats["skipped"] += 1
-            if rule:
+            if rule or "khóa học" in reason:
                 logger.info(f"  [Bỏ qua comment] {cid} | \"{(cust_msg or '')[:30]}\" | Lý do: {reason}")
             continue
 
@@ -721,6 +765,8 @@ def run_auto_reply_bot(
                     )
 
                     if not can_send:
+                        if is_course_related(cust_msg or "")[0]:
+                            logger.info(f"  [Bỏ qua hội thoại khóa học] {cid} | \"{(cust_msg or '')[:40]}\" | Lý do: {reason}")
                         continue
 
                     total_matched += 1

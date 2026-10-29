@@ -19,6 +19,44 @@ HƯỚNG DẪN:
 # ==============================================================================
 # 1. CẤU HÌNH KỊCH BẢN CHO TIN NHẮN INBOX (AUTO_REPLY_RULES)
 # ==============================================================================
+# ==============================================================================
+# 0. DANH SÁCH TỪ KHÓA LIÊN QUAN ĐẾN KHÓA HỌC / ĐÀO TẠO (COURSE_KEYWORDS)
+# ==============================================================================
+# Bot sẽ BỎ QUA HOÀN TOÀN (không tự động rep tin nhắn hay comment) nếu nội dung
+# của khách chứa các từ khóa này, để nhân viên / tư vấn viên tư vấn trực tiếp 1-1.
+COURSE_KEYWORDS = [
+    "khóa học", "khoa hoc", "khoá học",
+    "học phí", "hoc phi",
+    "lộ trình", "lo trinh",
+    "lớp học", "lop hoc", "có lớp", "co lop", "mở lớp", "mo lop", "vào lớp", "vao lop", "vào được lớp", "vao duoc lop", "vào đc lớp", "vao dc lop",
+    "đào tạo", "dao tao",
+    "học viên", "hoc vien",
+    "tư vấn", "tu van",
+    "học online", "hoc online", "học ở đâu", "hoc o dau",
+    "học như thế nào", "hoc nhu the nao",
+    "đăng ký học", "dang ky hoc", "đk học", "dk hoc", "muốn học", "muon hoc",
+    "khai giảng", "khai giang", "lịch học", "lich hoc", "lịch khai giảng", "lich khai giang",
+    "chi phí học", "chi phi hoc", "chi phí khóa học", "chi phi khoa hoc", "giá khóa học", "gia khoa hoc",
+    "chương trình học", "chuong trinh hoc",
+    "bài giảng", "bai giang",
+    "link khoá", "link khoa",
+    "lớp excel", "lop excel", "lớp power query", "lop power query", "lớp power bi", "lop power bi",
+]
+
+# Thẻ (Tag) trên hội thoại liên quan đến khóa học / học viên
+COURSE_TAGS = [
+    "đào tạo", "dao tao",
+    "hv tckt",
+    "hv khác", "hv khac",
+    "đã là học viên", "da la hoc vien",
+    "học viên", "hoc vien",
+    "đồng ý học", "dong y hoc",
+    "tiktok hv tckt",
+    "tiktok hv other",
+    "tiktok tckt",
+]
+
+
 AUTO_REPLY_RULES = [
     # --------------------------------------------------------------------------
     # TRƯỜNG HỢP 1: KHÁCH XIN FILE / TÀI LIỆU
@@ -120,7 +158,7 @@ COMMENT_REPLY_RULES = [
     {
         "case_id": "cmt_khoa_hoc",
         "name": "Khách comment hỏi khóa học / lộ trình / học phí / đăng ký",
-        "enabled": True,
+        "enabled": False,  # Bỏ qua rep tự động: để nhân viên tư vấn trực tiếp 1-1
         "priority": 1,
         "keywords": [
             "khóa học", "khoa hoc", "học phí", "hoc phi", "lộ trình", "lo trinh",

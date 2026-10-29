@@ -21,6 +21,14 @@ FastAPI backend (`backend/`) + React frontend (`frontend-react/`) trên Render (
 
 ## Session
 
+### 2026-10-29 — Bỏ qua rep tự động các tin nhắn/comment liên quan đến khóa học
+- **Cấu hình từ khóa & thẻ khóa học (`etl/auto_reply_rules.py`)**: Thêm `COURSE_KEYWORDS` (khóa học, học phí, lộ trình, lớp học, đào tạo, tư vấn, lịch học, khai giảng, chi phí học, học viên, bài giảng, chương trình học...) và `COURSE_TAGS` (Đã là học viên, Đào tạo, HV TCKT, HV Khác...). Đồng thời chuyển rule `cmt_khoa_hoc` trong `COMMENT_REPLY_RULES` sang `enabled = False`.
+- **Chốt chặn bot (`etl/auto_reply_bot.py`)**: Bổ sung hàm `is_course_related()` và chốt chặn tại cả 2 luồng:
+  - `should_reply()` (Gửi tin nhắn tự động Inbox):
+    1. Kiểm tra thẻ `tags` của hội thoại: Bỏ qua nếu hội thoại đã được gắn tag học viên/khóa học (`COURSE_TAGS`).
+    2. Quét toàn bộ chuỗi tin nhắn của khách trong lượt (`combined_cust_text`): Bỏ qua nếu bất kỳ tin nhắn nào chưa được admin trả lời có chứa từ khóa khóa học, giải quyết triệt để trường hợp khách nhắn nhiều câu (ví dụ câu 1 hỏi học phí, câu 2 xin file).
+  - `should_reply_comment()` (Bình luận): Bỏ qua không rep comment nếu khách hỏi khóa học/học phí/tư vấn để nhân viên tư vấn trực tiếp 1-1.
+
 ### 2026-10-29 — Thêm Page Zalo mới: Eztech Consultant (`764881945463506349`)
 - Cấu hình chuẩn hóa tên hiển thị, URL Pancake và Pancake API mapping trong `etl/utils.py` (`KNOWN_PAGE_NAMES`, `PAGE_NAME_TO_PANCAKE_ID`, `PAGE_NAME_TO_API_ID`).
 - Page được tự động xếp vào nhóm kênh Zalo chăm sóc (`ZALO_PAGE_NAMES`, prefix `pzl_`) và không cộng gộp vào tổng lead nguồn.
