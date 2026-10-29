@@ -428,6 +428,7 @@ export function AppScriptTool() {
           setDraftLists(res.lists);
         }
         setIsModalOpen(false);
+        alert('✅ Đã lưu học phí và thông tin học viên lên Database thành công!');
       }
     } catch (err: any) {
       alert(err?.response?.data?.detail || 'Có lỗi xảy ra khi lưu deal');
@@ -925,11 +926,21 @@ export function AppScriptTool() {
 
               <button
                 onClick={() => loadAll(true)}
-                className="p-1.5 text-slate-500 hover:text-eztech bg-slate-50 hover:bg-eztech-light border border-slate-200 rounded-lg transition-colors"
+                className="p-1.5 text-slate-500 hover:text-eztech bg-slate-50 hover:bg-eztech-light border border-slate-200 rounded-lg transition-colors cursor-pointer"
                 title="Đồng bộ từ Deal Win & Làm mới dữ liệu"
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
               </button>
+            </div>
+
+            {/* Banner hướng dẫn thao tác */}
+            <div className="bg-eztech-light/80 border border-eztech-border/90 rounded-xl px-4 py-2.5 flex items-center justify-between text-xs text-eztech">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-eztech shrink-0" />
+                <span>
+                  <strong>Hướng dẫn:</strong> Bấm trực tiếp vào <strong>bất kỳ dòng nào</strong> hoặc bấm nút <strong className="bg-eztech text-white px-2 py-0.5 rounded text-[10px] font-bold">✏️ Điền tiền & Lớp</strong> để điền Số tiền thu được, Lớp học, Link nhóm 1-1 và Lưu lên Database.
+                </span>
+              </div>
             </div>
           </div>
 
@@ -949,7 +960,9 @@ export function AppScriptTool() {
                     <th className="py-3 px-3 whitespace-nowrap text-right">Còn nợ</th>
                     <th className="py-3 px-3 whitespace-nowrap">Trạng thái</th>
                     <th className="py-3 px-3 whitespace-nowrap">NV CS / Nguồn</th>
-                    <th className="py-3 px-3 whitespace-nowrap text-right">Điền / Thao tác</th>
+                    <th className="py-3 px-3 whitespace-nowrap text-right sticky right-0 bg-slate-100/95 shadow-[-8px_0_12px_-2px_rgba(0,0,0,0.08)] z-10">
+                      Thao tác
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-xs">
@@ -972,7 +985,12 @@ export function AppScriptTool() {
                       const missingGroup = !(d.nhomCS || '').trim();
 
                       return (
-                        <tr key={d.id} className="hover:bg-slate-50/80 transition-colors">
+                        <tr
+                          key={d.id}
+                          onClick={() => openEditModal(d)}
+                          className="hover:bg-blue-50/40 transition-colors cursor-pointer group"
+                          title="Bấm vào dòng này để mở form điền thông tin và lưu lên DB"
+                        >
                           {/* Ngày thu & Ngày contact */}
                           <td className="py-2.5 px-3 whitespace-nowrap align-top">
                             <div className="font-mono font-semibold text-navy">{fmtDateVi(d.ngayThu)}</div>
@@ -989,7 +1007,7 @@ export function AppScriptTool() {
                           </td>
 
                           {/* Thông tin Học viên từ bảng Deal Win */}
-                          <td className="py-2.5 px-3 align-top min-w-[190px]">
+                          <td className="py-2.5 px-3 align-top min-w-[210px]">
                             <div className="font-semibold text-navy flex items-center gap-1.5">
                               <span>{d.hoTen}</span>
                               {d.namSinh && (
@@ -998,7 +1016,7 @@ export function AppScriptTool() {
                             </div>
                             <div className="font-mono text-[11px] font-semibold text-eztech mt-0.5">{d.sdt}</div>
                             {d.email && (
-                              <div className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5 truncate max-w-[180px]" title={d.email}>
+                              <div className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5 truncate max-w-[190px]" title={d.email}>
                                 <Mail className="w-2.5 h-2.5 shrink-0" />
                                 <span className="truncate">{d.email}</span>
                               </div>
@@ -1009,6 +1027,42 @@ export function AppScriptTool() {
                                 <span>{d.diaChi}</span>
                               </div>
                             )}
+
+                            {/* Nút bấm trực tiếp ngay tại cột Học Viên */}
+                            <div className="mt-2 flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openEditModal(d);
+                                }}
+                                className="px-2.5 py-1 text-[11px] font-bold bg-eztech hover:bg-eztech-dark text-white rounded-lg shadow-2xs flex items-center gap-1 transition-all cursor-pointer"
+                              >
+                                <Edit3 className="w-3 h-3" />
+                                <span>{missingMoney ? '✏️ Điền tiền & Lớp' : '✏️ Sửa Deal'}</span>
+                              </button>
+
+                              {d.conNo > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    openCollectDebtModal({
+                                      sdt: d.sdt,
+                                      hoTen: d.hoTen,
+                                      conNo: d.conNo,
+                                      ngayThuGoc: d.ngayThu,
+                                      chuongTrinh: d.chuongTrinh,
+                                      lop: d.lop,
+                                      nvCS: d.nvCS,
+                                    });
+                                  }}
+                                  className="px-2 py-0.8 text-[10px] font-bold bg-amber-500 hover:bg-amber-600 text-white rounded-md shadow-2xs"
+                                >
+                                  Thu nợ
+                                </button>
+                              )}
+                            </div>
                           </td>
 
                           {/* Chức vụ, Lĩnh vực, Kỳ vọng */}
@@ -1038,11 +1092,20 @@ export function AppScriptTool() {
 
                           {/* Chương trình & Lớp học */}
                           <td className="py-2.5 px-3 align-top min-w-[160px]">
-                            <div className="font-semibold text-navy">
-                              {d.chuongTrinh || (
-                                <span className="text-[11px] font-normal text-orange-500 italic">Chưa chọn CT học</span>
-                              )}
-                            </div>
+                            {d.chuongTrinh ? (
+                              <div className="font-semibold text-navy">{d.chuongTrinh}</div>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openEditModal(d);
+                                }}
+                                className="text-[11px] font-bold text-orange-600 hover:underline cursor-pointer italic"
+                              >
+                                + Chọn CT học
+                              </button>
+                            )}
                             <div className="flex flex-wrap items-center gap-1 mt-1">
                               {(d.lop || []).map((cl) => (
                                 <span
@@ -1053,7 +1116,9 @@ export function AppScriptTool() {
                                 </span>
                               ))}
                               <button
-                                onClick={() => {
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
                                   setClassModalDeal(d);
                                   setQuickClasses(d.lop || []);
                                   setQuickNewClass('');
@@ -1066,7 +1131,7 @@ export function AppScriptTool() {
                                 title="Sửa & đồng bộ lớp học cho SĐT này"
                               >
                                 <Tag className="w-2.5 h-2.5" />
-                                <span>{missingClass ? '+ Gắn lớp' : 'Sửa'}</span>
+                                <span>{missingClass ? '+ Gắn lớp' : 'Sửa lớp'}</span>
                               </button>
                             </div>
                           </td>
@@ -1079,6 +1144,7 @@ export function AppScriptTool() {
                                   href={toSafeHref(d.nhomCS)}
                                   target="_blank"
                                   rel="noopener noreferrer"
+                                  onClick={(e) => e.stopPropagation()}
                                   className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded text-[11px] font-semibold hover:bg-emerald-100"
                                 >
                                   <Link2 className="w-3 h-3" />
@@ -1088,7 +1154,16 @@ export function AppScriptTool() {
                                 <div className="text-[11px] font-medium text-navy">{d.nhomCS}</div>
                               )
                             ) : (
-                              <span className="text-[11px] text-orange-500 italic">Chưa có link 1-1</span>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openEditModal(d);
+                                }}
+                                className="text-[11px] font-bold text-orange-600 hover:underline cursor-pointer italic"
+                              >
+                                + Nhập link 1-1
+                              </button>
                             )}
 
                             <div className="mt-1 flex items-center gap-2">
@@ -1097,6 +1172,7 @@ export function AppScriptTool() {
                                   href={d.zalo}
                                   target="_blank"
                                   rel="noopener noreferrer"
+                                  onClick={(e) => e.stopPropagation()}
                                   className="inline-flex items-center gap-1 text-[10px] font-semibold text-eztech hover:underline"
                                 >
                                   <ExternalLink className="w-2.5 h-2.5" />
@@ -1112,7 +1188,16 @@ export function AppScriptTool() {
                           {/* Thực thu */}
                           <td className="py-2.5 px-3 whitespace-nowrap text-right align-top font-mono">
                             {missingMoney ? (
-                              <span className="text-[11px] font-sans text-orange-500 italic">Chưa nhập</span>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openEditModal(d);
+                                }}
+                                className="px-2 py-0.5 text-[11px] font-bold bg-orange-100 hover:bg-orange-200 text-orange-800 rounded-md border border-orange-300 inline-flex items-center gap-1 cursor-pointer"
+                              >
+                                + Nhập tiền
+                              </button>
                             ) : (
                               <>
                                 <div className="font-bold text-emerald-600">{fmtMoney(d.daThu)}</div>
@@ -1155,13 +1240,18 @@ export function AppScriptTool() {
 
                           {/* Trạng thái */}
                           <td className="py-2.5 px-3 whitespace-nowrap align-top">
-                            <span
-                              className={`inline-block px-2 py-0.5 text-[11px] font-semibold rounded-full border ${getStatusBadgeStyle(
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openEditModal(d);
+                              }}
+                              className={`inline-block px-2 py-0.5 text-[11px] font-semibold rounded-full border cursor-pointer hover:shadow-xs transition-shadow ${getStatusBadgeStyle(
                                 d.trangThai
                               )}`}
                             >
-                              {d.trangThai || 'Chờ bổ sung'}
-                            </span>
+                              {d.trangThai || 'Chờ bổ sung'} ✏️
+                            </button>
                           </td>
 
                           {/* NV CS & Nguồn */}
@@ -1172,31 +1262,27 @@ export function AppScriptTool() {
                             </div>
                           </td>
 
-                          {/* Hành động */}
-                          <td className="py-2.5 px-3 whitespace-nowrap text-right align-top">
+                          {/* Cột thao tác CỐ ĐỊNH Ở MÉP PHẢI (STICKY RIGHT) */}
+                          <td className="py-2.5 px-3 whitespace-nowrap text-right align-top sticky right-0 bg-white group-hover:bg-slate-50 shadow-[-8px_0_12px_-2px_rgba(0,0,0,0.08)] z-10">
                             <div className="flex items-center justify-end gap-1">
-                              {missingMoney || missingClass || missingGroup ? (
-                                <button
-                                  onClick={() => openEditModal(d)}
-                                  className="px-2.5 py-1 text-[11px] font-semibold bg-eztech hover:bg-eztech-dark text-white rounded-lg shadow-2xs transition-colors flex items-center gap-1 cursor-pointer"
-                                  title="Điền số tiền thu được, lớp học và link nhóm 1-1"
-                                >
-                                  <Edit3 className="w-3 h-3" />
-                                  <span>Điền thông tin</span>
-                                </button>
-                              ) : (
-                                <button
-                                  onClick={() => openEditModal(d)}
-                                  className="p-1.5 text-slate-500 hover:text-eztech hover:bg-eztech-light rounded-md transition-colors cursor-pointer"
-                                  title="Chỉnh sửa deal"
-                                >
-                                  <Edit3 className="w-3.5 h-3.5" />
-                                </button>
-                              )}
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openEditModal(d);
+                                }}
+                                className="px-2.5 py-1 text-[11px] font-bold bg-eztech hover:bg-eztech-dark text-white rounded-lg shadow-2xs transition-colors flex items-center gap-1 cursor-pointer"
+                                title="Điền số tiền thu được, lớp học, link nhóm 1-1 và Lưu lên DB"
+                              >
+                                <Edit3 className="w-3 h-3" />
+                                <span>{missingMoney ? 'Điền tiền' : 'Sửa'}</span>
+                              </button>
 
                               {d.conNo > 0 && (
                                 <button
-                                  onClick={() =>
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
                                     openCollectDebtModal({
                                       sdt: d.sdt,
                                       hoTen: d.hoTen,
@@ -1205,8 +1291,8 @@ export function AppScriptTool() {
                                       chuongTrinh: d.chuongTrinh,
                                       lop: d.lop,
                                       nvCS: d.nvCS,
-                                    })
-                                  }
+                                    });
+                                  }}
                                   className="px-2 py-1 text-[11px] font-semibold bg-amber-500 hover:bg-amber-600 text-white rounded-lg shadow-2xs transition-colors cursor-pointer"
                                   title="Nhập giao dịch thu nợ cho khoản này"
                                 >
@@ -1215,7 +1301,11 @@ export function AppScriptTool() {
                               )}
 
                               <button
-                                onClick={() => handleDeleteDeal(d)}
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteDeal(d);
+                                }}
                                 className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-colors cursor-pointer"
                                 title="Xoá dòng này"
                               >
