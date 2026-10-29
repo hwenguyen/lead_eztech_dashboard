@@ -108,15 +108,10 @@ export function AppScriptTool() {
   ]);
   const [logs, setLogs] = useState<DealAuditLogItem[]>([]);
 
-  // Bộ lọc bảng Deals
+  // Bộ lọc bảng Deals: Chỉ lọc theo NV CS & Tìm kiếm
   const [completionFilter, setCompletionFilter] = useState<'all' | 'incomplete' | 'completed'>('all');
   const [onlyStudentFilter, setOnlyStudentFilter] = useState<boolean>(true);
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterStartDate, setFilterStartDate] = useState('');
-  const [filterEndDate, setFilterEndDate] = useState('');
-  const [filterProgram, setFilterProgram] = useState('');
-  const [filterClass, setFilterClass] = useState('');
-  const [filterStatus, setFilterStatus] = useState('');
   const [filterSale, setFilterSale] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 25;
@@ -208,7 +203,7 @@ export function AppScriptTool() {
   // Reset về trang 1 khi thay đổi bộ lọc
   useEffect(() => {
     setCurrentPage(1);
-  }, [completionFilter, onlyStudentFilter, searchQuery, filterStartDate, filterEndDate, filterProgram, filterClass, filterStatus, filterSale]);
+  }, [completionFilter, onlyStudentFilter, searchQuery, filterSale]);
 
   // Tự động tra cứu SĐT khi người dùng nhập đủ 10 chữ số ở chế độ tạo mới
   useEffect(() => {
@@ -504,17 +499,28 @@ export function AppScriptTool() {
   // Lọc danh sách Deals
   const filteredDeals = useMemo(() => {
     return deals.filter((d) => {
+      // 1. Lọc tag "Đã là học viên"
       if (onlyStudentFilter && d.isStudent === false) return false;
+
+      // 2. Lọc trạng thái điền thông tin
       const missingInfo = (d.daThu === 0 && d.phaiThu === 0) || (d.lop || []).length === 0 || !(d.nhomCS || '').trim();
       if (completionFilter === 'incomplete' && !missingInfo) return false;
       if (completionFilter === 'completed' && missingInfo) return false;
 
-      if (filterStartDate && d.ngayThu < filterStartDate) return false;
-      if (filterEndDate && d.ngayThu > filterEndDate) return false;
-      if (filterProgram && d.chuongTrinh !== filterProgram) return false;
-      if (filterClass && !(d.lop || []).includes(filterClass)) return false;
-      if (filterStatus && d.trangThai !== filterStatus) return false;
-      if (filterSale && d.nvCS !== filterSale) return false;
+      // 3. CHỈ LỌC THEO NHÂN VIÊN CHĂM SÓC
+      if (filterSale) {
+        if (filterSale === 'Chưa phân công') {
+          const raw = (d.nvCS || '').trim().toLowerCase();
+          if (raw && raw !== 'chưa phân công') return false;
+        } else {
+          const raw = (d.nvCS || '').toLowerCase();
+          const target = filterSale.toLowerCase();
+          const parts = raw.split(/[,;/]/).map((p) => p.trim());
+          if (!parts.includes(target) && !raw.includes(target)) return false;
+        }
+      }
+
+      // 4. Tìm kiếm từ khóa
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
         const matchName = (d.hoTen || '').toLowerCase().includes(q);
@@ -523,7 +529,8 @@ export function AppScriptTool() {
         const matchNote = (d.note || '').toLowerCase().includes(q);
         const matchJob = (d.chucVu || '').toLowerCase().includes(q);
         const matchClass = (d.lop || []).some((c) => c.toLowerCase().includes(q));
-        if (!matchName && !matchPhone && !matchEmail && !matchNote && !matchJob && !matchClass) return false;
+        const matchProgram = (d.chuongTrinh || '').toLowerCase().includes(q);
+        if (!matchName && !matchPhone && !matchEmail && !matchNote && !matchJob && !matchClass && !matchProgram) return false;
       }
       return true;
     });
@@ -531,11 +538,6 @@ export function AppScriptTool() {
     deals,
     onlyStudentFilter,
     completionFilter,
-    filterStartDate,
-    filterEndDate,
-    filterProgram,
-    filterClass,
-    filterStatus,
     filterSale,
     searchQuery,
   ]);
@@ -574,12 +576,32 @@ export function AppScriptTool() {
     };
   }, [filteredDeals]);
 
+  // Tách riêng từng Nhân viên chăm sóc (không để chuỗi ghép "Anh Trinh, Hồng Minh")
   const distinctSales = useMemo(() => {
     const s = new Set<string>();
+    let hasUnassigned = false;
     deals.forEach((d) => {
-      if (d.nvCS) s.add(d.nvCS);
+      const raw = (d.nvCS || '').trim();
+      if (!raw || raw.toLowerCase() === 'chưa phân công') {
+        hasUnassigned = true;
+        return;
+      }
+      // Tách chuỗi theo dấu phẩy, chấm phẩy hoặc gạch chéo
+      const parts = raw.split(/[,;/]/);
+      parts.forEach((p) => {
+        const clean = p.trim();
+        if (clean && clean.toLowerCase() !== 'chưa phân công') {
+          s.add(clean);
+        } else if (clean.toLowerCase() === 'chưa phân công') {
+          hasUnassigned = true;
+        }
+      });
     });
-    return Array.from(s).sort();
+    const sorted = Array.from(s).sort((a, b) => a.localeCompare(b, 'vi'));
+    if (hasUnassigned) {
+      sorted.push('Chưa phân công');
+    }
+    return sorted;
   }, [deals]);
 
   // Xuất CSV
@@ -840,9 +862,9 @@ export function AppScriptTool() {
               </label>
             </div>
 
-            {/* Bộ lọc chi tiết */}
+            {/* Bộ lọc: Chỉ lọc theo NV CS & Tìm kiếm */}
             <div className="flex flex-wrap items-center gap-2.5">
-              <div className="relative flex-1 min-w-[220px]">
+              <div className="relative flex-1 min-w-[240px]">
                 <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
@@ -853,70 +875,34 @@ export function AppScriptTool() {
                 />
               </div>
 
-              <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1">
-                <span className="text-[11px] text-slate-500 font-medium">Ngày:</span>
-                <input
-                  type="date"
-                  value={filterStartDate}
-                  onChange={(e) => setFilterStartDate(e.target.value)}
-                  className="bg-transparent text-xs font-mono text-navy focus:outline-none"
-                />
-                <span className="text-slate-300 text-xs">→</span>
-                <input
-                  type="date"
-                  value={filterEndDate}
-                  onChange={(e) => setFilterEndDate(e.target.value)}
-                  className="bg-transparent text-xs font-mono text-navy focus:outline-none"
-                />
+              <div className="flex items-center gap-1.5">
+                <select
+                  value={filterSale}
+                  onChange={(e) => setFilterSale(e.target.value)}
+                  className="px-3 py-1.5 text-xs font-medium border border-slate-300 rounded-lg bg-white text-navy focus:outline-none focus:ring-2 focus:ring-eztech/20 focus:border-eztech cursor-pointer min-w-[200px]"
+                >
+                  <option value="">Tất cả NV CS ({distinctSales.length} nhân viên)</option>
+                  {distinctSales.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+                {filterSale && (
+                  <button
+                    type="button"
+                    onClick={() => setFilterSale('')}
+                    className="p-1 text-slate-400 hover:text-slate-600 rounded cursor-pointer"
+                    title="Bỏ chọn lọc NV CS"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
               </div>
-
-              <select
-                value={filterProgram}
-                onChange={(e) => setFilterProgram(e.target.value)}
-                className="px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg bg-white text-navy"
-              >
-                <option value="">Tất cả Chương trình</option>
-                {lists.chuongTrinh.map((c) => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
-              </select>
-
-              <select
-                value={filterClass}
-                onChange={(e) => setFilterClass(e.target.value)}
-                className="px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg bg-white text-navy"
-              >
-                <option value="">Tất cả Lớp học</option>
-                {lists.lop.map((l) => (
-                  <option key={l} value={l}>{l}</option>
-                ))}
-              </select>
-
-              <select
-                value={filterStatus}
-                onChange={(e) => setFilterStatus(e.target.value)}
-                className="px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg bg-white text-navy"
-              >
-                <option value="">Tất cả Trạng thái</option>
-                {statuses.map((st) => (
-                  <option key={st} value={st}>{st}</option>
-                ))}
-              </select>
-
-              <select
-                value={filterSale}
-                onChange={(e) => setFilterSale(e.target.value)}
-                className="px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg bg-white text-navy"
-              >
-                <option value="">Tất cả NV CS</option>
-                {distinctSales.map((s) => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
-              </select>
 
               <button
                 onClick={exportDealsCsv}
-                className="px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:text-navy bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg flex items-center gap-1 transition-colors"
+                className="px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:text-navy bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg flex items-center gap-1 transition-colors cursor-pointer"
                 title="Xuất file Excel / CSV"
               >
                 <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
