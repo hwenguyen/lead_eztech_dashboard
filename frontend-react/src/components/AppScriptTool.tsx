@@ -96,6 +96,16 @@ export function AppScriptTool() {
   const [filterSale, setFilterSale] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 25;
+  const [copiedRowId, setCopiedRowId] = useState<string | null>(null);
+  const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(new Set());
+  const [copyToast, setCopyToast] = useState<string | null>(null);
+
+  const showToast = (msg: string) => {
+    setCopyToast(msg);
+    setTimeout(() => {
+      setCopyToast((prev) => (prev === msg ? null : prev));
+    }, 2500);
+  };
 
   // Modal Nhập / Sửa Deal
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -603,6 +613,109 @@ export function AppScriptTool() {
     return sorted;
   }, [deals]);
 
+  // Định dạng 1 dòng chuẩn Tab-Separated Values (TSV) để dán (Ctrl+V) thẳng vào Google Sheet
+  const sanitizeSheetCell = (val: unknown): string =>
+    String(val ?? '')
+      .replace(/[\t\r\n]+/g, ' ')
+      .trim();
+
+  const formatDealRowForSheet = (d: SalesDealRecord): string => {
+    const ngThu = d.ngayThu ? fmtDateVi(d.ngayThu) : '';
+    const ngContact = d.ngayContact ? fmtDateVi(d.ngayContact) : '';
+    const nganhNghe = [d.chucVu, d.linhVuc].filter(Boolean).join(' - ');
+    const ghiChu = [d.note, d.kyVong ? `Kỳ vọng: ${d.kyVong}` : ''].filter(Boolean).join(' | ');
+    const cols = [
+      ngThu === '—' ? '' : ngThu,
+      ngContact === '—' ? '' : ngContact,
+      d.sdt || '',
+      d.hoTen || '',
+      d.zalo || '',
+      d.nhomCS || '',
+      d.chuongTrinh || '',
+      (d.lop || []).join(', '),
+      nganhNghe,
+      d.nvCS || '',
+      d.zaloCS || '',
+      d.nguon || '',
+      d.daThu || 0,
+      d.phaiThu || 0,
+      d.conNo || 0,
+      d.trangThai || 'Chờ bổ sung',
+      ghiChu,
+    ];
+    return cols.map(sanitizeSheetCell).join('\t');
+  };
+
+  const handleCopySingleRow = async (d: SalesDealRecord) => {
+    const tsv = formatDealRowForSheet(d);
+    try {
+      await navigator.clipboard.writeText(tsv);
+      setCopiedRowId(d.id);
+      showToast(`Đã copy dòng "${d.hoTen}" (${d.sdt}) — Bấm Ctrl+V vào Google Sheet!`);
+      setTimeout(() => {
+        setCopiedRowId((prev) => (prev === d.id ? null : prev));
+      }, 2200);
+    } catch {
+      showToast('Không thể truy cập bộ nhớ tạm (Clipboard).');
+    }
+  };
+
+  const handleCopyMultipleRows = async (rowsToCopy: SalesDealRecord[], includeHeader: boolean = false) => {
+    if (rowsToCopy.length === 0) return;
+    const headerCols = [
+      'Ngày ĐK/Thu',
+      'Ngày Contact',
+      'Số điện thoại',
+      'Họ và tên',
+      'Link Pancake',
+      'Nhóm CS 1-1',
+      'Chương trình',
+      'Lớp học',
+      'Chức vụ / Ngành nghề',
+      'NV CS',
+      'Zalo CS',
+      'Nguồn',
+      'Thực thu',
+      'Phải thu',
+      'Còn nợ',
+      'Trạng thái',
+      'Ghi chú / Kỳ vọng',
+    ];
+    const lines = rowsToCopy.map(formatDealRowForSheet);
+    if (includeHeader) {
+      lines.unshift(headerCols.join('\t'));
+    }
+    try {
+      await navigator.clipboard.writeText(lines.join('\n'));
+      showToast(`Đã copy ${rowsToCopy.length} dòng — Bấm Ctrl+V vào Google Sheet!`);
+    } catch {
+      showToast('Không thể truy cập bộ nhớ tạm (Clipboard).');
+    }
+  };
+
+  const toggleSelectRow = (id: string) => {
+    setSelectedRowIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectCurrentPage = () => {
+    const pageIds = pagedDeals.map((d) => d.id);
+    const allSelected = pageIds.length > 0 && pageIds.every((id) => selectedRowIds.has(id));
+    setSelectedRowIds((prev) => {
+      const next = new Set(prev);
+      if (allSelected) {
+        pageIds.forEach((id) => next.delete(id));
+      } else {
+        pageIds.forEach((id) => next.add(id));
+      }
+      return next;
+    });
+  };
+
   // Xuất CSV
   const exportDealsCsv = () => {
     const headers = [
@@ -653,6 +766,11 @@ export function AppScriptTool() {
 
   return (
     <div className="space-y-4">
+      {copyToast && (
+        <div className="fixed bottom-5 right-5 z-50 px-4 py-2.5 bg-slate-900 text-white text-xs font-semibold rounded-lg shadow-lg border border-slate-700">
+          {copyToast}
+        </div>
+      )}
       {/* 1. Header & Sub-navigation */}
       <div className="bg-white rounded-xl border border-slate-200/80 shadow-card p-4 flex flex-wrap items-center justify-between gap-3">
         <div>
@@ -863,6 +981,38 @@ export function AppScriptTool() {
                 )}
               </div>
 
+              {selectedRowIds.size > 0 && (
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const selectedDeals = filteredDeals.filter((d) => selectedRowIds.has(d.id));
+                      handleCopyMultipleRows(selectedDeals, false);
+                    }}
+                    className="px-3 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors cursor-pointer"
+                    title="Copy các dòng đã tích chọn để dán (Ctrl+V) vào Google Sheet"
+                  >
+                    Copy {selectedRowIds.size} dòng đã chọn
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedRowIds(new Set())}
+                    className="px-2 py-1.5 text-xs text-slate-500 hover:text-slate-700 bg-slate-100 rounded-lg cursor-pointer"
+                  >
+                    Bỏ chọn
+                  </button>
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={() => handleCopyMultipleRows(pagedDeals, false)}
+                className="px-3 py-1.5 text-xs font-medium text-slate-700 hover:text-navy bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg transition-colors cursor-pointer"
+                title="Copy toàn bộ các dòng trên trang hiện tại để dán vào Google Sheet"
+              >
+                Copy trang ({pagedDeals.length} dòng)
+              </button>
+
               <button
                 onClick={exportDealsCsv}
                 className="px-3 py-1.5 text-xs font-medium text-slate-700 hover:text-navy bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg transition-colors cursor-pointer"
@@ -881,105 +1031,125 @@ export function AppScriptTool() {
             </div>
           </div>
 
-          {/* Bảng danh sách Deals */}
-          <div className="bg-white rounded-xl border border-slate-200/80 shadow-card overflow-hidden">
+          {/* Bảng danh sách Deals — Thiết kế dạng Spreadsheet phẳng, có kẻ ô rõ ràng & nút Copy từng dòng sang Google Sheet */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-card overflow-hidden">
             <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
+              <table className="w-full text-left border-collapse text-xs">
                 <thead>
-                  <tr className="bg-slate-50/90 border-b border-slate-200 text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                    <th className="py-3 px-3 whitespace-nowrap">Ngày ĐK / Thu</th>
-                    <th className="py-3 px-3 whitespace-nowrap">Thông tin Học viên (Deal Win)</th>
-                    <th className="py-3 px-3 whitespace-nowrap">Ngành nghề & Kỳ vọng</th>
-                    <th className="py-3 px-3 whitespace-nowrap">Chương trình & Lớp học</th>
-                    <th className="py-3 px-3 whitespace-nowrap">Nhóm 1-1 & Pancake</th>
-                    <th className="py-3 px-3 whitespace-nowrap text-right">Thực thu</th>
-                    <th className="py-3 px-3 whitespace-nowrap text-right">Phải thu</th>
-                    <th className="py-3 px-3 whitespace-nowrap text-right">Còn nợ</th>
-                    <th className="py-3 px-3 whitespace-nowrap">Trạng thái</th>
-                    <th className="py-3 px-3 whitespace-nowrap">NV CS / Nguồn</th>
+                  <tr className="bg-slate-100/90 border-b border-slate-200 text-[11px] font-bold uppercase tracking-wider text-slate-600 select-none">
+                    <th className="py-2.5 px-2.5 border-r border-slate-200/80 text-center w-9">
+                      <input
+                        type="checkbox"
+                        checked={pagedDeals.length > 0 && pagedDeals.every((d) => selectedRowIds.has(d.id))}
+                        onChange={toggleSelectCurrentPage}
+                        className="rounded border-slate-300 text-eztech focus:ring-eztech cursor-pointer"
+                        title="Chọn tất cả dòng trên trang này để Copy sang Google Sheet"
+                      />
+                    </th>
+                    <th className="py-2.5 px-2.5 border-r border-slate-200/80 whitespace-nowrap text-center">Copy</th>
+                    <th className="py-2.5 px-2.5 border-r border-slate-200/80 whitespace-nowrap">Ngày ĐK</th>
+                    <th className="py-2.5 px-2.5 border-r border-slate-200/80 whitespace-nowrap">Ngày Contact</th>
+                    <th className="py-2.5 px-2.5 border-r border-slate-200/80 whitespace-nowrap">Số điện thoại</th>
+                    <th className="py-2.5 px-2.5 border-r border-slate-200/80 whitespace-nowrap">Họ và tên</th>
+                    <th className="py-2.5 px-2.5 border-r border-slate-200/80 whitespace-nowrap">Link Pancake</th>
+                    <th className="py-2.5 px-2.5 border-r border-slate-200/80 whitespace-nowrap">Nhóm 1-1</th>
+                    <th className="py-2.5 px-2.5 border-r border-slate-200/80 whitespace-nowrap">Chương trình</th>
+                    <th className="py-2.5 px-2.5 border-r border-slate-200/80 whitespace-nowrap">Lớp học</th>
+                    <th className="py-2.5 px-2.5 border-r border-slate-200/80 whitespace-nowrap">Chức vụ / Ngành nghề</th>
+                    <th className="py-2.5 px-2.5 border-r border-slate-200/80 whitespace-nowrap">NV CS</th>
+                    <th className="py-2.5 px-2.5 border-r border-slate-200/80 whitespace-nowrap">Nguồn</th>
+                    <th className="py-2.5 px-2.5 border-r border-slate-200/80 whitespace-nowrap text-right">Thực thu</th>
+                    <th className="py-2.5 px-2.5 border-r border-slate-200/80 whitespace-nowrap text-right">Phải thu</th>
+                    <th className="py-2.5 px-2.5 border-r border-slate-200/80 whitespace-nowrap text-right">Còn nợ</th>
+                    <th className="py-2.5 px-2.5 border-r border-slate-200/80 whitespace-nowrap">Trạng thái</th>
+                    <th className="py-2.5 px-2.5 whitespace-nowrap">Ghi chú / Kỳ vọng</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100 text-xs">
+                <tbody className="divide-y divide-slate-200/70">
                   {loading ? (
                     <tr>
-                      <td colSpan={10} className="py-12 text-center text-slate-400">
+                      <td colSpan={18} className="py-12 text-center text-slate-400">
                         Đang đồng bộ và tải danh sách học viên từ bảng Deal Win...
                       </td>
                     </tr>
                   ) : pagedDeals.length === 0 ? (
                     <tr>
-                      <td colSpan={10} className="py-12 text-center text-slate-400">
+                      <td colSpan={18} className="py-12 text-center text-slate-400">
                         Không có học viên / deal nào khớp bộ lọc hiện tại.
                       </td>
                     </tr>
                   ) : (
                     pagedDeals.map((d) => {
                       const missingMoney = d.daThu === 0 && d.phaiThu === 0;
+                      const isCopied = copiedRowId === d.id;
+                      const isSelected = selectedRowIds.has(d.id);
+                      const nganhNghe = [d.chucVu, d.linhVuc].filter(Boolean).join(' - ');
+                      const ghiChuText = [d.note, d.kyVong ? `Kỳ vọng: ${d.kyVong}` : ''].filter(Boolean).join(' • ');
 
                       return (
                         <tr
                           key={d.id}
-                          className="hover:bg-slate-50/80 transition-colors"
+                          className={`transition-colors ${
+                            isCopied
+                              ? 'bg-emerald-50/90'
+                              : isSelected
+                              ? 'bg-blue-50/60'
+                              : 'even:bg-slate-50/40 hover:bg-blue-50/40'
+                          }`}
                         >
-                          {/* Ngày thu & Ngày contact */}
-                          <td className="py-2.5 px-3 whitespace-nowrap align-top">
-                            <div className="font-mono font-semibold text-navy">{fmtDateVi(d.ngayThu)}</div>
-                            {d.ngayContact && (
-                              <div className="text-[10px] text-slate-400 font-mono mt-0.5">
-                                Contact: {fmtDateVi(d.ngayContact)}
-                              </div>
-                            )}
-                            {d.dealWinId && (
-                              <span className="inline-block mt-1 px-1.5 py-0.2 text-[9px] font-mono bg-slate-100 text-slate-500 rounded">
-                                DW #{d.dealWinId}
-                              </span>
-                            )}
+                          {/* Cột tích chọn dòng */}
+                          <td className="py-2 px-2.5 border-r border-slate-200/70 text-center align-middle select-none">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => toggleSelectRow(d.id)}
+                              className="rounded border-slate-300 text-eztech focus:ring-eztech cursor-pointer"
+                            />
                           </td>
 
-                          {/* Thông tin Học viên từ bảng Deal Win */}
-                          <td className="py-2.5 px-3 align-top min-w-[210px]">
-                            <div className="font-semibold text-navy flex items-center gap-1.5">
-                              <span>{d.hoTen}</span>
-                              {d.namSinh && (
-                                <span className="text-[10px] font-mono text-slate-400">({d.namSinh})</span>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-1.5 mt-0.5">
-                              <span className="font-mono text-[11px] font-semibold text-eztech">{d.sdt}</span>
-                              {d.zalo && (
-                                <a
-                                  href={toSafeHref(d.zalo)}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="px-1.5 py-0.2 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded text-[10px] font-medium transition-colors"
-                                  title={`Mở hội thoại Pancake: ${d.zalo}`}
-                                >
-                                  Pancake ↗
-                                </a>
-                              )}
-                            </div>
-                            {d.email && (
-                              <div className="text-[10px] text-slate-400 mt-0.5 truncate max-w-[190px]" title={d.email}>
-                                {d.email}
-                              </div>
-                            )}
-                            {d.diaChi && (
-                              <div className="text-[10px] text-slate-400 mt-0.5 truncate max-w-[190px]">
-                                {d.diaChi}
-                              </div>
-                            )}
+                          {/* Cột nút Copy 1 dòng sang Google Sheet */}
+                          <td className="py-2 px-2 border-r border-slate-200/70 whitespace-nowrap text-center align-middle select-none">
+                            <button
+                              type="button"
+                              onClick={() => handleCopySingleRow(d)}
+                              className={`px-2 py-1 text-[11px] font-semibold rounded border transition-colors cursor-pointer ${
+                                isCopied
+                                  ? 'bg-emerald-600 text-white border-emerald-600'
+                                  : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-300'
+                              }`}
+                              title="Copy dòng này (định dạng Tab chuẩn Google Sheet) để bấm Ctrl+V dán thẳng vào Sheet"
+                            >
+                              {isCopied ? 'Đã copy ✓' : 'Copy dòng'}
+                            </button>
+                          </td>
 
-                            {/* Nút thao tác dưới tên học viên */}
-                            <div className="mt-1.5 flex items-center gap-1.5">
+                          {/* Ngày ĐK / Thu */}
+                          <td className="py-2 px-2.5 border-r border-slate-200/70 whitespace-nowrap align-middle font-mono font-medium text-navy">
+                            {fmtDateVi(d.ngayThu)}
+                          </td>
+
+                          {/* Ngày Contact */}
+                          <td className="py-2 px-2.5 border-r border-slate-200/70 whitespace-nowrap align-middle font-mono text-slate-600">
+                            {fmtDateVi(d.ngayContact)}
+                          </td>
+
+                          {/* Số điện thoại */}
+                          <td className="py-2 px-2.5 border-r border-slate-200/70 whitespace-nowrap align-middle font-mono font-semibold text-eztech">
+                            {d.sdt}
+                          </td>
+
+                          {/* Họ và tên + Nút Điền tiền & Lớp dưới tên */}
+                          <td className="py-2 px-2.5 border-r border-slate-200/70 whitespace-nowrap align-middle min-w-[170px]">
+                            <div className="font-semibold text-navy">{d.hoTen}</div>
+                            <div className="mt-1 flex items-center gap-1.5 select-none">
                               <button
                                 type="button"
                                 onClick={() => openEditModal(d)}
-                                className="px-2.5 py-1 text-[11px] font-semibold bg-eztech hover:bg-eztech-dark text-white rounded-md transition-colors cursor-pointer"
+                                className="px-2 py-0.5 text-[11px] font-semibold bg-eztech hover:bg-eztech-dark text-white rounded transition-colors cursor-pointer"
                                 title="Điền số tiền thu được, lớp học, link nhóm 1-1 và Lưu lên DB"
                               >
                                 {missingMoney ? 'Điền tiền & Lớp' : 'Sửa deal'}
                               </button>
-
                               {d.conNo > 0 && (
                                 <button
                                   type="button"
@@ -994,7 +1164,7 @@ export function AppScriptTool() {
                                       nvCS: d.nvCS,
                                     })
                                   }
-                                  className="px-2 py-1 text-[10px] font-semibold bg-amber-500 hover:bg-amber-600 text-white rounded-md cursor-pointer"
+                                  className="px-2 py-0.5 text-[10px] font-semibold bg-amber-500 hover:bg-amber-600 text-white rounded cursor-pointer"
                                   title="Nhập thu nợ"
                                 >
                                   Thu nợ
@@ -1003,162 +1173,126 @@ export function AppScriptTool() {
                             </div>
                           </td>
 
-                          {/* Chức vụ, Lĩnh vực, Kỳ vọng */}
-                          <td className="py-2.5 px-3 align-top max-w-[210px]">
-                            {(d.chucVu || d.linhVuc) ? (
-                              <div className="text-[11px] font-medium text-navy">
-                                {[d.chucVu, d.linhVuc].filter(Boolean).join(' • ')}
-                              </div>
-                            ) : (
-                              <span className="text-slate-300 text-[11px]">—</span>
-                            )}
-                            {d.kyVong && (
-                              <div
-                                className="text-[10px] text-slate-500 line-clamp-2 mt-1 bg-slate-50 p-1 rounded border border-slate-100"
-                                title={d.kyVong}
-                              >
-                                Kì vọng: {d.kyVong}
-                              </div>
-                            )}
-                            {d.note && (
-                              <div className="text-[10px] text-slate-600 font-medium mt-0.5" title={d.note}>
-                                Note: {d.note}
-                              </div>
-                            )}
-                          </td>
-
-                          {/* Chương trình & Lớp học */}
-                          <td className="py-2.5 px-3 align-top min-w-[160px]">
-                            <div className="font-semibold text-navy">
-                              {d.chuongTrinh || <span className="text-slate-300 font-normal">—</span>}
-                            </div>
-                            <div className="flex flex-wrap items-center gap-1 mt-1">
-                              {(d.lop || []).length > 0 ? (
-                                (d.lop || []).map((cl) => (
-                                  <span
-                                    key={cl}
-                                    className="px-1.5 py-0.5 text-[10px] font-mono font-semibold bg-slate-100 text-slate-700 rounded border border-slate-200"
-                                  >
-                                    {cl}
-                                  </span>
-                                ))
-                              ) : (
-                                <span className="text-slate-300 text-[10px]">Chưa có lớp</span>
-                              )}
-                            </div>
-                          </td>
-
-                          {/* Nhóm CS 1-1 & Nút Mở Pancake */}
-                          <td className="py-2.5 px-3 align-top min-w-[150px]">
-                            <div>
-                              {d.nhomCS ? (
-                                isUrl(d.nhomCS) ? (
-                                  <a
-                                    href={toSafeHref(d.nhomCS)}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="text-eztech hover:underline text-[11px] font-medium"
-                                  >
-                                    Nhóm 1-1 ↗
-                                  </a>
-                                ) : (
-                                  <div className="text-[11px] font-medium text-navy">{d.nhomCS}</div>
-                                )
-                              ) : (
-                                <span className="text-slate-300 text-[11px]">—</span>
-                              )}
-                            </div>
-
-                            <div className="mt-1.5 flex flex-col gap-1">
+                          {/* Link Pancake */}
+                          <td className="py-2 px-2.5 border-r border-slate-200/70 whitespace-nowrap align-middle max-w-[190px]">
+                            {d.zalo ? (
                               <div className="flex items-center gap-1.5">
-                                {d.zalo ? (
-                                  <a
-                                    href={toSafeHref(d.zalo)}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="px-2 py-0.5 text-[11px] font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded transition-colors"
-                                    title={`Mở trực tiếp hội thoại Pancake: ${d.zalo}`}
-                                  >
-                                    Mở Pancake ↗
-                                  </a>
-                                ) : (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleOpenPancake(d)}
-                                    className="px-2 py-0.5 text-[11px] font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded transition-colors cursor-pointer"
-                                    title={`Tra cứu hội thoại Pancake theo SĐT (${d.sdt})`}
-                                  >
-                                    Mở Pancake ↗
-                                  </button>
-                                )}
-                                {d.zaloCS && (
-                                  <span className="text-[10px] text-slate-400 truncate max-w-[85px]" title={d.zaloCS}>
-                                    • {d.zaloCS}
-                                  </span>
-                                )}
-                              </div>
-                              {d.zalo && (
                                 <a
                                   href={toSafeHref(d.zalo)}
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  className="text-[10px] font-mono text-slate-400 hover:text-eztech hover:underline truncate max-w-[180px]"
+                                  className="px-2 py-0.5 text-[11px] font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded transition-colors select-none shrink-0"
+                                  title={`Mở trực tiếp hội thoại Pancake: ${d.zalo}`}
+                                >
+                                  Mở Pancake ↗
+                                </a>
+                                <a
+                                  href={toSafeHref(d.zalo)}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-[11px] font-mono text-slate-500 hover:text-eztech hover:underline truncate max-w-[110px]"
                                   title={d.zalo}
                                 >
-                                  {d.zalo.replace(/^https?:\/\//i, '')}
+                                  {d.zalo}
                                 </a>
-                              )}
-                            </div>
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenPancake(d)}
+                                className="px-2 py-0.5 text-[11px] font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded transition-colors cursor-pointer select-none"
+                                title={`Tra cứu hội thoại Pancake theo SĐT (${d.sdt})`}
+                              >
+                                Mở Pancake ↗
+                              </button>
+                            )}
+                          </td>
+
+                          {/* Nhóm 1-1 */}
+                          <td className="py-2 px-2.5 border-r border-slate-200/70 whitespace-nowrap align-middle max-w-[150px] truncate">
+                            {d.nhomCS ? (
+                              isUrl(d.nhomCS) ? (
+                                <a
+                                  href={toSafeHref(d.nhomCS)}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-eztech hover:underline font-medium"
+                                  title={d.nhomCS}
+                                >
+                                  {d.nhomCS}
+                                </a>
+                              ) : (
+                                <span className="text-navy font-medium">{d.nhomCS}</span>
+                              )
+                            ) : (
+                              <span className="text-slate-300">—</span>
+                            )}
+                          </td>
+
+                          {/* Chương trình */}
+                          <td className="py-2 px-2.5 border-r border-slate-200/70 whitespace-nowrap align-middle font-medium text-navy">
+                            {d.chuongTrinh || <span className="text-slate-300 font-normal">—</span>}
+                          </td>
+
+                          {/* Lớp học */}
+                          <td className="py-2 px-2.5 border-r border-slate-200/70 whitespace-nowrap align-middle font-mono font-semibold text-slate-700">
+                            {(d.lop || []).length > 0 ? (
+                              (d.lop || []).join(', ')
+                            ) : (
+                              <span className="text-slate-300 font-sans font-normal">—</span>
+                            )}
+                          </td>
+
+                          {/* Chức vụ / Ngành nghề */}
+                          <td
+                            className="py-2 px-2.5 border-r border-slate-200/70 align-middle max-w-[200px] truncate text-slate-700"
+                            title={nganhNghe}
+                          >
+                            {nganhNghe || <span className="text-slate-300">—</span>}
+                          </td>
+
+                          {/* NV CS */}
+                          <td className="py-2 px-2.5 border-r border-slate-200/70 whitespace-nowrap align-middle font-semibold text-navy">
+                            {d.nvCS || '—'}
+                          </td>
+
+                          {/* Nguồn */}
+                          <td
+                            className="py-2 px-2.5 border-r border-slate-200/70 whitespace-nowrap align-middle max-w-[150px] truncate text-slate-500"
+                            title={d.nguon}
+                          >
+                            {d.nguon || '—'}
                           </td>
 
                           {/* Thực thu */}
-                          <td className="py-2.5 px-3 whitespace-nowrap text-right align-top font-mono">
+                          <td className="py-2 px-2.5 border-r border-slate-200/70 whitespace-nowrap text-right align-middle font-mono">
                             {d.daThu > 0 ? (
-                              <>
-                                <div className="font-bold text-emerald-600">{fmtMoney(d.daThu)}</div>
-                                {d.thuNo > 0 && (
-                                  <div className="text-[10px] text-eztech font-medium">
-                                    (Thu nợ: {fmtMoney(d.thuNo)})
-                                  </div>
-                                )}
-                              </>
+                              <span className="font-bold text-emerald-600">{fmtMoney(d.daThu)}</span>
                             ) : (
-                              <span className="text-slate-300 font-semibold">0</span>
+                              <span className="text-slate-300">0</span>
                             )}
                           </td>
 
                           {/* Phải thu */}
-                          <td className="py-2.5 px-3 whitespace-nowrap text-right align-top font-mono">
-                            <div className={d.phaiThu > 0 ? 'font-semibold text-slate-700' : 'text-slate-300'}>
+                          <td className="py-2 px-2.5 border-r border-slate-200/70 whitespace-nowrap text-right align-middle font-mono">
+                            <span className={d.phaiThu > 0 ? 'font-semibold text-slate-700' : 'text-slate-300'}>
                               {fmtMoney(d.phaiThu)}
-                            </div>
-                            {d.daThuNo > 0 && (
-                              <div className="text-[10px] text-emerald-600">
-                                Đã thu nợ: {fmtMoney(d.daThuNo)}
-                              </div>
-                            )}
+                            </span>
                           </td>
 
                           {/* Còn nợ */}
-                          <td className="py-2.5 px-3 whitespace-nowrap text-right align-top font-mono">
+                          <td className="py-2 px-2.5 border-r border-slate-200/70 whitespace-nowrap text-right align-middle font-mono">
                             {d.conNo > 0 ? (
-                              <span className="font-bold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
-                                {fmtMoney(d.conNo)}
-                              </span>
+                              <span className="font-bold text-amber-600">{fmtMoney(d.conNo)}</span>
                             ) : (
                               <span className="text-slate-300">0</span>
-                            )}
-                            {d.ngayThuAR && (
-                              <div className="text-[10px] text-slate-400 mt-0.5">
-                                AR: {fmtDateVi(d.ngayThuAR)}
-                              </div>
                             )}
                           </td>
 
                           {/* Trạng thái */}
-                          <td className="py-2.5 px-3 whitespace-nowrap align-top">
+                          <td className="py-2 px-2.5 border-r border-slate-200/70 whitespace-nowrap align-middle">
                             <span
-                              className={`inline-block px-2 py-0.5 text-[11px] font-semibold rounded-full border ${getStatusBadgeStyle(
+                              className={`inline-block px-2 py-0.5 text-[11px] font-semibold rounded border ${getStatusBadgeStyle(
                                 d.trangThai
                               )}`}
                             >
@@ -1166,12 +1300,12 @@ export function AppScriptTool() {
                             </span>
                           </td>
 
-                          {/* NV CS & Nguồn */}
-                          <td className="py-2.5 px-3 align-top">
-                            <div className="font-semibold text-navy">{d.nvCS || '—'}</div>
-                            <div className="text-[10px] text-slate-400 truncate max-w-[140px]" title={d.nguon}>
-                              {d.nguon || '—'}
-                            </div>
+                          {/* Ghi chú / Kỳ vọng */}
+                          <td
+                            className="py-2 px-2.5 align-middle max-w-[240px] truncate text-slate-600"
+                            title={ghiChuText}
+                          >
+                            {ghiChuText || <span className="text-slate-300">—</span>}
                           </td>
                         </tr>
                       );
