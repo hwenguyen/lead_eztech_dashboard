@@ -5,7 +5,6 @@ import {
   Search,
   RefreshCw,
   Edit3,
-  Trash2,
   DollarSign,
   AlertTriangle,
   CheckCircle2,
@@ -33,7 +32,6 @@ import {
   lookupDealPhone,
   saveSalesDeal,
   updateSalesDealClasses,
-  deleteSalesDeal,
   saveDealEntryLists,
   fetchDealEntryLogs,
   getStoredAuth,
@@ -428,21 +426,6 @@ export function AppScriptTool() {
       alert(err?.response?.data?.detail || 'Có lỗi xảy ra khi lưu deal');
     } finally {
       setSaving(false);
-    }
-  };
-
-  const handleDeleteDeal = async (d: SalesDealRecord) => {
-    if (!window.confirm(`Bạn có chắc chắn muốn xoá deal của "${d.hoTen}" (${d.sdt}) ngày ${fmtDateVi(d.ngayThu)} không?`)) {
-      return;
-    }
-    try {
-      const res = await deleteSalesDeal(d.id, actorName);
-      if (res.ok) {
-        setDeals(res.deals || []);
-        setDebts(res.debts);
-      }
-    } catch (err: any) {
-      alert(err?.response?.data?.detail || 'Không thể xoá deal');
     }
   };
 
@@ -945,21 +928,18 @@ export function AppScriptTool() {
                     <th className="py-3 px-3 whitespace-nowrap text-right">Còn nợ</th>
                     <th className="py-3 px-3 whitespace-nowrap">Trạng thái</th>
                     <th className="py-3 px-3 whitespace-nowrap">NV CS / Nguồn</th>
-                    <th className="py-3 px-3 whitespace-nowrap text-right sticky right-0 bg-slate-100/95 shadow-[-8px_0_12px_-2px_rgba(0,0,0,0.08)] z-10">
-                      Thao tác
-                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-xs">
                   {loading ? (
                     <tr>
-                      <td colSpan={11} className="py-12 text-center text-slate-400">
+                      <td colSpan={10} className="py-12 text-center text-slate-400">
                         Đang đồng bộ và tải danh sách học viên từ bảng Deal Win...
                       </td>
                     </tr>
                   ) : pagedDeals.length === 0 ? (
                     <tr>
-                      <td colSpan={11} className="py-12 text-center text-slate-400">
+                      <td colSpan={10} className="py-12 text-center text-slate-400">
                         Không có học viên / deal nào khớp bộ lọc hiện tại.
                       </td>
                     </tr>
@@ -1188,20 +1168,6 @@ export function AppScriptTool() {
                             <div className="font-semibold text-navy">{d.nvCS || '—'}</div>
                             <div className="text-[10px] text-slate-400 truncate max-w-[140px]" title={d.nguon}>
                               {d.nguon || '—'}
-                            </div>
-                          </td>
-
-                          {/* Cột thao tác CỐ ĐỊNH Ở MÉP PHẢI (STICKY RIGHT) */}
-                          <td className="py-2.5 px-3 whitespace-nowrap text-right align-top sticky right-0 bg-white group-hover:bg-slate-50 shadow-[-8px_0_12px_-2px_rgba(0,0,0,0.08)] z-10">
-                            <div className="flex items-center justify-end gap-1">
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteDeal(d)}
-                                className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-colors cursor-pointer"
-                                title="Xoá dòng này"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
                             </div>
                           </td>
                         </tr>
