@@ -95,6 +95,7 @@ class DealWinItem(BaseModel):
     job_title: Optional[str] = None
     expectation: Optional[str] = None
     care_by: Optional[str] = None
+    page_id: Optional[str] = None
     is_student: Optional[bool] = False
     lead_tag: Optional[str] = None
     dim_lead_id: Optional[int] = None
@@ -126,6 +127,7 @@ class DealWinSummary(BaseModel):
 
 class DealWinOptions(BaseModel):
     sales_persons: List[str] = []
+    pages: List[str] = []
 
 class DealWinListResponse(BaseModel):
     total: int

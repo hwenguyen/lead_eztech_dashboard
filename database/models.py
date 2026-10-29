@@ -156,6 +156,7 @@ class DealWin(Base):
     job_title = Column(String, nullable=True)                            # Vị trí/ Ngành nghề
     expectation = Column(Text, nullable=True)                            # Mục đích/ Kì vọng tham gia khoá học
     care_by = Column(String, index=True, nullable=True)                  # CHĂM SÓC (Nhân viên sale phụ trách: Hiền Minh...)
+    page_id = Column(String, index=True, nullable=True)                  # Fanpage của học viên (lấy page nhiều tin nhắn nhất trong các hội thoại có tag Học viên)
     dim_lead_id = Column(Integer, nullable=True, index=True)             # ID của lead tương ứng trong dim_leads
     is_student = Column(Boolean, default=False, index=True)              # True nếu có tag "Đã là học viên" trên Pancake
     lead_tag = Column(String, nullable=True)                              # Tag lấy từ Pancake (vd: "Đã là học viên, Khách VIP")

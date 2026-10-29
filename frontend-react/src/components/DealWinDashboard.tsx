@@ -48,11 +48,12 @@ export function DealWinDashboard() {
   // Filters
   const [onlyStudent, setOnlyStudent] = useState<boolean>(true);
   const [selectedSale, setSelectedSale] = useState('');
+  const [selectedPage, setSelectedPage] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [activeSearch, setActiveSearch] = useState('');
 
   // Dropdown options
-  const [options, setOptions] = useState<DealWinOptions>({ sales_persons: [] });
+  const [options, setOptions] = useState<DealWinOptions>({ sales_persons: [], pages: [] });
 
   // Distinct single sales persons list (tách tên đơn lẻ, không để các cụm ghép phẩy)
   const salesPersonsList = React.useMemo(() => {
@@ -89,12 +90,12 @@ export function DealWinDashboard() {
   const [detailModal, setDetailModal] = useState<DealWinItem | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
 
-  // Load dropdown options once on mount
+  // Load dropdown options when onlyStudent changes
   useEffect(() => {
-    fetchDealWinOptions()
+    fetchDealWinOptions(onlyStudent)
       .then(res => setOptions(res))
       .catch(err => console.error('Error fetching deal options:', err));
-  }, []);
+  }, [onlyStudent]);
 
   // Quick date presets
   const handleDatePreset = (preset: '7d' | '30d' | 'month' | 'all') => {
@@ -123,7 +124,8 @@ export function DealWinDashboard() {
         startDate,
         endDate,
         selectedSale || undefined,
-        onlyStudent
+        onlyStudent,
+        selectedPage || undefined
       );
       setSummary(res);
       setLastUpdated(new Date());
@@ -145,7 +147,8 @@ export function DealWinDashboard() {
         endDate,
         selectedSale || undefined,
         activeSearch || undefined,
-        onlyStudent
+        onlyStudent,
+        selectedPage || undefined
       );
       setDeals(res.data);
       setTotalDeals(res.total);
@@ -162,13 +165,16 @@ export function DealWinDashboard() {
   useEffect(() => {
     loadSummaryData();
     loadListData(1);
-  }, [startDate, endDate, selectedSale, activeSearch, onlyStudent]);
+  }, [startDate, endDate, selectedSale, selectedPage, activeSearch, onlyStudent]);
 
   const handleSyncPancake = async () => {
     setSyncingPancake(true);
     try {
       const res = await syncDealsWithLeads();
       alert(res.message);
+      fetchDealWinOptions(onlyStudent)
+        .then(opt => setOptions(opt))
+        .catch(() => {});
       loadSummaryData();
       loadListData(page);
     } catch (err) {
@@ -313,6 +319,21 @@ export function DealWinDashboard() {
               <option value="">Tất cả Sale ({salesPersonsList.length})</option>
               {salesPersonsList.map(sp => (
                 <option key={sp} value={sp}>{sp}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Page Filter */}
+          <div className="flex flex-col gap-1 min-w-[190px]">
+            <label className="text-xs font-medium text-[#4B5563]">Fanpage / Kênh</label>
+            <select
+              value={selectedPage}
+              onChange={e => setSelectedPage(e.target.value)}
+              className="px-3 py-2 border border-[#E5E7EB] rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#1E5BD6]/20 focus:border-[#1E5BD6] transition-all text-[#111827] cursor-pointer font-medium"
+            >
+              <option value="">Tất cả Page ({(options.pages || []).length})</option>
+              {(options.pages || []).map(pg => (
+                <option key={pg} value={pg}>{pg}</option>
               ))}
             </select>
           </div>
@@ -603,6 +624,7 @@ export function DealWinDashboard() {
                 <th className="px-5 py-3 font-semibold">Thời gian</th>
                 <th className="px-5 py-3 font-semibold">Học Viên</th>
                 <th className="px-5 py-3 font-semibold">SĐT / Email</th>
+                <th className="px-5 py-3 font-semibold">Page</th>
                 <th className="px-5 py-3 font-semibold">Sale Chăm Sóc</th>
                 <th className="px-5 py-3 font-semibold text-right">Chi Tiết</th>
               </tr>
@@ -610,7 +632,7 @@ export function DealWinDashboard() {
             <tbody className="divide-y divide-[#E5E7EB]">
               {loadingList ? (
                 <tr>
-                  <td colSpan={5} className="px-6 py-12 text-center text-xs text-gray-500">
+                  <td colSpan={6} className="px-6 py-12 text-center text-xs text-gray-500">
                     <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2 text-[#1E5BD6]" />
                     Đang tải danh sách học viên...
                   </td>
@@ -673,6 +695,17 @@ export function DealWinDashboard() {
                         )}
                       </td>
 
+                      {/* Page */}
+                      <td className="px-5 py-3.5 whitespace-nowrap text-xs">
+                        {deal.page_id ? (
+                          <span className="font-medium text-blue-700 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-100">
+                            {deal.page_id}
+                          </span>
+                        ) : (
+                          <span className="text-gray-400">—</span>
+                        )}
+                      </td>
+
                       {/* Care by Sale */}
                       <td className="px-5 py-3.5 whitespace-nowrap text-xs">
                         <span className="font-semibold text-navy bg-slate-100/90 px-2 py-0.5 rounded-md border border-slate-200">
@@ -695,7 +728,7 @@ export function DealWinDashboard() {
                 })
               ) : (
                 <tr>
-                  <td colSpan={5} className="px-6 py-12 text-center text-xs text-gray-500">
+                  <td colSpan={6} className="px-6 py-12 text-center text-xs text-gray-500">
                     Không tìm thấy học viên nào phù hợp với bộ lọc hiện tại.
                   </td>
                 </tr>
@@ -808,6 +841,10 @@ export function DealWinDashboard() {
                     <span className="font-semibold text-navy">{detailModal.care_by || 'Chưa phân công'}</span>
                   </div>
                   <div>
+                    <span className="text-xs text-gray-500 block">Fanpage / Kênh:</span>
+                    <span className="font-semibold text-blue-700">{detailModal.page_id || '—'}</span>
+                  </div>
+                  <div className="sm:col-span-2">
                     <span className="text-xs text-gray-500 block">Trạng thái gắn tag Pancake:</span>
                     <div className="flex items-center gap-2 mt-0.5">
                       {detailModal.is_student ? (

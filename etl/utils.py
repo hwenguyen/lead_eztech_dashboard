@@ -40,6 +40,31 @@ def parse_pancake_date(date_val: Any) -> Optional[datetime]:
     except Exception:
         return None
 
+def parse_deal_date(date_val: Any) -> Optional[datetime]:
+    """Parse thời gian từ Google Sheet / Google Form (Deal Win).
+    Dữ liệu từ Google Sheet/Form đã ở múi giờ Việt Nam (UTC+7), không ngầm định UTC và không cộng thêm 7 tiếng.
+    """
+    if not date_val:
+        return None
+    try:
+        if isinstance(date_val, datetime):
+            if date_val.tzinfo is not None:
+                return date_val.astimezone(VN_TZ).replace(tzinfo=None)
+            return date_val
+        val_str = str(date_val).strip()
+        if not val_str:
+            return None
+        if len(val_str) == 19 and val_str[4] == '-' and val_str[7] == '-':
+            return datetime.strptime(val_str, '%Y-%m-%d %H:%M:%S')
+        if '/' in val_str:
+            dt = parse(val_str, dayfirst=True)
+        else:
+            dt = parse(val_str, dayfirst=False)
+        if dt.tzinfo is not None:
+            return dt.astimezone(VN_TZ).replace(tzinfo=None)
+        return dt
+    except Exception:
+        return None
 
 def extract_phone_number(text: str) -> Optional[str]:
     """Tìm SĐT di động VN trong text, trả về dạng chuẩn 0xxxxxxxxx."""

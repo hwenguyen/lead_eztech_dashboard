@@ -203,6 +203,7 @@ export interface DealWinItem {
   job_title?: string;
   expectation?: string;
   care_by?: string;
+  page_id?: string;
   is_student?: boolean;
   lead_tag?: string;
   dim_lead_id?: number;
@@ -227,18 +228,21 @@ export interface DealWinListResponse {
 
 export interface DealWinOptions {
   sales_persons: string[];
+  pages?: string[];
 }
 
 export const fetchDealWinSummary = async (
   startDate?: string,
   endDate?: string,
   salesPerson?: string,
-  onlyStudent: boolean = true
+  onlyStudent: boolean = true,
+  pageId?: string
 ): Promise<DealWinSummary> => {
   const params: any = { only_student: onlyStudent };
   if (startDate) params.start_date = startDate;
   if (endDate) params.end_date = endDate;
   if (salesPerson) params.sales_person = salesPerson;
+  if (pageId) params.page_id = pageId;
   const res = await apiClient.get<DealWinSummary>('/deals/summary', { params });
   return res.data;
 };
@@ -250,12 +254,14 @@ export const fetchDealWinList = async (
   endDate?: string,
   salesPerson?: string,
   search?: string,
-  onlyStudent: boolean = true
+  onlyStudent: boolean = true,
+  pageId?: string
 ): Promise<DealWinListResponse> => {
   const params: any = { page, size, only_student: onlyStudent };
   if (startDate) params.start_date = startDate;
   if (endDate) params.end_date = endDate;
   if (salesPerson) params.sales_person = salesPerson;
+  if (pageId) params.page_id = pageId;
   if (search) params.search = search;
   const res = await apiClient.get<DealWinListResponse>('/deals/list', { params });
   return res.data;

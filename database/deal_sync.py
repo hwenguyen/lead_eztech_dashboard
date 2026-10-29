@@ -1,11 +1,11 @@
 """Module đồng bộ và map thông tin giữa DealWin (Google Sheet) và DimLead / FactLeadActivity (Pancake)."""
 import re
 from datetime import datetime, timedelta
-from typing import Optional, Tuple, Iterable, Set
+from typing import Optional, Tuple, Iterable, Set, List, Dict, Any
 from sqlalchemy import or_
 from sqlalchemy.orm import Session, defer
 from database.models import DealWin, DimLead, FactLeadActivity
-from etl.utils import VN_TZ
+from etl.utils import VN_TZ, resolve_canonical_page_name
 
 def normalize_sale_name(raw: Optional[str]) -> Optional[str]:
     """
@@ -89,58 +89,94 @@ def normalize_sale_name(raw: Optional[str]) -> Optional[str]:
     return ', '.join(res) if res else None
 
 
-def find_lead_info_by_phone(phone: Optional[str], db: Session) -> Tuple[Optional[int], bool, Optional[str], Optional[str]]:
+def _resolve_lead_items(items: List[Dict[str, Any]]) -> Tuple[Optional[int], bool, Optional[str], Optional[str], Optional[str]]:
+    """
+    Tổng hợp danh sách hội thoại của 1 SĐT:
+    - Trả về: (dim_lead_id, is_student, care_by, lead_tag, page_id)
+    - Chỉ xét trong các hội thoại có gắn tag 'học viên' (nếu có); nếu nhiều page cùng có tag này,
+      chọn page có tổng số tin nhắn (message_count) nhiều nhất.
+    """
+    if not items:
+        return None, False, None, None, None
+
+    all_tags = []
+    for it in items:
+        for t in (it.get('status_tag') or '').split(','):
+            t_clean = t.strip()
+            if t_clean and t_clean not in all_tags:
+                all_tags.append(t_clean)
+    combined_tags = ", ".join(all_tags)[:255] if all_tags else None
+
+    hv_items = [it for it in items if 'học viên' in (it.get('status_tag') or '').lower()]
+    is_student = len(hv_items) > 0
+    pool = hv_items if is_student else items
+
+    # Tính tổng message_count theo từng page chuẩn hóa trong pool để chọn page nhiều tin nhắn nhất
+    page_scores: Dict[str, Tuple[int, int]] = {}
+    for it in pool:
+        pg = it.get('page_id') or ''
+        msg_cnt = int(it.get('message_count') or 0)
+        prev_sum, prev_max = page_scores.get(pg, (0, -1))
+        page_scores[pg] = (prev_sum + msg_cnt, max(prev_max, msg_cnt))
+
+    best_page = max(page_scores.keys(), key=lambda p: (page_scores[p][0], page_scores[p][1], bool(p))) if page_scores else None
+    best_items = sorted(
+        [it for it in pool if (it.get('page_id') or '') == (best_page or '')],
+        key=lambda x: int(x.get('message_count') or 0),
+        reverse=True
+    ) or pool
+
+    best_lead_id = best_items[0]['lead_id']
+
+    # Lấy nhân viên chăm sóc từ page thắng cuộc trước (tránh lẫn NV từ kênh gửi tin tự động ít tin nhắn), fallback sang toàn bộ pool
+    care_candidates = [it['assigned'] for it in best_items if it.get('assigned')] or [it['assigned'] for it in pool if it.get('assigned')]
+    names = []
+    for u in care_candidates:
+        for n in u.split(','):
+            n_clean = n.strip()
+            if n_clean and n_clean not in names:
+                names.append(n_clean)
+    assigned_user = ", ".join(names) if names else None
+
+    return best_lead_id, is_student, assigned_user, combined_tags, (best_page or None)
+
+
+def find_lead_info_by_phone(phone: Optional[str], db: Session) -> Tuple[Optional[int], bool, Optional[str], Optional[str], Optional[str]]:
     """
     Tìm thông tin DimLead và FactLeadActivity theo SĐT.
-    Trả về: (dim_lead_id, is_student, care_by, lead_tag)
-    - is_student: True nếu có tag chứa 'học viên' (vd: 'Đã là học viên')
-    - care_by: Tên nhân viên phụ trách từ hội thoại có tag 'học viên'
+    Trả về: (dim_lead_id, is_student, care_by, lead_tag, page_id)
     """
     if not phone or not str(phone).strip():
-        return None, False, None, None
+        return None, False, None, None, None
 
     clean_phone = str(phone).strip()
-    lead_rows = db.query(DimLead.id).filter(DimLead.phone_number == clean_phone).all()
-    if not lead_rows:
-        return None, False, None, None
-
-    lead_ids = [r[0] for r in lead_rows]
-    activities = db.query(
+    rows = db.query(
+        DimLead.id,
+        DimLead.page_id,
         FactLeadActivity.status_tag,
-        FactLeadActivity.assigned_users
-    ).filter(FactLeadActivity.lead_id.in_(lead_ids)).all()
-    all_tags = []
-    hv_users = []
-    other_users = []
+        FactLeadActivity.assigned_users,
+        FactLeadActivity.message_count
+    ).join(
+        FactLeadActivity, FactLeadActivity.lead_id == DimLead.id
+    ).filter(
+        DimLead.phone_number == clean_phone,
+        ~FactLeadActivity.conversation_id.like("pzl_g_%")
+    ).all()
 
-    for status_tag, assigned_users in activities:
-        tag_str = (status_tag or '').strip()
-        user_str = (assigned_users or '').strip()
-        if tag_str:
-            all_tags.append(tag_str)
-        if user_str:
-            if 'học viên' in tag_str.lower():
-                for n in user_str.split(','):
-                    n_clean = n.strip()
-                    if n_clean and n_clean not in hv_users:
-                        hv_users.append(n_clean)
-            else:
-                for n in user_str.split(','):
-                    n_clean = n.strip()
-                    if n_clean and n_clean not in other_users:
-                        other_users.append(n_clean)
+    if not rows:
+        return None, False, None, None, None
 
-    combined_tags = ", ".join(all_tags)
-    is_student = bool(combined_tags and "học viên" in combined_tags.lower())
-
-    if is_student and hv_users:
-        assigned_user = ", ".join(hv_users)
-    elif other_users:
-        assigned_user = ", ".join(other_users)
-    else:
-        assigned_user = None
-
-    return lead_ids[0], is_student, assigned_user, combined_tags[:255] if combined_tags else None
+    items = [
+        {
+            'lead_id': lid,
+            'page_id': resolve_canonical_page_name(pg, fallback=pg) if pg else '',
+            'status_tag': (status_tag or '').strip(),
+            'assigned': (assigned_users or '').strip(),
+            'message_count': int(msg_cnt or 0),
+        }
+        for lid, pg, status_tag, assigned_users, msg_cnt in rows
+    ]
+    return _resolve_lead_items(items)
 
 
 def sync_all_deals_with_dim_leads(
@@ -153,7 +189,7 @@ def sync_all_deals_with_dim_leads(
     - Nếu target_phones được cung cấp (từ các lead có tương tác trong lượt chạy ETL hiện tại):
       chỉ truy vấn các deal khớp với những SĐT này -> tiết kiệm >99% băng thông Neon.
     - Nếu full_scan=False (mặc định cho các lượt chạy tự động):
-      chỉ quét các deal chưa được map (dim_lead_id IS NULL) hoặc mới cập nhật trong 48h gần nhất.
+      chỉ quét các deal chưa được map (dim_lead_id IS NULL hoặc page_id IS NULL) hoặc mới cập nhật trong 48h gần nhất.
     - Nếu full_scan=True: quét toàn bộ 1.500+ deal (dùng khi bấm nút thủ công trên Dashboard).
     - Dùng defer(DealWin.raw_data) để không tải JSON raw_data qua mạng.
     Trả về: (total_processed, student_count, care_by_updated)
@@ -171,6 +207,7 @@ def sync_all_deals_with_dim_leads(
         query = query.filter(
             or_(
                 DealWin.dim_lead_id.is_(None),
+                DealWin.page_id.is_(None),
                 DealWin.updated_at >= cutoff
             )
         )
@@ -187,18 +224,28 @@ def sync_all_deals_with_dim_leads(
         for i in range(0, len(deal_phones), 500):
             chunk = deal_phones[i:i + 500]
             leads = db.query(
-                DimLead.id, DimLead.phone_number, FactLeadActivity.status_tag, FactLeadActivity.assigned_users
+                DimLead.id,
+                DimLead.phone_number,
+                DimLead.page_id,
+                FactLeadActivity.status_tag,
+                FactLeadActivity.assigned_users,
+                FactLeadActivity.message_count
             ).join(
                 FactLeadActivity, FactLeadActivity.lead_id == DimLead.id
-            ).filter(DimLead.phone_number.in_(chunk)).all()
+            ).filter(
+                DimLead.phone_number.in_(chunk),
+                ~FactLeadActivity.conversation_id.like("pzl_g_%")
+            ).all()
 
-            for lid, phone, status_tag, assigned in leads:
+            for lid, phone, pg, status_tag, assigned, msg_cnt in leads:
                 if phone not in lead_map:
                     lead_map[phone] = []
                 lead_map[phone].append({
                     'lead_id': lid,
+                    'page_id': resolve_canonical_page_name(pg, fallback=pg) if pg else '',
                     'status_tag': status_tag or '',
-                    'assigned': (assigned or '').strip()
+                    'assigned': (assigned or '').strip(),
+                    'message_count': int(msg_cnt or 0),
                 })
 
     student_count = 0
@@ -209,42 +256,24 @@ def sync_all_deals_with_dim_leads(
         phone = d.phone_number
         items = lead_map.get(phone)
         if items:
-            new_lead_id = items[0]['lead_id']
+            new_lead_id, new_is_student, new_care, new_tag, new_page_id = _resolve_lead_items(items)
             if d.dim_lead_id != new_lead_id:
                 d.dim_lead_id = new_lead_id
                 has_changes = True
 
-            all_tags = ', '.join(it['status_tag'] for it in items if it['status_tag'])
-            new_tag = all_tags[:255] if all_tags else None
+            if d.page_id != new_page_id:
+                d.page_id = new_page_id
+                has_changes = True
+
             if d.lead_tag != new_tag:
                 d.lead_tag = new_tag
                 has_changes = True
-            
-            # Chỉ tính là học viên nếu hội thoại có tag chứa 'học viên'
-            hv_items = [it for it in items if 'học viên' in (it['status_tag'] or '').lower()]
-            new_is_student = len(hv_items) > 0
+
             if new_is_student:
                 student_count += 1
             if d.is_student != new_is_student:
                 d.is_student = new_is_student
                 has_changes = True
-
-            # Gán nhân viên chăm sóc: Ưu tiên CHÍNH XÁC từ hội thoại có tag 'học viên'
-            new_care = None
-            if new_is_student:
-                hv_assigned = [it['assigned'] for it in hv_items if it.get('assigned')]
-                if hv_assigned:
-                    names = []
-                    for u in hv_assigned:
-                        for n in u.split(','):
-                            n_clean = n.strip()
-                            if n_clean and n_clean not in names:
-                                names.append(n_clean)
-                    new_care = ', '.join(names) if names else hv_assigned[0]
-            else:
-                other_assigned = [it['assigned'] for it in items if it.get('assigned')]
-                if other_assigned:
-                    new_care = other_assigned[0]
 
             if new_care:
                 norm_care = normalize_sale_name(new_care)
@@ -261,6 +290,9 @@ def sync_all_deals_with_dim_leads(
         else:
             if d.is_student:
                 d.is_student = False
+                has_changes = True
+            if d.page_id is not None:
+                d.page_id = None
                 has_changes = True
 
             norm_care = normalize_sale_name(d.care_by)
