@@ -18,7 +18,7 @@ import uuid
 import logging
 import threading
 from datetime import datetime, timedelta, timezone
-from typing import Optional, List, Dict, Any, Set, Tuple
+from typing import Optional, List, Dict, Any, Set, Tuple, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -144,6 +144,20 @@ def clean_phone(raw: Optional[str]) -> str:
 
 
 def parse_classes(val: Any) -> List[str]:
+    if not val:
+        return []
+    if isinstance(val, list):
+        items = [str(x).strip() for x in val if str(x).strip()]
+    else:
+        items = [x.strip() for x in re.split(r"[,;|]", str(val)) if x.strip()]
+    seen = []
+    for it in items:
+        if it not in seen:
+            seen.append(it)
+    return seen
+
+
+def parse_sources(val: Any) -> List[str]:
     if not val:
         return []
     if isinstance(val, list):
@@ -970,7 +984,7 @@ class DealSavePayload(BaseModel):
     chucVu: Optional[str] = ""
     nvCS: Optional[str] = ""
     zaloCS: Optional[str] = ""
-    nguon: Optional[str] = ""
+    nguon: Optional[Union[str, List[str]]] = ""
     daThu: int = 0
     phaiThu: int = 0
     tongTien: Optional[int] = None
@@ -1220,6 +1234,8 @@ def save_deal(payload: DealSavePayload, db: Session = Depends(get_db)):
         existing_phone_classes = merge_classes(existing_phone_classes, parse_classes(r.lop))
 
     merged_classes = classes if classes else existing_phone_classes
+    sources = parse_sources(payload.nguon)
+    nguon_str = ", ".join(sources)
 
     lists = read_lists(db)
     lop_list = list(lists.get("lop") or [])
@@ -1228,8 +1244,16 @@ def save_deal(payload: DealSavePayload, db: Session = Depends(get_db)):
         if c and c not in lop_list:
             lop_list.append(c)
             list_changed = True
+
+    nguon_list = list(lists.get("nguon") or [])
+    for s in sources:
+        if s and s not in nguon_list:
+            nguon_list.append(s)
+            list_changed = True
+
     if list_changed:
         lists["lop"] = lop_list
+        lists["nguon"] = nguon_list
         write_lists(db, lists)
 
     affected_phones: Set[str] = {phone}
@@ -1264,7 +1288,7 @@ def save_deal(payload: DealSavePayload, db: Session = Depends(get_db)):
         if payload.nvCS is not None and payload.nvCS.strip():
             db_row.nv_cs = payload.nvCS.strip()
         db_row.zalo_cs = (payload.zaloCS or "").strip()
-        db_row.nguon = (payload.nguon or "").strip()
+        db_row.nguon = nguon_str
         db_row.da_thu = da_thu
         db_row.phai_thu = phai_thu
         db_row.tong_tien = tong_tien
@@ -1322,7 +1346,7 @@ def save_deal(payload: DealSavePayload, db: Session = Depends(get_db)):
             chuc_vu=(payload.chucVu or "").strip(),
             nv_cs=nv_cs,
             zalo_cs=(payload.zaloCS or "").strip(),
-            nguon=(payload.nguon or "").strip(),
+            nguon=nguon_str,
             da_thu=da_thu,
             phai_thu=phai_thu,
             tong_tien=tong_tien,

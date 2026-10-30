@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { format } from 'date-fns';
 import {
   Plus,
@@ -53,6 +53,15 @@ const toSafeHref = (s: string) => {
   const trimmed = s.trim();
   if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) return trimmed;
   return `https://${trimmed}`;
+};
+
+const parseSources = (val: string | string[] | undefined | null): string[] => {
+  if (!val) return [];
+  if (Array.isArray(val)) return val.map((s) => String(s).trim()).filter(Boolean);
+  return String(val)
+    .split(/[,;|]/)
+    .map((s) => s.trim())
+    .filter(Boolean);
 };
 
 export function AppScriptTool() {
@@ -128,7 +137,10 @@ export function AppScriptTool() {
   const [formChucVu, setFormChucVu] = useState('');
   const [formNvCS, setFormNvCS] = useState('');
   const [formZaloCS, setFormZaloCS] = useState('');
-  const [formNguon, setFormNguon] = useState('');
+  const [formNguon, setFormNguon] = useState<string[]>([]);
+  const [newNguonInput, setNewNguonInput] = useState('');
+  const [isNguonDropdownOpen, setIsNguonDropdownOpen] = useState(false);
+  const nguonRef = useRef<HTMLDivElement>(null);
   const [formDaThu, setFormDaThu] = useState<number>(0);
   const [formPhaiThu, setFormPhaiThu] = useState<number>(0);
   const [formTongTien, setFormTongTien] = useState<number>(0);
@@ -196,6 +208,17 @@ export function AppScriptTool() {
     setCurrentPage(1);
   }, [completionFilter, onlyStudentFilter, searchQuery, filterSale]);
 
+  // Đóng dropdown chọn nguồn khi click ra ngoài
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (nguonRef.current && !nguonRef.current.contains(e.target as Node)) {
+        setIsNguonDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
   // Tự động tra cứu SĐT khi người dùng nhập đủ 10 chữ số ở chế độ tạo mới
   useEffect(() => {
     if (!isModalOpen || editingId) return;
@@ -218,7 +241,7 @@ export function AppScriptTool() {
           if (res.chucVu && !formChucVu) setFormChucVu(res.chucVu);
           if (res.nvCS && !formNvCS) setFormNvCS(res.nvCS);
           if (res.zaloCS && !formZaloCS) setFormZaloCS(res.zaloCS);
-          if (res.nguon && !formNguon) setFormNguon(res.nguon);
+          if (res.nguon && formNguon.length === 0) setFormNguon(parseSources(res.nguon));
           if (res.lop && res.lop.length > 0 && formLop.length === 0) {
             setFormLop(res.lop);
           }
@@ -253,7 +276,9 @@ export function AppScriptTool() {
     setFormChucVu('');
     setFormNvCS(actorName);
     setFormZaloCS(lists.zaloCS[0] || '');
-    setFormNguon(lists.nguon[0] || '');
+    setFormNguon([]);
+    setNewNguonInput('');
+    setIsNguonDropdownOpen(false);
     setFormDaThu(0);
     setFormPhaiThu(0);
     setFormTongTien(0);
@@ -284,7 +309,9 @@ export function AppScriptTool() {
     setFormChucVu(d.chucVu || '');
     setFormNvCS(d.nvCS || '');
     setFormZaloCS(d.zaloCS || lists.zaloCS[0] || '');
-    setFormNguon(d.nguon || '');
+    setFormNguon(parseSources(d.nguon));
+    setNewNguonInput('');
+    setIsNguonDropdownOpen(false);
     setFormDaThu(d.daThu || 0);
     setFormPhaiThu(d.phaiThu || 0);
     setFormTongTien(d.tongTien || 0);
@@ -325,7 +352,9 @@ export function AppScriptTool() {
     setFormChucVu('');
     setFormNvCS(item.nvCS || actorName);
     setFormZaloCS(lists.zaloCS[0] || '');
-    setFormNguon(lists.nguon[0] || '');
+    setFormNguon([]);
+    setNewNguonInput('');
+    setIsNguonDropdownOpen(false);
     setFormDaThu(item.conNo);
     setFormPhaiThu(0);
     setFormTongTien(0);
@@ -370,6 +399,28 @@ export function AppScriptTool() {
     setNewClassInput('');
   };
 
+  const toggleNguonInForm = (source: string) => {
+    const s = source.trim();
+    if (!s) return;
+    setFormNguon((prev) =>
+      prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]
+    );
+  };
+
+  const addCustomNguonToForm = () => {
+    const s = newNguonInput.trim();
+    if (!s) return;
+    if (!formNguon.includes(s)) {
+      setFormNguon((prev) => [...prev, s]);
+    }
+    if (!lists.nguon.includes(s)) {
+      const updated = [...lists.nguon, s];
+      setLists((prev) => ({ ...prev, nguon: updated }));
+      setDraftLists((prev) => ({ ...prev, nguon: updated }));
+    }
+    setNewNguonInput('');
+  };
+
   const handleSubmitDeal = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formSdt.trim() || !formHoTen.trim()) {
@@ -396,7 +447,7 @@ export function AppScriptTool() {
         chucVu: formChucVu,
         nvCS: formNvCS,
         zaloCS: formZaloCS,
-        nguon: formNguon,
+        nguon: formNguon.join(', '),
         daThu: formDaThu,
         phaiThu: formPhaiThu,
         tongTien: formTongTien,
@@ -1969,23 +2020,111 @@ export function AppScriptTool() {
                     />
                   </div>
 
-                  <div>
-                    <label className="block text-[11px] font-semibold text-navy mb-1">
-                      Nguồn khách hàng
-                    </label>
-                    <input
-                      type="text"
-                      list="nguon-options"
-                      value={formNguon}
-                      onChange={(e) => setFormNguon(e.target.value)}
-                      placeholder="Chọn hoặc nhập nguồn..."
-                      className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg"
-                    />
-                    <datalist id="nguon-options">
-                      {lists.nguon.map((n) => (
-                        <option key={n} value={n} />
-                      ))}
-                    </datalist>
+                  <div className="relative" ref={nguonRef}>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-[11px] font-semibold text-navy">
+                        Nguồn khách hàng
+                        {formNguon.length > 0 && (
+                          <span className="ml-1 text-[10px] font-bold text-eztech">({formNguon.length})</span>
+                        )}
+                      </label>
+                      {formNguon.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setFormNguon([])}
+                          className="text-[10px] text-slate-400 hover:text-rose-500 cursor-pointer"
+                        >
+                          Xoá chọn
+                        </button>
+                      )}
+                    </div>
+
+                    <div
+                      onClick={() => setIsNguonDropdownOpen((prev) => !prev)}
+                      className="w-full min-h-[38px] px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg bg-white cursor-pointer flex flex-wrap items-center gap-1 hover:border-slate-300 focus-within:border-eztech transition-all"
+                    >
+                      {formNguon.length === 0 ? (
+                        <span className="text-slate-400 text-xs py-0.5 select-none">
+                          -- Chọn nguồn khách hàng --
+                        </span>
+                      ) : (
+                        formNguon.map((s) => (
+                          <span
+                            key={s}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-blue-50 text-blue-700 border border-blue-200"
+                          >
+                            <span className="max-w-[130px] truncate" title={s}>{s}</span>
+                            <span
+                              role="button"
+                              tabIndex={0}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleNguonInForm(s);
+                              }}
+                              className="hover:text-rose-600 text-slate-400 font-bold ml-0.5"
+                            >
+                              ×
+                            </span>
+                          </span>
+                        ))
+                      )}
+                      <span className="ml-auto text-slate-400 text-[10px] pl-1 select-none">▼</span>
+                    </div>
+
+                    {isNguonDropdownOpen && (
+                      <div className="absolute left-0 right-0 top-full mt-1 z-50 bg-white border border-slate-200 rounded-xl shadow-xl p-2 max-h-60 overflow-y-auto">
+                        <div className="flex items-center gap-1 mb-2">
+                          <input
+                            type="text"
+                            placeholder="Thêm nguồn mới..."
+                            value={newNguonInput}
+                            onChange={(e) => setNewNguonInput(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                addCustomNguonToForm();
+                              }
+                            }}
+                            className="flex-1 px-2 py-1 text-xs border border-slate-200 rounded-lg bg-slate-50 focus:bg-white focus:outline-none focus:border-eztech"
+                          />
+                          <button
+                            type="button"
+                            onClick={addCustomNguonToForm}
+                            className="px-2 py-1 text-xs font-semibold bg-navy text-white rounded-lg hover:bg-slate-800 transition-colors"
+                          >
+                            + Thêm
+                          </button>
+                        </div>
+
+                        <div className="space-y-0.5">
+                          {lists.nguon.length === 0 ? (
+                            <div className="text-center py-2 text-xs text-slate-400">Chưa có nguồn trong Danh mục</div>
+                          ) : (
+                            lists.nguon.map((item) => {
+                              const selected = formNguon.includes(item);
+                              return (
+                                <label
+                                  key={item}
+                                  className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs cursor-pointer select-none transition-colors ${
+                                    selected
+                                      ? 'bg-blue-50 text-blue-800 font-medium'
+                                      : 'hover:bg-slate-50 text-slate-700'
+                                  }`}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={selected}
+                                    onChange={() => toggleNguonInForm(item)}
+                                    className="w-3.5 h-3.5 rounded border-slate-300 text-eztech focus:ring-eztech cursor-pointer"
+                                  />
+                                  <span className="truncate flex-1">{item}</span>
+                                </label>
+                              );
+                            })
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   <div>
