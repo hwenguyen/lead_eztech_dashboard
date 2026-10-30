@@ -184,6 +184,22 @@ def same_classes(a: List[str], b: List[str]) -> bool:
     return sorted(parse_classes(a)) == sorted(parse_classes(b))
 
 
+def resolve_canonical_zalo_cs(raw: Optional[str]) -> str:
+    """Tự động suy ra Zalo chăm sóc tương ứng từ Fanpage/Kênh hoặc nguồn."""
+    if not raw:
+        return ""
+    s = str(raw).strip().lower()
+    if "hiền minh" in s or "hien minh" in s:
+        return "Hiền Minh EzTech"
+    if "tuấn anh" in s or "tuan anh" in s:
+        return "Tuấn Anh data"
+    if "consultant" in s:
+        return "EzTech Consultant"
+    if "phân tích" in s or "phan tich" in s:
+        return "EzTech Phân tích"
+    return ""
+
+
 def format_vn_datetime(dt: Optional[datetime]) -> str:
     if not dt:
         return ""
@@ -437,6 +453,10 @@ def sync_from_deal_wins(db: Session, force: bool = False) -> int:
             if (sd.nguon or "") != new_nguon:
                 sd.nguon = new_nguon
                 sync_dirty = True
+            new_zalo_cs = resolve_canonical_zalo_cs(dw.page_id or new_nguon)
+            if new_zalo_cs and (sd.zalo_cs or "") != new_zalo_cs:
+                sd.zalo_cs = new_zalo_cs
+                sync_dirty = True
             if sd.is_student != new_is_student:
                 sd.is_student = new_is_student
                 sync_dirty = True
@@ -508,7 +528,7 @@ def sync_from_deal_wins(db: Session, force: bool = False) -> int:
             chuong_trinh="",
             lop=phone_classes_map.get(phone, ""),
             nv_cs=(r.care_by or "").strip(),
-            zalo_cs="",
+            zalo_cs=resolve_canonical_zalo_cs(r.page_id or nguon_name),
             nguon=nguon_name,
             da_thu=0,
             phai_thu=0,
@@ -754,7 +774,7 @@ def model_to_dict(row: SalesDeal) -> Dict[str, Any]:
         "lop": lop_list,
         "chucVu": row.chuc_vu or "",
         "nvCS": row.nv_cs or "",
-        "zaloCS": row.zalo_cs or "",
+        "zaloCS": row.zalo_cs or resolve_canonical_zalo_cs(row.nguon) or "",
         "nguon": row.nguon or "",
         "daThu": da_thu,
         "phaiThu": phai_thu,
@@ -1112,6 +1132,7 @@ def _lookup_pancake_lightweight(db: Session, phone: str) -> Dict[str, Any]:
         "ngayContact": first_contact,
         "zalo": zalo_url,
         "nguon": source_page,
+        "zaloCS": resolve_canonical_zalo_cs(source_page),
         "nvCS": assigned_sale,
     }
     with _CACHE_LOCK:
@@ -1185,7 +1206,11 @@ def lookup_phone(
         "zalo": (hit.get("zalo") if hit else pancake_info.get("zalo")) or "",
         "nhomCS": (hit.get("nhomCS") if hit else "") or "",
         "nvCS": (hit.get("nvCS") if hit else pancake_info.get("nvCS")) or "",
-        "zaloCS": (hit.get("zaloCS") if hit else "") or "",
+        "zaloCS": (
+            (hit.get("zaloCS") or resolve_canonical_zalo_cs(hit.get("nguon")))
+            if hit
+            else pancake_info.get("zaloCS")
+        ) or "",
         "nguon": (hit.get("nguon") if hit else pancake_info.get("nguon")) or "",
         "ngayContact": (hit.get("ngayContact") if hit else pancake_info.get("ngayContact")) or "",
         "lop": all_classes,

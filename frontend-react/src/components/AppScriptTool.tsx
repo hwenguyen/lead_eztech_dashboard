@@ -64,6 +64,32 @@ const parseSources = (val: string | string[] | undefined | null): string[] => {
     .filter(Boolean);
 };
 
+const resolveMatchingZaloCS = (raw: string | string[] | undefined | null, available: string[]): string => {
+  if (!raw) return '';
+  const text = Array.isArray(raw) ? raw.join(' ') : String(raw);
+  const clean = text.trim().toLowerCase();
+  if (!clean) return '';
+  for (const z of available) {
+    const zl = z.toLowerCase();
+    if (clean === zl || clean.includes(zl) || zl.includes(clean)) {
+      return z;
+    }
+  }
+  if (clean.includes('hiền minh') || clean.includes('hien minh')) {
+    return available.find((z) => z.toLowerCase().includes('hiền minh') || z.toLowerCase().includes('hien minh')) || 'Hiền Minh EzTech';
+  }
+  if (clean.includes('tuấn anh') || clean.includes('tuan anh')) {
+    return available.find((z) => z.toLowerCase().includes('tuấn anh') || z.toLowerCase().includes('tuan anh')) || 'Tuấn Anh data';
+  }
+  if (clean.includes('consultant')) {
+    return available.find((z) => z.toLowerCase().includes('consultant')) || 'EzTech Consultant';
+  }
+  if (clean.includes('phân tích') || clean.includes('phan tich')) {
+    return available.find((z) => z.toLowerCase().includes('phân tích') || z.toLowerCase().includes('phan tich')) || 'EzTech Phân tích';
+  }
+  return '';
+};
+
 export function AppScriptTool() {
   const currentUser = getStoredAuth().user;
   const actorName = currentUser?.username || 'admin';
@@ -240,7 +266,12 @@ export function AppScriptTool() {
           if (res.nhomCS && !formNhomCS) setFormNhomCS(res.nhomCS);
           if (res.chucVu && !formChucVu) setFormChucVu(res.chucVu);
           if (res.nvCS && !formNvCS) setFormNvCS(res.nvCS);
-          if (res.zaloCS && !formZaloCS) setFormZaloCS(res.zaloCS);
+          if (res.zaloCS && !formZaloCS) {
+            setFormZaloCS(res.zaloCS);
+          } else if (!formZaloCS && res.nguon) {
+            const matched = resolveMatchingZaloCS(res.nguon, lists.zaloCS);
+            if (matched) setFormZaloCS(matched);
+          }
           if (res.nguon && formNguon.length === 0) setFormNguon(parseSources(res.nguon));
           if (res.lop && res.lop.length > 0 && formLop.length === 0) {
             setFormLop(res.lop);
@@ -275,7 +306,7 @@ export function AppScriptTool() {
     setNewClassInput('');
     setFormChucVu('');
     setFormNvCS(actorName);
-    setFormZaloCS(lists.zaloCS[0] || '');
+    setFormZaloCS('');
     setFormNguon([]);
     setNewNguonInput('');
     setIsNguonDropdownOpen(false);
@@ -308,7 +339,7 @@ export function AppScriptTool() {
     setNewClassInput('');
     setFormChucVu(d.chucVu || '');
     setFormNvCS(d.nvCS || '');
-    setFormZaloCS(d.zaloCS || lists.zaloCS[0] || '');
+    setFormZaloCS(d.zaloCS || resolveMatchingZaloCS(d.nguon, lists.zaloCS) || '');
     setFormNguon(parseSources(d.nguon));
     setNewNguonInput('');
     setIsNguonDropdownOpen(false);
@@ -351,7 +382,7 @@ export function AppScriptTool() {
     setNewClassInput('');
     setFormChucVu('');
     setFormNvCS(item.nvCS || actorName);
-    setFormZaloCS(lists.zaloCS[0] || '');
+    setFormZaloCS(resolveMatchingZaloCS(item.chuongTrinh, lists.zaloCS) || '');
     setFormNguon([]);
     setNewNguonInput('');
     setIsNguonDropdownOpen(false);
@@ -402,16 +433,28 @@ export function AppScriptTool() {
   const toggleNguonInForm = (source: string) => {
     const s = source.trim();
     if (!s) return;
-    setFormNguon((prev) =>
-      prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]
-    );
+    setFormNguon((prev) => {
+      const next = prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s];
+      if (!formZaloCS && next.length > 0) {
+        const matched = resolveMatchingZaloCS(next, lists.zaloCS);
+        if (matched) setFormZaloCS(matched);
+      }
+      return next;
+    });
   };
 
   const addCustomNguonToForm = () => {
     const s = newNguonInput.trim();
     if (!s) return;
     if (!formNguon.includes(s)) {
-      setFormNguon((prev) => [...prev, s]);
+      setFormNguon((prev) => {
+        const next = [...prev, s];
+        if (!formZaloCS) {
+          const matched = resolveMatchingZaloCS(next, lists.zaloCS);
+          if (matched) setFormZaloCS(matched);
+        }
+        return next;
+      });
     }
     if (!lists.nguon.includes(s)) {
       const updated = [...lists.nguon, s];
@@ -2140,6 +2183,9 @@ export function AppScriptTool() {
                       {lists.zaloCS.map((z) => (
                         <option key={z} value={z}>{z}</option>
                       ))}
+                      {formZaloCS && !lists.zaloCS.includes(formZaloCS) && (
+                        <option value={formZaloCS}>{formZaloCS}</option>
+                      )}
                     </select>
                   </div>
 
