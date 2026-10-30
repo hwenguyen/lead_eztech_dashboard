@@ -622,8 +622,10 @@ export function AppScriptTool() {
   const formatDealRowForSheet = (d: SalesDealRecord): string => {
     const ngThu = d.ngayThu ? fmtDateVi(d.ngayThu) : '';
     const ngContact = d.ngayContact ? fmtDateVi(d.ngayContact) : '';
+    const ngThuAR = d.ngayThuAR ? fmtDateVi(d.ngayThuAR) : '';
     const nganhNghe = [d.chucVu, d.linhVuc].filter(Boolean).join(' - ');
     const ghiChu = [d.note, d.kyVong ? `Kỳ vọng: ${d.kyVong}` : ''].filter(Boolean).join(' | ');
+    const tongTien = d.tongTien || (d.daThu || 0) + (d.phaiThu || 0);
     const cols = [
       ngThu === '—' ? '' : ngThu,
       ngContact === '—' ? '' : ngContact,
@@ -639,7 +641,8 @@ export function AppScriptTool() {
       d.nguon || '',
       d.daThu || 0,
       d.phaiThu || 0,
-      d.conNo || 0,
+      tongTien,
+      ngThuAR === '—' ? '' : ngThuAR,
       d.trangThai || 'Chờ bổ sung',
       ghiChu,
     ];
@@ -663,23 +666,24 @@ export function AppScriptTool() {
   const handleCopyMultipleRows = async (rowsToCopy: SalesDealRecord[], includeHeader: boolean = false) => {
     if (rowsToCopy.length === 0) return;
     const headerCols = [
-      'Ngày ĐK/Thu',
-      'Ngày Contact',
-      'Số điện thoại',
-      'Họ và tên',
-      'Link Pancake',
+      'Ngày/ tháng (ngày thu tiền)',
+      'Ngày contact đầu tiên',
+      'SĐT',
+      'Họ tên',
+      'Tên Zalo (Link pancake hội thoại)',
       'Nhóm CS 1-1',
-      'Chương trình',
-      'Lớp học',
-      'Chức vụ / Ngành nghề',
-      'NV CS',
-      'Zalo CS',
+      'Chương trình học (DB/DF/DA)',
+      'Lớp học (Học lớp bn)',
+      'Chức vụ',
+      'NV chăm sóc',
+      'Zalo chăm sóc',
       'Nguồn',
-      'Thực thu',
-      'Phải thu',
-      'Còn nợ',
+      'Số tiền thu được',
+      'Phải thu khách hàng',
+      'Tổng tiền',
+      'Ngày thu AR',
       'Trạng thái',
-      'Ghi chú / Kỳ vọng',
+      'Note',
     ];
     const lines = rowsToCopy.map(formatDealRowForSheet);
     if (includeHeader) {
@@ -1047,34 +1051,36 @@ export function AppScriptTool() {
                       />
                     </th>
                     <th className="py-2.5 px-2.5 border-r border-slate-200/80 whitespace-nowrap text-center">Copy</th>
-                    <th className="py-2.5 px-2.5 border-r border-slate-200/80 whitespace-nowrap">Ngày ĐK</th>
-                    <th className="py-2.5 px-2.5 border-r border-slate-200/80 whitespace-nowrap">Ngày Contact</th>
-                    <th className="py-2.5 px-2.5 border-r border-slate-200/80 whitespace-nowrap">Số điện thoại</th>
-                    <th className="py-2.5 px-2.5 border-r border-slate-200/80 whitespace-nowrap">Họ và tên</th>
-                    <th className="py-2.5 px-2.5 border-r border-slate-200/80 whitespace-nowrap">Link Pancake</th>
-                    <th className="py-2.5 px-2.5 border-r border-slate-200/80 whitespace-nowrap">Nhóm 1-1</th>
-                    <th className="py-2.5 px-2.5 border-r border-slate-200/80 whitespace-nowrap">Chương trình</th>
-                    <th className="py-2.5 px-2.5 border-r border-slate-200/80 whitespace-nowrap">Lớp học</th>
-                    <th className="py-2.5 px-2.5 border-r border-slate-200/80 whitespace-nowrap">Chức vụ / Ngành nghề</th>
-                    <th className="py-2.5 px-2.5 border-r border-slate-200/80 whitespace-nowrap">NV CS</th>
+                    <th className="py-2.5 px-2.5 border-r border-slate-200/80 whitespace-nowrap">Ngày/ tháng (ngày thu tiền)</th>
+                    <th className="py-2.5 px-2.5 border-r border-slate-200/80 whitespace-nowrap">Ngày contact đầu tiên</th>
+                    <th className="py-2.5 px-2.5 border-r border-slate-200/80 whitespace-nowrap">SĐT</th>
+                    <th className="py-2.5 px-2.5 border-r border-slate-200/80 whitespace-nowrap">Họ tên</th>
+                    <th className="py-2.5 px-2.5 border-r border-slate-200/80 whitespace-nowrap">Tên Zalo (Link pancake hội thoại)</th>
+                    <th className="py-2.5 px-2.5 border-r border-slate-200/80 whitespace-nowrap">Nhóm CS 1-1</th>
+                    <th className="py-2.5 px-2.5 border-r border-slate-200/80 whitespace-nowrap">Chương trình học (DB/DF/DA)</th>
+                    <th className="py-2.5 px-2.5 border-r border-slate-200/80 whitespace-nowrap">Lớp học (Học lớp bn)</th>
+                    <th className="py-2.5 px-2.5 border-r border-slate-200/80 whitespace-nowrap">Chức vụ</th>
+                    <th className="py-2.5 px-2.5 border-r border-slate-200/80 whitespace-nowrap">NV chăm sóc</th>
+                    <th className="py-2.5 px-2.5 border-r border-slate-200/80 whitespace-nowrap">Zalo chăm sóc</th>
                     <th className="py-2.5 px-2.5 border-r border-slate-200/80 whitespace-nowrap">Nguồn</th>
-                    <th className="py-2.5 px-2.5 border-r border-slate-200/80 whitespace-nowrap text-right">Thực thu</th>
-                    <th className="py-2.5 px-2.5 border-r border-slate-200/80 whitespace-nowrap text-right">Phải thu</th>
-                    <th className="py-2.5 px-2.5 border-r border-slate-200/80 whitespace-nowrap text-right">Còn nợ</th>
+                    <th className="py-2.5 px-2.5 border-r border-slate-200/80 whitespace-nowrap text-right">Số tiền thu được</th>
+                    <th className="py-2.5 px-2.5 border-r border-slate-200/80 whitespace-nowrap text-right">Phải thu khách hàng</th>
+                    <th className="py-2.5 px-2.5 border-r border-slate-200/80 whitespace-nowrap text-right">Tổng tiền</th>
+                    <th className="py-2.5 px-2.5 border-r border-slate-200/80 whitespace-nowrap">Ngày thu AR</th>
                     <th className="py-2.5 px-2.5 border-r border-slate-200/80 whitespace-nowrap">Trạng thái</th>
-                    <th className="py-2.5 px-2.5 whitespace-nowrap">Ghi chú / Kỳ vọng</th>
+                    <th className="py-2.5 px-2.5 whitespace-nowrap">Note</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200/70">
                   {loading ? (
                     <tr>
-                      <td colSpan={18} className="py-12 text-center text-slate-400">
+                      <td colSpan={20} className="py-12 text-center text-slate-400">
                         Đang đồng bộ và tải danh sách học viên từ bảng Deal Win...
                       </td>
                     </tr>
                   ) : pagedDeals.length === 0 ? (
                     <tr>
-                      <td colSpan={18} className="py-12 text-center text-slate-400">
+                      <td colSpan={20} className="py-12 text-center text-slate-400">
                         Không có học viên / deal nào khớp bộ lọc hiện tại.
                       </td>
                     </tr>
@@ -1085,6 +1091,7 @@ export function AppScriptTool() {
                       const isSelected = selectedRowIds.has(d.id);
                       const nganhNghe = [d.chucVu, d.linhVuc].filter(Boolean).join(' - ');
                       const ghiChuText = [d.note, d.kyVong ? `Kỳ vọng: ${d.kyVong}` : ''].filter(Boolean).join(' • ');
+                      const tongTienVal = d.tongTien || (d.daThu || 0) + (d.phaiThu || 0);
 
                       return (
                         <tr
@@ -1251,9 +1258,14 @@ export function AppScriptTool() {
                             {nganhNghe || <span className="text-slate-300">—</span>}
                           </td>
 
-                          {/* NV CS */}
+                          {/* NV chăm sóc */}
                           <td className="py-2 px-2.5 border-r border-slate-200/70 whitespace-nowrap align-middle font-semibold text-navy">
                             {d.nvCS || '—'}
+                          </td>
+
+                          {/* Zalo chăm sóc */}
+                          <td className="py-2 px-2.5 border-r border-slate-200/70 whitespace-nowrap align-middle text-slate-700">
+                            {d.zaloCS || <span className="text-slate-300">—</span>}
                           </td>
 
                           {/* Nguồn */}
@@ -1264,7 +1276,7 @@ export function AppScriptTool() {
                             {d.nguon || '—'}
                           </td>
 
-                          {/* Thực thu */}
+                          {/* Số tiền thu được */}
                           <td className="py-2 px-2.5 border-r border-slate-200/70 whitespace-nowrap text-right align-middle font-mono">
                             {d.daThu > 0 ? (
                               <span className="font-bold text-emerald-600">{fmtMoney(d.daThu)}</span>
@@ -1273,20 +1285,25 @@ export function AppScriptTool() {
                             )}
                           </td>
 
-                          {/* Phải thu */}
+                          {/* Phải thu khách hàng */}
                           <td className="py-2 px-2.5 border-r border-slate-200/70 whitespace-nowrap text-right align-middle font-mono">
-                            <span className={d.phaiThu > 0 ? 'font-semibold text-slate-700' : 'text-slate-300'}>
+                            <span className={d.conNo > 0 ? 'font-bold text-amber-600' : d.phaiThu > 0 ? 'font-semibold text-slate-700' : 'text-slate-300'}>
                               {fmtMoney(d.phaiThu)}
                             </span>
                           </td>
 
-                          {/* Còn nợ */}
+                          {/* Tổng tiền */}
                           <td className="py-2 px-2.5 border-r border-slate-200/70 whitespace-nowrap text-right align-middle font-mono">
-                            {d.conNo > 0 ? (
-                              <span className="font-bold text-amber-600">{fmtMoney(d.conNo)}</span>
+                            {tongTienVal > 0 ? (
+                              <span className="font-bold text-navy">{fmtMoney(tongTienVal)}</span>
                             ) : (
                               <span className="text-slate-300">0</span>
                             )}
+                          </td>
+
+                          {/* Ngày thu AR */}
+                          <td className="py-2 px-2.5 border-r border-slate-200/70 whitespace-nowrap align-middle font-mono text-slate-600">
+                            {fmtDateVi(d.ngayThuAR)}
                           </td>
 
                           {/* Trạng thái */}
@@ -1300,7 +1317,7 @@ export function AppScriptTool() {
                             </span>
                           </td>
 
-                          {/* Ghi chú / Kỳ vọng */}
+                          {/* Note */}
                           <td
                             className="py-2 px-2.5 align-middle max-w-[240px] truncate text-slate-600"
                             title={ghiChuText}
@@ -1875,6 +1892,18 @@ export function AppScriptTool() {
                       type="date"
                       value={formNgContact}
                       onChange={(e) => setFormNgContact(e.target.value)}
+                      className="w-full px-3 py-2 text-xs font-mono border border-slate-200 rounded-lg"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-navy mb-1">
+                      Ngày thu AR (Công nợ)
+                    </label>
+                    <input
+                      type="date"
+                      value={formNgThuAR}
+                      onChange={(e) => setFormNgThuAR(e.target.value)}
                       className="w-full px-3 py-2 text-xs font-mono border border-slate-200 rounded-lg"
                     />
                   </div>

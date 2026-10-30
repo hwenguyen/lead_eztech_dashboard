@@ -89,12 +89,45 @@ def normalize_sale_name(raw: Optional[str]) -> Optional[str]:
     return ', '.join(res) if res else None
 
 
+def pick_best_assigned_user(items: List[Dict[str, Any]]) -> Optional[str]:
+    """
+    Chọn nhân viên phụ trách (assigned_user) từ các hội thoại của lead:
+    - Điều kiện: tin nhắn của lead trong hội thoại với nhân viên đó nhiều nhất so với nhân viên khác (nếu có).
+    - Nếu 1 nhân viên xuất hiện ở nhiều hội thoại của cùng lead, xét hội thoại có số tin nhắn lớn nhất trước,
+      sau đó xét tổng số tin nhắn của lead trong các hội thoại có nhân viên đó.
+    """
+    emp_scores: Dict[str, Tuple[int, int, int]] = {}
+    for it in items:
+        raw_assigned = it.get('assigned') or ''
+        norm_assigned = normalize_sale_name(raw_assigned)
+        if not norm_assigned:
+            continue
+        msg_cnt = int(it.get('message_count') or 0)
+        emps = [x.strip() for x in norm_assigned.split(',') if x.strip()]
+        for idx, emp in enumerate(emps):
+            prev_max, prev_sum, prev_idx = emp_scores.get(emp, (-1, 0, idx))
+            emp_scores[emp] = (
+                max(prev_max, msg_cnt),
+                prev_sum + msg_cnt,
+                min(prev_idx, idx),
+            )
+
+    if not emp_scores:
+        return None
+
+    best_emp = max(
+        emp_scores.keys(),
+        key=lambda e: (emp_scores[e][0], emp_scores[e][1], -emp_scores[e][2]),
+    )
+    return best_emp
+
+
 def _resolve_lead_items(items: List[Dict[str, Any]]) -> Tuple[Optional[int], bool, Optional[str], Optional[str], Optional[str]]:
     """
     Tổng hợp danh sách hội thoại của 1 SĐT:
     - Trả về: (dim_lead_id, is_student, care_by, lead_tag, page_id)
-    - Chỉ xét trong các hội thoại có gắn tag 'học viên' (nếu có); nếu nhiều page cùng có tag này,
-      chọn page có tổng số tin nhắn (message_count) nhiều nhất.
+    - Vì 1 lead có thể nhắn trên nhiều kênh: chỉ lấy hội thoại thuộc kênh có số lượng tin nhắn (message_count) nhiều nhất.
+    - Nhân viên phụ trách lấy theo assigned_user có số lượng tin nhắn của lead trong hội thoại với nhân viên đó nhiều nhất.
     """
     if not items:
         return None, False, None, None, None
@@ -107,38 +140,24 @@ def _resolve_lead_items(items: List[Dict[str, Any]]) -> Tuple[Optional[int], boo
                 all_tags.append(t_clean)
     combined_tags = ", ".join(all_tags)[:255] if all_tags else None
 
-    hv_items = [it for it in items if 'học viên' in (it.get('status_tag') or '').lower()]
-    is_student = len(hv_items) > 0
-    pool = hv_items if is_student else items
+    is_student = any('học viên' in (it.get('status_tag') or '').lower() for it in items)
 
-    # Tính tổng message_count theo từng page chuẩn hóa trong pool để chọn page nhiều tin nhắn nhất
-    page_scores: Dict[str, Tuple[int, int]] = {}
-    for it in pool:
-        pg = it.get('page_id') or ''
-        msg_cnt = int(it.get('message_count') or 0)
-        prev_sum, prev_max = page_scores.get(pg, (0, -1))
-        page_scores[pg] = (prev_sum + msg_cnt, max(prev_max, msg_cnt))
+    # Ưu tiên xét trong các hội thoại có nhân viên phụ trách (nếu có), chọn hội thoại thuộc kênh có số tin nhắn nhiều nhất
+    assigned_pool = [it for it in items if normalize_sale_name(it.get('assigned'))] or items
+    best_conv = max(
+        assigned_pool,
+        key=lambda x: (
+            int(x.get('message_count') or 0),
+            1 if 'học viên' in (x.get('status_tag') or '').lower() else 0,
+            int(x.get('lead_id') or 0),
+        ),
+    )
 
-    best_page = max(page_scores.keys(), key=lambda p: (page_scores[p][0], page_scores[p][1], bool(p))) if page_scores else None
-    best_items = sorted(
-        [it for it in pool if (it.get('page_id') or '') == (best_page or '')],
-        key=lambda x: int(x.get('message_count') or 0),
-        reverse=True
-    ) or pool
+    best_lead_id = best_conv['lead_id']
+    best_page = best_conv.get('page_id') or None
+    assigned_user = pick_best_assigned_user(items)
 
-    best_lead_id = best_items[0]['lead_id']
-
-    # Lấy nhân viên chăm sóc từ page thắng cuộc trước (tránh lẫn NV từ kênh gửi tin tự động ít tin nhắn), fallback sang toàn bộ pool
-    care_candidates = [it['assigned'] for it in best_items if it.get('assigned')] or [it['assigned'] for it in pool if it.get('assigned')]
-    names = []
-    for u in care_candidates:
-        for n in u.split(','):
-            n_clean = n.strip()
-            if n_clean and n_clean not in names:
-                names.append(n_clean)
-    assigned_user = ", ".join(names) if names else None
-
-    return best_lead_id, is_student, assigned_user, combined_tags, (best_page or None)
+    return best_lead_id, is_student, assigned_user, combined_tags, best_page
 
 
 def find_lead_info_by_phone(phone: Optional[str], db: Session) -> Tuple[Optional[int], bool, Optional[str], Optional[str], Optional[str]]:

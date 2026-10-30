@@ -28,6 +28,7 @@ from sqlalchemy import desc, asc, func, or_
 from database.db import get_db
 from database.models import SalesDeal, DealAuditLog, AppConfig, DealWin, DimLead, FactLeadActivity
 from database.schema import ensure_schema
+from database.deal_sync import normalize_sale_name, pick_best_assigned_user, sync_all_deals_with_dim_leads
 from etl.utils import normalize_phone, resolve_canonical_page_name, build_pancake_url
 
 logger = logging.getLogger("DealEntryService")
@@ -241,13 +242,14 @@ def _resolve_pancake_info_batch(
             FactLeadActivity.conversation_id,
             FactLeadActivity.status_tag,
             FactLeadActivity.message_count,
+            FactLeadActivity.assigned_users,
         )
         .outerjoin(FactLeadActivity, DimLead.id == FactLeadActivity.lead_id)
         .filter(or_(*filters))
         .all()
     )
 
-    for lid, p_num, cust_id, l_page_id, first_dt, conv_id, status_tag, msg_count in act_rows:
+    for lid, p_num, cust_id, l_page_id, first_dt, conv_id, status_tag, msg_count, assigned_users in act_rows:
         if conv_id and str(conv_id).startswith("pzl_g_"):
             continue
         url = (
@@ -259,11 +261,13 @@ def _resolve_pancake_info_batch(
             or ""
         )
         tag_lower = (status_tag or "").lower()
+        has_assigned = 1 if normalize_sale_name(assigned_users) else 0
+        # Chỉ lấy hội thoại thuộc kênh có số lượng tin nhắn nhiều nhất
         score = (
-            1 if "học viên" in tag_lower else 0,
-            1 if conv_id else 0,
-            1 if str(conv_id or "").startswith("pzl_") else 0,
+            has_assigned,
             int(msg_count or 0),
+            1 if conv_id else 0,
+            1 if "học viên" in tag_lower else 0,
         )
         dt_str = first_dt.strftime("%Y-%m-%d") if first_dt else ""
 
@@ -299,7 +303,7 @@ def _backfill_all_pancake_links(db: Session, rows: List[SalesDeal], force: bool 
     if _PANCAKE_LINKS_BACKFILLED and not force:
         return False
 
-    missing_rows = [r for r in rows if not _is_valid_pancake_conv_url(r.zalo)]
+    missing_rows = rows if force else [r for r in rows if not _is_valid_pancake_conv_url(r.zalo)]
     if not missing_rows:
         _PANCAKE_LINKS_BACKFILLED = True
         return False
@@ -329,8 +333,8 @@ def _backfill_all_pancake_links(db: Session, rows: List[SalesDeal], force: bool 
         l_info = lead_info_map.get(lid, {})
         p_info = phone_info_map.get(c_p, {})
 
-        best_zalo = l_info.get("zalo") or p_info.get("zalo") or ""
-        best_contact = l_info.get("ngay_contact") or p_info.get("ngay_contact") or ""
+        best_zalo = p_info.get("zalo") or l_info.get("zalo") or ""
+        best_contact = p_info.get("ngay_contact") or l_info.get("ngay_contact") or ""
 
         if best_zalo and r.zalo != best_zalo:
             r.zalo = best_zalo
@@ -356,6 +360,9 @@ def sync_from_deal_wins(db: Session, force: bool = False) -> int:
 
     if not force and _LAST_SYNCED_DEAL_WIN_ID >= 0 and (now_ts - _LAST_SYNC_CHECK_TS) < SYNC_CHECK_INTERVAL:
         return 0
+
+    if force:
+        sync_all_deals_with_dim_leads(db, full_scan=True)
 
     max_dw_id = db.query(func.max(DealWin.id)).scalar() or 0
     _LAST_SYNC_CHECK_TS = now_ts
@@ -395,6 +402,37 @@ def sync_from_deal_wins(db: Session, force: bool = False) -> int:
 
     dw_rows = dw_query.order_by(asc(DealWin.id)).all()
     new_dw_rows = [r for r in dw_rows if r.id not in existing_dw_ids]
+
+    if force and existing_dw_ids:
+        dw_by_id = {r.id: r for r in dw_rows}
+        linked_sales = db.query(SalesDeal).filter(SalesDeal.deal_win_id.isnot(None)).all()
+        sync_dirty = False
+        for sd in linked_sales:
+            dw = dw_by_id.get(sd.deal_win_id)
+            if not dw:
+                continue
+            new_nv = (dw.care_by or "").strip()
+            if new_nv == "Chưa phân công":
+                new_nv = ""
+            new_nguon = resolve_canonical_page_name(dw.page_id, fallback=dw.page_id) if dw.page_id else ""
+            new_is_student = bool(dw.is_student) if dw.is_student is not None else True
+            new_tag = (dw.lead_tag or "").strip()
+            if (sd.nv_cs or "") != new_nv:
+                sd.nv_cs = new_nv
+                sync_dirty = True
+            if (sd.nguon or "") != new_nguon:
+                sd.nguon = new_nguon
+                sync_dirty = True
+            if sd.is_student != new_is_student:
+                sd.is_student = new_is_student
+                sync_dirty = True
+            if (sd.lead_tag or "") != new_tag:
+                sd.lead_tag = new_tag
+                sync_dirty = True
+        if sync_dirty:
+            db.commit()
+            with _CACHE_LOCK:
+                _DEALS_CACHE = None
 
     if not new_dw_rows:
         _LAST_SYNCED_DEAL_WIN_ID = max_dw_id
@@ -1013,19 +1051,23 @@ def _lookup_pancake_lightweight(db: Session, phone: str) -> Dict[str, Any]:
     zalo_url = ""
     best_score = (-1, -1, -1, -1)
     source_page = ""
-    assigned_sale = ""
+    conv_items: List[Dict[str, Any]] = []
 
-    for name, _, page_id, cust_id, conv_id, assigned_users, status_tag, msg_count in rows:
+    for idx, (name, _, page_id, cust_id, conv_id, assigned_users, status_tag, msg_count) in enumerate(rows):
         if name and not lead_name:
             lead_name = name
         pg_name = resolve_canonical_page_name(page_id) if page_id else ""
-        if pg_name and not source_page:
-            source_page = pg_name
-        if assigned_users and not assigned_sale:
-            assigned_sale = assigned_users.split(",")[0].strip()
 
         if conv_id and str(conv_id).startswith("pzl_g_"):
             continue
+
+        conv_items.append({
+            "lead_id": idx,
+            "page_id": pg_name,
+            "status_tag": status_tag or "",
+            "assigned": assigned_users or "",
+            "message_count": int(msg_count or 0),
+        })
 
         candidate_url = (
             build_pancake_url(
@@ -1035,16 +1077,20 @@ def _lookup_pancake_lightweight(db: Session, phone: str) -> Dict[str, Any]:
             )
             or ""
         )
-        if candidate_url:
-            score = (
-                1 if "học viên" in (status_tag or "").lower() else 0,
-                1 if conv_id else 0,
-                1 if str(conv_id or "").startswith("pzl_") else 0,
-                int(msg_count or 0),
-            )
-            if score > best_score:
-                best_score = score
+        score = (
+            1 if normalize_sale_name(assigned_users) else 0,
+            int(msg_count or 0),
+            1 if conv_id else 0,
+            1 if "học viên" in (status_tag or "").lower() else 0,
+        )
+        if score > best_score:
+            best_score = score
+            if candidate_url:
                 zalo_url = candidate_url
+            if pg_name:
+                source_page = pg_name
+
+    assigned_sale = pick_best_assigned_user(conv_items) or ""
 
     info = {
         "foundInPancake": True,
