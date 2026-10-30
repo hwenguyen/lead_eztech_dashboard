@@ -21,6 +21,13 @@ FastAPI backend (`backend/`) + React frontend (`frontend-react/`) trên Render (
 
 ## Session
 
+### 2026-10-30 — Nâng cấp Bộ lọc Bot Gửi Tin: Chọn nhiều Tag & Checkbox Bỏ qua 'Đã là học viên'
+- **Frontend (`BulkMessengerDashboard.tsx`, `api.ts`)**:
+  - Thay dropdown Tag đơn bằng Multi-Select Dropdown Popover tích hợp thanh tìm kiếm nhanh thẻ (`tagSearchQuery`), chọn/bỏ chọn từng thẻ, hỗ trợ thẻ `no_tag` (Chưa gắn thẻ), và hiển thị danh sách thẻ đã chọn dạng chip gọn gàng.
+  - Thêm checkbox `[x] Bỏ qua tag "Đã là học viên" (Auto chọn)` mặc định bật (`excludeStudents = true`) ở phần tùy chọn an toàn.
+- **Backend (`backend/broadcast.py`)**:
+  - Hỗ trợ tham số `tags: List[str]` và `tag: Union[List[str], str]` (chuẩn hóa danh sách tag, lọc OR khớp bất kỳ tag nào được chọn, hỗ trợ cả `no_tag`).
+  - Hỗ trợ tham số `exclude_students: bool = True` tự động loại bỏ khách có tag 'Đã là học viên' / 'da la hoc vien' khỏi danh sách ứng viên gửi tin.
 ### 2026-10-29 — Bỏ qua rep tự động các tin nhắn/comment liên quan đến khóa học
 - **Cấu hình từ khóa & thẻ khóa học (`etl/auto_reply_rules.py`)**: Thêm `COURSE_KEYWORDS` (khóa học, học phí, lộ trình, lớp học, đào tạo, tư vấn, lịch học, khai giảng, chi phí học, học viên, bài giảng, chương trình học...) và `COURSE_TAGS` (Đã là học viên, Đào tạo, HV TCKT, HV Khác...). Đồng thời chuyển rule `cmt_khoa_hoc` trong `COMMENT_REPLY_RULES` sang `enabled = False`.
 - **Chốt chặn bot (`etl/auto_reply_bot.py`)**: Bổ sung hàm `is_course_related()` và chốt chặn tại cả 2 luồng:

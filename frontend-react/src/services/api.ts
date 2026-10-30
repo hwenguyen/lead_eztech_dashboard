@@ -306,12 +306,14 @@ export interface BroadcastPreviewParams {
   employee?: string;
   gender?: string;
   tag?: string;
+  tags?: string[];
   time_filter?: string;
   days_ago?: number;
   phone_filter?: string;
   limit?: number;
   template: string;
   exclude_already_sent?: boolean;
+  exclude_students?: boolean;
   campaign_name?: string;
 }
 
@@ -350,6 +352,7 @@ export interface BroadcastStartParams {
   employee?: string;
   gender?: string;
   tag?: string;
+  tags?: string[];
   time_filter?: string;
   days_ago?: number;
   phone_filter?: string;
@@ -357,6 +360,7 @@ export interface BroadcastStartParams {
   delay: number;
   dry_run: boolean;
   exclude_already_sent: boolean;
+  exclude_students?: boolean;
   target_conversation_ids?: string[];
   zalo_protection?: boolean;
   zalo_min_delay?: number;

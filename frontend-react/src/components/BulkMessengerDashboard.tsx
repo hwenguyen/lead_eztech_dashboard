@@ -19,7 +19,10 @@ import {
   Trash2,
   RotateCcw,
   Check,
-  Key
+  Key,
+  Search,
+  ChevronDown,
+  X
 } from 'lucide-react';
 import {
   fetchBroadcastOptions,
@@ -60,7 +63,11 @@ export const BulkMessengerDashboard: React.FC = () => {
   const [nameFilter, setNameFilter] = useState<string>('');
   const [employee, setEmployee] = useState<string>('all');
   const [gender, setGender] = useState<string>('all');
-  const [tag, setTag] = useState<string>('all');
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [isTagDropdownOpen, setIsTagDropdownOpen] = useState<boolean>(false);
+  const [tagSearchQuery, setTagSearchQuery] = useState<string>('');
+  const tagDropdownRef = useRef<HTMLDivElement>(null);
+  const [excludeStudents, setExcludeStudents] = useState<boolean>(true);
   const [timeFilter, setTimeFilter] = useState<string>('all'); // Default 'all' so filters don't hide existing leads
   const [phoneFilter, setPhoneFilter] = useState<string>('all');
   const [limit, setLimit] = useState<number>(50);
@@ -241,13 +248,41 @@ export const BulkMessengerDashboard: React.FC = () => {
     return options.employees || [];
   }, [options, pageId]);
 
+  // Đóng dropdown thẻ khi click ra ngoài
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (tagDropdownRef.current && !tagDropdownRef.current.contains(event.target as Node)) {
+        setIsTagDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const toggleTag = (tagName: string) => {
+    setSelectedTags((prev) =>
+      prev.includes(tagName) ? prev.filter((t) => t !== tagName) : [...prev, tagName]
+    );
+  };
+
+  const clearTags = () => {
+    setSelectedTags([]);
+  };
+
+  const filteredAvailableTags = useMemo(() => {
+    if (!tagSearchQuery.trim()) return availableTags;
+    const q = tagSearchQuery.trim().toLowerCase();
+    return availableTags.filter((t) => t.toLowerCase().includes(q));
+  }, [availableTags, tagSearchQuery]);
+
   // Xử lý khi thay đổi Tên Kênh (tự động reset tag/nhân viên nếu không thuộc kênh mới)
   const handlePageChange = (newPageId: string) => {
     setPageId(newPageId);
-    if (tag !== 'all' && tag !== 'no_tag') {
+    if (selectedTags.length > 0) {
       const nextTags = options?.tags_by_page?.[newPageId] || [];
-      if (nextTags.length > 0 && !nextTags.includes(tag)) {
-        setTag('all');
+      if (nextTags.length > 0) {
+        const validTags = selectedTags.filter((t) => t === 'no_tag' || nextTags.includes(t));
+        setSelectedTags(validTags);
       }
     }
     if (employee !== 'all') {
@@ -260,12 +295,13 @@ export const BulkMessengerDashboard: React.FC = () => {
 
   // Tự động kiểm tra và reset tag nếu không còn thuộc kênh đang chọn
   useEffect(() => {
-    if (tag !== 'all' && tag !== 'no_tag') {
-      if (availableTags.length > 0 && !availableTags.includes(tag)) {
-        setTag('all');
+    if (selectedTags.length > 0 && availableTags.length > 0) {
+      const validTags = selectedTags.filter((t) => t === 'no_tag' || availableTags.includes(t));
+      if (validTags.length !== selectedTags.length) {
+        setSelectedTags(validTags);
       }
     }
-  }, [availableTags, tag]);
+  }, [availableTags, selectedTags]);
 
   // Tự động kiểm tra và reset nhân viên nếu không còn thuộc kênh đang chọn
   useEffect(() => {
@@ -374,12 +410,14 @@ export const BulkMessengerDashboard: React.FC = () => {
         name_filter: nameFilter,
         employee: employee,
         gender: gender,
-        tag: tag,
+        tag: selectedTags.length === 1 ? selectedTags[0] : (selectedTags.length > 1 ? selectedTags.join(',') : 'all'),
+        tags: selectedTags,
         time_filter: timeFilter,
         phone_filter: phoneFilter,
         limit: limit,
         template: template,
         exclude_already_sent: excludeAlreadySent,
+        exclude_students: excludeStudents,
         campaign_name: campaignName
       });
       setOriginalRecipients(res.recipients);
@@ -416,13 +454,15 @@ export const BulkMessengerDashboard: React.FC = () => {
         name_filter: nameFilter,
         employee: employee,
         gender: gender,
-        tag: tag,
+        tag: selectedTags.length === 1 ? selectedTags[0] : (selectedTags.length > 1 ? selectedTags.join(',') : 'all'),
+        tags: selectedTags,
         time_filter: timeFilter,
         phone_filter: phoneFilter,
         limit: targetConvIds ? targetConvIds.length : limit,
         delay: delay,
         dry_run: dryRun,
         exclude_already_sent: excludeAlreadySent,
+        exclude_students: excludeStudents,
         target_conversation_ids: targetConvIds,
         zalo_protection: zaloProtection,
         zalo_min_delay: zaloMinDelay,
@@ -782,39 +822,179 @@ export const BulkMessengerDashboard: React.FC = () => {
                     </select>
                   </div>
 
-                  {/* 4. Lọc theo Thẻ (Tags - CHỈ trả về các thẻ thuộc Tên Kênh) */}
-                  <div>
+                  {/* 4. Lọc theo Thẻ (Tags - Hỗ trợ chọn nhiều Tag để dễ lọc) */}
+                  <div className="relative" ref={tagDropdownRef}>
                     <div className="flex items-center justify-between mb-1">
                       <label className="block text-xs font-semibold text-gray-700">
                         Thẻ phân loại (Tags)
                       </label>
-                      {pageId !== 'all' && (
-                        <span className="text-[10px] font-medium text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded">
-                          Chỉ thẻ thuộc kênh ({availableTags.length})
-                        </span>
-                      )}
+                      <div className="flex items-center gap-1.5">
+                        {selectedTags.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={clearTags}
+                            className="text-[10px] text-red-500 hover:text-red-700 font-medium"
+                          >
+                            Bỏ chọn tất cả
+                          </button>
+                        )}
+                        {pageId !== 'all' && (
+                          <span className="text-[10px] font-medium text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded">
+                            Chỉ thẻ thuộc kênh ({availableTags.length})
+                          </span>
+                        )}
+                      </div>
                     </div>
-                    <select
-                      value={tag}
-                      onChange={(e) => setTag(e.target.value)}
-                      className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-xs focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all font-medium"
+
+                    <button
+                      type="button"
+                      onClick={() => setIsTagDropdownOpen(!isTagDropdownOpen)}
+                      className={`w-full px-3 py-2 bg-gray-50 border rounded-lg text-xs focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all font-medium text-left flex items-center justify-between gap-2 ${
+                        selectedTags.length > 0 ? 'border-indigo-400 ring-1 ring-indigo-200 bg-indigo-50/20' : 'border-gray-300'
+                      }`}
                     >
-                      <option value="all">
-                        {pageId !== 'all'
-                          ? `Tất cả thẻ thuộc kênh (${availableTags.length})`
-                          : `Tất cả thẻ (${availableTags.length})`}
-                      </option>
-                      <option value="no_tag">Chưa gắn thẻ (Không có tag)</option>
-                      {availableTags.length === 0 && pageId !== 'all' ? (
-                        <option disabled value="">(Kênh này chưa có thẻ nào)</option>
-                      ) : (
-                        availableTags.map((t) => (
-                          <option key={t} value={t}>
-                            {t}
-                          </option>
-                        ))
-                      )}
-                    </select>
+                      <div className="flex-1 truncate">
+                        {selectedTags.length === 0 ? (
+                          <span className="text-gray-600 font-normal">
+                            {pageId !== 'all'
+                              ? `Tất cả thẻ thuộc kênh (${availableTags.length})`
+                              : `Tất cả thẻ (${availableTags.length})`}
+                          </span>
+                        ) : (
+                          <div className="flex items-center gap-1.5 truncate">
+                            <span className="font-semibold text-indigo-700 bg-indigo-100 px-1.5 py-0.5 rounded text-[11px] whitespace-nowrap">
+                              {selectedTags.length} thẻ đã chọn
+                            </span>
+                            <span className="text-gray-600 text-[11px] truncate">
+                              {selectedTags.map((t) => (t === 'no_tag' ? 'Chưa gắn thẻ' : t)).join(', ')}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                      <ChevronDown
+                        className={`w-3.5 h-3.5 text-gray-400 flex-shrink-0 transition-transform ${
+                          isTagDropdownOpen ? 'rotate-180' : ''
+                        }`}
+                      />
+                    </button>
+
+                    {/* Popover Dropdown Panel */}
+                    {isTagDropdownOpen && (
+                      <div className="absolute z-30 mt-1 w-full bg-white border border-gray-200 rounded-xl shadow-xl p-2.5 space-y-2">
+                        {/* Search box */}
+                        <div className="relative">
+                          <input
+                            type="text"
+                            value={tagSearchQuery}
+                            onChange={(e) => setTagSearchQuery(e.target.value)}
+                            placeholder="Tìm nhanh thẻ..."
+                            className="w-full pl-7 pr-7 py-1.5 text-xs bg-gray-50 border border-gray-200 rounded-lg focus:bg-white focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                            autoFocus
+                          />
+                          <Search className="w-3.5 h-3.5 text-gray-400 absolute left-2 top-2" />
+                          {tagSearchQuery && (
+                            <button
+                              type="button"
+                              onClick={() => setTagSearchQuery('')}
+                              className="absolute right-2 top-1.5 text-gray-400 hover:text-gray-600 text-xs"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Quick action bar */}
+                        <div className="flex items-center justify-between text-[11px] px-1 text-gray-500 border-b border-gray-100 pb-1.5">
+                          <button
+                            type="button"
+                            onClick={clearTags}
+                            className={`hover:text-indigo-600 ${
+                              selectedTags.length === 0 ? 'text-indigo-600 font-bold' : ''
+                            }`}
+                          >
+                            Tất cả thẻ (bỏ lọc)
+                          </button>
+                          {selectedTags.length > 0 && (
+                            <span className="text-indigo-600 font-semibold">
+                              Đã chọn {selectedTags.length} thẻ
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Tag list */}
+                        <div className="max-h-56 overflow-y-auto space-y-0.5 pr-1">
+                          {/* Option: no_tag */}
+                          {(!tagSearchQuery ||
+                            'chưa gắn thẻ không có tag'.includes(tagSearchQuery.toLowerCase())) && (
+                            <label
+                              className={`flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs cursor-pointer transition-colors ${
+                                selectedTags.includes('no_tag')
+                                  ? 'bg-indigo-50 text-indigo-700 font-semibold'
+                                  : 'hover:bg-gray-50 text-gray-700'
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={selectedTags.includes('no_tag')}
+                                onChange={() => toggleTag('no_tag')}
+                                className="rounded text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5"
+                              />
+                              <span>Chưa gắn thẻ (Không có tag)</span>
+                            </label>
+                          )}
+
+                          {/* Available tags */}
+                          {filteredAvailableTags.length === 0 ? (
+                            <div className="text-center py-3 text-xs text-gray-400">
+                              Không tìm thấy thẻ nào khớp từ khóa
+                            </div>
+                          ) : (
+                            filteredAvailableTags.map((t) => {
+                              const isChecked = selectedTags.includes(t);
+                              return (
+                                <label
+                                  key={t}
+                                  className={`flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs cursor-pointer transition-colors ${
+                                    isChecked
+                                      ? 'bg-indigo-50 text-indigo-700 font-semibold'
+                                      : 'hover:bg-gray-50 text-gray-700'
+                                  }`}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={isChecked}
+                                    onChange={() => toggleTag(t)}
+                                    className="rounded text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5"
+                                  />
+                                  <span className="flex-1 truncate">{t}</span>
+                                </label>
+                              );
+                            })
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Selected Tags Chips */}
+                    {selectedTags.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-1.5 max-h-16 overflow-y-auto">
+                        {selectedTags.map((t) => (
+                          <span
+                            key={t}
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-indigo-50 text-indigo-700 border border-indigo-200 font-medium"
+                          >
+                            <span className="truncate max-w-[120px]">{t === 'no_tag' ? 'Chưa gắn thẻ' : t}</span>
+                            <button
+                              type="button"
+                              onClick={() => toggleTag(t)}
+                              className="hover:text-red-600 font-bold ml-0.5 text-xs leading-none"
+                            >
+                              &times;
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
 
                   {/* 5. Thời gian tương tác gần nhất */}
@@ -931,9 +1111,9 @@ export const BulkMessengerDashboard: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Chống gửi lặp lại */}
-                <div className="pt-2 border-t border-gray-100">
-                  <label className="flex items-center gap-2 cursor-pointer">
+                {/* Tùy chọn an toàn & lọc tự động */}
+                <div className="pt-2 border-t border-gray-100 flex flex-wrap items-center gap-y-2 gap-x-6">
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
                     <input
                       type="checkbox"
                       checked={excludeAlreadySent}
@@ -942,6 +1122,21 @@ export const BulkMessengerDashboard: React.FC = () => {
                     />
                     <span className="text-xs text-gray-700 font-medium">
                       Không gửi lặp lại cho khách đã nhận thành công chiến dịch này (Anti-Spam)
+                    </span>
+                  </label>
+
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={excludeStudents}
+                      onChange={(e) => setExcludeStudents(e.target.checked)}
+                      className="rounded text-indigo-600 focus:ring-indigo-500 w-4 h-4"
+                    />
+                    <span className="text-xs text-gray-700 font-medium flex items-center gap-1.5">
+                      <span>Bỏ qua tag <strong className="text-indigo-700 font-semibold">"Đã là học viên"</strong></span>
+                      <span className="text-[10px] bg-emerald-100 text-emerald-800 font-semibold px-1.5 py-0.5 rounded-full">
+                        Auto chọn
+                      </span>
                     </span>
                   </label>
                 </div>

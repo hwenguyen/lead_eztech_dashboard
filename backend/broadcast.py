@@ -20,7 +20,7 @@ import logging
 import threading
 import unicodedata
 from datetime import datetime, timedelta
-from typing import List, Dict, Any, Optional, Tuple, Set, Iterable
+from typing import List, Dict, Any, Optional, Tuple, Set, Iterable, Union
 from collections import defaultdict
 
 from fastapi import APIRouter, Depends, Query, HTTPException, BackgroundTasks
@@ -238,13 +238,15 @@ class BroadcastPreviewRequest(BaseModel):
     name_filter: Optional[str] = None
     employee: Optional[str] = "all"
     gender: Optional[str] = "all"  # 'all', 'male', 'female', 'unknown'
-    tag: Optional[str] = "all"
+    tag: Optional[Union[List[str], str]] = "all"
+    tags: Optional[List[str]] = None
     time_filter: Optional[str] = "all"  # 'all', '1', '3', '7', '30', 'remind_1_3', 'remind_4_7', 'remind_over_7'
     days_ago: Optional[int] = None      # Tương thích ngược
     phone_filter: Optional[str] = "all"  # 'all', 'has_phone', 'no_phone'
     limit: int = 50
     template: str = "{Chào|Xin chào|Dạ chào} {gender_title} {name}, bên em gửi {gender_title_lower} thông tin ưu đãi mới nhất ạ!"
     exclude_already_sent: bool = True
+    exclude_students: bool = True
     campaign_name: Optional[str] = None
 
 
@@ -282,7 +284,8 @@ class BroadcastStartRequest(BaseModel):
     name_filter: Optional[str] = None
     employee: Optional[str] = "all"
     gender: Optional[str] = "all"
-    tag: Optional[str] = "all"
+    tag: Optional[Union[List[str], str]] = "all"
+    tags: Optional[List[str]] = None
     time_filter: Optional[str] = "all"
     days_ago: Optional[int] = None
     phone_filter: Optional[str] = "all"
@@ -290,6 +293,7 @@ class BroadcastStartRequest(BaseModel):
     delay: float = 1.5
     dry_run: bool = True
     exclude_already_sent: bool = True
+    exclude_students: bool = True
     target_conversation_ids: Optional[List[str]] = None
     # Cấu hình chuyên biệt chống Rate Limit & khóa tài khoản Zalo cá nhân
     zalo_protection: bool = True
@@ -374,11 +378,13 @@ def _filter_broadcast_candidates(
     name_filter: Optional[str] = None,
     employee: Optional[str] = "all",
     gender: Optional[str] = "all",
-    tag: Optional[str] = "all",
+    tag: Optional[Union[List[str], str]] = "all",
+    tags: Optional[List[str]] = None,
     time_filter: Optional[str] = "all",
     days_ago: Optional[int] = None,
     phone_filter: Optional[str] = "all",
     exclude_already_sent: bool = True,
+    exclude_students: bool = True,
     campaign_name: Optional[str] = None,
     target_conversation_ids: Optional[List[str]] = None,
 ) -> List[Dict[str, Any]]:
@@ -421,6 +427,10 @@ def _filter_broadcast_candidates(
             for cid in clean_cids:
                 r = row_by_conv.get(cid)
                 if not r:
+                    continue
+                raw_tags = (r.status_tag or "").strip()
+                raw_tags_lower = raw_tags.lower()
+                if exclude_students and any(s in raw_tags_lower for s in ("đã là học viên", "da la hoc vien")):
                     continue
                 inferred_gen = infer_vietnamese_gender(r.name)
                 canonical_pg = resolve_canonical_page_name(r.page_id, fallback=str(r.page_id or ""))
@@ -493,7 +503,18 @@ def _filter_broadcast_candidates(
         possible_pids_lower = {str(p).strip().lower() for p in raw_pids if p}
 
     emp_norm = normalize_nfc(employee) if (employee and employee.strip() and employee.strip() != "all") else None
-    tag_norm = normalize_nfc(tag) if (tag and tag.strip() and tag.strip() != "all") else None
+    # Chuẩn hóa danh sách thẻ lọc (hỗ trợ chọn 1 hoặc nhiều tag)
+    active_tags: List[str] = []
+    if tags:
+        active_tags = [str(t).strip() for t in tags if t and str(t).strip() and str(t).strip() != "all"]
+    elif isinstance(tag, list):
+        active_tags = [str(t).strip() for t in tag if t and str(t).strip() and str(t).strip() != "all"]
+    elif isinstance(tag, str) and tag.strip() and tag.strip() != "all":
+        active_tags = [t.strip() for t in tag.split(",") if t.strip() and t.strip() != "all"]
+
+    tag_clean_lowers: List[str] = [normalize_nfc(t).strip().lower() for t in active_tags]
+    allow_no_tag = any(t in ("no_tag", "chưa gắn thẻ", "chưa gắn tag", "chua gan tag", "không có tag") for t in tag_clean_lowers)
+    target_tags_lower = [t for t in tag_clean_lowers if t not in ("no_tag", "chưa gắn thẻ", "chưa gắn tag", "chua gan tag", "không có tag")]
     gender_clean = (gender or "all").strip().lower()
     phone_clean = (phone_filter or "all").strip().lower()
 
@@ -562,23 +583,31 @@ def _filter_broadcast_candidates(
                 if not matched_emp:
                     continue
 
-        # 2.3. Lọc theo Thẻ (Tag - Không phân biệt hoa thường, hỗ trợ substring & tag list)
         raw_tags = (r.status_tag or "").strip()
-        if tag_norm:
-            tag_clean_lower = tag_norm.strip().lower()
-            if tag_clean_lower in ("no_tag", "chưa gắn thẻ", "chưa gắn tag", "chua gan tag", "không có tag"):
-                if raw_tags and raw_tags.lower() not in ("no_tag", "chưa gắn thẻ", "không có tag"):
-                    continue
-            else:
-                raw_tags_lower = raw_tags.lower()
+        raw_tags_lower = raw_tags.lower()
+
+        # 2.25. Chốt chặn Bỏ qua học viên nếu bật exclude_students
+        if exclude_students:
+            if any(s in raw_tags_lower for s in ("đã là học viên", "da la hoc vien")):
+                continue
+
+        # 2.3. Lọc theo Thẻ (Tag - Không phân biệt hoa thường, hỗ trợ chọn nhiều tag, khớp bất kỳ)
+        if tag_clean_lowers:
+            matched_tag = False
+            if allow_no_tag and (not raw_tags or raw_tags_lower in ("no_tag", "chưa gắn thẻ", "không có tag")):
+                matched_tag = True
+            elif target_tags_lower and raw_tags:
                 tag_list = [normalize_nfc(t).strip().lower() for t in raw_tags.split(",") if t.strip()]
-                matched_tag = (
-                    tag_clean_lower in raw_tags_lower
-                    or any(tag_clean_lower == t or tag_clean_lower in t for t in tag_list)
-                    or any(t in tag_clean_lower for t in tag_list if len(t) >= 3)
-                )
-                if not matched_tag:
-                    continue
+                for target_t in target_tags_lower:
+                    if (
+                        target_t in raw_tags_lower
+                        or any(target_t == t or target_t in t for t in tag_list)
+                        or any(t in target_t for t in tag_list if len(t) >= 3)
+                    ):
+                        matched_tag = True
+                        break
+            if not matched_tag:
+                continue
 
         # 2.4. Lọc theo SĐT (Phone Filter)
         has_phone_val = bool(
@@ -726,10 +755,12 @@ def _run_broadcast_worker(task_id: str, req_data: Dict[str, Any]):
             employee=req_data.get("employee"),
             gender=req_data.get("gender"),
             tag=req_data.get("tag"),
+            tags=req_data.get("tags"),
             time_filter=req_data.get("time_filter"),
             days_ago=req_data.get("days_ago"),
             phone_filter=req_data.get("phone_filter"),
             exclude_already_sent=exclude_already_sent,
+            exclude_students=bool(req_data.get("exclude_students", True)),
             campaign_name=campaign_name,
             target_conversation_ids=req_data.get("target_conversation_ids"),
         )
@@ -1205,10 +1236,12 @@ def preview_broadcast(req: BroadcastPreviewRequest, db: Session = Depends(get_db
         employee=req.employee,
         gender=req.gender,
         tag=req.tag,
+        tags=req.tags,
         time_filter=req.time_filter,
         days_ago=req.days_ago,
         phone_filter=req.phone_filter,
         exclude_already_sent=req.exclude_already_sent,
+        exclude_students=req.exclude_students,
         campaign_name=req.campaign_name,
     )
 
