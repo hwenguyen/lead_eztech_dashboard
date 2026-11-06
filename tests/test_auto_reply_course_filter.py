@@ -161,9 +161,42 @@ def test_cmt_khoa_hoc_is_disabled():
     print("[PASS] test_cmt_khoa_hoc_is_disabled passed!")
 
 
+def test_comment_reply_disabled_by_default():
+    from etl.auto_reply_bot import process_page_comment_replies, run_auto_reply_bot
+    import inspect
+
+    # 1. process_page_comment_replies should exit early when ENABLE_COMMENT_REPLY is not 'true'
+    # Clear env var if set
+    old_val = os.environ.get("ENABLE_COMMENT_REPLY")
+    try:
+        os.environ["ENABLE_COMMENT_REPLY"] = "false"
+        mock_comments = [{"comment_id": "cmt_999", "message": "Cho em xin file"}]
+        stats = process_page_comment_replies(
+            client=None,
+            comments_data=mock_comments,
+            page_id="tt_7196601676597871618",
+            db=None,
+            dry_run=True
+        )
+        assert stats["sent"] == 0
+        assert stats["matched"] == 0
+        assert stats["scanned"] == 0
+    finally:
+        if old_val is not None:
+            os.environ["ENABLE_COMMENT_REPLY"] = old_val
+        else:
+            os.environ.pop("ENABLE_COMMENT_REPLY", None)
+
+    # 2. inspect default signature of run_auto_reply_bot
+    sig = inspect.signature(run_auto_reply_bot)
+    assert sig.parameters["include_comments"].default is False, "Expected include_comments default to be False"
+    print("[PASS] test_comment_reply_disabled_by_default passed!")
+
+
 if __name__ == "__main__":
     test_is_course_related()
     test_should_reply_inbox_course_exclusion()
     test_should_reply_comment_course_exclusion()
     test_cmt_khoa_hoc_is_disabled()
+    test_comment_reply_disabled_by_default()
     print("\n[PASS] ALL TESTS PASSED!")

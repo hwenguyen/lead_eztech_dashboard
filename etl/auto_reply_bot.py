@@ -419,6 +419,12 @@ def process_page_comment_replies(
     if not comments_data:
         return stats
 
+    # Tạm thời tắt rep comment trong ETL (chỉ chạy khi ENABLE_COMMENT_REPLY=true)
+    enable_comment_reply = os.getenv("ENABLE_COMMENT_REPLY", "false").strip().lower() in ("true", "1", "yes")
+    if not enable_comment_reply:
+        logger.info(f"[AUTO-REPLY COMMENTS] Tính năng rep comment đang tạm TẮT (ENABLE_COMMENT_REPLY=false). Bỏ qua {len(comments_data)} comments cho Page {page_id}.")
+        return stats
+
     mode_text = "DRY-RUN (CHẠY THỬ NGHIỆM)" if dry_run else "LIVE (GỬI THẬT QUA PANCAKE API)"
     logger.info(f"\n--- [AUTO-REPLY COMMENTS] Đang kiểm tra {len(comments_data)} comments cho Page {page_id} | Chế độ: {mode_text} ---")
 
@@ -665,7 +671,7 @@ def run_auto_reply_bot(
     limit_per_page: int = 100,
     from_db: bool = False,
     include_inbox: bool = True,
-    include_comments: bool = True,
+    include_comments: bool = False,  # Tạm thời tắt rep comment
 ):
     """
     Hàm thực thi chính của Bot:

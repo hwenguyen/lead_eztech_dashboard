@@ -21,6 +21,14 @@ FastAPI backend (`backend/`) + React frontend (`frontend-react/`) trên Render (
 
 ## Session
 
+### 2026-11-06 — Tạm thời tắt phần rep comment trong ETL
+- **ETL Pipeline (`etl/pipeline.py`)**: Chuyển biến môi trường `ENABLE_COMMENT_REPLY` sang mặc định `false` (chỉ chạy khi có giá trị `true`/`1`/`yes`).
+- **GitHub Actions Workflow (`.github/workflows/pancake-etl.yml`)**: Đặt `ENABLE_COMMENT_REPLY: 'false'` ở bước chạy `python -m etl.pipeline`.
+- **Bot logic (`etl/auto_reply_bot.py`)**:
+  - `process_page_comment_replies()`: Thêm chốt chặn đầu hàm kiểm tra `ENABLE_COMMENT_REPLY`, bỏ qua toàn bộ xử lý nếu biến môi trường không bật.
+  - `run_auto_reply_bot()`: Chuyển tham số mặc định `include_comments` thành `False`.
+
+
 ### 2026-10-30 — Nâng cấp Bộ lọc Bot Gửi Tin: Chọn nhiều Tag & Checkbox Bỏ qua 'Đã là học viên'
 - **Frontend (`BulkMessengerDashboard.tsx`, `api.ts`)**:
   - Thay dropdown Tag đơn bằng Multi-Select Dropdown Popover tích hợp thanh tìm kiếm nhanh thẻ (`tagSearchQuery`), chọn/bỏ chọn từng thẻ, hỗ trợ thẻ `no_tag` (Chưa gắn thẻ), và hiển thị danh sách thẻ đã chọn dạng chip gọn gàng.
