@@ -858,8 +858,8 @@ def run_etl_pipeline():
                                     db.commit()
                                     logger.info(f"[POSTS] Đã đồng bộ {len(unique_posts)} bài viết/video từ comments cho Page {page_id}.")
 
-                            # 4. Tự động phản hồi bình luận (Auto-Reply Comments) theo kịch bản
-                            enable_comment_reply = os.getenv("ENABLE_COMMENT_REPLY", "true").strip().lower() not in ("false", "0", "off", "no")
+                            # 4. Tự động phản hồi bình luận (Auto-Reply Comments) theo kịch bản (Tạm thời TẮT)
+                            enable_comment_reply = os.getenv("ENABLE_COMMENT_REPLY", "false").strip().lower() in ("true", "1", "yes")
                             if enable_comment_reply and changed_comments:
                                 try:
                                     from etl.auto_reply_bot import process_page_comment_replies
