@@ -48,11 +48,13 @@ logger = logging.getLogger(__name__)
 from backend.broadcast import router as broadcast_router, clear_broadcast_cache
 from backend.auth import router as auth_router
 from backend.deal_entry import router as deal_entry_router, invalidate_deal_entry_cache
+from backend.facebook_metrics import router as facebook_router, clear_facebook_cache
 
 app = FastAPI(title="Pancake Lead Reporting API")
 app.include_router(auth_router)
 app.include_router(broadcast_router, prefix="/api/broadcast", tags=["Broadcast"])
 app.include_router(deal_entry_router)
+app.include_router(facebook_router)
 
 # Cấu hình CORS: Ưu tiên danh sách ALLOWED_ORIGINS từ biến môi trường
 allowed_origins_env = os.getenv("ALLOWED_ORIGINS", "").strip()
@@ -505,6 +507,7 @@ def clear_cache():
     """Xoá toàn bộ cache metrics, page list, tin nhắn cuối, remind leads & deal wins."""
     clear_metrics_cache()
     clear_broadcast_cache()
+    clear_facebook_cache()
     with _PAGES_LOCK:
         _PAGES_CACHE.clear()
     with _REMIND_LOCK:

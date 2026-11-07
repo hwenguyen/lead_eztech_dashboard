@@ -746,3 +746,83 @@ export const fetchDealEntryLogs = async (limit: number = 100): Promise<{ ok: boo
   const res = await apiClient.get('/deal-entry/logs', { params: { limit } });
   return res.data;
 };
+
+// ==========================================
+// FACEBOOK ANALYTICS
+// ==========================================
+
+export interface FacebookSummaryData {
+  total_posts: number;
+  total_reactions: number;
+  total_comments: number;
+  total_post_comments: number;
+  total_shares: number;
+  total_leads: number;
+  new_leads: number;
+  recontact_leads: number;
+  phone_leads: number;
+  comment_phones: number;
+  deal_wins: number;
+  phone_conversion_rate: number;
+  deal_conversion_rate: number;
+  avg_reactions_per_post: number;
+  avg_comments_per_post: number;
+}
+
+export interface FacebookPostItem {
+  post_id: string;
+  page_id: string;
+  page_name: string;
+  type: string;
+  message: string;
+  post_url: string | null;
+  inserted_at: string | null;
+  reactions_total: number;
+  like_count: number;
+  love_count: number;
+  comment_count: number;
+  phone_count: number;
+  deal_count: number;
+}
+
+export interface FacebookTrendData {
+  date: string;
+  posts: number;
+  reactions: number;
+  comments: number;
+  leads: number;
+  phones: number;
+}
+
+export interface FacebookMetricsResponse {
+  summary: FacebookSummaryData;
+  reaction_breakdown: Record<string, number>;
+  post_type_stats: Record<string, number>;
+  trend: FacebookTrendData[];
+  top_posts: FacebookPostItem[];
+  employee_stats: Record<string, number>;
+  tag_stats: Record<string, number>;
+}
+
+export interface FacebookPageItem {
+  id: string;
+  name: string;
+}
+
+export const fetchFacebookPages = async (): Promise<FacebookPageItem[]> => {
+  const res = await apiClient.get<{ pages: FacebookPageItem[] }>('/facebook/pages');
+  return res.data.pages;
+};
+
+export const fetchFacebookMetrics = async (
+  startDate?: string,
+  endDate?: string,
+  pageId?: string
+): Promise<FacebookMetricsResponse> => {
+  const params: any = {};
+  if (startDate) params.start_date = startDate;
+  if (endDate) params.end_date = endDate;
+  if (pageId) params.page_id = pageId;
+  const res = await apiClient.get<FacebookMetricsResponse>('/facebook/metrics', { params });
+  return res.data;
+};

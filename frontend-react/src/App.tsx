@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { format, subDays } from 'date-fns';
-import { Users, UserPlus, UserCheck, PhoneCall, PhoneForwarded, Percent, Calendar, RefreshCw, LayoutDashboard, Clock, Award, Bot, LogOut, KeyRound, Lock, Menu, X, Sparkles } from 'lucide-react';
+import { Users, UserPlus, UserCheck, PhoneCall, PhoneForwarded, Percent, Calendar, RefreshCw, LayoutDashboard, Clock, Award, Bot, LogOut, KeyRound, Lock, Menu, X, Sparkles, Facebook } from 'lucide-react';
 import { KpiCard } from './components/KpiCard';
 import { TrendChart } from './components/TrendChart';
 import { LeadTable } from './components/LeadTable';
@@ -10,6 +10,7 @@ import { RemindLeadTable } from './components/RemindLeadTable';
 import { DealWinDashboard } from './components/DealWinDashboard';
 import { BulkMessengerDashboard } from './components/BulkMessengerDashboard';
 import { AppScriptTool } from './components/AppScriptTool';
+import { FacebookDashboard } from './components/FacebookDashboard';
 import { LoginPage } from './components/LoginPage';
 import { ChangePasswordModal } from './components/ChangePasswordModal';
 import { fetchSummary, fetchTrend, fetchLeads, fetchEmployees, fetchPages, getStoredAuth, logoutApi, type SummaryData, type TrendData, type Lead, type AuthUser } from './services/api';
@@ -37,7 +38,7 @@ function App() {
     }
   };
 
-  const [activeTab, setActiveTab] = useState<'overview' | 'remind' | 'deals' | 'bot' | 'gas_tool'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'facebook' | 'remind' | 'deals' | 'bot' | 'gas_tool'>('overview');
   const [startDate, setStartDate] = useState(format(subDays(new Date(), 7), 'yyyy-MM-dd'));
   const [endDate, setEndDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [pageId, setPageId] = useState('');
@@ -139,6 +140,7 @@ function App() {
 
   const navItems = [
     { id: 'overview' as const, label: 'Tổng quan & Chỉ số', icon: LayoutDashboard },
+    { id: 'facebook' as const, label: 'Facebook Analytics', icon: Facebook, badge: 'Fanpage' },
     { id: 'remind' as const, label: 'Chăm sóc Lead', icon: Clock },
     { id: 'deals' as const, label: 'Deal Win', icon: Award },
     { id: 'gas_tool' as const, label: 'Nhập Deal & Công Nợ', icon: Sparkles, badge: 'CRM' },
@@ -292,9 +294,11 @@ function App() {
               <div className="flex items-baseline gap-2.5">
                 <h2 className="text-[15px] sm:text-base font-bold text-navy tracking-tight">
                   {activeTab === 'overview' && 'Tổng quan & Chỉ số'}
+                  {activeTab === 'facebook' && 'Facebook Analytics'}
                   {activeTab === 'remind' && 'Chăm sóc Lead (Remind)'}
                   {activeTab === 'deals' && 'Học viên Chốt (Deal Win)'}
                   {activeTab === 'bot' && 'Bot Gửi Tin Nhắn Tự Động'}
+                  {activeTab === 'gas_tool' && 'Nhập Deal & Quản lý Công Nợ'}
                 </h2>
                 <span className="hidden md:inline-block text-xs text-slate-400">
                   • Hệ thống phân tích dữ liệu Pancake
@@ -322,7 +326,9 @@ function App() {
 
         {/* Content Body */}
         <main className="flex-1 px-4 sm:px-6 lg:px-8 py-5 space-y-4 max-w-[1440px] w-full mx-auto">
-          {activeTab === 'deals' ? (
+          {activeTab === 'facebook' ? (
+            <FacebookDashboard />
+          ) : activeTab === 'deals' ? (
             <DealWinDashboard />
           ) : activeTab === 'remind' ? (
             <RemindLeadTable pagesList={pagesList} zaloPages={zaloPages} />
