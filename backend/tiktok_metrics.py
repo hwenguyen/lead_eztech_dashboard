@@ -169,8 +169,7 @@ def get_tiktok_metrics(
                 post_leads_set[clean_pid] = set()
                 post_phones_set[clean_pid] = set()
 
-            if c.customer_id:
-                post_leads_set[clean_pid].add(str(c.customer_id))
+            # Chỉ lưu SĐT nếu khách để lại trực tiếp trên bình luận
             if has_phone:
                 p_norm = normalize_phone(c.phone_number) or c.phone_number.strip()
                 post_phones_set[clean_pid].add(p_norm)
