@@ -10,7 +10,7 @@ from typing import Optional, List, Dict, Any
 from collections import Counter
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, defer
 from sqlalchemy import or_, desc
 
 from database.db import get_db
@@ -63,9 +63,9 @@ def _match_employee(field_val: Optional[str], target_emp: Optional[str]) -> bool
 
 @router.get("")
 def get_work_report(
-    start_date: Optional[datetime] = Query(None, description="Ngày bắt đầu (YYYY-MM-DD)"),
-    end_date: Optional[datetime] = Query(None, description="Ngày kết thúc (YYYY-MM-DD)"),
-    employee: Optional[str] = Query(None, description="Tên nhân viên cần lập báo cáo"),
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None,
+    employee: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
     # Mặc định kỳ báo cáo là 7 ngày gần nhất (1 tuần làm việc)
@@ -196,8 +196,8 @@ def get_work_report(
     tt_line = f"Tiktok: Tạo mới: {tt_new}, Contact trong tuần: {tt_contact}, SĐT {tt_phones}."
     fb_line = f"FB: Tạo mới: {fb_new}, Contact: {fb_contact}, SĐT: {fb_phones}"
 
-    # 3. Truy vấn Học viên chốt (DealWin & SalesDeal) trong kỳ
-    deal_wins_raw = db.query(DealWin).filter(
+    # 3. Truy vấn Học viên chốt (DealWin & SalesDeal) trong kỳ - Bỏ qua raw_data JSON để tiết kiệm Egress
+    deal_wins_raw = db.query(DealWin).options(defer(DealWin.raw_data)).filter(
         DealWin.timestamp.between(start, end)
     ).order_by(desc(DealWin.timestamp)).all()
 
@@ -341,7 +341,7 @@ def get_work_report(
     # Insight 3: Chân dung & Kỳ vọng Học viên (nếu có Deal Win trong kỳ hoặc lấy mẫu gần nhất của NV)
     if not industries_counter and not expectations_list and emp_clean:
         # Lấy 5 học viên gần nhất của nhân viên này để có insight mẫu nếu tuần hiện tại chưa có form học viên mới
-        recent_dws = db.query(DealWin).filter(
+        recent_dws = db.query(DealWin).options(defer(DealWin.raw_data)).filter(
             DealWin.care_by.ilike(f"%{emp_clean}%")
         ).order_by(desc(DealWin.timestamp)).limit(5).all()
         for rdw in recent_dws:

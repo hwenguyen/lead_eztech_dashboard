@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Depends, Query, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from sqlalchemy.orm import Session, defer
 from sqlalchemy import or_, desc, func
 from collections import Counter
@@ -79,6 +80,9 @@ else:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+# Bật nén GZip cho mọi phản hồi API >= 1KB (giảm 70-85% băng thông mạng truyền tải về client)
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 def verify_webhook_secret(request: Request):
     """Xác thực Webhook Secret từ Header X-Webhook-Secret hoặc query param ?secret=."""

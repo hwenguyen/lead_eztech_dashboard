@@ -13,7 +13,7 @@ from collections import Counter
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, defer
 from sqlalchemy import func, or_, desc
 
 from database.db import get_db
@@ -129,8 +129,8 @@ def get_facebook_metrics(
         target_page_name = resolve_canonical_page_name(page_key, fallback=page_key)
         target_page_id = page_key
 
-    # 2. Truy vấn Bài viết (Post)
-    post_query = db.query(Post).filter(
+    # 2. Truy vấn Bài viết (Post) - Bỏ qua payload JSON nặng để tiết kiệm băng thông Neon
+    post_query = db.query(Post).options(defer(Post.payload)).filter(
         Post.platform == "facebook",
         Post.inserted_at.between(start, end),
     )
@@ -144,7 +144,7 @@ def get_facebook_metrics(
         )
     posts: List[Post] = post_query.order_by(desc(Post.inserted_at)).all()
 
-    # 3. Truy vấn Bình luận (Comment)
+    # 3. Truy vấn Bình luận (Comment) - Trích xuất trực tiếp from.id từ JSON trong SQL để giảm 99% Egress
     comment_query = db.query(
         Comment.comment_id,
         Comment.customer_id,
@@ -153,7 +153,7 @@ def get_facebook_metrics(
         Comment.inserted_at,
         Comment.page_id,
         Comment.page_name,
-        Comment.payload,
+        func.json_extract_path_text(Comment.payload, "from", "id").label("from_id"),
     ).filter(
         Comment.inserted_at.between(start, end),
     )
@@ -210,10 +210,8 @@ def get_facebook_metrics(
                 p_norm = normalize_phone(c.phone_number) or c.phone_number.strip()
                 post_phones_set[clean_pid].add(p_norm)
 
-            # Thu thập FB PSID của người comment để map với cuộc trò chuyện Inbox
-            p_payload = c.payload if isinstance(c.payload, dict) else {}
-            frm = p_payload.get("from") if isinstance(p_payload, dict) else {}
-            fid = str(frm.get("id") or "").strip() if isinstance(frm, dict) else ""
+            # Thu thập FB PSID của người comment để map với cuộc trò chuyện Inbox (lấy trực tiếp từ from_id)
+            fid = str(c.from_id or "").strip()
             if fid:
                 if fid not in fbid_to_posts:
                     fbid_to_posts[fid] = set()
