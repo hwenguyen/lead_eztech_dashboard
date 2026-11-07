@@ -11,6 +11,7 @@ import { DealWinDashboard } from './components/DealWinDashboard';
 import { BulkMessengerDashboard } from './components/BulkMessengerDashboard';
 import { AppScriptTool } from './components/AppScriptTool';
 import { FacebookDashboard } from './components/FacebookDashboard';
+import { TikTokDashboard, TikTokIcon } from './components/TikTokDashboard';
 import { LoginPage } from './components/LoginPage';
 import { ChangePasswordModal } from './components/ChangePasswordModal';
 import { fetchSummary, fetchTrend, fetchLeads, fetchEmployees, fetchPages, getStoredAuth, logoutApi, type SummaryData, type TrendData, type Lead, type AuthUser } from './services/api';
@@ -38,7 +39,7 @@ function App() {
     }
   };
 
-  const [activeTab, setActiveTab] = useState<'overview' | 'facebook' | 'remind' | 'deals' | 'bot' | 'gas_tool'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'facebook' | 'tiktok' | 'remind' | 'deals' | 'bot' | 'gas_tool'>('overview');
   const [startDate, setStartDate] = useState(format(subDays(new Date(), 7), 'yyyy-MM-dd'));
   const [endDate, setEndDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [pageId, setPageId] = useState('');
@@ -141,6 +142,7 @@ function App() {
   const navItems = [
     { id: 'overview' as const, label: 'Tổng quan & Chỉ số', icon: LayoutDashboard },
     { id: 'facebook' as const, label: 'Facebook Analytics', icon: Facebook },
+    { id: 'tiktok' as const, label: 'TikTok Analytics', icon: TikTokIcon },
     { id: 'remind' as const, label: 'Chăm sóc Lead', icon: Clock },
     { id: 'deals' as const, label: 'Deal Win', icon: Award },
     { id: 'gas_tool' as const, label: 'Nhập Deal & Công Nợ', icon: Sparkles, badge: 'CRM' },
@@ -295,6 +297,7 @@ function App() {
                 <h2 className="text-[15px] sm:text-base font-bold text-navy tracking-tight">
                   {activeTab === 'overview' && 'Tổng quan & Chỉ số'}
                   {activeTab === 'facebook' && 'Facebook Analytics'}
+                  {activeTab === 'tiktok' && 'TikTok Analytics'}
                   {activeTab === 'remind' && 'Chăm sóc Lead (Remind)'}
                   {activeTab === 'deals' && 'Học viên Chốt (Deal Win)'}
                   {activeTab === 'bot' && 'Bot Gửi Tin Nhắn Tự Động'}
@@ -328,6 +331,8 @@ function App() {
         <main className="flex-1 px-4 sm:px-6 lg:px-8 py-5 space-y-4 max-w-[1440px] w-full mx-auto">
           {activeTab === 'facebook' ? (
             <FacebookDashboard />
+          ) : activeTab === 'tiktok' ? (
+            <TikTokDashboard />
           ) : activeTab === 'deals' ? (
             <DealWinDashboard />
           ) : activeTab === 'remind' ? (

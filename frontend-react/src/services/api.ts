@@ -848,3 +848,30 @@ export const fetchFacebookMetrics = async (
   const res = await apiClient.get<FacebookMetricsResponse>('/facebook/metrics', { params });
   return res.data;
 };
+
+// ==========================================
+// TIKTOK ANALYTICS
+// ==========================================
+
+export interface TikTokPageItem {
+  id: string;
+  name: string;
+}
+
+export const fetchTikTokPages = async (): Promise<TikTokPageItem[]> => {
+  const res = await apiClient.get<{ pages: TikTokPageItem[] }>('/tiktok/pages');
+  return res.data.pages;
+};
+
+export const fetchTikTokMetrics = async (
+  startDate?: string,
+  endDate?: string,
+  pageId?: string
+): Promise<FacebookMetricsResponse> => {
+  const params: any = {};
+  if (startDate) params.start_date = startDate;
+  if (endDate) params.end_date = endDate;
+  if (pageId) params.page_id = pageId;
+  const res = await apiClient.get<FacebookMetricsResponse>('/tiktok/metrics', { params });
+  return res.data;
+};
