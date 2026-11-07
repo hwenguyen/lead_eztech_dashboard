@@ -50,6 +50,7 @@ from backend.auth import router as auth_router
 from backend.deal_entry import router as deal_entry_router, invalidate_deal_entry_cache
 from backend.facebook_metrics import router as facebook_router, clear_facebook_cache
 from backend.tiktok_metrics import router as tiktok_router, clear_tiktok_cache
+from backend.work_report import router as work_report_router
 
 app = FastAPI(title="Pancake Lead Reporting API")
 app.include_router(auth_router)
@@ -57,6 +58,7 @@ app.include_router(broadcast_router, prefix="/api/broadcast", tags=["Broadcast"]
 app.include_router(deal_entry_router)
 app.include_router(facebook_router)
 app.include_router(tiktok_router)
+app.include_router(work_report_router)
 
 # Cấu hình CORS: Ưu tiên danh sách ALLOWED_ORIGINS từ biến môi trường
 allowed_origins_env = os.getenv("ALLOWED_ORIGINS", "").strip()

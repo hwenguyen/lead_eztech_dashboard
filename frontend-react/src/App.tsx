@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { format, subDays } from 'date-fns';
-import { Users, UserPlus, UserCheck, PhoneCall, PhoneForwarded, Percent, Calendar, RefreshCw, LayoutDashboard, Clock, Award, Bot, LogOut, KeyRound, Lock, Menu, X, Sparkles, Facebook } from 'lucide-react';
+import { Users, UserPlus, UserCheck, PhoneCall, PhoneForwarded, Percent, Calendar, RefreshCw, LayoutDashboard, Clock, Award, Bot, LogOut, KeyRound, Lock, Menu, X, Sparkles, Facebook, FileSpreadsheet } from 'lucide-react';
 import { KpiCard } from './components/KpiCard';
 import { TrendChart } from './components/TrendChart';
 import { LeadTable } from './components/LeadTable';
@@ -12,6 +12,7 @@ import { BulkMessengerDashboard } from './components/BulkMessengerDashboard';
 import { AppScriptTool } from './components/AppScriptTool';
 import { FacebookDashboard } from './components/FacebookDashboard';
 import { TikTokDashboard, TikTokIcon } from './components/TikTokDashboard';
+import { WorkReportDashboard } from './components/WorkReportDashboard';
 import { LoginPage } from './components/LoginPage';
 import { ChangePasswordModal } from './components/ChangePasswordModal';
 import { fetchSummary, fetchTrend, fetchLeads, fetchEmployees, fetchPages, getStoredAuth, logoutApi, type SummaryData, type TrendData, type Lead, type AuthUser } from './services/api';
@@ -39,7 +40,7 @@ function App() {
     }
   };
 
-  const [activeTab, setActiveTab] = useState<'overview' | 'facebook' | 'tiktok' | 'remind' | 'deals' | 'bot' | 'gas_tool'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'facebook' | 'tiktok' | 'work_report' | 'remind' | 'deals' | 'bot' | 'gas_tool'>('overview');
   const [startDate, setStartDate] = useState(format(subDays(new Date(), 7), 'yyyy-MM-dd'));
   const [endDate, setEndDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [pageId, setPageId] = useState('');
@@ -143,6 +144,7 @@ function App() {
     { id: 'overview' as const, label: 'Tổng quan & Chỉ số', icon: LayoutDashboard },
     { id: 'facebook' as const, label: 'Facebook Analytics', icon: Facebook },
     { id: 'tiktok' as const, label: 'TikTok Analytics', icon: TikTokIcon },
+    { id: 'work_report' as const, label: 'Báo cáo công việc', icon: FileSpreadsheet, badge: 'Sheet' },
     { id: 'remind' as const, label: 'Chăm sóc Lead', icon: Clock },
     { id: 'deals' as const, label: 'Deal Win', icon: Award },
     { id: 'gas_tool' as const, label: 'Nhập Deal & Công Nợ', icon: Sparkles, badge: 'CRM' },
@@ -298,6 +300,7 @@ function App() {
                   {activeTab === 'overview' && 'Tổng quan & Chỉ số'}
                   {activeTab === 'facebook' && 'Facebook Analytics'}
                   {activeTab === 'tiktok' && 'TikTok Analytics'}
+                  {activeTab === 'work_report' && 'Báo cáo công việc Tuần'}
                   {activeTab === 'remind' && 'Chăm sóc Lead (Remind)'}
                   {activeTab === 'deals' && 'Học viên Chốt (Deal Win)'}
                   {activeTab === 'bot' && 'Bot Gửi Tin Nhắn Tự Động'}
@@ -333,6 +336,8 @@ function App() {
             <FacebookDashboard />
           ) : activeTab === 'tiktok' ? (
             <TikTokDashboard />
+          ) : activeTab === 'work_report' ? (
+            <WorkReportDashboard />
           ) : activeTab === 'deals' ? (
             <DealWinDashboard />
           ) : activeTab === 'remind' ? (

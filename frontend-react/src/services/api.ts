@@ -875,3 +875,85 @@ export const fetchTikTokMetrics = async (
   const res = await apiClient.get<FacebookMetricsResponse>('/tiktok/metrics', { params });
   return res.data;
 };
+
+// ==========================================
+// WORK REPORT (BÁO CÁO CÔNG VIỆC TUẦN)
+// ==========================================
+
+export interface WorkReportChannelStat {
+  new_leads: number;
+  recontact_leads: number;
+  total_contacted: number;
+  phone_leads: number;
+  phone_rate?: number;
+  formatted_line?: string;
+}
+
+export interface WorkReportStudentItem {
+  full_name: string;
+  phone_number: string;
+  page_id: string;
+  industry: string;
+  job_title: string;
+  expectation: string;
+  course: string;
+  class_code: string;
+  revenue: number;
+  total_amount: number;
+  date: string;
+  care_by: string;
+  note: string;
+}
+
+export interface WorkReportResponse {
+  period: {
+    start_date: string;
+    end_date: string;
+  };
+  employee: string;
+  employees_list: string[];
+  lead_stats: {
+    total: WorkReportChannelStat;
+    tiktok: WorkReportChannelStat;
+    facebook: WorkReportChannelStat;
+    zalo: WorkReportChannelStat;
+    by_page: Array<{
+      page_name: string;
+      platform: 'tiktok' | 'facebook';
+      new_leads: number;
+      recontact_leads: number;
+      total_contacted: number;
+      phone_leads: number;
+    }>;
+    top_tags: Array<{ tag: string; count: number }>;
+  };
+  student_stats: {
+    total_deals: number;
+    total_revenue: number;
+    total_contract_value: number;
+    classes: string[];
+    courses: string[];
+    students: WorkReportStudentItem[];
+    formatted_line: string;
+  };
+  insights: {
+    industries: Array<{ name: string; count: number }>;
+    job_titles: Array<{ name: string; count: number }>;
+    expectations: string[];
+    formatted_lines: string[];
+  };
+}
+
+export const fetchWorkReport = async (
+  startDate?: string,
+  endDate?: string,
+  employee?: string
+): Promise<WorkReportResponse> => {
+  const params: any = {};
+  if (startDate) params.start_date = startDate;
+  if (endDate) params.end_date = endDate;
+  if (employee) params.employee = employee;
+  const res = await apiClient.get<WorkReportResponse>('/work-report', { params });
+  return res.data;
+};
+
