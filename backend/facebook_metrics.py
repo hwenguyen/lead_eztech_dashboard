@@ -233,6 +233,13 @@ def get_facebook_metrics(
                 p_norm = normalize_phone(l.phone_number) or l.phone_number.strip()
                 post_phones_set[clean_pid].add(p_norm)
 
+        # Bổ sung SĐT nếu khách từng comment vào post rồi để lại SĐT qua hội thoại/inbox
+        if l.customer_id and l.phone_number:
+            p_norm = normalize_phone(l.phone_number) or l.phone_number.strip()
+            for pid, cset in post_leads_set.items():
+                if str(l.customer_id) in cset:
+                    post_phones_set[pid].add(p_norm)
+
     # Phân bổ nhân viên & Tag từ Facebook Leads
     employee_counter: Dict[str, int] = Counter()
     tag_counter: Dict[str, int] = Counter()
