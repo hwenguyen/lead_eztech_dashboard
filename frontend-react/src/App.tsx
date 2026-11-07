@@ -140,7 +140,7 @@ function App() {
 
   const navItems = [
     { id: 'overview' as const, label: 'Tổng quan & Chỉ số', icon: LayoutDashboard },
-    { id: 'facebook' as const, label: 'Facebook Analytics', icon: Facebook, badge: 'Fanpage' },
+    { id: 'facebook' as const, label: 'Facebook Analytics', icon: Facebook },
     { id: 'remind' as const, label: 'Chăm sóc Lead', icon: Clock },
     { id: 'deals' as const, label: 'Deal Win', icon: Award },
     { id: 'gas_tool' as const, label: 'Nhập Deal & Công Nợ', icon: Sparkles, badge: 'CRM' },

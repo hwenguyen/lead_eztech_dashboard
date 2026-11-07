@@ -177,9 +177,12 @@ def get_facebook_metrics(
     # Thống kê bình luận & SĐT từ bình luận
     total_comments_received = len(comments)
     comments_with_phone = 0
-    phones_by_post: Dict[str, int] = Counter()
     comments_by_date: Dict[str, int] = Counter()
     comment_phones_by_date: Dict[str, int] = Counter()
+
+    # Ánh xạ bóc tách Lead, SĐT theo từng bài viết (hỗ trợ cả ID đầy đủ lẫn ID rút gọn sau dấu gạch dưới)
+    post_leads_set: Dict[str, Set[str]] = {}
+    post_phones_set: Dict[str, Set[str]] = {}
 
     for c in comments:
         c_ins = c.inserted_at
@@ -191,8 +194,19 @@ def get_facebook_metrics(
             comments_with_phone += 1
             if d_str:
                 comment_phones_by_date[d_str] += 1
-            if c.post_id:
-                phones_by_post[str(c.post_id)] += 1
+
+        if c.post_id:
+            raw_pid = str(c.post_id).strip()
+            clean_pid = raw_pid.split("_")[-1] if "_" in raw_pid else raw_pid
+            if clean_pid not in post_leads_set:
+                post_leads_set[clean_pid] = set()
+                post_phones_set[clean_pid] = set()
+
+            if c.customer_id:
+                post_leads_set[clean_pid].add(str(c.customer_id))
+            if has_phone:
+                p_norm = normalize_phone(c.phone_number) or c.phone_number.strip()
+                post_phones_set[clean_pid].add(p_norm)
 
     # 4. Phân loại Lead từ Facebook (qua classify_leads)
     lead_scope_page = target_page_name if target_page_name else "Anh Kế toán làm Data (Facebook)"
@@ -203,10 +217,20 @@ def get_facebook_metrics(
     fb_recontact_leads = sum(1 for l in leads.values() if l.is_recontact)
     fb_phone_leads = sum(1 for l in leads.values() if l.has_phone and l.phone_event_at)
 
-    # Đếm số SĐT và Deal của từng bài viết từ Leads
+    # Đếm số Lead và SĐT của từng bài viết từ Leads
     for l in leads.values():
-        if l.post_id and l.has_phone:
-            phones_by_post[str(l.post_id)] += 1
+        if l.post_id:
+            raw_pid = str(l.post_id).strip()
+            clean_pid = raw_pid.split("_")[-1] if "_" in raw_pid else raw_pid
+            if clean_pid not in post_leads_set:
+                post_leads_set[clean_pid] = set()
+                post_phones_set[clean_pid] = set()
+
+            if l.customer_id:
+                post_leads_set[clean_pid].add(str(l.customer_id))
+            if l.phone_number:
+                p_norm = normalize_phone(l.phone_number) or l.phone_number.strip()
+                post_phones_set[clean_pid].add(p_norm)
 
     # Phân bổ nhân viên & Tag từ Facebook Leads
     employee_counter: Dict[str, int] = Counter()
@@ -239,15 +263,14 @@ def get_facebook_metrics(
     deals: List[DealWin] = deal_query.all()
     fb_deal_wins = len(deals)
 
-    # Đếm số Deal của từng bài viết nếu lead có post_id
-    deals_by_post: Dict[str, int] = Counter()
+    # Khớp chính xác Deal Win với từng bài viết dựa trên SĐT thu được từ bài đó
+    post_deals_map: Dict[str, int] = Counter()
     for d in deals:
         if d.phone_number:
-            clean_dp = normalize_phone(d.phone_number) or d.phone_number
-            for l in leads.values():
-                if l.phone_number == clean_dp and l.post_id:
-                    deals_by_post[str(l.post_id)] += 1
-                    break
+            dp = normalize_phone(d.phone_number) or d.phone_number.strip()
+            for clean_pid, pset in post_phones_set.items():
+                if dp in pset:
+                    post_deals_map[clean_pid] += 1
 
     # 6. Thống kê bài viết, cảm xúc & loại bài
     total_posts = len(posts)
@@ -310,14 +333,20 @@ def get_facebook_metrics(
         })
         day += timedelta(days=1)
 
-    # 8. Danh sách Top bài viết hiệu quả nhất
+    # 8. Danh sách bài viết Facebook kèm thống kê Lead, SĐT, Deal Win thu được
     top_posts_data = []
-    for p in sorted(posts, key=lambda x: (x.reactions_total or 0) + (x.comment_count or 0) * 2, reverse=True)[:50]:
+    for p in posts:
         clean_msg = p.message or ""
         p_url = p.post_url or build_post_url(p.post_id, p.page_id)
-        pid_str = str(p.post_id)
+        raw_pid = str(p.post_id).strip()
+        clean_pid = raw_pid.split("_")[-1] if "_" in raw_pid else raw_pid
+
+        leads_c = len(post_leads_set.get(clean_pid, set()))
+        phones_c = len(post_phones_set.get(clean_pid, set()))
+        deals_c = post_deals_map.get(clean_pid, 0)
+
         top_posts_data.append({
-            "post_id": pid_str,
+            "post_id": raw_pid,
             "page_id": p.page_id,
             "page_name": p.page_name or "Facebook",
             "type": (p.type or "post").lower(),
@@ -328,8 +357,9 @@ def get_facebook_metrics(
             "like_count": p.like_count or 0,
             "love_count": p.love_count or 0,
             "comment_count": p.comment_count or 0,
-            "phone_count": phones_by_post.get(pid_str, 0),
-            "deal_count": deals_by_post.get(pid_str, 0),
+            "lead_count": leads_c,
+            "phone_count": phones_c,
+            "deal_count": deals_c,
         })
 
     # Tỷ lệ chuyển đổi

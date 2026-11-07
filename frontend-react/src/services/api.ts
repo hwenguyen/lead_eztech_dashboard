@@ -781,6 +781,7 @@ export interface FacebookPostItem {
   like_count: number;
   love_count: number;
   comment_count: number;
+  lead_count: number;
   phone_count: number;
   deal_count: number;
 }
