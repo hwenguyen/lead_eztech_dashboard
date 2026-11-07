@@ -304,6 +304,23 @@ def get_facebook_metrics(
         type_counter[t_name] += 1
 
     # 7. Xây dựng chuỗi xu hướng theo từng ngày trong kỳ
+    # Phân loại tổng thể nguồn: Bài viết (Post) vs Tự nhiên (Organic Inbox)
+    post_cust_set = set()
+    for cset in post_leads_set.values():
+        post_cust_set.update(cset)
+    total_post_cust = len(post_cust_set)
+
+    post_phone_set = set()
+    for pset in post_phones_set.values():
+        post_phone_set.update(pset)
+    total_post_phones = len(post_phone_set)
+
+    organic_lead_count = sum(1 for l in leads.values() if str(l.customer_id) not in post_cust_set and not l.post_id)
+    organic_phone_count = sum(1 for l in leads.values() if (str(l.customer_id) not in post_cust_set and not l.post_id) and l.has_phone and l.phone_event_at)
+
+    post_phone_rate = round((total_post_phones / total_post_cust * 100), 1) if total_post_cust > 0 else 0.0
+    organic_phone_rate = round((organic_phone_count / organic_lead_count * 100), 1) if organic_lead_count > 0 else 0.0
+
     trend_data = []
     day = start
     # Nhóm bài viết theo ngày
@@ -315,9 +332,18 @@ def get_facebook_metrics(
             posts_by_date[pd_str] += 1
             reactions_by_date[pd_str] += (p.reactions_total or 0)
 
-    # Nhóm leads theo ngày
+    # Nhóm leads theo ngày (tổng và chia post vs organic)
     leads_by_date: Dict[str, int] = Counter()
     phones_by_date: Dict[str, int] = Counter()
+    post_leads_by_date: Dict[str, int] = Counter()
+    organic_leads_by_date: Dict[str, int] = Counter()
+    organic_phones_by_date: Dict[str, int] = Counter()
+
+    for c in comments:
+        if c.inserted_at:
+            cd_str = c.inserted_at.strftime("%Y-%m-%d")
+            post_leads_by_date[cd_str] += 1
+
     for l in leads.values():
         if l.is_new and l.first_created_at:
             ld_str = l.first_created_at.strftime("%Y-%m-%d")
@@ -329,6 +355,18 @@ def get_facebook_metrics(
             ph_str = l.phone_event_at.strftime("%Y-%m-%d")
             phones_by_date[ph_str] += 1
 
+        is_post = (str(l.customer_id) in post_cust_set) or bool(l.post_id)
+        if not is_post:
+            if l.is_new and l.first_created_at:
+                ld_str = l.first_created_at.strftime("%Y-%m-%d")
+                organic_leads_by_date[ld_str] += 1
+            elif l.is_recontact:
+                for cday in l.contact_days:
+                    organic_leads_by_date[cday] += 1
+            if l.phone_event_at:
+                ph_str = l.phone_event_at.strftime("%Y-%m-%d")
+                organic_phones_by_date[ph_str] += 1
+
     while day <= end:
         d_str = day.strftime("%Y-%m-%d")
         trend_data.append({
@@ -338,6 +376,10 @@ def get_facebook_metrics(
             "comments": comments_by_date.get(d_str, 0),
             "leads": leads_by_date.get(d_str, 0),
             "phones": phones_by_date.get(d_str, 0),
+            "post_leads": post_leads_by_date.get(d_str, 0),
+            "organic_leads": organic_leads_by_date.get(d_str, 0),
+            "post_phones": comment_phones_by_date.get(d_str, 0),
+            "organic_phones": organic_phones_by_date.get(d_str, 0),
         })
         day += timedelta(days=1)
 
@@ -393,6 +435,26 @@ def get_facebook_metrics(
             "deal_conversion_rate": deal_conv_rate,
             "avg_reactions_per_post": avg_reactions_per_post,
             "avg_comments_per_post": avg_comments_per_post,
+            "post_leads": total_post_cust,
+            "post_phones": total_post_phones,
+            "post_phone_rate": post_phone_rate,
+            "organic_leads": organic_lead_count,
+            "organic_phones": organic_phone_count,
+            "organic_phone_rate": organic_phone_rate,
+        },
+        "channel_breakdown": {
+            "post": {
+                "name": "Bài viết (Post)",
+                "leads": total_post_cust,
+                "phones": total_post_phones,
+                "conversion_rate": post_phone_rate,
+            },
+            "organic": {
+                "name": "Tự nhiên (Organic Inbox)",
+                "leads": organic_lead_count,
+                "phones": organic_phone_count,
+                "conversion_rate": organic_phone_rate,
+            }
         },
         "reaction_breakdown": reaction_breakdown,
         "post_type_stats": dict(type_counter),
