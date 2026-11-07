@@ -82,6 +82,8 @@ export interface Lead {
   is_contacted: boolean;
   is_new: boolean;
   pancake_url?: string;
+  post_id?: string;
+  post_url?: string;
 }
 
 export const fetchSummary = async (startDate: string, endDate: string, pageId?: string, employee?: string) => {

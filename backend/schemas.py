@@ -30,6 +30,8 @@ class LeadResponse(BaseModel):
     is_contacted: bool
     is_new: bool
     pancake_url: Optional[str] = None
+    post_id: Optional[str] = None
+    post_url: Optional[str] = None
 
     class Config:
         from_attributes = True

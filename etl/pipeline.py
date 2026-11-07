@@ -8,7 +8,7 @@ from database.db import SessionLocal
 from database.models import RawConversation, DimLead, FactLeadActivity, Comment, Post
 from database.schema import ensure_schema
 from etl.pancake_client import PancakeClient
-from etl.utils import parse_pancake_date, resolve_phone, normalize_phone, is_page_id, resolve_canonical_page_name, is_source_page, clean_html, extract_phone_number, build_post_url
+from etl.utils import parse_pancake_date, resolve_phone, normalize_phone, is_page_id, resolve_canonical_page_name, is_source_page, clean_html, extract_phone_number, build_post_url, extract_post_info
 import re
 
 logging.basicConfig(level=logging.INFO)
@@ -61,7 +61,8 @@ def prefetch_posts(db: Session, posts: List[dict]) -> Dict[str, Post]:
 
 
 def upsert_lead_data(db: Session, raw_data: dict, page_id: str, commit: bool = True,
-                     prefetched: Optional[Dict[str, Dict[str, Any]]] = None):
+                     prefetched: Optional[Dict[str, Dict[str, Any]]] = None,
+                     allow_comment: bool = False):
     """
     Logic upsert Lead và Activity với hỗ trợ batch commit.
     prefetched: kết quả prefetch_records() → không query/flush từng dòng (nhanh hơn nhiều trên Neon).
@@ -71,13 +72,18 @@ def upsert_lead_data(db: Session, raw_data: dict, page_id: str, commit: bool = T
         conv_id = str(raw_data.get('id', ''))
         customer_id = str(raw_data.get('customer_id', ''))
         
-        # Bỏ qua Comment và Group chat Zalo (Chỉ lấy Message khách hàng cá nhân)
+        # Bỏ qua Comment (trừ khi có SĐT hoặc tag tư vấn qua allow_comment) và Group chat Zalo (Chỉ lấy Message khách hàng cá nhân)
         conv_type = str(raw_data.get('type', '')).upper()
-        if conv_type == 'COMMENT' or conv_id.startswith('pzl_g_'):
+        if conv_id.startswith('pzl_g_'):
+            return
+        if conv_type == 'COMMENT' and not allow_comment:
             return
             
         if not conv_id or not customer_id:
             return
+
+        # Trích xuất thông tin post_id và post_url
+        post_id, post_url = extract_post_info(raw_data, page_id=page_id)
 
         if prefetched is not None:
             raw_record = prefetched["raw"].get(conv_id)
@@ -114,7 +120,9 @@ def upsert_lead_data(db: Session, raw_data: dict, page_id: str, commit: bool = T
                 phone_number=phone,
                 phone_at=phone_at,
                 page_id=page_id,
-                first_created_at=conv_inserted
+                first_created_at=conv_inserted,
+                post_id=post_id,
+                post_url=post_url
             )
             db.add(lead)
             if prefetched is not None:
@@ -139,6 +147,11 @@ def upsert_lead_data(db: Session, raw_data: dict, page_id: str, commit: bool = T
             # Lead Mới tính theo hội thoại SỚM NHẤT của khách
             if conv_inserted and (not lead.first_created_at or conv_inserted < lead.first_created_at):
                 lead.first_created_at = conv_inserted
+            # Cập nhật post_id / post_url nếu lead chưa có
+            if post_id and not lead.post_id:
+                lead.post_id = post_id
+            if post_url and not lead.post_url:
+                lead.post_url = post_url
             if prefetched is None:
                 db.flush()
 
@@ -189,7 +202,9 @@ def upsert_lead_data(db: Session, raw_data: dict, page_id: str, commit: bool = T
                 is_contacted=is_contacted,
                 contacted_at=contacted_at,
                 contacted_dates=contacted_dates_str,
-                tag_timeline=tag_timeline
+                tag_timeline=tag_timeline,
+                post_id=post_id,
+                post_url=post_url
             )
             db.add(activity)
             if prefetched is not None:
@@ -204,6 +219,10 @@ def upsert_lead_data(db: Session, raw_data: dict, page_id: str, commit: bool = T
                 activity.tag_timeline = tag_timeline
             if contacted_at:
                 activity.contacted_at = contacted_at
+            if post_id and not activity.post_id:
+                activity.post_id = post_id
+            if post_url and not activity.post_url:
+                activity.post_url = post_url
 
         if commit:
             db.commit()
@@ -830,6 +849,48 @@ def run_etl_pipeline():
                                         upsert_comment_data(db, c_item, canonical_page_name, commit=False, prefetched=prefetched_comments)
                                     db.commit()
                                 logger.info(f"[COMMENTS] ✅ Đã lưu thành công {len(changed_comments)} comments thay đổi cho Page {page_id} vào bảng comments.")
+
+                                # Đồng bộ comments có SĐT hoặc Tag thành Lead trong dim_leads và fact_lead_activities
+                                comment_leads = []
+                                for c_item in changed_comments:
+                                    c_phone = c_item.get("phone_number")
+                                    c_tags = c_item.get("tags")
+                                    c_cust = c_item.get("customer_id")
+                                    c_id = c_item.get("comment_id")
+                                    if (c_phone or c_tags) and c_cust and c_id:
+                                        c_raw = c_item.get("payload") if isinstance(c_item.get("payload"), dict) else {}
+                                        c_conv = dict(c_raw)
+                                        c_conv.setdefault("id", c_id)
+                                        c_conv.setdefault("customer_id", c_cust)
+                                        c_conv.setdefault("customer_name", c_item.get("customer_name") or "Khách từ Comment")
+                                        c_conv.setdefault("phone_number", c_phone)
+                                        c_conv.setdefault("type", "COMMENT")
+                                        c_conv.setdefault("post_id", c_item.get("post_id"))
+                                        c_conv.setdefault("post_url", c_item.get("post_url") or build_post_url(c_item.get("post_id"), page_id))
+                                        c_conv.setdefault("assigned_users", c_item.get("assigned_users"))
+                                        c_conv.setdefault("inserted_at", c_item.get("inserted_at"))
+                                        c_conv.setdefault("updated_at", c_item.get("updated_at"))
+                                        if c_tags and "tags" not in c_conv:
+                                            c_conv["tags"] = [t.strip() for t in c_tags.split(",") if t.strip()]
+                                        if c_item.get("message") and "messages" not in c_conv:
+                                            c_conv["messages"] = [{
+                                                "message": c_item.get("message"),
+                                                "inserted_at": c_item.get("inserted_at"),
+                                                "role": "customer"
+                                            }]
+                                        comment_leads.append(c_conv)
+
+                                if comment_leads:
+                                    for start in range(0, len(comment_leads), DB_BATCH):
+                                        c_batch = comment_leads[start:start + DB_BATCH]
+                                        prefetched_l = prefetch_records(db, c_batch)
+                                        for c_lead in c_batch:
+                                            p_ph, _ = resolve_phone(c_lead)
+                                            if p_ph:
+                                                all_changed_phones.add(p_ph)
+                                            upsert_lead_data(db, c_lead, canonical_page_name, commit=False, prefetched=prefetched_l, allow_comment=True)
+                                        db.commit()
+                                    logger.info(f"[LEADS] ✅ Đã đồng bộ {len(comment_leads)} leads từ comments (có SĐT/Tag) cho Page {page_id}.")
 
                                 # Tự động trích xuất các bài viết/video TikTok từ comment threads mới vào bảng posts
                                 is_tiktok_page = str(page_id).startswith("tt_") or "tiktok" in canonical_page_name.lower()

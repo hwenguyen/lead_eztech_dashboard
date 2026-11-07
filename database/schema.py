@@ -20,8 +20,10 @@ INDEX_DDL = [
     "CREATE INDEX IF NOT EXISTS ix_deal_wins_page_id ON deal_wins (page_id)",
     "CREATE INDEX IF NOT EXISTS ix_dim_leads_first_created_at ON dim_leads (first_created_at)",
     "CREATE INDEX IF NOT EXISTS ix_dim_leads_phone_at ON dim_leads (phone_at)",
+    "CREATE INDEX IF NOT EXISTS ix_dim_leads_post_id ON dim_leads (post_id)",
     "CREATE INDEX IF NOT EXISTS ix_fact_lead_activities_lead_id ON fact_lead_activities (lead_id)",
     "CREATE INDEX IF NOT EXISTS ix_fact_lead_activities_contacted_at ON fact_lead_activities (contacted_at)",
+    "CREATE INDEX IF NOT EXISTS ix_fact_lead_activities_post_id ON fact_lead_activities (post_id)",
     "CREATE INDEX IF NOT EXISTS ix_comments_inserted_at ON comments (inserted_at)",
     "CREATE INDEX IF NOT EXISTS ix_comments_page_id ON comments (page_id)",
     "CREATE INDEX IF NOT EXISTS ix_comments_post_id ON comments (post_id)",
@@ -56,12 +58,24 @@ def _add_missing_columns():
     if "phone_at" not in existing_dim:
         ddl_statements.append(f"ALTER TABLE dim_leads ADD COLUMN {if_not_exists}phone_at TIMESTAMP")
         logger.info("Đã lên kế hoạch thêm cột dim_leads.phone_at.")
+    if "post_id" not in existing_dim:
+        ddl_statements.append(f"ALTER TABLE dim_leads ADD COLUMN {if_not_exists}post_id VARCHAR(255)")
+        logger.info("Đã lên kế hoạch thêm cột dim_leads.post_id.")
+    if "post_url" not in existing_dim:
+        ddl_statements.append(f"ALTER TABLE dim_leads ADD COLUMN {if_not_exists}post_url TEXT")
+        logger.info("Đã lên kế hoạch thêm cột dim_leads.post_url.")
 
     existing_fact = {col["name"] for col in inspector.get_columns("fact_lead_activities")}
     if "tag_timeline" not in existing_fact:
         col_type = "JSONB" if engine.dialect.name == "postgresql" else "JSON"
         ddl_statements.append(f"ALTER TABLE fact_lead_activities ADD COLUMN {if_not_exists}tag_timeline {col_type}")
         logger.info("Đã lên kế hoạch thêm cột fact_lead_activities.tag_timeline.")
+    if "post_id" not in existing_fact:
+        ddl_statements.append(f"ALTER TABLE fact_lead_activities ADD COLUMN {if_not_exists}post_id VARCHAR(255)")
+        logger.info("Đã lên kế hoạch thêm cột fact_lead_activities.post_id.")
+    if "post_url" not in existing_fact:
+        ddl_statements.append(f"ALTER TABLE fact_lead_activities ADD COLUMN {if_not_exists}post_url TEXT")
+        logger.info("Đã lên kế hoạch thêm cột fact_lead_activities.post_url.")
 
     table_names = inspector.get_table_names()
     if "deal_wins" in table_names:

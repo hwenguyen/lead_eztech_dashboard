@@ -80,6 +80,18 @@ export function LeadTable({ leads, totalLeads, page, pageSize, onPageChange }: L
                               <span>Pancake</span>
                             </a>
                           )}
+                          {(lead.post_id || lead.post_url) && (
+                            <a
+                              href={lead.post_url || '#'}
+                              target={lead.post_url ? "_blank" : undefined}
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-[10px] font-medium text-indigo-600 hover:text-indigo-800 bg-indigo-50/90 hover:bg-indigo-100 px-1.5 py-0.5 rounded-md border border-indigo-200/80 hover:border-indigo-300 transition-colors"
+                              title={lead.post_id ? `Mở bài viết / video (Post ID: ${lead.post_id})` : 'Mở bài viết / video'}
+                            >
+                              <ExternalLink className="w-2.5 h-2.5" />
+                              <span>Post</span>
+                            </a>
+                          )}
                         </div>
                       </div>
                     </div>

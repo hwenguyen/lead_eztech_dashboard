@@ -40,6 +40,7 @@ from etl.utils import (
     ZALO_PAGE_NAMES,
     VN_TZ,
     build_pancake_url,
+    build_post_url,
 )
 
 logger = logging.getLogger(__name__)
@@ -634,6 +635,8 @@ def list_leads(
                 customer_id=lead.customer_id,
                 page_name_or_id=lead.page_id,
             ),
+            post_id=lead.post_id,
+            post_url=lead.post_url or (build_post_url(lead.post_id, lead.page_id) if lead.post_id else None),
         ))
 
     return LeadListResponse(total=total, page=page, size=size, data=data)

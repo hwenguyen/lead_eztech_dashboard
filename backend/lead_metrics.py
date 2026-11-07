@@ -60,6 +60,8 @@ class LeadAgg:
     primary_employee: Optional[str] = None  # NV của hội thoại có tin nhắn gần nhất, dùng cho Pie Chart
     primary_contacted_at: Optional[datetime] = None
     conversation_ids: List[str] = field(default_factory=list)
+    post_id: Optional[str] = None
+    post_url: Optional[str] = None
 
     @property
     def is_contacted(self) -> bool:
@@ -205,11 +207,15 @@ def classify_leads(
                 DimLead.phone_at,
                 DimLead.page_id,
                 DimLead.first_created_at,
+                DimLead.post_id.label("dim_post_id"),
+                DimLead.post_url.label("dim_post_url"),
                 FactLeadActivity.conversation_id,
                 FactLeadActivity.status_tag,
                 FactLeadActivity.assigned_users,
                 FactLeadActivity.contacted_dates,
                 FactLeadActivity.contacted_at,
+                FactLeadActivity.post_id.label("fact_post_id"),
+                FactLeadActivity.post_url.label("fact_post_url"),
                 case(
                     (
                         and_(
@@ -245,8 +251,8 @@ def classify_leads(
         employee_key = normalize_text(employee) if employee else None
         leads: Dict[int, LeadAgg] = {}
 
-        for (lid, customer_id, name, phone_number, phone_at, pg_id, first_created_at,
-             conversation_id, status_tag, assigned_users, contacted_dates, contacted_at, tag_timeline) in raw_rows:
+        for (lid, customer_id, name, phone_number, phone_at, pg_id, first_created_at, dim_post_id, dim_post_url,
+             conversation_id, status_tag, assigned_users, contacted_dates, contacted_at, fact_post_id, fact_post_url, tag_timeline) in raw_rows:
             if conversation_id and conversation_id.startswith("pzl_g_"):
                 continue
             emps = split_csv(assigned_users)
@@ -260,6 +266,8 @@ def classify_leads(
                     continue
 
             agg = leads.get(lid)
+            p_id = dim_post_id or fact_post_id
+            p_url = dim_post_url or fact_post_url
             if agg is None:
                 created_at = _strip_tz(first_created_at)
                 canonical_pg = resolve_canonical_page_name(pg_id, fallback=pg_id)
@@ -273,7 +281,14 @@ def classify_leads(
                     is_new=bool(created_at and start <= created_at <= end),
                     has_phone=bool(phone_number),
                     phone_at=_strip_tz(phone_at),
+                    post_id=p_id,
+                    post_url=p_url,
                 )
+            else:
+                if p_id and not agg.post_id:
+                    agg.post_id = p_id
+                if p_url and not agg.post_url:
+                    agg.post_url = p_url
 
             agg.conversation_ids.append(conversation_id)
             agg.employees.update(emps)

@@ -297,8 +297,14 @@ def build_post_url(post_id: Optional[str], page_id: Optional[str] = None, raw_ur
 
     if is_tiktok:
         clean_vid = pid_str.split(":")[-1] if ":" in pid_str else pid_str
+        if clean_vid.startswith("tt_") and "_" in clean_vid[3:]:
+            clean_vid = clean_vid.split("_")[-1]
         slug = PAGE_NAME_TO_PANCAKE_ID.get(page_str) or PAGE_NAME_TO_PANCAKE_ID.get(resolve_canonical_page_name(page_str)) or ""
         handle = slug.replace("tt_", "") if slug.startswith("tt_") else ""
+        if "live" in clean_vid:
+            if handle:
+                return f"https://www.tiktok.com/@{handle}/live"
+            return "https://www.tiktok.com/live"
         if handle:
             return f"https://www.tiktok.com/@{handle}/video/{clean_vid}"
         return f"https://www.tiktok.com/video/{clean_vid}"
@@ -306,9 +312,83 @@ def build_post_url(post_id: Optional[str], page_id: Optional[str] = None, raw_ur
         # Facebook Fanpage
         clean_fbid = pid_str.split("_")[-1] if "_" in pid_str else pid_str
         clean_page = re.sub(r"^(fb_)", "", page_str)
+        if not clean_page.isdigit():
+            cname = resolve_canonical_page_name(page_str)
+            mapped_pid = PAGE_NAME_TO_PANCAKE_ID.get(page_str) or PAGE_NAME_TO_PANCAKE_ID.get(cname) or ""
+            if mapped_pid and mapped_pid.isdigit():
+                clean_page = mapped_pid
         if clean_page and clean_page.isdigit():
             return f"https://facebook.com/{clean_page}/posts/{clean_fbid}"
         return f"https://facebook.com/{clean_fbid}"
+
+
+def extract_post_info(raw_data: dict, page_id: Optional[str] = None) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Trích xuất post_id và post_url từ dữ liệu hội thoại Pancake (Inbox, Comment, Ad-driven, hoặc Activities).
+    """
+    if not isinstance(raw_data, dict):
+        return None, None
+
+    post_id: Optional[str] = None
+    post_url: Optional[str] = None
+
+    # 1. Trích xuất trực tiếp từ các trường post_id / post_url / permalink_url
+    if raw_data.get("post_id"):
+        post_id = str(raw_data["post_id"]).strip()
+
+    if raw_data.get("post_url"):
+        post_url = str(raw_data["post_url"]).strip()
+    elif raw_data.get("permalink_url"):
+        post_url = str(raw_data["permalink_url"]).strip()
+
+    # 2. Kiểm tra object post lồng nhau
+    post_obj = raw_data.get("post")
+    if isinstance(post_obj, dict):
+        if not post_id and post_obj.get("id"):
+            post_id = str(post_obj["id"]).strip()
+        if not post_id and post_obj.get("post_id"):
+            post_id = str(post_obj["post_id"]).strip()
+        if not post_url:
+            post_url = post_obj.get("permalink_url") or post_obj.get("url") or post_obj.get("link")
+            if post_url:
+                post_url = str(post_url).strip()
+
+    # 3. Kiểm tra thông tin quảng cáo (ads, ad_ids) nếu hội thoại sinh ra từ Facebook Ads
+    if not post_id:
+        ads = raw_data.get("ads")
+        if isinstance(ads, list) and ads:
+            for ad in ads:
+                if isinstance(ad, dict):
+                    cand_id = ad.get("post_id") or ad.get("ad_id") or ad.get("id")
+                    if cand_id:
+                        post_id = str(cand_id).strip()
+                        if not post_url:
+                            cand_url = ad.get("post_url") or ad.get("permalink_url")
+                            if cand_url:
+                                post_url = str(cand_url).strip()
+                        break
+
+    if not post_id:
+        ad_ids = raw_data.get("ad_ids")
+        if isinstance(ad_ids, list) and ad_ids:
+            post_id = str(ad_ids[0]).strip()
+        elif isinstance(ad_ids, str) and ad_ids.strip():
+            post_id = ad_ids.strip()
+
+    # 4. Kiểm tra activities (lịch sử tương tác của khách trên các bài viết)
+    if not post_id:
+        activities = raw_data.get("activities")
+        if isinstance(activities, list) and activities:
+            for act in reversed(activities):
+                if isinstance(act, dict) and act.get("post_id"):
+                    post_id = str(act["post_id"]).strip()
+                    break
+
+    # 5. Nếu có post_id mà chưa có post_url chuẩn, tự động sinh qua build_post_url
+    if post_id and not post_url:
+        post_url = build_post_url(post_id, page_id=page_id)
+
+    return (post_id or None), (post_url or None)
 
 
 # Page Zalo cá nhân (ID prefix pzl_) là kênh chăm sóc sau khi đã có SĐT → không cộng vào "Tất cả Page".

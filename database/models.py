@@ -29,6 +29,8 @@ class DimLead(Base):
     phone_at = Column(DateTime, nullable=True, index=True)
     page_id = Column(String, index=True, nullable=False)
     first_created_at = Column(DateTime, default=get_vn_now, index=True)
+    post_id = Column(String, index=True, nullable=True)
+    post_url = Column(Text, nullable=True)
     
     # Quan hệ 1-N với FactLeadActivity
     activities = relationship("FactLeadActivity", back_populates="lead")
@@ -47,6 +49,8 @@ class FactLeadActivity(Base):
     contacted_at = Column(DateTime, nullable=True, index=True) # Last contacted at
     contacted_dates = Column(String, nullable=True) # Comma separated dates like "2026-08-11,2026-08-12"
     tag_timeline = Column(JSON, nullable=True) # Danh sách lịch sử gắn tag [{"tag": "...", "action": "add", "tagged_at": "...", "editor": "..."}]
+    post_id = Column(String, index=True, nullable=True)
+    post_url = Column(Text, nullable=True)
     
     updated_at = Column(DateTime, default=get_vn_now, onupdate=get_vn_now)
 
