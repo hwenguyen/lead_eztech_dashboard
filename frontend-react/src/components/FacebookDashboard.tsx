@@ -18,8 +18,6 @@ import {
   Radio,
   Inbox,
   TrendingUp,
-  Sparkles,
-  Layers,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -53,7 +51,7 @@ const REACTION_COLORS: Record<string, string> = {
 };
 
 const FORMAT_COLORS: Record<string, string> = {
-  post: '#0084FF',
+  post: '#1E5BD6',     // EzTech Blue
   video: '#8B5CF6',
   photo: '#10B981',
   livestream: '#EF4444',
@@ -149,30 +147,20 @@ export function FacebookDashboard() {
         name: FORMAT_LABELS[type] || type,
         key: type,
         value: count,
-        color: FORMAT_COLORS[type] || '#3B82F6',
+        color: FORMAT_COLORS[type] || '#1E5BD6',
       }));
   }, [data?.post_type_stats]);
 
-  // Chuẩn bị dữ liệu cơ cấu nguồn Lead & SĐT (Post vs Organic)
+  // Chuẩn bị dữ liệu cơ cấu nguồn Lead & SĐT (Post vs Organic) theo màu chuẩn EzTech
   const channelLeadData = useMemo(() => {
     const postLeads = data?.summary.post_leads || 0;
     const organicLeads = data?.summary.organic_leads || 0;
     if (postLeads + organicLeads === 0) return [];
     return [
-      { name: 'Từ Bài viết (Post)', value: postLeads, color: '#1877F2' },
-      { name: 'Tự nhiên (Organic Inbox)', value: organicLeads, color: '#8B5CF6' },
+      { name: 'Bài viết (Post)', value: postLeads, color: '#1E5BD6' },   // EzTech Blue
+      { name: 'Tự nhiên (Organic)', value: organicLeads, color: '#F5B400' }, // EzTech Gold
     ];
   }, [data?.summary.post_leads, data?.summary.organic_leads]);
-
-  const channelPhoneData = useMemo(() => {
-    const postPhones = data?.summary.post_phones || 0;
-    const organicPhones = data?.summary.organic_phones || 0;
-    if (postPhones + organicPhones === 0) return [];
-    return [
-      { name: 'Từ Bài viết (Post)', value: postPhones, color: '#1877F2' },
-      { name: 'Tự nhiên (Organic Inbox)', value: organicPhones, color: '#8B5CF6' },
-    ];
-  }, [data?.summary.post_phones, data?.summary.organic_phones]);
 
   // Lọc và sắp xếp bảng Top bài viết
   const filteredPosts = useMemo(() => {
@@ -216,7 +204,7 @@ export function FacebookDashboard() {
 
   const summary = data?.summary;
 
-  // Tính toán tỷ trọng phần trăm
+  // Tính toán tỷ trọng phần trăm nguồn
   const totalChannelLeads = (summary?.post_leads || 0) + (summary?.organic_leads || 0);
   const postLeadPct = totalChannelLeads > 0 ? Math.round(((summary?.post_leads || 0) / totalChannelLeads) * 100) : 0;
   const organicLeadPct = totalChannelLeads > 0 ? 100 - postLeadPct : 0;
@@ -232,7 +220,7 @@ export function FacebookDashboard() {
         {/* Top Header: Tiêu đề & Thời gian cập nhật */}
         <div className="px-5 py-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3 border-b border-slate-100 bg-linear-to-r from-blue-50/40 via-white to-slate-50/30">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-[#1877F2] text-white flex items-center justify-center shadow-md shadow-blue-500/20 shrink-0">
+            <div className="w-10 h-10 rounded-xl bg-eztech text-white flex items-center justify-center shadow-md shadow-blue-500/20 shrink-0">
               <Facebook className="w-5 h-5 fill-white" />
             </div>
             <div>
@@ -375,7 +363,7 @@ export function FacebookDashboard() {
         <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-card hover:shadow-card-hover transition-all">
           <div className="flex items-center justify-between text-slate-500 mb-2">
             <span className="text-xs font-medium">Bài viết xuất bản</span>
-            <div className="w-7 h-7 rounded-lg bg-blue-50 text-[#1877F2] flex items-center justify-center">
+            <div className="w-7 h-7 rounded-lg bg-blue-50 text-eztech flex items-center justify-center">
               <FileText className="w-4 h-4" />
             </div>
           </div>
@@ -403,7 +391,7 @@ export function FacebookDashboard() {
           </div>
           <div className="mt-2 pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
             <span className="flex items-center gap-1">
-              <ThumbsUp className="w-3 h-3 text-[#1877F2]" /> {data?.reaction_breakdown?.like || 0}
+              <ThumbsUp className="w-3 h-3 text-eztech" /> {data?.reaction_breakdown?.like || 0}
             </span>
             <span className="flex items-center gap-1 text-rose-500 font-semibold">
               <Heart className="w-3 h-3 fill-rose-500" /> {data?.reaction_breakdown?.love || 0}
@@ -481,7 +469,7 @@ export function FacebookDashboard() {
             </div>
             <div className="flex items-center gap-3 text-[11px] font-medium text-slate-500">
               <span className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-full bg-[#1877F2]" />
+                <span className="w-2.5 h-2.5 rounded-full bg-eztech" />
                 Tương tác (Reactions)
               </span>
               <span className="flex items-center gap-1.5">
@@ -500,12 +488,12 @@ export function FacebookDashboard() {
               <AreaChart data={data?.trend || []} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                 <defs>
                   <linearGradient id="fbReactionGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#1877F2" stopOpacity={0.25} />
-                    <stop offset="95%" stopColor="#1877F2" stopOpacity={0.0} />
+                    <stop offset="5%" stopColor="#1E5BD6" stopOpacity={0.25} />
+                    <stop offset="95%" stopColor="#1E5BD6" stopOpacity={0.0} />
                   </linearGradient>
                   <linearGradient id="fbCommentGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#0F172A" stopOpacity={0.2} />
-                    <stop offset="95%" stopColor="#0F172A" stopOpacity={0.0} />
+                    <stop offset="5%" stopColor="#0A1F44" stopOpacity={0.2} />
+                    <stop offset="95%" stopColor="#0A1F44" stopOpacity={0.0} />
                   </linearGradient>
                   <linearGradient id="fbPhoneGrad" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#10B981" stopOpacity={0.3} />
@@ -558,7 +546,7 @@ export function FacebookDashboard() {
                   type="monotone"
                   dataKey="reactions"
                   name="Tương tác"
-                  stroke="#1877F2"
+                  stroke="#1E5BD6"
                   strokeWidth={2}
                   fill="url(#fbReactionGrad)"
                 />
@@ -566,7 +554,7 @@ export function FacebookDashboard() {
                   type="monotone"
                   dataKey="comments"
                   name="Bình luận"
-                  stroke="#0F172A"
+                  stroke="#0A1F44"
                   strokeWidth={1.5}
                   fill="url(#fbCommentGrad)"
                 />
@@ -593,7 +581,7 @@ export function FacebookDashboard() {
           <div className="grid grid-cols-2 gap-3 my-4">
             {/* Donut Cảm xúc */}
             <div className="flex flex-col items-center">
-              <span className="text-[11px] font-semibold text-slate-600 mb-1">Cảm xúc (Reactions)</span>
+              <span className="text-[11px] font-semibold text-slate-600 mb-1">Cảm xúc</span>
               <div className="h-32 w-full">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
@@ -625,7 +613,7 @@ export function FacebookDashboard() {
 
             {/* Donut Loại bài viết */}
             <div className="flex flex-col items-center">
-              <span className="text-[11px] font-semibold text-slate-600 mb-1">Định dạng bài</span>
+              <span className="text-[11px] font-semibold text-slate-600 mb-1">Định dạng</span>
               <div className="h-32 w-full">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
@@ -657,7 +645,7 @@ export function FacebookDashboard() {
           </div>
 
           <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
-            <span>Bài nhiều tương tác nhất:</span>
+            <span>Bài tương tác nhiều nhất:</span>
             <span className="font-semibold text-navy font-mono">
               {data?.top_posts?.[0]?.reactions_total || 0} reactions
             </span>
@@ -665,7 +653,253 @@ export function FacebookDashboard() {
         </div>
       </div>
 
-      {/* 4. Bảng Top Bài viết Facebook Hiệu quả nhất */}
+      {/* 4. PHÂN TÍCH NGUỒN LEAD: BÀI VIẾT VS ORGANIC (Đã tối giản chữ, chuẩn màu EzTech Blue & Gold) */}
+      <div className="space-y-3.5">
+        <div className="flex items-center justify-between">
+          <h3 className="text-[15px] font-bold text-navy tracking-tight">Nguồn Lead: Bài viết vs Organic</h3>
+          <span className="text-xs text-slate-400">So sánh hiệu quả thu hút & chuyển đổi SĐT</span>
+        </div>
+
+        {/* 3 Thẻ KPI Tóm tắt Nguồn Lead */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
+          {/* KPI 1: Lead từ Bài viết (Post) - Chuẩn màu EzTech Blue */}
+          <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-card hover:shadow-card-hover transition-all">
+            <div className="flex items-center justify-between text-slate-500 mb-1.5">
+              <span className="text-xs font-semibold text-navy flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-eztech" />
+                Bài viết (Post)
+              </span>
+              <div className="w-6 h-6 rounded-md bg-blue-50 text-eztech flex items-center justify-center">
+                <FileText className="w-3.5 h-3.5" />
+              </div>
+            </div>
+            <div className="text-2xl font-bold font-mono text-navy">
+              {loading ? '...' : (summary?.post_leads || 0).toLocaleString()} <span className="text-xs font-normal text-slate-400">khách</span>
+            </div>
+            <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500 font-mono">
+              <span className="text-emerald-600 font-semibold flex items-center gap-1">
+                <PhoneCall className="w-3 h-3" /> {summary?.post_phones || 0} SĐT
+              </span>
+              <span className="text-eztech font-bold bg-blue-50 px-1.5 py-0.5 rounded text-[11px]">
+                {summary?.post_phone_rate || 0}% có số
+              </span>
+            </div>
+          </div>
+
+          {/* KPI 2: Lead Tự nhiên (Organic) - Chuẩn màu EzTech Gold */}
+          <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-card hover:shadow-card-hover transition-all">
+            <div className="flex items-center justify-between text-slate-500 mb-1.5">
+              <span className="text-xs font-semibold text-navy flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-gold" />
+                Tự nhiên (Organic Inbox)
+              </span>
+              <div className="w-6 h-6 rounded-md bg-gold-light text-gold-dark flex items-center justify-center">
+                <Inbox className="w-3.5 h-3.5" />
+              </div>
+            </div>
+            <div className="text-2xl font-bold font-mono text-navy">
+              {loading ? '...' : (summary?.organic_leads || 0).toLocaleString()} <span className="text-xs font-normal text-slate-400">leads</span>
+            </div>
+            <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500 font-mono">
+              <span className="text-emerald-600 font-semibold flex items-center gap-1">
+                <PhoneCall className="w-3 h-3" /> {summary?.organic_phones || 0} SĐT
+              </span>
+              <span className="text-gold-dark font-bold bg-gold-light px-1.5 py-0.5 rounded text-[11px]">
+                {summary?.organic_phone_rate || 0}% có số
+              </span>
+            </div>
+          </div>
+
+          {/* KPI 3: Cơ cấu đóng góp Kênh */}
+          <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-card hover:shadow-card-hover transition-all">
+            <div className="flex items-center justify-between text-slate-500 mb-1.5">
+              <span className="text-xs font-semibold text-navy">Tỷ trọng nguồn</span>
+              <div className="w-6 h-6 rounded-md bg-slate-100 text-slate-600 flex items-center justify-center">
+                <TrendingUp className="w-3.5 h-3.5" />
+              </div>
+            </div>
+            <div className="text-xl font-bold font-mono text-navy flex items-baseline gap-1.5">
+              <span className="text-gold-dark">{organicLeadPct}% Organic</span>
+              <span className="text-slate-300">•</span>
+              <span className="text-eztech">{postLeadPct}% Post</span>
+            </div>
+            <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500 font-mono">
+              <span>Đóng góp SĐT:</span>
+              <span className="font-semibold text-navy">
+                {organicPhonePct}% Inbox • {postPhonePct}% Post
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* 2 Biểu đồ chuyên sâu Phân tích Post vs Organic */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {/* Chart 1: Cơ cấu Nguồn Lead & Bảng đối soát gọn */}
+          <div className="bg-white rounded-xl border border-slate-200/80 p-5 shadow-card flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="text-sm font-bold text-navy">Cơ cấu Nguồn & Chuyển đổi</h4>
+                <div className="flex items-center gap-2 text-[11px] font-medium text-slate-500">
+                  <span className="flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-eztech" />
+                    Post
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-gold" />
+                    Organic
+                  </span>
+                </div>
+              </div>
+
+              {/* Donut Chart tinh gọn */}
+              <div className="h-36 w-full my-2">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={channelLeadData}
+                      dataKey="value"
+                      nameKey="name"
+                      innerRadius={36}
+                      outerRadius={56}
+                      paddingAngle={3}
+                    >
+                      {channelLeadData.map(entry => (
+                        <Cell key={entry.name} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            {/* Bảng so sánh chỉ số trực tiếp gọn gàng */}
+            <div className="pt-3 border-t border-slate-100">
+              <table className="w-full text-xs text-left">
+                <thead>
+                  <tr className="text-slate-400 text-[10px] uppercase font-semibold border-b border-slate-100">
+                    <th className="pb-1.5">Nguồn</th>
+                    <th className="pb-1.5 text-right">Khách</th>
+                    <th className="pb-1.5 text-right">SĐT</th>
+                    <th className="pb-1.5 text-right">Tỷ lệ số</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50 font-mono text-[11px]">
+                  <tr>
+                    <td className="py-2 font-sans font-medium text-navy flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-eztech" />
+                      Bài viết (Post)
+                    </td>
+                    <td className="py-2 text-right text-slate-700">{(summary?.post_leads || 0).toLocaleString()}</td>
+                    <td className="py-2 text-right text-emerald-600 font-bold">{summary?.post_phones || 0}</td>
+                    <td className="py-2 text-right text-eztech font-bold">{summary?.post_phone_rate || 0}%</td>
+                  </tr>
+                  <tr>
+                    <td className="py-2 font-sans font-medium text-navy flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-gold" />
+                      Tự nhiên (Organic)
+                    </td>
+                    <td className="py-2 text-right text-slate-700">{(summary?.organic_leads || 0).toLocaleString()}</td>
+                    <td className="py-2 text-right text-emerald-600 font-bold">{summary?.organic_phones || 0}</td>
+                    <td className="py-2 text-right text-gold-dark font-bold">{summary?.organic_phone_rate || 0}%</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Chart 2: Biểu đồ cột Xu hướng Lead theo ngày (Post vs Organic) */}
+          <div className="bg-white rounded-xl border border-slate-200/80 p-5 shadow-card flex flex-col justify-between">
+            <div>
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                <h4 className="text-sm font-bold text-navy">Xu hướng Lead theo ngày</h4>
+                <div className="flex items-center gap-3 text-[11px] font-medium text-slate-500">
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-xs bg-gold" />
+                    Organic Inbox
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-xs bg-eztech" />
+                    Lead từ Post
+                  </span>
+                </div>
+              </div>
+
+              <div className="h-[220px] w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={data?.trend || []} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                    <XAxis
+                      dataKey="date"
+                      tick={{ fontSize: 10, fill: '#94a3b8' }}
+                      tickFormatter={d => {
+                        const parts = d.split('-');
+                        return parts.length === 3 ? `${parts[2]}/${parts[1]}` : d;
+                      }}
+                      axisLine={{ stroke: '#e2e8f0' }}
+                      tickLine={false}
+                    />
+                    <YAxis
+                      tick={{ fontSize: 10, fill: '#94a3b8' }}
+                      axisLine={false}
+                      tickLine={false}
+                      allowDecimals={false}
+                    />
+                    <Tooltip
+                      content={({ active, payload, label }) => {
+                        if (active && payload && payload.length) {
+                          return (
+                            <div className="bg-white/95 backdrop-blur-md border border-slate-200/90 rounded-xl shadow-lg p-3 text-xs">
+                              <p className="font-mono font-semibold text-navy mb-1.5 pb-1 border-b border-slate-100">
+                                Ngày {label}
+                              </p>
+                              <div className="space-y-1">
+                                {payload.map((p: any) => (
+                                  <div key={p.dataKey} className="flex items-center justify-between gap-4">
+                                    <span className="flex items-center gap-1.5 text-slate-500">
+                                      <span className="w-2 h-2 rounded-full" style={{ backgroundColor: p.color }} />
+                                      {p.name}:
+                                    </span>
+                                    <span className="font-mono font-bold text-navy tabular-nums">{p.value}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        }
+                        return null;
+                      }}
+                    />
+                    <Bar
+                      dataKey="organic_leads"
+                      name="Lead Organic"
+                      fill="#F5B400"
+                      stackId="channel"
+                      radius={[0, 0, 0, 0]}
+                    />
+                    <Bar
+                      dataKey="post_leads"
+                      name="Lead từ Post"
+                      fill="#1E5BD6"
+                      stackId="channel"
+                      radius={[3, 3, 0, 0]}
+                    />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            <div className="pt-2.5 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
+              <span>Tổng tương tác bài viết:</span>
+              <span className="font-semibold text-eztech font-mono">
+                {(summary?.total_comments || 0).toLocaleString()} bình luận
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* 5. Bảng Top Bài viết Facebook Hiệu quả nhất */}
       <div className="bg-white rounded-xl border border-slate-200/80 shadow-card overflow-hidden">
         {/* Bảng Header & Bộ lọc bài viết */}
         <div className="p-4 sm:p-5 border-b border-slate-100 flex flex-col md:flex-row md:items-center md:justify-between gap-3 bg-slate-50/40">
@@ -749,7 +983,7 @@ export function FacebookDashboard() {
                     case 'livestream':
                       return <Radio className="w-3.5 h-3.5 text-rose-600 animate-pulse" />;
                     default:
-                      return <FileText className="w-3.5 h-3.5 text-blue-600" />;
+                      return <FileText className="w-3.5 h-3.5 text-eztech" />;
                   }
                 };
 
@@ -803,8 +1037,8 @@ export function FacebookDashboard() {
                     {/* Cột Lead thu về */}
                     <td className="px-4 py-3.5 text-right whitespace-nowrap">
                       {post.lead_count > 0 ? (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-mono font-bold bg-blue-50 text-blue-700 border border-blue-200">
-                          <Users className="w-3 h-3 text-[#1877F2]" />
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-mono font-bold bg-blue-50 text-eztech border border-blue-200">
+                          <Users className="w-3 h-3 text-eztech" />
                           {post.lead_count}
                         </span>
                       ) : (
@@ -827,8 +1061,8 @@ export function FacebookDashboard() {
                     {/* Cột Deal Win */}
                     <td className="px-4 py-3.5 text-right whitespace-nowrap">
                       {post.deal_count > 0 ? (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-mono font-bold bg-amber-50 text-amber-700 border border-amber-200">
-                          <Award className="w-3 h-3 text-amber-600" />
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-mono font-bold bg-gold-light text-gold-dark border border-gold-border">
+                          <Award className="w-3 h-3 text-gold-dark" />
                           {post.deal_count}
                         </span>
                       ) : (
@@ -843,7 +1077,7 @@ export function FacebookDashboard() {
                           href={post.post_url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#1877F2] hover:text-blue-800 bg-blue-50/80 hover:bg-blue-100/80 px-2 py-1 rounded-md border border-blue-200/80 transition-colors"
+                          className="inline-flex items-center gap-1 text-[11px] font-semibold text-eztech hover:text-eztech-hover bg-blue-50/80 hover:bg-blue-100/80 px-2 py-1 rounded-md border border-blue-200/80 transition-colors"
                           title={`Xem bài viết: ${post.post_id}`}
                         >
                           <Facebook className="w-3 h-3" />
@@ -880,307 +1114,6 @@ export function FacebookDashboard() {
             </button>
           </div>
         )}
-      </div>
-
-      {/* 5. PHÂN TÍCH CHUYÊN SÂU NGUỒN LEAD: BÀI VIẾT (POST) VS TỰ NHIÊN (ORGANIC INBOX) */}
-      <div className="space-y-4">
-        {/* Tiêu đề phân đoạn */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pt-2">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-linear-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center shadow-xs">
-              <Layers className="w-4 h-4" />
-            </div>
-            <div>
-              <h3 className="text-base font-bold text-navy tracking-tight flex items-center gap-2">
-                Phân tích Nguồn Lead: Bài viết (Post) vs Tự nhiên (Organic)
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 uppercase">
-                  Hiệu quả Kênh
-                </span>
-              </h3>
-              <p className="text-xs text-slate-500 mt-0.5">
-                So sánh số lượng khách hàng tiềm năng, SĐT thu được và tỷ lệ ra số giữa kênh Bài viết và Tin nhắn trực tiếp
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* 3 Thẻ KPI So sánh Nguồn Lead */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
-          {/* KPI 1: Lead từ Bài viết (Post) */}
-          <div className="bg-white rounded-xl border border-blue-100 p-4 shadow-card hover:shadow-card-hover transition-all relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-24 h-24 bg-blue-500/5 rounded-full blur-xl pointer-events-none" />
-            <div className="flex items-center justify-between text-slate-500 mb-2">
-              <div className="flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-[#1877F2]" />
-                <span className="text-xs font-semibold text-navy">Từ Bài viết (Post / Ads)</span>
-              </div>
-              <div className="w-7 h-7 rounded-lg bg-blue-50 text-[#1877F2] flex items-center justify-center">
-                <FileText className="w-4 h-4" />
-              </div>
-            </div>
-            <div className="text-2xl font-bold font-mono text-navy">
-              {loading ? '...' : (summary?.post_leads || 0).toLocaleString()} <span className="text-xs font-normal text-slate-500">khách</span>
-            </div>
-            <div className="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
-              <span className="flex items-center gap-1 text-emerald-600 font-semibold">
-                <PhoneCall className="w-3 h-3" /> {summary?.post_phones || 0} SĐT thu được
-              </span>
-              <span className="font-mono font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
-                Tỷ lệ có số: {summary?.post_phone_rate || 0}%
-              </span>
-            </div>
-          </div>
-
-          {/* KPI 2: Lead Tự nhiên (Organic Inbox) */}
-          <div className="bg-white rounded-xl border border-purple-100 p-4 shadow-card hover:shadow-card-hover transition-all relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-24 h-24 bg-purple-500/5 rounded-full blur-xl pointer-events-none" />
-            <div className="flex items-center justify-between text-slate-500 mb-2">
-              <div className="flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-[#8B5CF6]" />
-                <span className="text-xs font-semibold text-navy">Tự nhiên (Organic Inbox)</span>
-              </div>
-              <div className="w-7 h-7 rounded-lg bg-purple-50 text-[#8B5CF6] flex items-center justify-center">
-                <Inbox className="w-4 h-4" />
-              </div>
-            </div>
-            <div className="text-2xl font-bold font-mono text-navy">
-              {loading ? '...' : (summary?.organic_leads || 0).toLocaleString()} <span className="text-xs font-normal text-slate-500">leads</span>
-            </div>
-            <div className="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
-              <span className="flex items-center gap-1 text-emerald-600 font-semibold">
-                <PhoneCall className="w-3 h-3" /> {summary?.organic_phones || 0} SĐT thu được
-              </span>
-              <span className="font-mono font-bold text-purple-600 bg-purple-50 px-2 py-0.5 rounded border border-purple-200">
-                Tỷ lệ có số: {summary?.organic_phone_rate || 0}%
-              </span>
-            </div>
-          </div>
-
-          {/* KPI 3: Cơ cấu đóng góp & Deal chốt */}
-          <div className="bg-white rounded-xl border border-emerald-100 p-4 shadow-card hover:shadow-card-hover transition-all relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-500/5 rounded-full blur-xl pointer-events-none" />
-            <div className="flex items-center justify-between text-slate-500 mb-2">
-              <div className="flex items-center gap-1.5">
-                <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
-                <span className="text-xs font-semibold text-navy">Cơ cấu đóng góp Kênh</span>
-              </div>
-              <div className="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
-                <TrendingUp className="w-4 h-4" />
-              </div>
-            </div>
-            <div className="text-xl font-bold font-mono text-navy flex items-baseline gap-2">
-              <span className="text-purple-600">{organicLeadPct}% Organic</span>
-              <span className="text-slate-300">•</span>
-              <span className="text-blue-600">{postLeadPct}% Post</span>
-            </div>
-            <div className="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
-              <span>Đóng góp SĐT:</span>
-              <span className="font-mono font-bold text-emerald-700">
-                {organicPhonePct}% Inbox vs {postPhonePct}% Post
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* 2 Biểu đồ chuyên sâu Phân tích Post vs Organic */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {/* Chart 1: Cơ cấu Nguồn Lead & SĐT (Donut Charts & Bảng đối soát) */}
-          <div className="bg-white rounded-xl border border-slate-200/80 p-5 shadow-card flex flex-col justify-between">
-            <div>
-              <div className="flex items-center justify-between">
-                <div>
-                  <h4 className="text-sm font-bold text-navy">Cơ cấu Nguồn Lead & Số điện thoại</h4>
-                  <p className="text-xs text-slate-500 mt-0.5">Tỷ lệ đóng góp giữa Bài viết (Post) và Tin nhắn tự nhiên (Organic)</p>
-                </div>
-              </div>
-
-              {/* 2 Donut Charts Song song */}
-              <div className="grid grid-cols-2 gap-3 my-4">
-                {/* Donut Lead */}
-                <div className="flex flex-col items-center">
-                  <span className="text-[11px] font-semibold text-slate-600 mb-1">Cơ cấu Khách (Leads)</span>
-                  <div className="h-32 w-full">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
-                        <Pie
-                          data={channelLeadData}
-                          dataKey="value"
-                          nameKey="name"
-                          innerRadius={30}
-                          outerRadius={50}
-                          paddingAngle={3}
-                        >
-                          {channelLeadData.map(entry => (
-                            <Cell key={entry.name} fill={entry.color} />
-                          ))}
-                        </Pie>
-                        <Tooltip />
-                      </PieChart>
-                    </ResponsiveContainer>
-                  </div>
-                  <div className="text-center text-[11px] font-mono text-slate-600 mt-1">
-                    <span className="text-blue-600 font-bold">{postLeadPct}%</span> Post vs{' '}
-                    <span className="text-purple-600 font-bold">{organicLeadPct}%</span> Organic
-                  </div>
-                </div>
-
-                {/* Donut Phone */}
-                <div className="flex flex-col items-center">
-                  <span className="text-[11px] font-semibold text-slate-600 mb-1">Cơ cấu Số điện thoại</span>
-                  <div className="h-32 w-full">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
-                        <Pie
-                          data={channelPhoneData}
-                          dataKey="value"
-                          nameKey="name"
-                          innerRadius={30}
-                          outerRadius={50}
-                          paddingAngle={3}
-                        >
-                          {channelPhoneData.map(entry => (
-                            <Cell key={entry.name} fill={entry.color} />
-                          ))}
-                        </Pie>
-                        <Tooltip />
-                      </PieChart>
-                    </ResponsiveContainer>
-                  </div>
-                  <div className="text-center text-[11px] font-mono text-slate-600 mt-1">
-                    <span className="text-blue-600 font-bold">{postPhonePct}%</span> Post vs{' '}
-                    <span className="text-purple-600 font-bold">{organicPhonePct}%</span> Organic
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Bảng so sánh chỉ số trực tiếp */}
-            <div className="pt-3 border-t border-slate-100 overflow-hidden">
-              <table className="w-full text-xs text-left">
-                <thead>
-                  <tr className="text-slate-400 text-[10px] uppercase font-semibold border-b border-slate-100">
-                    <th className="pb-1.5">Nguồn</th>
-                    <th className="pb-1.5 text-right">Khách / Lead</th>
-                    <th className="pb-1.5 text-right">SĐT thu được</th>
-                    <th className="pb-1.5 text-right">Tỷ lệ có số</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-50 font-mono text-[11px]">
-                  <tr>
-                    <td className="py-1.5 font-sans font-medium text-navy flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-[#1877F2]" />
-                      Bài viết (Post)
-                    </td>
-                    <td className="py-1.5 text-right text-slate-700">{(summary?.post_leads || 0).toLocaleString()}</td>
-                    <td className="py-1.5 text-right text-emerald-600 font-bold">{summary?.post_phones || 0}</td>
-                    <td className="py-1.5 text-right text-blue-600 font-semibold">{summary?.post_phone_rate || 0}%</td>
-                  </tr>
-                  <tr>
-                    <td className="py-1.5 font-sans font-medium text-navy flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-[#8B5CF6]" />
-                      Tự nhiên (Organic)
-                    </td>
-                    <td className="py-1.5 text-right text-slate-700">{(summary?.organic_leads || 0).toLocaleString()}</td>
-                    <td className="py-1.5 text-right text-emerald-600 font-bold">{summary?.organic_phones || 0}</td>
-                    <td className="py-1.5 text-right text-purple-600 font-semibold">{summary?.organic_phone_rate || 0}%</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {/* Chart 2: Biểu đồ cột Xu hướng Lead theo ngày: Post vs Organic */}
-          <div className="bg-white rounded-xl border border-slate-200/80 p-5 shadow-card flex flex-col justify-between">
-            <div>
-              <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-                <div>
-                  <h4 className="text-sm font-bold text-navy">Xu hướng Lead theo ngày (Post vs Organic)</h4>
-                  <p className="text-xs text-slate-500 mt-0.5">Biến động lượng khách hàng mới mỗi ngày theo nguồn</p>
-                </div>
-                <div className="flex items-center gap-3 text-[11px] font-medium text-slate-500">
-                  <span className="flex items-center gap-1.5">
-                    <span className="w-2.5 h-2.5 rounded-sm bg-[#8B5CF6]" />
-                    Organic Inbox
-                  </span>
-                  <span className="flex items-center gap-1.5">
-                    <span className="w-2.5 h-2.5 rounded-sm bg-[#1877F2]" />
-                    Lead từ Post
-                  </span>
-                </div>
-              </div>
-
-              <div className="h-[240px] w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={data?.trend || []} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                    <XAxis
-                      dataKey="date"
-                      tick={{ fontSize: 10, fill: '#94a3b8' }}
-                      tickFormatter={d => {
-                        const parts = d.split('-');
-                        return parts.length === 3 ? `${parts[2]}/${parts[1]}` : d;
-                      }}
-                      axisLine={{ stroke: '#e2e8f0' }}
-                      tickLine={false}
-                    />
-                    <YAxis
-                      tick={{ fontSize: 10, fill: '#94a3b8' }}
-                      axisLine={false}
-                      tickLine={false}
-                      allowDecimals={false}
-                    />
-                    <Tooltip
-                      content={({ active, payload, label }) => {
-                        if (active && payload && payload.length) {
-                          return (
-                            <div className="bg-white/95 backdrop-blur-md border border-slate-200/90 rounded-xl shadow-lg p-3 text-xs">
-                              <p className="font-mono font-semibold text-navy mb-1.5 pb-1 border-b border-slate-100">
-                                Ngày {label}
-                              </p>
-                              <div className="space-y-1">
-                                {payload.map((p: any) => (
-                                  <div key={p.dataKey} className="flex items-center justify-between gap-4">
-                                    <span className="flex items-center gap-1.5 text-slate-500">
-                                      <span className="w-2 h-2 rounded-full" style={{ backgroundColor: p.color }} />
-                                      {p.name}:
-                                    </span>
-                                    <span className="font-mono font-bold text-navy tabular-nums">{p.value}</span>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          );
-                        }
-                        return null;
-                      }}
-                    />
-                    <Bar
-                      dataKey="organic_leads"
-                      name="Lead Organic"
-                      fill="#8B5CF6"
-                      stackId="channel"
-                      radius={[0, 0, 0, 0]}
-                    />
-                    <Bar
-                      dataKey="post_leads"
-                      name="Lead từ Post"
-                      fill="#1877F2"
-                      stackId="channel"
-                      radius={[3, 3, 0, 0]}
-                    />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-
-            <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
-              <span>Tổng tương tác bài viết (Post):</span>
-              <span className="font-semibold text-blue-600 font-mono">
-                {(summary?.total_comments || 0).toLocaleString()} bình luận
-              </span>
-            </div>
-          </div>
-        </div>
       </div>
     </div>
   );
