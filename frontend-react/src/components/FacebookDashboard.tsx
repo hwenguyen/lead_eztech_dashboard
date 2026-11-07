@@ -74,6 +74,7 @@ export function FacebookDashboard() {
   // Dữ liệu chỉ số
   const [data, setData] = useState<FacebookMetricsResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
 
   // Bộ lọc bảng bài viết
@@ -92,12 +93,14 @@ export function FacebookDashboard() {
   // Load dữ liệu metrics
   const loadMetrics = async () => {
     setLoading(true);
+    setError(null);
     try {
       const res = await fetchFacebookMetrics(startDate, endDate, pageId || undefined);
       setData(res);
       setLastRefreshed(new Date());
-    } catch (err) {
+    } catch (err: any) {
       console.error('Lỗi khi tải dữ liệu Facebook metrics:', err);
+      setError(err?.response?.data?.detail || err?.message || 'Có lỗi xảy ra khi tải dữ liệu Facebook');
     } finally {
       setLoading(false);
     }
@@ -314,6 +317,22 @@ export function FacebookDashboard() {
           </div>
         </div>
       </div>
+
+      {/* Thông báo lỗi nếu API gặp sự cố */}
+      {error && (
+        <div className="bg-rose-50 border border-rose-200 text-rose-700 px-4 py-3 rounded-xl text-xs flex items-center justify-between shadow-2xs">
+          <div className="flex items-center gap-2">
+            <span className="font-bold">Lỗi tải dữ liệu:</span>
+            <span>{error}</span>
+          </div>
+          <button
+            onClick={loadMetrics}
+            className="px-3 py-1 bg-white hover:bg-rose-100 text-rose-700 font-semibold rounded-md border border-rose-300 transition-colors cursor-pointer"
+          >
+            Thử lại
+          </button>
+        </div>
+      )}
 
       {/* 2. Hàng 5 Thẻ KPI Tóm tắt */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3.5">

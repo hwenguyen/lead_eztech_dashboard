@@ -147,6 +147,7 @@ def get_facebook_metrics(
     # 3. Truy vấn Bình luận (Comment)
     comment_query = db.query(
         Comment.comment_id,
+        Comment.customer_id,
         Comment.post_id,
         Comment.phone_number,
         Comment.inserted_at,
