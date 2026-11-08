@@ -52,12 +52,12 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, embedded =
   };
 
   return (
-    <div className={embedded ? "py-6 flex items-center justify-center p-2 relative text-gray-800" : "min-h-screen bg-gradient-to-br from-slate-900 via-navy to-slate-950 flex items-center justify-center p-4 relative overflow-hidden text-gray-800"}>
+    <div className={embedded ? "py-6 flex items-center justify-center p-2 relative text-gray-800" : "min-h-screen bg-gradient-to-br from-navy via-brand-950 to-[#071630] flex items-center justify-center p-4 relative overflow-hidden text-gray-800"}>
       {/* Decorative Glow Elements for standalone */}
       {!embedded && (
         <>
-          <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
-          <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
+          <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-brand-500/15 rounded-full blur-3xl pointer-events-none" />
+          <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-gold-500/10 rounded-full blur-3xl pointer-events-none" />
         </>
       )}
 
@@ -66,11 +66,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, embedded =
         <div className={embedded ? "bg-white rounded-3xl shadow-xl border border-gray-200 p-8 sm:p-10 space-y-6" : "bg-white/95 backdrop-blur-xl rounded-3xl shadow-2xl border border-white/20 p-8 sm:p-10 space-y-6"}>
           {/* Header & Logo */}
           <div className="text-center space-y-2">
-            <div className="inline-flex items-center justify-center p-3 rounded-2xl bg-gradient-to-tr from-indigo-50 to-blue-50 border border-indigo-100 shadow-inner mb-1">
+            <div className="inline-flex items-center justify-center p-3 rounded-2xl bg-gradient-to-tr from-brand-50 to-white border border-brand-200/80 shadow-inner mb-1">
               {embedded ? (
-                <Lock className="w-8 h-8 text-indigo-600" />
+                <Lock className="w-8 h-8 text-brand-500" />
               ) : (
-                <img src="/logo.png" alt="EzTech Logo" className="h-12 object-contain" />
+                <img src="/brand_ngang.png" alt="EzTech" className="h-10 w-auto object-contain" />
               )}
             </div>
             <h1 className="text-2xl font-extrabold text-navy tracking-tight">
@@ -111,7 +111,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, embedded =
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   placeholder="Nhập tên tài khoản..."
-                  className="w-full pl-10 pr-4 py-2.5 bg-gray-50/80 border border-gray-300 rounded-xl text-xs text-gray-900 placeholder-gray-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 transition-all font-medium"
+                  className="w-full pl-10 pr-4 py-2.5 bg-gray-50/80 border border-gray-300 rounded-xl text-xs text-gray-900 placeholder-gray-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-all font-medium"
                 />
               </div>
             </div>
@@ -131,7 +131,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, embedded =
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Nhập mật khẩu..."
-                  className="w-full pl-10 pr-10 py-2.5 bg-gray-50/80 border border-gray-300 rounded-xl text-xs text-gray-900 placeholder-gray-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 transition-all font-medium"
+                  className="w-full pl-10 pr-10 py-2.5 bg-gray-50/80 border border-gray-300 rounded-xl text-xs text-gray-900 placeholder-gray-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-all font-medium"
                 />
                 <button
                   type="button"
@@ -151,7 +151,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, embedded =
                   type="checkbox"
                   checked={rememberMe}
                   onChange={(e) => setRememberMe(e.target.checked)}
-                  className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5"
+                  className="rounded border-gray-300 text-brand-500 focus:ring-indigo-500 w-3.5 h-3.5"
                 />
                 <span className="text-xs text-gray-600 font-medium">Ghi nhớ đăng nhập (30 ngày)</span>
               </label>
@@ -161,7 +161,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, embedded =
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-2.5 px-4 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white rounded-xl text-xs font-bold shadow-lg shadow-indigo-600/20 flex items-center justify-center gap-2 transition-all transform active:scale-[0.99] disabled:opacity-70 disabled:cursor-not-allowed mt-2"
+              className="w-full py-2.5 px-4 gradient-brand text-white rounded-xl text-xs font-bold shadow-lg shadow-brand-500/25 hover:shadow-brand-500/35 flex items-center justify-center gap-2 transition-all transform active:scale-[0.99] disabled:opacity-70 disabled:cursor-not-allowed mt-2"
             >
               {loading ? (
                 <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />

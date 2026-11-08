@@ -14,7 +14,7 @@ export function LeadTable({ leads, totalLeads, page, pageSize, onPageChange }: L
   const totalPages = Math.ceil(totalLeads / pageSize);
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200/80 shadow-card overflow-hidden flex flex-col">
+    <div className="bg-white rounded-2xl border border-slate-200/80 shadow-card overflow-hidden flex flex-col">
       <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
         <div className="flex items-baseline gap-2.5">
           <h3 className="text-[15px] font-semibold tracking-[-0.01em] text-navy">Danh sách Lead</h3>

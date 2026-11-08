@@ -17,19 +17,19 @@ interface KpiCardProps {
 
 const colorMap = {
   navy: {
-    icon: 'bg-slate-100 text-navy border border-slate-200/80',
+    icon: 'bg-brand-50 text-navy border border-brand-200/70',
     dot: 'bg-navy',
     accent: 'text-slate-500',
   },
   blue: {
-    icon: 'bg-eztech-light text-eztech border border-eztech-border/60',
-    dot: 'bg-eztech',
-    accent: 'text-eztech',
+    icon: 'bg-brand-100 text-brand-600 border border-brand-200',
+    dot: 'bg-brand-500',
+    accent: 'text-brand-600',
   },
   gold: {
-    icon: 'bg-gold-light text-gold-dark border border-gold-border/80',
-    dot: 'bg-gold',
-    accent: 'text-gold-dark',
+    icon: 'bg-gold-100 text-gold-700 border border-gold-300',
+    dot: 'bg-gold-500',
+    accent: 'text-gold-700',
   },
   green: {
     icon: 'bg-emerald-50/80 text-emerald-600 border border-emerald-200/60',
@@ -73,10 +73,10 @@ export function KpiCard({ title, value, subtitle, icon, color = 'blue', trend, h
   return (
     <div
       className={cn(
-        "group relative bg-white rounded-xl border p-4 shadow-card hover:shadow-card-hover transition-all duration-200 flex flex-col justify-between gap-3",
+        "group relative bg-white rounded-2xl border p-4 shadow-card hover:shadow-card-hover transition-all duration-200 flex flex-col justify-between gap-3",
         highlight
-          ? "border-gold/50 bg-gradient-to-b from-white to-gold-light/25"
-          : "border-slate-200/80 hover:border-eztech/30"
+          ? "border-gold-400/80 bg-gradient-to-b from-white to-gold-50/40 shadow-xs"
+          : "border-slate-200/80 hover:border-brand-400/50"
       )}
     >
       <div className="flex items-center justify-between gap-2">

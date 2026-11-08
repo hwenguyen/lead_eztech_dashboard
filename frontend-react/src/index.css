@@ -4,8 +4,24 @@
 
 @layer base {
   body {
-    @apply bg-bg-page text-foreground font-sans antialiased selection:bg-eztech/15 selection:text-eztech;
+    @apply bg-surface text-foreground font-sans antialiased selection:bg-brand-500/15 selection:text-brand-600;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+}
+
+@layer utilities {
+  /* Official EzTech Brand Gradients from eztech-official.com */
+  .gradient-brand {
+    background: linear-gradient(135deg, #0A1F44 0%, #1E5BD6 100%);
+  }
+  .gradient-gold {
+    background: linear-gradient(135deg, #FFE082 0%, #FFC107 100%);
+  }
+  .gradient-surface {
+    background: linear-gradient(180deg, #FFFFFF 0%, #F3F6FA 100%);
+  }
+  .gradient-card {
+    background: linear-gradient(180deg, #FFFFFF 0%, #F8FAFD 100%);
   }
 }
 

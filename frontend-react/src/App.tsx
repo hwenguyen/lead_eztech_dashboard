@@ -167,18 +167,18 @@ function App() {
           isSidebarOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full'
         }`}
       >
-        {/* Brand / Logo Header */}
-        <div className="h-14 px-4 border-b border-slate-100 flex items-center justify-between">
+        {/* Brand / Logo Header - Synced with eztech-official.com */}
+        <div className="h-16 px-4 border-b border-slate-100 flex items-center justify-between bg-white">
           <div className="flex items-center gap-2.5">
-            <img src="/logo.png" alt="EzTech Logo" className="h-7 object-contain" />
-            <div className="border-l border-slate-200 pl-2.5">
-              <h1 className="text-xs font-bold text-navy tracking-tight leading-none">Lead Analytics</h1>
-              <p className="text-[10px] text-slate-400 mt-0.5 font-medium">EzTech CRM</p>
+            <img src="/brand_ngang.png" alt="EzTech - Giải pháp dữ liệu cho doanh nghiệp" className="h-8 w-auto max-w-[155px] object-contain shrink-0" />
+            <div className="border-l border-slate-200 pl-2">
+              <span className="text-[10px] font-bold text-navy uppercase tracking-wider block leading-tight">CRM</span>
+              <span className="text-[9px] text-slate-400 font-medium block">Lead Analytics</span>
             </div>
           </div>
           <button
             onClick={() => setIsSidebarOpen(false)}
-            className="lg:hidden p-1.5 text-slate-400 hover:text-navy rounded-lg"
+            className="lg:hidden p-1.5 text-slate-400 hover:text-navy rounded-xl"
           >
             <X className="w-4 h-4" />
           </button>
@@ -197,19 +197,16 @@ function App() {
               <button
                 key={item.id}
                 onClick={() => { setActiveTab(item.id); setIsSidebarOpen(false); }}
-                className={`group relative w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-xs transition-all ${
+                className={`group relative w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs transition-all ${
                   isActive
-                    ? 'bg-eztech-light text-eztech font-semibold'
-                    : 'text-slate-600 font-medium hover:text-navy hover:bg-slate-50'
+                    ? 'gradient-brand text-white font-semibold shadow-md shadow-brand-500/20'
+                    : 'text-slate-600 font-medium hover:text-navy hover:bg-brand-50'
                 }`}
               >
-                {isActive && (
-                  <span className="absolute left-0 top-2 bottom-2 w-1 rounded-r-full bg-eztech" />
-                )}
                 <div className="flex items-center gap-2.5">
                   <Icon
                     className={`w-4 h-4 transition-colors ${
-                      isActive ? 'text-eztech' : 'text-slate-400 group-hover:text-navy'
+                      isActive ? 'text-gold-400' : 'text-slate-400 group-hover:text-brand-600'
                     }`}
                   />
                   <span>{item.label}</span>
@@ -218,14 +215,14 @@ function App() {
                   <span
                     className={`px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider rounded ${
                       isActive
-                        ? 'bg-gold text-navy'
-                        : 'bg-gold-light text-gold-dark border border-gold-border/70'
+                        ? 'bg-gold-500 text-brand-950 shadow-xs'
+                        : 'bg-gold-50 text-gold-700 border border-gold-300/60'
                     }`}
                   >
                     {item.badge}
                   </span>
                 ) : (
-                  isActive && <div className="w-1.5 h-1.5 rounded-full bg-gold" />
+                  isActive && <div className="w-1.5 h-1.5 rounded-full bg-gold-400" />
                 )}
               </button>
             );
@@ -283,20 +280,20 @@ function App() {
 
       {/* 3. Main Content Area */}
       <div className="flex-1 min-w-0 flex flex-col min-h-screen">
-        {/* Top Header */}
-        <header className="bg-white/85 backdrop-blur-md border-b border-slate-200/80 sticky top-0 z-20 h-14">
+        {/* Top Header - Glassmorphic with brand elevation */}
+        <header className="bg-white/90 backdrop-blur-md border-b border-slate-200/80 sticky top-0 z-20 h-16">
           <div className="px-4 sm:px-6 lg:px-8 h-full flex items-center justify-between max-w-[1440px] mx-auto w-full">
             {/* Left: Mobile hamburger & Active Tab Title */}
             <div className="flex items-center gap-3">
               <button
                 type="button"
                 onClick={() => setIsSidebarOpen(true)}
-                className="lg:hidden p-1.5 text-slate-600 hover:text-navy hover:bg-slate-100 rounded-lg transition-colors"
+                className="lg:hidden p-2 text-slate-600 hover:text-navy hover:bg-slate-100 rounded-xl transition-colors"
               >
                 <Menu className="w-5 h-5" />
               </button>
               <div className="flex items-baseline gap-2.5">
-                <h2 className="text-[15px] sm:text-base font-bold text-navy tracking-tight">
+                <h2 className="text-base sm:text-lg font-bold text-navy tracking-tight">
                   {activeTab === 'overview' && 'Tổng quan & Chỉ số'}
                   {activeTab === 'facebook' && 'Facebook Analytics'}
                   {activeTab === 'tiktok' && 'TikTok Analytics'}
@@ -306,8 +303,8 @@ function App() {
                   {activeTab === 'bot' && 'Bot Gửi Tin Nhắn Tự Động'}
                   {activeTab === 'gas_tool' && 'Nhập Deal & Quản lý Công Nợ'}
                 </h2>
-                <span className="hidden md:inline-block text-xs text-slate-400">
-                  • Hệ thống phân tích dữ liệu Pancake
+                <span className="hidden md:inline-block text-xs text-slate-400 font-medium">
+                  • EzTech Lead Intelligence
                 </span>
               </div>
             </div>
@@ -321,9 +318,10 @@ function App() {
               )}
               <button
                 onClick={loadData}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-white hover:bg-eztech-light rounded-lg transition-all border border-slate-200/90 hover:border-eztech-border text-navy hover:text-eztech shadow-card"
+                disabled={loading}
+                className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold bg-white hover:bg-brand-50 rounded-xl transition-all border border-slate-200/90 hover:border-brand-300 text-navy hover:text-brand-600 shadow-xs disabled:opacity-50"
               >
-                <RefreshCw className={`w-3.5 h-3.5 text-eztech ${loading ? 'animate-spin' : ''}`} />
+                <RefreshCw className={`w-3.5 h-3.5 text-brand-500 ${loading ? 'animate-spin' : ''}`} />
                 <span>Làm mới</span>
               </button>
             </div>
@@ -359,7 +357,7 @@ function App() {
           ) : (
             <>
               {/* Compact Inline Filter Toolbar */}
-              <div className="bg-white rounded-xl border border-slate-200/80 shadow-card px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+              <div className="bg-white rounded-2xl border border-slate-200/80 shadow-card px-5 py-3.5 flex flex-wrap items-center justify-between gap-3">
                 {/* Date Range Group */}
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="flex items-center gap-1.5 text-xs font-semibold text-navy mr-1">
@@ -427,7 +425,7 @@ function App() {
               {loading ? (
                 <div className="flex items-center justify-center py-24">
                   <div className="flex flex-col items-center gap-3">
-                    <div className="animate-spin rounded-full h-8 w-8 border-2 border-slate-200 border-t-eztech" />
+                    <div className="animate-spin rounded-full h-8 w-8 border-2 border-slate-200 border-t-brand-500" />
                     <p className="text-xs font-medium text-slate-400">Đang đồng bộ dữ liệu...</p>
                   </div>
                 </div>
