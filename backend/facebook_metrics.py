@@ -115,7 +115,9 @@ def get_facebook_metrics(
         now_ts = time.time()
         if cache_key in _FB_CACHE:
             cached_time, cached_val = _FB_CACHE[cache_key]
-            if now_ts - cached_time < FB_CACHE_TTL:
+            today_start = datetime.now(VN_TZ).replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=None)
+            effective_ttl = 86400.0 if end < today_start else FB_CACHE_TTL
+            if now_ts - cached_time < effective_ttl:
                 return cached_val
 
     # 1. Xác định phạm vi Fanpage Facebook

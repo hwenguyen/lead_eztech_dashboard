@@ -21,8 +21,10 @@ connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite")
 engine = create_engine(
     DATABASE_URL,
     connect_args=connect_args,
-    pool_pre_ping=True,  # Neon đóng kết nối idle → kiểm tra trước khi dùng lại connection trong pool
-    pool_recycle=300,    # Tái tạo kết nối sau 5 phút để Neon có thể scale-to-zero khi không có traffic
+    pool_pre_ping=True,   # Kiểm tra kết nối trước khi dùng
+    pool_recycle=1800,    # Tái tạo kết nối sau 30 phút (tránh TLS handshake & setup egress liên tục)
+    pool_size=5,
+    max_overflow=10,
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 

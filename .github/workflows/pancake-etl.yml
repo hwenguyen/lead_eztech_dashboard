@@ -2,10 +2,10 @@ name: Pancake ETL Pipeline
 
 on:
   schedule:
-    # Chạy mỗi 60 phút trong giờ làm việc (08:00 đến 18:00 giờ VN = 01:00 đến 11:00 UTC) để tiết kiệm 75% băng thông Neon:
-    - cron: '0 1-11 * * *'
-    # - Lúc 00:00 VN (17:00 UTC): chốt số liệu cuối ngày (thu thập tin nhắn ca tối)
-    - cron: '0 17 * * *'
+    # Chạy mỗi 2 giờ trong giờ làm việc (08:00, 10:00, 12:00, 14:00, 16:00, 18:00 giờ VN = 01:00, 03:00, 05:00, 07:00, 09:00, 11:00 UTC)
+    - cron: '0 1,3,5,7,9,11 * * *'
+    # Ca tối & chốt ngày: 22:00 VN (15:00 UTC) và 00:00 VN (17:00 UTC)
+    - cron: '0 15,17 * * *'
   workflow_dispatch: # Cho phép bấm chạy thủ công trên giao diện GitHub bất cứ lúc nào
     inputs:
       days_back:
@@ -56,6 +56,7 @@ jobs:
         DAILY_RUN_LIMIT: ${{ github.event.inputs.run_limit || '100' }}
         DAILY_DAYS_BACK: ${{ github.event.inputs.days_back || '1' }}
         ENABLE_COMMENT_REPLY: 'false' # Tạm thời tắt rep comment trong ETL
+        SKIP_ENSURE_SCHEMA: 'true'   # Bỏ qua 32 câu CREATE INDEX / ALTER TABLE để triệt tiêu Egress DDL lặp đi lặp lại
       run: |
         python -m etl.pipeline
 
@@ -68,6 +69,6 @@ jobs:
         PAGE_IDS: ${{ secrets.PAGE_IDS }}
         PANCAKE_PAGES_JSON: ${{ secrets.PANCAKE_PAGES_JSON }}
         AUTO_REPLY_SEND: 'true'
+        SKIP_ENSURE_SCHEMA: 'true'   # Tiết kiệm Egress Neon
       run: |
         python -m etl.auto_reply_bot --send --days 1 --limit 100 --no-comments
-

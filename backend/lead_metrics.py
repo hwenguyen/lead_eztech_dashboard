@@ -31,7 +31,16 @@ PHONE_TAG = "đã add"
 _CACHE_LOCK = threading.RLock()
 _CLASSIFY_CACHE: Dict[Tuple[str, str, Optional[str], Optional[str]], Tuple[float, Dict[int, Any]]] = {}
 _PERIOD_QUERY_CACHE: Dict[Tuple[str, str, Optional[str]], Tuple[float, List[Any], Set[int]]] = {}
-CACHE_TTL = 900.0  # 15 phút
+CACHE_TTL = 900.0  # 15 phut
+
+def get_period_ttl(end_dt: datetime) -> float:
+    """Neu ky nam hoan toan trong qua khu (truoc hom nay), cache 24h (86400s) vi so lieu da chot, khong doi.
+    Neu ky chua hom nay, cache 15 phut (900s) de tiet kiem toi da Egress."""
+    today_start = datetime.now(VN_TZ).replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=None)
+    if end_dt < today_start:
+        return 86400.0  # 24 gio
+    return CACHE_TTL    # 15 phut
+
 
 def clear_metrics_cache():
     """Xoá cache số liệu phân loại lead."""
@@ -171,11 +180,12 @@ def classify_leads(
     period_key = (start_str, end_str, page_key)
 
     # Giữ lock xuyên suốt để chặn Cache Stampede khi 4 request từ frontend gọi tới cùng lúc
+    effective_ttl = get_period_ttl(end)
     with _CACHE_LOCK:
         now = time.time()
         if not bypass_cache and cache_key in _CLASSIFY_CACHE:
             cached_time, cached_data = _CLASSIFY_CACHE[cache_key]
-            if now - cached_time < CACHE_TTL:
+            if now - cached_time < effective_ttl:
                 return cached_data
 
         # Kiểm tra cache dữ liệu thô theo kỳ + page (dùng chung cho mọi bộ lọc nhân viên)
@@ -183,7 +193,7 @@ def classify_leads(
         owner_ids = None
         if not bypass_cache and period_key in _PERIOD_QUERY_CACHE:
             p_time, p_rows, p_owners = _PERIOD_QUERY_CACHE[period_key]
-            if now - p_time < CACHE_TTL:
+            if now - p_time < effective_ttl:
                 raw_rows = p_rows
                 owner_ids = p_owners
 

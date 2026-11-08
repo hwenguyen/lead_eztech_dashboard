@@ -1029,7 +1029,6 @@ class SaveListsPayload(BaseModel):
 @router.get("/init")
 def init_deal_entry(force: bool = Query(False), db: Session = Depends(get_db)):
     """Khởi tạo dữ liệu cho trang Quản lý Nhập Deal & Công nợ (Tự động nối từ deal_wins + Đọc từ RAM Cache)."""
-    ensure_schema()
     lists = read_lists(db, use_cache=not force)
     deals = get_cached_deals(db, force_refresh=force)
     debts = build_debt_summary(deals)
@@ -1151,7 +1150,6 @@ def lookup_phone(
     - Phần lịch sử Deal & Công nợ đọc 100% từ _DEALS_CACHE trong RAM (0 câu query DB).
     - Phần Pancake dùng _lookup_pancake_lightweight (Index Scan + RAM Cache).
     """
-    ensure_schema()
     phone = clean_phone(sdt)
     if not phone or len(phone) < 9:
         return {"ok": True, "found": False}
@@ -1230,7 +1228,6 @@ def save_deal(payload: DealSavePayload, db: Session = Depends(get_db)):
       (`ho_ten`, `sdt`, `email`, `nam_sinh`, `dia_chi`, `linh_vuc`, `chuc_vu`, `ky_vong`, `nv_cs`) về bảng `deal_wins`.
     - Chỉ reconcile đúng SĐT bị ảnh hưởng để tiết kiệm tối đa Egress.
     """
-    ensure_schema()
     phone = clean_phone(payload.sdt)
     if not phone:
         raise HTTPException(status_code=400, detail="Số điện thoại không hợp lệ")
@@ -1417,7 +1414,6 @@ def save_deal(payload: DealSavePayload, db: Session = Depends(get_db)):
 @router.put("/deals/{deal_id}/classes")
 def update_deal_classes(deal_id: str, payload: SetClassesPayload, db: Session = Depends(get_db)):
     """Cập nhật nhanh Lớp học cho deal và chỉ đồng bộ các dòng của đúng SĐT đó."""
-    ensure_schema()
     db_row = db.query(SalesDeal).filter(SalesDeal.deal_uid == deal_id).first()
     if not db_row:
         raise HTTPException(status_code=404, detail="Không tìm thấy deal")
@@ -1457,7 +1453,6 @@ def update_deal_classes(deal_id: str, payload: SetClassesPayload, db: Session = 
 def delete_deal(deal_id: str, actor: str = Query("admin"), db: Session = Depends(get_db)):
     """Xoá 1 deal và chỉ tính lại công nợ cho SĐT của deal đó."""
     global _DEALS_CACHE
-    ensure_schema()
     db_row = db.query(SalesDeal).filter(SalesDeal.deal_uid == deal_id).first()
     if not db_row:
         raise HTTPException(status_code=404, detail="Không tìm thấy deal")
@@ -1482,7 +1477,6 @@ def delete_deal(deal_id: str, actor: str = Query("admin"), db: Session = Depends
 @router.put("/lists")
 def save_lists_endpoint(payload: SaveListsPayload, db: Session = Depends(get_db)):
     """Lưu danh mục (Zalo chăm sóc, Nguồn, Chương trình học, Lớp học)."""
-    ensure_schema()
     updated = write_lists(db, payload.lists)
     write_audit_log(db, payload.actor or "admin", "Sửa danh mục", "", {"keys": list(updated.keys())})
     return {"ok": True, "lists": updated}
@@ -1492,7 +1486,6 @@ def save_lists_endpoint(payload: SaveListsPayload, db: Session = Depends(get_db)
 def get_deal_logs(limit: int = Query(50, ge=1, le=200), db: Session = Depends(get_db)):
     """Lấy lịch sử thao tác (đọc từ RAM cache nếu không có log mới)."""
     global _LOGS_CACHE, _LOGS_CACHE_TS
-    ensure_schema()
     now_ts = time.time()
     if _LOGS_CACHE is not None and (now_ts - _LOGS_CACHE_TS) < LOGS_CACHE_TTL:
         return {"ok": True, "logs": _LOGS_CACHE[:limit]}

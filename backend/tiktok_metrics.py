@@ -83,7 +83,9 @@ def get_tiktok_metrics(
     with _TT_CACHE_LOCK:
         if cache_key in _TT_CACHE:
             cached_time, cached_data = _TT_CACHE[cache_key]
-            if now_ts - cached_time < TT_CACHE_TTL:
+            today_start = datetime.now(VN_TZ).replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=None)
+            effective_ttl = 86400.0 if end < today_start else TT_CACHE_TTL
+            if now_ts - cached_time < effective_ttl:
                 return cached_data
 
     # 1. Xác định phạm vi Kênh TikTok

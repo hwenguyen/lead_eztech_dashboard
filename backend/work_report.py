@@ -97,7 +97,9 @@ def get_work_report(
     with _WORK_REPORT_LOCK:
         if cache_key in _WORK_REPORT_CACHE:
             ts, cached_res = _WORK_REPORT_CACHE[cache_key]
-            if now_ts - ts < _WORK_REPORT_TTL:
+            today_start = datetime.now(VN_TZ).replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=None)
+            effective_ttl = 86400.0 if end < today_start else _WORK_REPORT_TTL
+            if now_ts - ts < effective_ttl:
                 return cached_res
 
     # 1. Lấy danh sách toàn bộ nhân viên từ Leads trong kỳ + DealWin + SalesDeal
