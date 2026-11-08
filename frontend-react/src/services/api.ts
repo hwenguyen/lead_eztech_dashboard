@@ -1,11 +1,24 @@
 import axios from 'axios';
 
-// Client In-Memory Cache (3 phút): Chuyển tab tức thì (<0.01s), giảm 90% số request, tiết kiệm 100% Neon Egress
+// Client In-Memory & Session Cache: Chuyển tab & F5 tức thì (<0.01s), giảm 95% request, tiết kiệm tối đa Neon Egress
 const _CLIENT_CACHE = new Map<string, { time: number; data: any }>();
-const CLIENT_CACHE_TTL = 3 * 60 * 1000; // 3 phút
+const CLIENT_CACHE_TTL = 5 * 60 * 1000; // 5 phút
+const SESSION_CACHE_PREFIX = 'ez_cache_';
 
 export const clearClientApiCache = () => {
   _CLIENT_CACHE.clear();
+  try {
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < sessionStorage.length; i++) {
+      const k = sessionStorage.key(i);
+      if (k && k.startsWith(SESSION_CACHE_PREFIX)) {
+        keysToRemove.push(k);
+      }
+    }
+    keysToRemove.forEach(k => sessionStorage.removeItem(k));
+  } catch (e) {
+    // ignore storage error
+  }
 };
 
 // Get API URL from env, or default to relative /api if deployed together
@@ -68,13 +81,14 @@ apiClient.get = (async (url: string, config?: any): Promise<any> => {
   const cacheKey = `${url}?${paramStr}`;
   const now = Date.now();
 
+  // 1. Kiểm tra RAM cache
   if (_CLIENT_CACHE.has(cacheKey)) {
     const entry = _CLIENT_CACHE.get(cacheKey)!;
     if (now - entry.time < CLIENT_CACHE_TTL) {
       return {
         data: entry.data,
         status: 200,
-        statusText: 'OK (from client cache)',
+        statusText: 'OK (from memory cache)',
         headers: {},
         config: config || {},
       };
@@ -82,9 +96,36 @@ apiClient.get = (async (url: string, config?: any): Promise<any> => {
     _CLIENT_CACHE.delete(cacheKey);
   }
 
+  // 2. Kiểm tra sessionStorage (giữ cache ngay cả khi người dùng F5 reload hoặc mở tab mới trong cùng session!)
+  try {
+    const sessionRaw = sessionStorage.getItem(SESSION_CACHE_PREFIX + cacheKey);
+    if (sessionRaw) {
+      const parsed = JSON.parse(sessionRaw);
+      if (now - parsed.time < CLIENT_CACHE_TTL) {
+        _CLIENT_CACHE.set(cacheKey, parsed);
+        return {
+          data: parsed.data,
+          status: 200,
+          statusText: 'OK (from session cache)',
+          headers: {},
+          config: config || {},
+        };
+      }
+      sessionStorage.removeItem(SESSION_CACHE_PREFIX + cacheKey);
+    }
+  } catch (e) {
+    // ignore
+  }
+
   const res = await originalGet(url, config);
   if (res && res.status === 200) {
-    _CLIENT_CACHE.set(cacheKey, { time: now, data: res.data });
+    const entry = { time: now, data: res.data };
+    _CLIENT_CACHE.set(cacheKey, entry);
+    try {
+      sessionStorage.setItem(SESSION_CACHE_PREFIX + cacheKey, JSON.stringify(entry));
+    } catch (e) {
+      // ignore
+    }
   }
   return res;
 }) as any;

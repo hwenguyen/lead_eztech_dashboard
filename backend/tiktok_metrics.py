@@ -31,7 +31,7 @@ router = APIRouter(prefix="/api/tiktok", tags=["TikTok Analytics"])
 # In-memory TTL Cache (5 phút) để tối ưu băng thông
 _TT_CACHE: Dict[str, Any] = {}
 _TT_CACHE_LOCK = threading.Lock()
-TT_CACHE_TTL = 300
+TT_CACHE_TTL = 900  # 15 phút cache tiết kiệm egress
 
 TIKTOK_KNOWN_PAGES = [
     {"id": "tt_7196601676597871618", "name": "Anh Kế toán làm Data (TikTok)"},

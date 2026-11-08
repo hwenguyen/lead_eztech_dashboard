@@ -51,7 +51,7 @@ from backend.auth import router as auth_router
 from backend.deal_entry import router as deal_entry_router, invalidate_deal_entry_cache
 from backend.facebook_metrics import router as facebook_router, clear_facebook_cache
 from backend.tiktok_metrics import router as tiktok_router, clear_tiktok_cache
-from backend.work_report import router as work_report_router
+from backend.work_report import router as work_report_router, clear_work_report_cache
 
 app = FastAPI(title="Pancake Lead Reporting API")
 app.include_router(auth_router)
@@ -83,6 +83,17 @@ else:
 
 # Bật nén GZip cho mọi phản hồi API >= 1KB (giảm 70-85% băng thông mạng truyền tải về client)
 app.add_middleware(GZipMiddleware, minimum_size=1000)
+@app.middleware("http")
+async def add_cache_headers(request: Request, call_next):
+    response = await call_next(request)
+    # Bổ sung Cache-Control chuẩn cho các API đọc dữ liệu để trình duyệt tận dụng HTTP Cache (0 Network RTT)
+    if request.method == "GET" and request.url.path.startswith("/api/"):
+        path = request.url.path
+        if not any(skip in path for skip in ("/auth/me", "/broadcast/status", "/health")):
+            if response.status_code == 200:
+                response.headers["Cache-Control"] = "private, max-age=180, stale-while-revalidate=300"
+    return response
+
 
 def verify_webhook_secret(request: Request):
     """Xác thực Webhook Secret từ Header X-Webhook-Secret hoặc query param ?secret=."""
@@ -517,6 +528,7 @@ def clear_cache():
     clear_broadcast_cache()
     clear_facebook_cache()
     clear_tiktok_cache()
+    clear_work_report_cache()
     with _PAGES_LOCK:
         _PAGES_CACHE.clear()
     with _REMIND_LOCK:

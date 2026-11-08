@@ -35,7 +35,7 @@ router = APIRouter(prefix="/api/facebook", tags=["Facebook Analytics"])
 # In-memory TTL Cache (5 phút) để tối ưu băng thông Neon
 _FB_CACHE_LOCK = threading.RLock()
 _FB_CACHE: Dict[Tuple[str, str, Optional[str]], Tuple[float, Dict[str, Any]]] = {}
-FB_CACHE_TTL = 300.0  # 5 phút
+FB_CACHE_TTL = 900  # 15 phút cache tiết kiệm egress.0  # 5 phút
 
 
 def clear_facebook_cache():

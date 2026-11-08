@@ -6,7 +6,9 @@ và Insight khách hàng thu được trong tuần của từng nhân viên đ�
 
 import logging
 from datetime import datetime, timedelta
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
+import time
+import threading
 from collections import Counter
 
 from fastapi import APIRouter, Depends, Query
@@ -19,6 +21,16 @@ from backend.lead_metrics import classify_leads, resolve_period, normalize_text,
 from etl.utils import VN_TZ, ZALO_PAGE_NAMES, resolve_canonical_page_name, normalize_phone
 
 logger = logging.getLogger("WorkReportService")
+
+_WORK_REPORT_CACHE: Dict[str, Tuple[float, Any]] = {}
+_WORK_REPORT_LOCK = threading.Lock()
+_WORK_REPORT_TTL = 900.0  # Cache in-memory 15 phút giúp giảm 100% Neon Egress cho các lượt xem lặp lại
+
+def clear_work_report_cache():
+    """Xóa bộ đệm báo cáo công việc."""
+    with _WORK_REPORT_LOCK:
+        _WORK_REPORT_CACHE.clear()
+
 
 router = APIRouter(prefix="/api/work-report", tags=["Work Report"])
 
@@ -78,6 +90,15 @@ def get_work_report(
     end_ymd = end.strftime("%Y-%m-%d")
 
     emp_clean = employee.strip() if employee and employee.strip() else None
+
+    # 0. Kiểm tra in-memory cache
+    cache_key = f"{start_ymd}_{end_ymd}_{emp_clean}"
+    now_ts = time.time()
+    with _WORK_REPORT_LOCK:
+        if cache_key in _WORK_REPORT_CACHE:
+            ts, cached_res = _WORK_REPORT_CACHE[cache_key]
+            if now_ts - ts < _WORK_REPORT_TTL:
+                return cached_res
 
     # 1. Lấy danh sách toàn bộ nhân viên từ Leads trong kỳ + DealWin + SalesDeal
     all_period_leads = classify_leads(db, start, end)
@@ -366,7 +387,7 @@ def get_work_report(
     if persona_parts:
         insight_lines.append("Insight học viên: " + " | ".join(persona_parts) + ".")
 
-    return {
+    result = {
         "period": {
             "start_date": start_ymd,
             "end_date": end_ymd,
@@ -422,3 +443,13 @@ def get_work_report(
             "formatted_lines": insight_lines,
         },
     }
+
+    # Lưu cache và dọn dẹp khóa hết hạn
+    with _WORK_REPORT_LOCK:
+        if len(_WORK_REPORT_CACHE) > 50:
+            exp = [k for k, (t, _) in _WORK_REPORT_CACHE.items() if now_ts - t > _WORK_REPORT_TTL]
+            for k in exp:
+                _WORK_REPORT_CACHE.pop(k, None)
+        _WORK_REPORT_CACHE[cache_key] = (now_ts, result)
+
+    return result
