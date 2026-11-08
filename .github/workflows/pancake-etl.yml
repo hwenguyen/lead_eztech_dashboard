@@ -1,12 +1,11 @@
 name: Pancake ETL Pipeline
 
 on:
-  schedule:
-    # Chạy mỗi 2 giờ trong giờ làm việc (08:00, 10:00, 12:00, 14:00, 16:00, 18:00 giờ VN = 01:00, 03:00, 05:00, 07:00, 09:00, 11:00 UTC)
-    - cron: '0 1,3,5,7,9,11 * * *'
-    # Ca tối & chốt ngày: 22:00 VN (15:00 UTC) và 00:00 VN (17:00 UTC)
-    - cron: '0 15,17 * * *'
-  workflow_dispatch: # Cho phép bấm chạy thủ công trên giao diện GitHub bất cứ lúc nào
+  # Tắt schedule nội bộ GitHub để tránh chạy đúp với dịch vụ cronjob ngoài của bạn:
+  # schedule:
+  #   - cron: '0 1,3,5,7,9,11 * * *'
+  #   - cron: '0 15,17 * * *'
+  workflow_dispatch: # Cho phép dịch vụ ngoài hoặc người dùng trigger qua GitHub API
     inputs:
       days_back:
         description: 'Số ngày quét ngược về trước (Nhập 30 hoặc 60 nếu muốn cập nhật lịch sử tag cho các dòng cũ)'
