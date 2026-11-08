@@ -31,6 +31,7 @@ class DimLead(Base):
     first_created_at = Column(DateTime, default=get_vn_now, index=True)
     post_id = Column(String, index=True, nullable=True)
     post_url = Column(Text, nullable=True)
+    ad_id = Column(String, index=True, nullable=True)
     
     # Quan hệ 1-N với FactLeadActivity
     activities = relationship("FactLeadActivity", back_populates="lead")
@@ -51,6 +52,7 @@ class FactLeadActivity(Base):
     tag_timeline = Column(JSON, nullable=True) # Danh sách lịch sử gắn tag [{"tag": "...", "action": "add", "tagged_at": "...", "editor": "..."}]
     post_id = Column(String, index=True, nullable=True)
     post_url = Column(Text, nullable=True)
+    ad_id = Column(String, index=True, nullable=True)
     
     updated_at = Column(DateTime, default=get_vn_now, onupdate=get_vn_now)
 

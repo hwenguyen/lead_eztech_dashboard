@@ -510,7 +510,10 @@ class PancakeClient:
                 "assigned_users": assigned_users,
                 "messages": formatted_msgs,
                 "inserted_at": conv.get("inserted_at"),
-                "updated_at": updated_at
+                "updated_at": updated_at,
+                "ads": conv.get("ads"),
+                "ad_ids": conv.get("ad_ids"),
+                "post_id": conv.get("post_id"),
             })
             
         logger.info(f"Hoàn tất lấy dữ liệu qua API! Tổng cộng: {len(results)} hội thoại.")

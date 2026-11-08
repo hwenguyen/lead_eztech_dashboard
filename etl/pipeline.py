@@ -8,7 +8,7 @@ from database.db import SessionLocal
 from database.models import RawConversation, DimLead, FactLeadActivity, Comment, Post
 from database.schema import ensure_schema
 from etl.pancake_client import PancakeClient
-from etl.utils import parse_pancake_date, resolve_phone, normalize_phone, is_page_id, resolve_canonical_page_name, is_source_page, clean_html, extract_phone_number, build_post_url, extract_post_info
+from etl.utils import parse_pancake_date, resolve_phone, normalize_phone, is_page_id, resolve_canonical_page_name, is_source_page, clean_html, extract_phone_number, build_post_url, extract_post_info, extract_ad_info
 import re
 
 logging.basicConfig(level=logging.INFO)
@@ -82,8 +82,13 @@ def upsert_lead_data(db: Session, raw_data: dict, page_id: str, commit: bool = T
         if not conv_id or not customer_id:
             return
 
-        # Trích xuất thông tin post_id và post_url
+        # Trích xuất thông tin post_id, post_url và ad_id (nếu từ Facebook Ads)
         post_id, post_url = extract_post_info(raw_data, page_id=page_id)
+        ad_id, ad_post_id = extract_ad_info(raw_data)
+        if not post_id and ad_post_id:
+            post_id = ad_post_id
+            if not post_url:
+                post_url = build_post_url(post_id, page_id=page_id)
 
         if prefetched is not None:
             raw_record = prefetched["raw"].get(conv_id)
@@ -122,7 +127,8 @@ def upsert_lead_data(db: Session, raw_data: dict, page_id: str, commit: bool = T
                 page_id=page_id,
                 first_created_at=conv_inserted,
                 post_id=post_id,
-                post_url=post_url
+                post_url=post_url,
+                ad_id=ad_id
             )
             db.add(lead)
             if prefetched is not None:
@@ -152,6 +158,8 @@ def upsert_lead_data(db: Session, raw_data: dict, page_id: str, commit: bool = T
                 lead.post_id = post_id
             if post_url and not lead.post_url:
                 lead.post_url = post_url
+            if ad_id and not lead.ad_id:
+                lead.ad_id = ad_id
             if prefetched is None:
                 db.flush()
 
@@ -204,7 +212,8 @@ def upsert_lead_data(db: Session, raw_data: dict, page_id: str, commit: bool = T
                 contacted_dates=contacted_dates_str,
                 tag_timeline=tag_timeline,
                 post_id=post_id,
-                post_url=post_url
+                post_url=post_url,
+                ad_id=ad_id
             )
             db.add(activity)
             if prefetched is not None:
@@ -213,6 +222,11 @@ def upsert_lead_data(db: Session, raw_data: dict, page_id: str, commit: bool = T
             activity.status_tag = status_tag
             activity.assigned_users = assigned_users
             activity.message_count = msg_count
+            if post_id and not activity.post_id:
+                activity.post_id = post_id
+                activity.post_url = post_url
+            if ad_id and not activity.ad_id:
+                activity.ad_id = ad_id
             activity.is_contacted = is_contacted
             activity.contacted_dates = contacted_dates_str
             if tag_timeline:

@@ -17,7 +17,9 @@ import {
   FileText,
   Radio,
   Inbox,
-  TrendingUp,
+  Megaphone,
+  Copy,
+  Check,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -86,6 +88,11 @@ export function FacebookDashboard() {
   const [sortBy, setSortBy] = useState<'leads' | 'phones' | 'deals' | 'reactions' | 'comments' | 'date'>('leads');
   const [postLimit, setPostLimit] = useState(15);
 
+  // Bộ lọc và copy bảng Ads
+  const [searchAd, setSearchAd] = useState('');
+  const [adLimit, setAdLimit] = useState(10);
+  const [copiedAdId, setCopiedAdId] = useState<string | null>(null);
+
   // Load danh sách Fanpage Facebook
   useEffect(() => {
     fetchFacebookPages()
@@ -151,16 +158,33 @@ export function FacebookDashboard() {
       }));
   }, [data?.post_type_stats]);
 
-  // Chuẩn bị dữ liệu cơ cấu nguồn Lead & SĐT (Post vs Organic) theo màu chuẩn EzTech
+  // Chuẩn bị dữ liệu cơ cấu nguồn Lead & SĐT (Ads vs Post vs Organic)
   const channelLeadData = useMemo(() => {
+    const adsLeads = data?.summary.ads_leads || 0;
     const postLeads = data?.summary.post_leads || 0;
     const organicLeads = data?.summary.organic_leads || 0;
-    if (postLeads + organicLeads === 0) return [];
+    if (adsLeads + postLeads + organicLeads === 0) return [];
     return [
-      { name: 'Bài viết (Post)', value: postLeads, color: '#1E5BD6' },   // EzTech Blue
-      { name: 'Tự nhiên (Organic)', value: organicLeads, color: '#F5B400' }, // EzTech Gold
+      { name: 'Quảng cáo (Ads)', value: adsLeads, color: '#7C3AED' },       // Purple
+      { name: 'Bài viết (Post)', value: postLeads, color: '#1E5BD6' },      // EzTech Blue
+      { name: 'Tự nhiên (Organic)', value: organicLeads, color: '#10B981' }, // Emerald Green
     ];
-  }, [data?.summary.post_leads, data?.summary.organic_leads]);
+  }, [data?.summary.ads_leads, data?.summary.post_leads, data?.summary.organic_leads]);
+
+  // Lọc danh sách Top Ads
+  const filteredAds = useMemo(() => {
+    if (!data?.top_ads) return [];
+    let list = [...data.top_ads];
+    if (searchAd.trim()) {
+      const q = searchAd.toLowerCase().trim();
+      list = list.filter(a =>
+        a.ad_id.toLowerCase().includes(q) ||
+        (a.post_id && a.post_id.toLowerCase().includes(q)) ||
+        (a.post_message && a.post_message.toLowerCase().includes(q))
+      );
+    }
+    return list;
+  }, [data?.top_ads, searchAd]);
 
   // Lọc và sắp xếp bảng Top bài viết
   const filteredPosts = useMemo(() => {
@@ -204,14 +228,16 @@ export function FacebookDashboard() {
 
   const summary = data?.summary;
 
-  // Tính toán tỷ trọng phần trăm nguồn
-  const totalChannelLeads = (summary?.post_leads || 0) + (summary?.organic_leads || 0);
+  // Tính toán tỷ trọng phần trăm 3 nguồn (Ads vs Post vs Organic)
+  const totalChannelLeads = (summary?.ads_leads || 0) + (summary?.post_leads || 0) + (summary?.organic_leads || 0);
+  const adsLeadPct = totalChannelLeads > 0 ? Math.round(((summary?.ads_leads || 0) / totalChannelLeads) * 100) : 0;
   const postLeadPct = totalChannelLeads > 0 ? Math.round(((summary?.post_leads || 0) / totalChannelLeads) * 100) : 0;
-  const organicLeadPct = totalChannelLeads > 0 ? 100 - postLeadPct : 0;
+  const organicLeadPct = totalChannelLeads > 0 ? Math.max(0, 100 - adsLeadPct - postLeadPct) : 0;
 
-  const totalChannelPhones = (summary?.post_phones || 0) + (summary?.organic_phones || 0);
+  const totalChannelPhones = (summary?.ads_phones || 0) + (summary?.post_phones || 0) + (summary?.organic_phones || 0);
+  const adsPhonePct = totalChannelPhones > 0 ? Math.round(((summary?.ads_phones || 0) / totalChannelPhones) * 100) : 0;
   const postPhonePct = totalChannelPhones > 0 ? Math.round(((summary?.post_phones || 0) / totalChannelPhones) * 100) : 0;
-  const organicPhonePct = totalChannelPhones > 0 ? 100 - postPhonePct : 0;
+  const organicPhonePct = totalChannelPhones > 0 ? Math.max(0, 100 - adsPhonePct - postPhonePct) : 0;
 
   return (
     <div className="space-y-5 animate-in fade-in duration-300">
@@ -653,32 +679,64 @@ export function FacebookDashboard() {
         </div>
       </div>
 
-      {/* 4. PHÂN TÍCH NGUỒN LEAD: BÀI VIẾT VS ORGANIC (Đã tối giản chữ, chuẩn màu EzTech Blue & Gold) */}
+      {/* 4. PHÂN TÍCH NGUỒN LEAD: QUẢNG CÁO (ADS) VS BÀI VIẾT VS TỰ NHIÊN */}
       <div className="space-y-3.5">
         <div className="flex items-center justify-between">
-          <h3 className="text-[15px] font-bold text-navy tracking-tight">Nguồn Lead: Bài viết vs Organic</h3>
-          <span className="text-xs text-slate-400">So sánh hiệu quả thu hút & chuyển đổi SĐT</span>
+          <div className="flex items-center gap-2">
+            <h3 className="text-[15px] font-bold text-navy tracking-tight">Phân tích Nguồn Lead Facebook</h3>
+            <span className="text-[11px] font-semibold bg-purple-50 text-purple-700 border border-purple-200 px-2 py-0.5 rounded-md">
+              Ads • Post • Organic
+            </span>
+          </div>
+          <span className="text-xs text-slate-400">Bóc tách chuẩn xác hiệu quả từng nguồn</span>
         </div>
 
         {/* 3 Thẻ KPI Tóm tắt Nguồn Lead */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
-          {/* KPI 1: Lead từ Bài viết (Post) - Chuẩn màu EzTech Blue */}
+          {/* KPI 1: Lead từ Quảng cáo (Facebook Ads) - Tím Indigo */}
+          <div className="bg-white rounded-xl border border-purple-200/90 p-4 shadow-card hover:shadow-card-hover transition-all relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-24 h-24 bg-purple-50 rounded-bl-full -z-0 pointer-events-none" />
+            <div className="relative z-10">
+              <div className="flex items-center justify-between text-slate-500 mb-1.5">
+                <span className="text-xs font-bold text-purple-900 flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-purple-600" />
+                  Từ Quảng cáo (Facebook Ads)
+                </span>
+                <div className="w-6 h-6 rounded-md bg-purple-100 text-purple-700 flex items-center justify-center">
+                  <Megaphone className="w-3.5 h-3.5" />
+                </div>
+              </div>
+              <div className="text-2xl font-bold font-mono text-navy">
+                {loading ? '...' : (summary?.ads_leads || 0).toLocaleString()} <span className="text-xs font-normal text-slate-400">khách ({adsLeadPct}%)</span>
+              </div>
+              <div className="mt-2.5 pt-2 border-t border-purple-100 flex items-center justify-between text-xs text-slate-500 font-mono">
+                <span className="text-emerald-600 font-semibold flex items-center gap-1">
+                  <PhoneCall className="w-3 h-3" /> {summary?.ads_phones || 0} SĐT ({adsPhonePct}%)
+                </span>
+                <span className="text-purple-700 font-bold bg-purple-50 border border-purple-200 px-1.5 py-0.5 rounded text-[11px]">
+                  {summary?.ads_phone_rate || 0}% có số
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* KPI 2: Lead từ Bài viết (Post / Comment) - Chuẩn màu EzTech Blue */}
           <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-card hover:shadow-card-hover transition-all">
             <div className="flex items-center justify-between text-slate-500 mb-1.5">
               <span className="text-xs font-semibold text-navy flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full bg-eztech" />
-                Bài viết (Post)
+                Từ Bài viết (Post / Comment)
               </span>
               <div className="w-6 h-6 rounded-md bg-blue-50 text-eztech flex items-center justify-center">
                 <FileText className="w-3.5 h-3.5" />
               </div>
             </div>
             <div className="text-2xl font-bold font-mono text-navy">
-              {loading ? '...' : (summary?.post_leads || 0).toLocaleString()} <span className="text-xs font-normal text-slate-400">khách</span>
+              {loading ? '...' : (summary?.post_leads || 0).toLocaleString()} <span className="text-xs font-normal text-slate-400">khách ({postLeadPct}%)</span>
             </div>
             <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500 font-mono">
               <span className="text-emerald-600 font-semibold flex items-center gap-1">
-                <PhoneCall className="w-3 h-3" /> {summary?.post_phones || 0} SĐT
+                <PhoneCall className="w-3 h-3" /> {summary?.post_phones || 0} SĐT ({postPhonePct}%)
               </span>
               <span className="text-eztech font-bold bg-blue-50 px-1.5 py-0.5 rounded text-[11px]">
                 {summary?.post_phone_rate || 0}% có số
@@ -686,66 +744,49 @@ export function FacebookDashboard() {
             </div>
           </div>
 
-          {/* KPI 2: Lead Tự nhiên (Organic) - Chuẩn màu EzTech Gold */}
+          {/* KPI 3: Lead Tự nhiên (Organic Inbox) - Xanh Ngọc Emerald */}
           <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-card hover:shadow-card-hover transition-all">
             <div className="flex items-center justify-between text-slate-500 mb-1.5">
               <span className="text-xs font-semibold text-navy flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-gold" />
+                <span className="w-2 h-2 rounded-full bg-emerald-500" />
                 Tự nhiên (Organic Inbox)
               </span>
-              <div className="w-6 h-6 rounded-md bg-gold-light text-gold-dark flex items-center justify-center">
+              <div className="w-6 h-6 rounded-md bg-emerald-50 text-emerald-700 flex items-center justify-center">
                 <Inbox className="w-3.5 h-3.5" />
               </div>
             </div>
             <div className="text-2xl font-bold font-mono text-navy">
-              {loading ? '...' : (summary?.organic_leads || 0).toLocaleString()} <span className="text-xs font-normal text-slate-400">leads</span>
+              {loading ? '...' : (summary?.organic_leads || 0).toLocaleString()} <span className="text-xs font-normal text-slate-400">leads ({organicLeadPct}%)</span>
             </div>
             <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500 font-mono">
               <span className="text-emerald-600 font-semibold flex items-center gap-1">
-                <PhoneCall className="w-3 h-3" /> {summary?.organic_phones || 0} SĐT
+                <PhoneCall className="w-3 h-3" /> {summary?.organic_phones || 0} SĐT ({organicPhonePct}%)
               </span>
-              <span className="text-gold-dark font-bold bg-gold-light px-1.5 py-0.5 rounded text-[11px]">
+              <span className="text-emerald-700 font-bold bg-emerald-50 px-1.5 py-0.5 rounded text-[11px]">
                 {summary?.organic_phone_rate || 0}% có số
-              </span>
-            </div>
-          </div>
-
-          {/* KPI 3: Cơ cấu đóng góp Kênh */}
-          <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-card hover:shadow-card-hover transition-all">
-            <div className="flex items-center justify-between text-slate-500 mb-1.5">
-              <span className="text-xs font-semibold text-navy">Tỷ trọng nguồn</span>
-              <div className="w-6 h-6 rounded-md bg-slate-100 text-slate-600 flex items-center justify-center">
-                <TrendingUp className="w-3.5 h-3.5" />
-              </div>
-            </div>
-            <div className="text-xl font-bold font-mono text-navy flex items-baseline gap-1.5">
-              <span className="text-gold-dark">{organicLeadPct}% Organic</span>
-              <span className="text-slate-300">•</span>
-              <span className="text-eztech">{postLeadPct}% Post</span>
-            </div>
-            <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500 font-mono">
-              <span>Đóng góp SĐT:</span>
-              <span className="font-semibold text-navy">
-                {organicPhonePct}% Inbox • {postPhonePct}% Post
               </span>
             </div>
           </div>
         </div>
 
-        {/* 2 Biểu đồ chuyên sâu Phân tích Post vs Organic */}
+        {/* 2 Biểu đồ chuyên sâu Phân tích 3 Nguồn */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {/* Chart 1: Cơ cấu Nguồn Lead & Bảng đối soát gọn */}
+          {/* Chart 1: Cơ cấu Nguồn Lead & Bảng đối soát 3 nguồn */}
           <div className="bg-white rounded-xl border border-slate-200/80 p-5 shadow-card flex flex-col justify-between">
             <div>
               <div className="flex items-center justify-between mb-3">
                 <h4 className="text-sm font-bold text-navy">Cơ cấu Nguồn & Chuyển đổi</h4>
                 <div className="flex items-center gap-2 text-[11px] font-medium text-slate-500">
                   <span className="flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-purple-600" />
+                    Ads
+                  </span>
+                  <span className="flex items-center gap-1">
                     <span className="w-2 h-2 rounded-full bg-eztech" />
                     Post
                   </span>
                   <span className="flex items-center gap-1">
-                    <span className="w-2 h-2 rounded-full bg-gold" />
+                    <span className="w-2 h-2 rounded-full bg-emerald-500" />
                     Organic
                   </span>
                 </div>
@@ -773,7 +814,7 @@ export function FacebookDashboard() {
               </div>
             </div>
 
-            {/* Bảng so sánh chỉ số trực tiếp gọn gàng */}
+            {/* Bảng so sánh 3 nguồn trực tiếp gọn gàng */}
             <div className="pt-3 border-t border-slate-100">
               <table className="w-full text-xs text-left">
                 <thead>
@@ -786,9 +827,18 @@ export function FacebookDashboard() {
                 </thead>
                 <tbody className="divide-y divide-slate-50 font-mono text-[11px]">
                   <tr>
+                    <td className="py-2 font-sans font-medium text-purple-900 flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-purple-600" />
+                      Quảng cáo (Facebook Ads)
+                    </td>
+                    <td className="py-2 text-right text-slate-700">{(summary?.ads_leads || 0).toLocaleString()}</td>
+                    <td className="py-2 text-right text-emerald-600 font-bold">{summary?.ads_phones || 0}</td>
+                    <td className="py-2 text-right text-purple-700 font-bold">{summary?.ads_phone_rate || 0}%</td>
+                  </tr>
+                  <tr>
                     <td className="py-2 font-sans font-medium text-navy flex items-center gap-1.5">
                       <span className="w-2 h-2 rounded-full bg-eztech" />
-                      Bài viết (Post)
+                      Bài viết (Post / Comment)
                     </td>
                     <td className="py-2 text-right text-slate-700">{(summary?.post_leads || 0).toLocaleString()}</td>
                     <td className="py-2 text-right text-emerald-600 font-bold">{summary?.post_phones || 0}</td>
@@ -796,31 +846,35 @@ export function FacebookDashboard() {
                   </tr>
                   <tr>
                     <td className="py-2 font-sans font-medium text-navy flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-gold" />
-                      Tự nhiên (Organic)
+                      <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                      Tự nhiên (Organic Inbox)
                     </td>
                     <td className="py-2 text-right text-slate-700">{(summary?.organic_leads || 0).toLocaleString()}</td>
                     <td className="py-2 text-right text-emerald-600 font-bold">{summary?.organic_phones || 0}</td>
-                    <td className="py-2 text-right text-gold-dark font-bold">{summary?.organic_phone_rate || 0}%</td>
+                    <td className="py-2 text-right text-emerald-700 font-bold">{summary?.organic_phone_rate || 0}%</td>
                   </tr>
                 </tbody>
               </table>
             </div>
           </div>
 
-          {/* Chart 2: Biểu đồ cột Xu hướng Lead theo ngày (Post vs Organic) */}
+          {/* Chart 2: Biểu đồ cột Xu hướng Lead theo ngày (Ads vs Post vs Organic) */}
           <div className="bg-white rounded-xl border border-slate-200/80 p-5 shadow-card flex flex-col justify-between">
             <div>
               <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
                 <h4 className="text-sm font-bold text-navy">Xu hướng Lead theo ngày</h4>
                 <div className="flex items-center gap-3 text-[11px] font-medium text-slate-500">
                   <span className="flex items-center gap-1.5">
-                    <span className="w-2.5 h-2.5 rounded-xs bg-gold" />
-                    Organic Inbox
+                    <span className="w-2.5 h-2.5 rounded-xs bg-purple-600" />
+                    Lead từ Ads
                   </span>
                   <span className="flex items-center gap-1.5">
                     <span className="w-2.5 h-2.5 rounded-xs bg-eztech" />
                     Lead từ Post
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-xs bg-emerald-500" />
+                    Organic Inbox
                   </span>
                 </div>
               </div>
@@ -871,9 +925,9 @@ export function FacebookDashboard() {
                       }}
                     />
                     <Bar
-                      dataKey="organic_leads"
-                      name="Lead Organic"
-                      fill="#F5B400"
+                      dataKey="ads_leads"
+                      name="Lead từ Ads"
+                      fill="#7C3AED"
                       stackId="channel"
                       radius={[0, 0, 0, 0]}
                     />
@@ -881,6 +935,13 @@ export function FacebookDashboard() {
                       dataKey="post_leads"
                       name="Lead từ Post"
                       fill="#1E5BD6"
+                      stackId="channel"
+                      radius={[0, 0, 0, 0]}
+                    />
+                    <Bar
+                      dataKey="organic_leads"
+                      name="Lead Organic"
+                      fill="#10B981"
                       stackId="channel"
                       radius={[3, 3, 0, 0]}
                     />
@@ -897,6 +958,148 @@ export function FacebookDashboard() {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* 5. Bảng Hiệu quả Quảng cáo Facebook (Facebook Ads Performance) */}
+      <div className="bg-white rounded-xl border border-slate-200/80 shadow-card overflow-hidden">
+        <div className="p-4 sm:p-5 border-b border-slate-100 flex flex-col md:flex-row md:items-center md:justify-between gap-3 bg-linear-to-r from-purple-50/40 via-white to-slate-50/30">
+          <div>
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-lg bg-purple-100 text-purple-700 flex items-center justify-center">
+                <Megaphone className="w-4 h-4" />
+              </div>
+              <h3 className="text-[15px] font-bold text-navy">Hiệu quả Chiến dịch / Mẫu Ads Facebook</h3>
+              <span className="px-2 py-0.5 rounded-md text-[11px] font-mono font-bold bg-purple-50 text-purple-700 border border-purple-200">
+                {filteredAds.length} mẫu Ads
+              </span>
+            </div>
+            <p className="text-xs text-slate-500 mt-1">
+              Thống kê lượng khách (Leads), SĐT thu được, tỷ lệ có số (CR %) và Học viên chốt theo từng Mẫu Ads
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2.5">
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
+              <input
+                type="text"
+                placeholder="Tìm mã Ad ID / bài viết..."
+                value={searchAd}
+                onChange={e => setSearchAd(e.target.value)}
+                className="pl-8 pr-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs text-navy placeholder:text-slate-400 focus:outline-hidden focus:ring-1 focus:ring-purple-500 w-52 sm:w-64"
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs text-left">
+            <thead>
+              <tr className="bg-slate-50/70 border-b border-slate-100 text-slate-500 font-semibold text-[11px] uppercase tracking-wider">
+                <th className="py-3 px-4">Mã Quảng cáo (Ad ID)</th>
+                <th className="py-3 px-4">Bài viết / Creative đính kèm</th>
+                <th className="py-3 px-4 text-right">Lead từ Ads</th>
+                <th className="py-3 px-4 text-right">SĐT thu được</th>
+                <th className="py-3 px-4 text-right">Tỷ lệ ra số</th>
+                <th className="py-3 px-4 text-right">Học viên chốt</th>
+                <th className="py-3 px-4 text-center">Thao tác</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {filteredAds.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="py-8 text-center text-slate-400">
+                    Chưa phát hiện mẫu quảng cáo nào có tương tác trong khoảng thời gian đã chọn
+                  </td>
+                </tr>
+              ) : (
+                filteredAds.slice(0, adLimit).map(ad => (
+                  <tr key={ad.ad_id} className="hover:bg-purple-50/30 transition-colors">
+                    <td className="py-3 px-4 font-mono font-semibold text-purple-700">
+                      <div className="flex items-center gap-1.5">
+                        <span className="bg-purple-50 border border-purple-200 px-2 py-0.5 rounded text-[11px]">
+                          {ad.ad_id}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="py-3 px-4 max-w-[320px]">
+                      {ad.post_url ? (
+                        <a
+                          href={ad.post_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="font-medium text-navy hover:text-eztech line-clamp-2 transition-colors flex items-center gap-1"
+                          title="Xem bài viết Facebook gốc"
+                        >
+                          <span className="truncate">{ad.post_message || `Bài viết Facebook (${ad.post_id || 'ID'})`}</span>
+                          <ExternalLink className="w-3 h-3 shrink-0 text-slate-400" />
+                        </a>
+                      ) : (
+                        <span className="text-slate-400 italic">
+                          {ad.post_message || (ad.post_id ? `Post ID: ${ad.post_id}` : 'Quảng cáo trực tiếp Inbox')}
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-3 px-4 text-right font-mono font-bold text-navy text-[13px]">
+                      {ad.lead_count.toLocaleString()}
+                    </td>
+                    <td className="py-3 px-4 text-right font-mono font-bold text-emerald-600 text-[13px]">
+                      {ad.phone_count.toLocaleString()}
+                    </td>
+                    <td className="py-3 px-4 text-right font-mono">
+                      <span className="inline-block bg-purple-50 text-purple-700 border border-purple-200 px-2 py-0.5 rounded font-bold text-[11px]">
+                        {ad.phone_rate}%
+                      </span>
+                    </td>
+                    <td className="py-3 px-4 text-right font-mono">
+                      {ad.deal_count > 0 ? (
+                        <span className="inline-block bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded font-bold text-[11px]">
+                          {ad.deal_count} học viên
+                        </span>
+                      ) : (
+                        <span className="text-slate-300">-</span>
+                      )}
+                    </td>
+                    <td className="py-3 px-4 text-center">
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(ad.ad_id);
+                          setCopiedAdId(ad.ad_id);
+                          setTimeout(() => setCopiedAdId(null), 1500);
+                        }}
+                        className="inline-flex items-center gap-1 px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-[11px] font-medium transition-colors cursor-pointer"
+                        title="Copy Ad ID"
+                      >
+                        {copiedAdId === ad.ad_id ? (
+                          <>
+                            <Check className="w-3 h-3 text-emerald-600" />
+                            <span className="text-emerald-600 font-semibold">Đã copy</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3 h-3 text-slate-400" />
+                            <span>Copy ID</span>
+                          </>
+                        )}
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {filteredAds.length > adLimit && (
+          <div className="p-3 bg-slate-50/50 border-t border-slate-100 text-center">
+            <button
+              onClick={() => setAdLimit(prev => prev + 20)}
+              className="text-xs font-semibold text-purple-700 hover:text-purple-800 transition-colors cursor-pointer"
+            >
+              Xem thêm {filteredAds.length - adLimit} mẫu Ads khác...
+            </button>
+          </div>
+        )}
       </div>
 
       {/* 5. Bảng Top Bài viết Facebook Hiệu quả nhất */}

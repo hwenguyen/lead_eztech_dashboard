@@ -40,30 +40,54 @@ def parse_pancake_date(date_val: Any) -> Optional[datetime]:
     except Exception:
         return None
 
-def parse_deal_date(date_val: Any) -> Optional[datetime]:
-    """Parse thời gian từ Google Sheet / Google Form (Deal Win).
-    Dữ liệu từ Google Sheet/Form đã ở múi giờ Việt Nam (UTC+7), không ngầm định UTC và không cộng thêm 7 tiếng.
-    """
-    if not date_val:
-        return None
-    try:
-        if isinstance(date_val, datetime):
-            if date_val.tzinfo is not None:
-                return date_val.astimezone(VN_TZ).replace(tzinfo=None)
-            return date_val
-        val_str = str(date_val).strip()
-        if not val_str:
-            return None
-        if len(val_str) == 19 and val_str[4] == '-' and val_str[7] == '-':
-            return datetime.strptime(val_str, '%Y-%m-%d %H:%M:%S')
-        if '/' in val_str:
-            dt = parse(val_str, dayfirst=True)
-        else:
-            dt = parse(val_str, dayfirst=False)
-        if dt.tzinfo is not None:
-            return dt.astimezone(VN_TZ).replace(tzinfo=None)
-        return dt
-    except Exception:
+def parse_deal_date(date_val: Any) -> Optional[datetime]:
+
+    """Parse thời gian từ Google Sheet / Google Form (Deal Win).
+
+    Dữ liệu từ Google Sheet/Form đã ở múi giờ Việt Nam (UTC+7), không ngầm định UTC và không cộng thêm 7 tiếng.
+
+    """
+
+    if not date_val:
+
+        return None
+
+    try:
+
+        if isinstance(date_val, datetime):
+
+            if date_val.tzinfo is not None:
+
+                return date_val.astimezone(VN_TZ).replace(tzinfo=None)
+
+            return date_val
+
+        val_str = str(date_val).strip()
+
+        if not val_str:
+
+            return None
+
+        if len(val_str) == 19 and val_str[4] == '-' and val_str[7] == '-':
+
+            return datetime.strptime(val_str, '%Y-%m-%d %H:%M:%S')
+
+        if '/' in val_str:
+
+            dt = parse(val_str, dayfirst=True)
+
+        else:
+
+            dt = parse(val_str, dayfirst=False)
+
+        if dt.tzinfo is not None:
+
+            return dt.astimezone(VN_TZ).replace(tzinfo=None)
+
+        return dt
+
+    except Exception:
+
         return None
 
 def extract_phone_number(text: str) -> Optional[str]:
@@ -389,6 +413,38 @@ def extract_post_info(raw_data: dict, page_id: Optional[str] = None) -> Tuple[Op
         post_url = build_post_url(post_id, page_id=page_id)
 
     return (post_id or None), (post_url or None)
+
+
+def extract_ad_info(raw_data: dict) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Trích xuất ad_id và post_id đính kèm của chiến dịch Facebook Ads từ dữ liệu hội thoại Pancake.
+    Trả về (ad_id, post_id).
+    """
+    if not isinstance(raw_data, dict):
+        return None, None
+
+    ad_id: Optional[str] = None
+    ad_post_id: Optional[str] = None
+
+    ads = raw_data.get('ads')
+    if isinstance(ads, list) and ads:
+        for ad in ads:
+            if isinstance(ad, dict):
+                if ad.get('ad_id'):
+                    ad_id = str(ad['ad_id']).strip()
+                if ad.get('post_id'):
+                    ad_post_id = str(ad['post_id']).strip()
+                if ad_id:
+                    break
+
+    if not ad_id:
+        ad_ids = raw_data.get('ad_ids')
+        if isinstance(ad_ids, list) and ad_ids:
+            ad_id = str(ad_ids[0]).strip()
+        elif isinstance(ad_ids, str) and ad_ids.strip():
+            ad_id = ad_ids.strip()
+
+    return (ad_id or None), (ad_post_id or None)
 
 
 # Page Zalo cá nhân (ID prefix pzl_) là kênh chăm sóc sau khi đã có SĐT → không cộng vào "Tất cả Page".

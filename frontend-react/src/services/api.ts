@@ -767,12 +767,26 @@ export interface FacebookSummaryData {
   deal_conversion_rate: number;
   avg_reactions_per_post: number;
   avg_comments_per_post: number;
+  ads_leads?: number;
+  ads_phones?: number;
+  ads_phone_rate?: number;
   post_leads?: number;
   post_phones?: number;
   post_phone_rate?: number;
   organic_leads?: number;
   organic_phones?: number;
   organic_phone_rate?: number;
+}
+
+export interface FacebookAdItem {
+  ad_id: string;
+  post_id?: string | null;
+  post_url?: string | null;
+  post_message?: string;
+  lead_count: number;
+  phone_count: number;
+  phone_rate: number;
+  deal_count: number;
 }
 
 export interface FacebookPostItem {
@@ -799,6 +813,8 @@ export interface FacebookTrendData {
   comments: number;
   leads: number;
   phones: number;
+  ads_leads?: number;
+  ads_phones?: number;
   post_leads?: number;
   organic_leads?: number;
   post_phones?: number;
@@ -818,9 +834,11 @@ export interface FacebookMetricsResponse {
   post_type_stats: Record<string, number>;
   trend: FacebookTrendData[];
   top_posts: FacebookPostItem[];
+  top_ads?: FacebookAdItem[];
   employee_stats: Record<string, number>;
   tag_stats: Record<string, number>;
   channel_breakdown?: {
+    ads?: ChannelBreakdownItem;
     post: ChannelBreakdownItem;
     organic: ChannelBreakdownItem;
   };
