@@ -1023,22 +1023,29 @@ export function FacebookDashboard() {
                       </div>
                     </td>
                     <td className="py-3 px-4 max-w-[320px]">
-                      {ad.post_url ? (
-                        <a
-                          href={ad.post_url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="font-medium text-navy hover:text-eztech line-clamp-2 transition-colors flex items-center gap-1"
-                          title="Xem bài viết Facebook gốc"
-                        >
-                          <span className="truncate">{ad.post_message || `Bài viết Facebook (${ad.post_id || 'ID'})`}</span>
-                          <ExternalLink className="w-3 h-3 shrink-0 text-slate-400" />
-                        </a>
-                      ) : (
-                        <span className="text-slate-400 italic">
-                          {ad.post_message || (ad.post_id ? `Post ID: ${ad.post_id}` : 'Quảng cáo trực tiếp Inbox')}
-                        </span>
-                      )}
+                      {(() => {
+                        const cleanMsg = ad.post_message && !['.', '..', '...', 'ib', 'inbox'].includes(ad.post_message.trim().toLowerCase())
+                          ? ad.post_message.trim()
+                          : null;
+                        const label = cleanMsg || (ad.post_id ? `Bài viết Facebook (${ad.post_id})` : 'Quảng cáo trực tiếp Inbox');
+
+                        return ad.post_url ? (
+                          <a
+                            href={ad.post_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="font-medium text-navy hover:text-eztech line-clamp-2 transition-colors flex items-center gap-1 group"
+                            title={cleanMsg || 'Xem bài viết Facebook gốc'}
+                          >
+                            <span className="truncate group-hover:underline">{label}</span>
+                            <ExternalLink className="w-3 h-3 shrink-0 text-slate-400 group-hover:text-eztech" />
+                          </a>
+                        ) : (
+                          <span className="text-slate-500 font-medium truncate block" title={label}>
+                            {label}
+                          </span>
+                        );
+                      })()}
                     </td>
                     <td className="py-3 px-4 text-right font-mono font-bold text-navy text-[13px]">
                       {ad.lead_count.toLocaleString()}

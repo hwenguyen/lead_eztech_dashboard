@@ -68,7 +68,7 @@ def sync_posts_from_comments(db: SessionLocal, target_page_id: Optional[str] = N
 
         raw_url = r.post_url or p_obj.get("permalink_url") or p_obj.get("url")
         final_url = build_post_url(pid, page_id, raw_url)
-        message = p_obj.get("message") or p_obj.get("title") or payload.get("snippet")
+        message = p_obj.get("message") or p_obj.get("title")
         ins_at = p_obj.get("inserted_at") or r.inserted_at
 
         unique_posts[pid] = {
