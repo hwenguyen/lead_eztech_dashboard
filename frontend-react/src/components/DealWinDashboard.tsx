@@ -14,7 +14,10 @@ import {
   Calendar,
   MapPin,
   Briefcase,
-  FileText
+  FileText,
+  TrendingUp,
+  PhoneCall,
+  Users
 } from 'lucide-react';
 import {
   AreaChart,
@@ -395,7 +398,7 @@ export function DealWinDashboard() {
 
       {/* KPI METRICS ROW */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-        {/* Total Deals */}
+        {/* Card 1: Total Deals */}
         <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 shadow-sm hover:shadow-md transition-all flex flex-col justify-between">
           <div className="flex items-center justify-between">
             <span className="text-xs font-medium text-[#4B5563]">Tổng Học Viên Chốt</span>
@@ -404,52 +407,63 @@ export function DealWinDashboard() {
             </div>
           </div>
           <div className="mt-4">
-            <div className="text-3xl font-bold text-navy tracking-tight">
+            <div className="text-3xl font-bold text-navy tracking-tight font-mono">
               {loadingSummary ? '...' : total.toLocaleString('vi-VN')}
             </div>
             <p className="text-xs font-medium text-blue-600 mt-1">Đã chốt từ Google Form / Sheet</p>
           </div>
         </div>
 
-        {/* Placeholder Card 1 */}
-        <div className="bg-white/80 rounded-2xl border border-dashed border-[#D1D5DB] p-5 shadow-xs flex flex-col justify-between select-none">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-gray-400">Chỉ số 2</span>
-            <div className="w-10 h-10 rounded-xl bg-gray-50 text-gray-400 flex items-center justify-center text-xs font-bold border border-gray-100">
-              —
+        {/* Card 2: Conversion Rate (Tỷ lệ Convert: Deal Win / SĐT) */}
+        <div className="bg-white rounded-2xl border border-emerald-200/90 p-5 shadow-sm hover:shadow-md transition-all flex flex-col justify-between relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-50 rounded-bl-full -z-0 pointer-events-none" />
+          <div className="relative z-10 flex items-center justify-between">
+            <span className="text-xs font-bold text-emerald-800">Tỷ Lệ Convert (Chốt / SĐT)</span>
+            <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shadow-xs">
+              <TrendingUp className="w-5 h-5" />
             </div>
           </div>
-          <div className="mt-4">
-            <div className="text-3xl font-bold text-gray-300 tracking-tight">—</div>
-            <p className="text-xs font-medium text-gray-400 mt-1">Đang cập nhật</p>
+          <div className="mt-4 relative z-10">
+            <div className="text-3xl font-bold text-emerald-600 tracking-tight font-mono">
+              {loadingSummary ? '...' : `${summary?.conversion_rate || 0}%`}
+            </div>
+            <p className="text-xs font-semibold text-emerald-700 mt-1 font-mono">
+              {total.toLocaleString('vi-VN')} deal / {(summary?.total_phones || 0).toLocaleString('vi-VN')} SĐT thu về
+            </p>
           </div>
         </div>
 
-        {/* Placeholder Card 2 */}
-        <div className="bg-white/80 rounded-2xl border border-dashed border-[#D1D5DB] p-5 shadow-xs flex flex-col justify-between select-none">
+        {/* Card 3: Total Phones in Period */}
+        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 shadow-sm hover:shadow-md transition-all flex flex-col justify-between">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-gray-400">Chỉ số 3</span>
-            <div className="w-10 h-10 rounded-xl bg-gray-50 text-gray-400 flex items-center justify-center text-xs font-bold border border-gray-100">
-              —
+            <span className="text-xs font-medium text-[#4B5563]">SĐT Thu Về Trong Kỳ</span>
+            <div className="w-10 h-10 rounded-xl bg-purple-100 text-purple-600 flex items-center justify-center">
+              <PhoneCall className="w-5 h-5" />
             </div>
           </div>
           <div className="mt-4">
-            <div className="text-3xl font-bold text-gray-300 tracking-tight">—</div>
-            <p className="text-xs font-medium text-gray-400 mt-1">Đang cập nhật</p>
+            <div className="text-3xl font-bold text-navy tracking-tight font-mono">
+              {loadingSummary ? '...' : (summary?.total_phones || 0).toLocaleString('vi-VN')}
+            </div>
+            <p className="text-xs font-medium text-purple-600 mt-1">SĐT phát sinh từ Lead CRM</p>
           </div>
         </div>
 
-        {/* Placeholder Card 3 */}
-        <div className="bg-white/80 rounded-2xl border border-dashed border-[#D1D5DB] p-5 shadow-xs flex flex-col justify-between select-none">
+        {/* Card 4: Top Sales */}
+        <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 shadow-sm hover:shadow-md transition-all flex flex-col justify-between">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-gray-400">Chỉ số 4</span>
-            <div className="w-10 h-10 rounded-xl bg-gray-50 text-gray-400 flex items-center justify-center text-xs font-bold border border-gray-100">
-              —
+            <span className="text-xs font-medium text-[#4B5563]">Top Nhân Viên Chốt</span>
+            <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-600 flex items-center justify-center">
+              <Users className="w-5 h-5" />
             </div>
           </div>
           <div className="mt-4">
-            <div className="text-3xl font-bold text-gray-300 tracking-tight">—</div>
-            <p className="text-xs font-medium text-gray-400 mt-1">Đang cập nhật</p>
+            <div className="text-2xl font-bold text-navy tracking-tight truncate" title={summary?.top_sales_person || 'Chưa có'}>
+              {loadingSummary ? '...' : (summary?.top_sales_person || 'Chưa có')}
+            </div>
+            <p className="text-xs font-medium text-amber-600 mt-1">
+              {topSalesData.length > 0 ? `${topSalesData[0].count} deal chốt thành công` : 'Đóng góp nhiều Deal Win nhất'}
+            </p>
           </div>
         </div>
       </div>

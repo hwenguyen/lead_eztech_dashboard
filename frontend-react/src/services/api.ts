@@ -215,6 +215,8 @@ export interface DealWinItem {
 
 export interface DealWinSummary {
   total_deals: number;
+  total_phones?: number;
+  conversion_rate?: number;
   top_sales_person?: string;
   sales_person_stats: Record<string, number>;
   daily_trend: Array<{ date: string; count: number }>;

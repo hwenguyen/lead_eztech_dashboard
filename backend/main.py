@@ -1089,7 +1089,23 @@ def get_deals_summary(
     # 1. Total deals count
     total_deals = db.query(func.count(DealWin.id)).filter(*filters).scalar() or 0
 
-    # 2. Sales person stats (Tách các tên ghép phẩy để thống kê riêng từng nhân viên cho biểu đồ Top Sales)
+    # 2. Total phones collected in period (SĐT thu về trong kỳ) & Tỷ lệ Convert
+    leads = classify_leads(db, start, end, page_id=page_id.strip() if page_id else None)
+    if sales_person and sales_person.strip():
+        target_norm = normalize_text(sales_person)
+        phones_count = 0
+        for l in leads.values():
+            if l.has_phone and l.phone_event_at:
+                emps_norm = [normalize_text(e) for e in l.employees]
+                if any(target_norm in e or e in target_norm for e in emps_norm):
+                    phones_count += 1
+        total_phones = phones_count
+    else:
+        total_phones = sum(1 for l in leads.values() if l.has_phone and l.phone_event_at)
+
+    conversion_rate = round((total_deals / total_phones * 100), 2) if total_phones > 0 else 0.0
+
+    # 3. Sales person stats (Tách các tên ghép phẩy để thống kê riêng từng nhân viên cho biểu đồ Top Sales)
     care_rows = db.query(DealWin.care_by).filter(*filters).all()
     sales_counts = {}
     for (care_val,) in care_rows:
@@ -1115,6 +1131,8 @@ def get_deals_summary(
 
     summary = DealWinSummary(
         total_deals=total_deals,
+        total_phones=total_phones,
+        conversion_rate=conversion_rate,
         top_sales_person=top_sale,
         sales_person_stats=sales_stats,
         daily_trend=daily_trend

@@ -123,6 +123,8 @@ class DealWinItem(BaseModel):
 
 class DealWinSummary(BaseModel):
     total_deals: int = 0
+    total_phones: int = 0
+    conversion_rate: float = 0.0
     top_sales_person: Optional[str] = None
     sales_person_stats: dict = {}
     daily_trend: List[dict] = []
