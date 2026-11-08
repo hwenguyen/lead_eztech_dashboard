@@ -144,11 +144,11 @@ function App() {
     { id: 'overview' as const, label: 'Tổng quan & Chỉ số', icon: LayoutDashboard },
     { id: 'facebook' as const, label: 'Facebook Analytics', icon: Facebook },
     { id: 'tiktok' as const, label: 'TikTok Analytics', icon: TikTokIcon },
-    { id: 'work_report' as const, label: 'Báo cáo công việc', icon: FileSpreadsheet, badge: 'Sheet' },
+    { id: 'work_report' as const, label: 'Báo cáo công việc', icon: FileSpreadsheet },
     { id: 'remind' as const, label: 'Chăm sóc Lead', icon: Clock },
     { id: 'deals' as const, label: 'Deal Win', icon: Award },
-    { id: 'gas_tool' as const, label: 'Nhập Deal & Công Nợ', icon: Sparkles, badge: 'CRM' },
-    { id: 'bot' as const, label: 'Bot Gửi Tin', icon: Bot, badge: 'Pancake' },
+    { id: 'gas_tool' as const, label: 'Nhập Deal & Công Nợ', icon: Sparkles },
+    { id: 'bot' as const, label: 'Bot Gửi Tin', icon: Bot },
   ];
 
   return (
@@ -211,19 +211,7 @@ function App() {
                   />
                   <span>{item.label}</span>
                 </div>
-                {item.badge ? (
-                  <span
-                    className={`px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider rounded ${
-                      isActive
-                        ? 'bg-gold-500 text-brand-950 shadow-xs'
-                        : 'bg-gold-50 text-gold-700 border border-gold-300/60'
-                    }`}
-                  >
-                    {item.badge}
-                  </span>
-                ) : (
-                  isActive && <div className="w-1.5 h-1.5 rounded-full bg-gold-400" />
-                )}
+                {isActive && <div className="w-1.5 h-1.5 rounded-full bg-gold-400 shrink-0" />}
               </button>
             );
           })}
