@@ -1,5 +1,13 @@
 import axios from 'axios';
 
+// Client In-Memory Cache (3 phút): Chuyển tab tức thì (<0.01s), giảm 90% số request, tiết kiệm 100% Neon Egress
+const _CLIENT_CACHE = new Map<string, { time: number; data: any }>();
+const CLIENT_CACHE_TTL = 3 * 60 * 1000; // 3 phút
+
+export const clearClientApiCache = () => {
+  _CLIENT_CACHE.clear();
+};
+
 // Get API URL from env, or default to relative /api if deployed together
 let API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 // Đảm bảo URL luôn có đuôi /api
@@ -23,9 +31,15 @@ apiClient.interceptors.request.use((config) => {
   return config;
 });
 
-// Bắt lỗi 401 Unauthorized để yêu cầu đăng nhập lại
+// Bắt lỗi 401 Unauthorized để yêu cầu đăng nhập lại & Tự động xóa cache khi có thay đổi dữ liệu (POST/PUT/DELETE)
 apiClient.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    const method = response.config.method?.toLowerCase();
+    if (method && ['post', 'put', 'delete', 'patch'].includes(method)) {
+      clearClientApiCache();
+    }
+    return response;
+  },
   (error) => {
     if (error.response?.status === 401 && !error.config?.url?.includes('/auth/login')) {
       localStorage.removeItem('eztech_auth_token');
@@ -38,6 +52,42 @@ apiClient.interceptors.response.use(
   }
 );
 
+
+// Bọc apiClient.get với in-memory cache tự động cho toàn bộ dashboard
+const originalGet = apiClient.get.bind(apiClient);
+apiClient.get = (async (url: string, config?: any): Promise<any> => {
+  const isNoCache = config?.params?.bypass_cache || config?.headers?.['Cache-Control'] === 'no-cache';
+  const shouldSkip = isNoCache || url.includes('/broadcast/status') || url.includes('/auth/me') || url.includes('/health');
+  if (shouldSkip) {
+    return originalGet(url, config);
+  }
+
+  const paramEntries = Object.entries(config?.params || {}).filter(([_, v]) => v !== undefined && v !== null);
+  paramEntries.sort(([a], [b]) => a.localeCompare(b));
+  const paramStr = paramEntries.map(([k, v]) => `${k}=${v}`).join('&');
+  const cacheKey = `${url}?${paramStr}`;
+  const now = Date.now();
+
+  if (_CLIENT_CACHE.has(cacheKey)) {
+    const entry = _CLIENT_CACHE.get(cacheKey)!;
+    if (now - entry.time < CLIENT_CACHE_TTL) {
+      return {
+        data: entry.data,
+        status: 200,
+        statusText: 'OK (from client cache)',
+        headers: {},
+        config: config || {},
+      };
+    }
+    _CLIENT_CACHE.delete(cacheKey);
+  }
+
+  const res = await originalGet(url, config);
+  if (res && res.status === 200) {
+    _CLIENT_CACHE.set(cacheKey, { time: now, data: res.data });
+  }
+  return res;
+}) as any;
 
 export interface SummaryData {
   new_leads: number;

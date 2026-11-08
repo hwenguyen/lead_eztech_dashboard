@@ -15,7 +15,7 @@ import { TikTokDashboard, TikTokIcon } from './components/TikTokDashboard';
 import { WorkReportDashboard } from './components/WorkReportDashboard';
 import { LoginPage } from './components/LoginPage';
 import { ChangePasswordModal } from './components/ChangePasswordModal';
-import { fetchSummary, fetchTrend, fetchLeads, fetchEmployees, fetchPages, getStoredAuth, logoutApi, type SummaryData, type TrendData, type Lead, type AuthUser } from './services/api';
+import { fetchSummary, fetchTrend, fetchLeads, fetchEmployees, fetchPages, getStoredAuth, logoutApi, clearClientApiCache, type SummaryData, type TrendData, type Lead, type AuthUser } from './services/api';
 
 function App() {
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(() => getStoredAuth().user);
@@ -84,6 +84,11 @@ function App() {
     };
     updateEmployees();
   }, [startDate, endDate, pageId]);
+
+  const handleRefresh = () => {
+    clearClientApiCache();
+    loadData();
+  };
 
   const loadData = async () => {
     setLoading(true);
@@ -305,7 +310,7 @@ function App() {
                 </span>
               )}
               <button
-                onClick={loadData}
+                onClick={handleRefresh}
                 disabled={loading}
                 className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold bg-white hover:bg-brand-50 rounded-xl transition-all border border-slate-200/90 hover:border-brand-300 text-navy hover:text-brand-600 shadow-xs disabled:opacity-50"
               >

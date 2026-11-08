@@ -35,6 +35,7 @@ import {
   fetchDealWinSummary,
   fetchDealWinList,
   fetchDealWinOptions,
+  clearClientApiCache,
   fetchDealWinDetail,
   syncDealsWithLeads,
   type DealWinItem,
@@ -207,6 +208,7 @@ export function DealWinDashboard() {
   };
 
   const handleRefresh = () => {
+    clearClientApiCache();
     loadSummaryData();
     loadListData(page);
   };

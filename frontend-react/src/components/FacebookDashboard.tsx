@@ -37,6 +37,7 @@ import {
 } from 'recharts';
 import {
   fetchFacebookMetrics,
+  clearClientApiCache,
   fetchFacebookPages,
   type FacebookMetricsResponse,
   type FacebookPageItem,
@@ -264,7 +265,7 @@ export function FacebookDashboard() {
               </span>
             )}
             <button
-              onClick={loadMetrics}
+              onClick={() => { clearClientApiCache(); loadMetrics(); }}
               disabled={loading}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-navy text-xs font-semibold shadow-2xs hover:border-slate-300 disabled:opacity-50 transition-all cursor-pointer"
               title="Làm mới dữ liệu"
