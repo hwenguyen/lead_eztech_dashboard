@@ -548,6 +548,35 @@ def trigger_manual_repair():
     threading.Thread(target=auto_repair_contacted_dates, daemon=True).start()
     return {"status": "ok", "message": "Auto repair background job has been triggered."}
 
+class BackfillRequest(BaseModel):
+    page: Optional[str] = ""
+    limit: Optional[int] = 2000
+    chunk: Optional[int] = 120
+    stop_date: Optional[str] = "2024-01-01"
+
+@app.get("/api/admin/backfill/status")
+def get_backfill_status():
+    from etl.backfill_history import backfill_manager
+    return backfill_manager.get_status()
+
+@app.post("/api/admin/backfill/start")
+def start_backfill(req: Optional[BackfillRequest] = None):
+    from etl.backfill_history import backfill_manager
+    p = req.page if req else ""
+    l = req.limit if req and req.limit else 2000
+    c = req.chunk if req and req.chunk else 120
+    d = req.stop_date if req and req.stop_date else "2024-01-01"
+    ok, msg = backfill_manager.start_async(page_term=p, limit=l, chunk=c, stop_date=d)
+    if not ok:
+        raise HTTPException(status_code=400, detail=msg)
+    return {"status": "ok", "message": msg}
+
+@app.post("/api/admin/backfill/stop")
+def stop_backfill():
+    from etl.backfill_history import backfill_manager
+    ok, msg = backfill_manager.stop()
+    return {"status": "ok" if ok else "ignored", "message": msg}
+
 @app.get("/api/leads/list", response_model=LeadListResponse)
 def list_leads(
     page: int = Query(1, ge=1),

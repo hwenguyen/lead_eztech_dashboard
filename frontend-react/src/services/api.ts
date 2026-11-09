@@ -1068,3 +1068,37 @@ export const fetchWorkReport = async (
   return res.data;
 };
 
+export interface BackfillStatusResponse {
+  isRunning: boolean;
+  currentPage: string;
+  currentPageIdx: number;
+  totalPages: number;
+  totalAdded: number;
+  currentDate: string;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  error?: string | null;
+  logs: string[];
+}
+
+export const fetchBackfillStatus = async (): Promise<BackfillStatusResponse> => {
+  const res = await apiClient.get<BackfillStatusResponse>('/admin/backfill/status');
+  return res.data;
+};
+
+export const startBackfill = async (payload?: {
+  page?: string;
+  limit?: number;
+  chunk?: number;
+  stop_date?: string;
+}): Promise<{ status: string; message: string }> => {
+  const res = await apiClient.post<{ status: string; message: string }>('/admin/backfill/start', payload || {});
+  return res.data;
+};
+
+export const stopBackfill = async (): Promise<{ status: string; message: string }> => {
+  const res = await apiClient.post<{ status: string; message: string }>('/admin/backfill/stop');
+  return res.data;
+};
+
+

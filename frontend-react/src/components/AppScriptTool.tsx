@@ -129,6 +129,7 @@ export function AppScriptTool() {
   const [onlyStudentFilter, setOnlyStudentFilter] = useState<boolean>(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterSale, setFilterSale] = useState('');
+  const [filterClass, setFilterClass] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 25;
   const [copiedRowId, setCopiedRowId] = useState<string | null>(null);
@@ -232,7 +233,7 @@ export function AppScriptTool() {
   // Reset về trang 1 khi thay đổi bộ lọc
   useEffect(() => {
     setCurrentPage(1);
-  }, [completionFilter, onlyStudentFilter, searchQuery, filterSale]);
+  }, [completionFilter, onlyStudentFilter, searchQuery, filterSale, filterClass]);
 
   // Đóng dropdown chọn nguồn khi click ra ngoài
   useEffect(() => {
@@ -588,7 +589,14 @@ export function AppScriptTool() {
 
   // Đếm số lượng chờ bổ sung thông tin
   const countsByCompletion = useMemo(() => {
-    const base = onlyStudentFilter ? deals.filter((d) => d.isStudent !== false) : deals;
+    let base = onlyStudentFilter ? deals.filter((d) => d.isStudent !== false) : deals;
+    if (filterClass) {
+      if (filterClass === '__NONE__') {
+        base = base.filter((d) => (d.lop || []).length === 0);
+      } else {
+        base = base.filter((d) => (d.lop || []).includes(filterClass));
+      }
+    }
     let incomplete = 0;
     let completed = 0;
     for (const d of base) {
@@ -597,7 +605,7 @@ export function AppScriptTool() {
       else completed++;
     }
     return { total: base.length, incomplete, completed };
-  }, [deals, onlyStudentFilter]);
+  }, [deals, onlyStudentFilter, filterClass]);
 
   // Lọc danh sách Deals
   const filteredDeals = useMemo(() => {
@@ -623,7 +631,17 @@ export function AppScriptTool() {
         }
       }
 
-      // 4. Tìm kiếm từ khóa
+      // 4. Lọc theo Lớp học
+      if (filterClass) {
+        const dLop = d.lop || [];
+        if (filterClass === '__NONE__') {
+          if (dLop.length > 0) return false;
+        } else if (!dLop.includes(filterClass)) {
+          return false;
+        }
+      }
+
+      // 5. Tìm kiếm từ khóa
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
         const matchName = (d.hoTen || '').toLowerCase().includes(q);
@@ -642,6 +660,7 @@ export function AppScriptTool() {
     onlyStudentFilter,
     completionFilter,
     filterSale,
+    filterClass,
     searchQuery,
   ]);
 
@@ -706,6 +725,50 @@ export function AppScriptTool() {
     }
     return sorted;
   }, [deals]);
+
+  // Danh sách các Lớp học duy nhất tổng hợp từ danh mục và dữ liệu deals
+  const distinctClasses = useMemo(() => {
+    const s = new Set<string>();
+    (lists.lop || []).forEach((c) => {
+      const clean = c.trim();
+      if (clean) s.add(clean);
+    });
+    deals.forEach((d) => {
+      (d.lop || []).forEach((c) => {
+        const clean = c.trim();
+        if (clean) s.add(clean);
+      });
+    });
+    return Array.from(s).sort((a, b) => a.localeCompare(b, 'vi'));
+  }, [lists.lop, deals]);
+
+  // Số lượng học viên chưa xếp lớp
+  const dealsWithoutClassCount = useMemo(() => {
+    const base = onlyStudentFilter ? deals.filter((d) => d.isStudent !== false) : deals;
+    return base.filter((d) => (d.lop || []).length === 0).length;
+  }, [deals, onlyStudentFilter]);
+
+  // Lọc danh sách Công nợ theo Lớp
+  const filteredDebts = useMemo(() => {
+    let items = debts.items || [];
+    if (filterClass) {
+      if (filterClass === '__NONE__') {
+        items = items.filter((d) => (d.lop || []).length === 0);
+      } else {
+        items = items.filter((d) => (d.lop || []).includes(filterClass));
+      }
+    }
+    const totalPhaiThu = items.reduce((sum, d) => sum + (d.phaiThuBanDau || 0), 0);
+    const totalDaThuNo = items.reduce((sum, d) => sum + (d.daThuNo || 0), 0);
+    const totalConNo = items.reduce((sum, d) => sum + (d.conNo || 0), 0);
+    return {
+      items,
+      count: items.length,
+      totalPhaiThu,
+      totalDaThuNo,
+      totalConNo,
+    };
+  }, [debts, filterClass]);
 
   // Định dạng 1 dòng chuẩn Tab-Separated Values (TSV) để dán (Ctrl+V) thẳng vào Google Sheet
   const sanitizeSheetCell = (val: unknown): string =>
@@ -899,19 +962,55 @@ export function AppScriptTool() {
 
             <button
               onClick={() => setSubTab('debts')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                 subTab === 'debts'
                   ? 'bg-white text-navy shadow-xs'
                   : 'text-slate-600 hover:text-navy'
               }`}
             >
               <span>Sổ Công Nợ</span>
-              {debts.count > 0 && (
+              {filteredDebts.count > 0 && (
                 <span className="px-1.5 py-0.2 bg-slate-200 text-slate-700 rounded-full text-[10px] font-mono font-bold">
-                  {debts.count}
+                  {filteredDebts.count}
                 </span>
               )}
             </button>
+
+            {/* Filter Lớp cạnh Sổ Công Nợ */}
+            <div className="flex items-center gap-1 pl-1 border-l border-slate-200/80">
+              <select
+                value={filterClass}
+                onChange={(e) => setFilterClass(e.target.value)}
+                className={`px-2.5 py-1 text-xs font-medium rounded-lg border transition-all cursor-pointer ${
+                  filterClass
+                    ? 'bg-eztech text-white border-eztech shadow-2xs font-semibold'
+                    : 'bg-white text-slate-700 border-slate-200 hover:border-slate-300'
+                } focus:outline-none focus:ring-1 focus:ring-eztech`}
+                title="Lọc học viên & công nợ theo lớp"
+              >
+                <option value="" className="bg-white text-navy font-normal">
+                  Tất cả Lớp ({distinctClasses.length})
+                </option>
+                <option value="__NONE__" className="bg-white text-navy font-normal">
+                  Chưa xếp lớp ({dealsWithoutClassCount})
+                </option>
+                {distinctClasses.map((cls) => (
+                  <option key={cls} value={cls} className="bg-white text-navy font-normal">
+                    Lớp {cls}
+                  </option>
+                ))}
+              </select>
+              {filterClass && (
+                <button
+                  type="button"
+                  onClick={() => setFilterClass('')}
+                  className="p-1 text-slate-400 hover:text-slate-600 rounded cursor-pointer"
+                  title="Bỏ lọc lớp"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
 
             <button
               onClick={() => setSubTab('lists')}
@@ -975,9 +1074,9 @@ export function AppScriptTool() {
         <div className="bg-white rounded-xl border border-slate-200/80 shadow-card p-3.5">
           <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Tổng Còn Nợ (AR)</p>
           <p className="text-lg font-bold font-mono text-amber-600 mt-1 tabular-nums">
-            {fmtMoney(debts.totalConNo)} <span className="text-xs font-normal text-slate-400">đ</span>
+            {fmtMoney(filteredDebts.totalConNo)} <span className="text-xs font-normal text-slate-400">đ</span>
           </p>
-          <p className="text-[11px] text-slate-400 mt-0.5">{debts.count} khoản chưa tất toán</p>
+          <p className="text-[11px] text-slate-400 mt-0.5">{filteredDebts.count} khoản chưa tất toán</p>
         </div>
 
         <div className="bg-white rounded-xl border border-slate-200/80 shadow-card p-3.5">
@@ -1465,7 +1564,7 @@ export function AppScriptTool() {
           <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
             <div>
               <h3 className="text-xs font-bold text-navy uppercase tracking-wider">
-                Danh Sách Công Nợ Chưa Tất Toán ({debts.count} khoản)
+                Danh Sách Công Nợ Chưa Tất Toán ({filteredDebts.count} khoản{filterClass ? ` — ${filterClass === '__NONE__' ? 'Chưa xếp lớp' : `Lớp ${filterClass}`}` : ''})
               </h3>
               <p className="text-[11px] text-slate-400 mt-0.5">
                 Khi nhập một deal mới có trạng thái <strong>"Thu nợ"</strong> cùng SĐT, hệ thống sẽ tự động trừ lùi công nợ từ khoản nợ cũ nhất (FIFO).
@@ -1491,16 +1590,18 @@ export function AppScriptTool() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-xs">
-                {debts.items.length === 0 ? (
+                {filteredDebts.items.length === 0 ? (
                   <tr>
                     <td colSpan={11} className="py-12 text-center text-emerald-600 font-medium">
                       <CheckCircle2 className="w-6 h-6 mx-auto mb-1.5 text-emerald-500" />
-                      Tuyệt vời! Hiện tại không có khoản công nợ nào tồn đọng.
+                      {debts.items.length === 0
+                        ? 'Tuyệt vời! Hiện tại không có khoản công nợ nào tồn đọng.'
+                        : 'Không có khoản công nợ nào thuộc lớp đang chọn.'}
                     </td>
                   </tr>
                 ) : (
                   <>
-                    {debts.items.map((item) => (
+                    {filteredDebts.items.map((item) => (
                       <tr key={item.id} className="hover:bg-amber-50/30 transition-colors">
                         <td className="py-2.5 px-3 font-mono font-semibold text-navy">{item.sdt}</td>
                         <td className="py-2.5 px-3 font-semibold text-navy">{item.hoTen}</td>
@@ -1532,12 +1633,12 @@ export function AppScriptTool() {
                       <td colSpan={4} className="py-3 px-3 uppercase text-xs">
                         TỔNG CỘNG CÔNG NỢ
                       </td>
-                      <td className="py-3 px-3 text-right font-mono">{fmtMoney(debts.totalPhaiThu)}</td>
+                      <td className="py-3 px-3 text-right font-mono">{fmtMoney(filteredDebts.totalPhaiThu)}</td>
                       <td className="py-3 px-3 text-right font-mono text-emerald-700">
-                        {fmtMoney(debts.totalDaThuNo)}
+                        {fmtMoney(filteredDebts.totalDaThuNo)}
                       </td>
                       <td className="py-3 px-3 text-right font-mono text-amber-700 text-sm">
-                        {fmtMoney(debts.totalConNo)} đ
+                        {fmtMoney(filteredDebts.totalConNo)} đ
                       </td>
                       <td colSpan={4} />
                     </tr>

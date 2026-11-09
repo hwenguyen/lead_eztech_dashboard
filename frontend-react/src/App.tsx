@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { format, subDays } from 'date-fns';
-import { Users, UserPlus, UserCheck, PhoneCall, PhoneForwarded, Percent, Calendar, RefreshCw, LayoutDashboard, Clock, Award, Bot, LogOut, KeyRound, Lock, Menu, X, Sparkles, Facebook, FileSpreadsheet } from 'lucide-react';
+import { Users, UserPlus, UserCheck, PhoneCall, PhoneForwarded, Percent, Calendar, RefreshCw, LayoutDashboard, Clock, Award, Bot, LogOut, KeyRound, Lock, Menu, X, Sparkles, Facebook, FileSpreadsheet, History } from 'lucide-react';
 import { KpiCard } from './components/KpiCard';
 import { TrendChart } from './components/TrendChart';
 import { LeadTable } from './components/LeadTable';
@@ -15,6 +15,7 @@ import { TikTokDashboard, TikTokIcon } from './components/TikTokDashboard';
 import { WorkReportDashboard } from './components/WorkReportDashboard';
 import { LoginPage } from './components/LoginPage';
 import { ChangePasswordModal } from './components/ChangePasswordModal';
+import { BackfillModal } from './components/BackfillModal';
 import { fetchSummary, fetchTrend, fetchLeads, fetchEmployees, fetchPages, getStoredAuth, logoutApi, clearClientApiCache, type SummaryData, type TrendData, type Lead, type AuthUser } from './services/api';
 
 function App() {
@@ -57,6 +58,7 @@ function App() {
   const pageSize = 15;
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [isBackfillOpen, setIsBackfillOpen] = useState<boolean>(false);
   const [phoneCategoryFilter, setPhoneCategoryFilter] = useState<'all' | 'new' | 'recontact'>('all');
 
   useEffect(() => {
@@ -303,7 +305,18 @@ function App() {
             </div>
 
             {/* Right: Last updated & Refresh button */}
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 sm:gap-3">
+              <button
+                type="button"
+                onClick={() => setIsBackfillOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200/90 rounded-xl transition-all shadow-2xs hover:shadow-xs cursor-pointer"
+                title="Cào vét dữ liệu lịch sử từ Pancake về các tháng trước"
+              >
+                <History className="w-3.5 h-3.5 text-amber-600" />
+                <span className="hidden sm:inline">Backfill dữ liệu cũ</span>
+                <span className="sm:hidden">Backfill</span>
+              </button>
+
               {lastUpdated && (
                 <span className="text-[11px] font-mono text-slate-400 hidden sm:inline-block tabular-nums">
                   Cập nhật {format(lastUpdated, 'HH:mm')}
@@ -312,7 +325,7 @@ function App() {
               <button
                 onClick={handleRefresh}
                 disabled={loading}
-                className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold bg-white hover:bg-brand-50 rounded-xl transition-all border border-slate-200/90 hover:border-brand-300 text-navy hover:text-brand-600 shadow-xs disabled:opacity-50"
+                className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold bg-white hover:bg-brand-50 rounded-xl transition-all border border-slate-200/90 hover:border-brand-300 text-navy hover:text-brand-600 shadow-xs disabled:opacity-50 cursor-pointer"
               >
                 <RefreshCw className={`w-3.5 h-3.5 text-brand-500 ${loading ? 'animate-spin' : ''}`} />
                 <span>Làm mới</span>
@@ -563,6 +576,15 @@ function App() {
       <ChangePasswordModal
         isOpen={showChangePw}
         onClose={() => setShowChangePw(false)}
+      />
+
+      <BackfillModal
+        isOpen={isBackfillOpen}
+        onClose={() => {
+          setIsBackfillOpen(false);
+          handleRefresh();
+        }}
+        pagesList={pagesList}
       />
     </div>
   );
