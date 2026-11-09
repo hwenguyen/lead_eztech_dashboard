@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { format, subDays } from 'date-fns';
-import { Users, UserPlus, UserCheck, PhoneCall, PhoneForwarded, Percent, Calendar, RefreshCw, LayoutDashboard, Clock, Award, Bot, LogOut, KeyRound, Lock, Menu, X, Sparkles, Facebook, FileSpreadsheet } from 'lucide-react';
+import { Users, UserPlus, UserCheck, PhoneCall, PhoneForwarded, Percent, Calendar, RefreshCw, LayoutDashboard, Clock, Award, Bot, LogOut, KeyRound, Lock, Menu, X, Sparkles, Facebook, FileSpreadsheet, Receipt, ExternalLink } from 'lucide-react';
 import { KpiCard } from './components/KpiCard';
 import { TrendChart } from './components/TrendChart';
 import { LeadTable } from './components/LeadTable';
@@ -40,7 +40,7 @@ function App() {
     }
   };
 
-  const [activeTab, setActiveTab] = useState<'overview' | 'facebook' | 'tiktok' | 'work_report' | 'remind' | 'deals' | 'bot' | 'gas_tool'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'facebook' | 'tiktok' | 'work_report' | 'remind' | 'deals' | 'bot' | 'gas_tool' | 'invoice'>('overview');
   const [startDate, setStartDate] = useState(format(subDays(new Date(), 7), 'yyyy-MM-dd'));
   const [endDate, setEndDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [pageId, setPageId] = useState('');
@@ -145,6 +145,8 @@ function App() {
 
   const pct = (part: number, whole: number) => (whole > 0 ? (part / whole) * 100 : 0).toFixed(1);
 
+  const INVOICE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbywN2OeDtwsqXNW3Z-2j5KJ147auCNsZF6epEoWxzKK1QLO0JQvYYuXTiJWhXlXBm5h/exec';
+
   const navItems = [
     { id: 'overview' as const, label: 'Tổng quan & Chỉ số', icon: LayoutDashboard },
     { id: 'facebook' as const, label: 'Facebook Analytics', icon: Facebook },
@@ -153,6 +155,7 @@ function App() {
     { id: 'remind' as const, label: 'Chăm sóc Lead', icon: Clock },
     { id: 'deals' as const, label: 'Deal Win', icon: Award },
     { id: 'gas_tool' as const, label: 'Nhập Deal & Công Nợ', icon: Sparkles },
+    { id: 'invoice' as const, label: 'Xuất hoá đơn', icon: Receipt, url: INVOICE_SCRIPT_URL },
     { id: 'bot' as const, label: 'Bot Gửi Tin', icon: Bot },
   ];
 
@@ -201,8 +204,14 @@ function App() {
             return (
               <button
                 key={item.id}
-                onClick={() => { setActiveTab(item.id); setIsSidebarOpen(false); }}
-                className={`group relative w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs transition-all ${
+                onClick={() => {
+                  if ('url' in item && item.url) {
+                    window.open(item.url, '_blank', 'noopener,noreferrer');
+                  }
+                  setActiveTab(item.id);
+                  setIsSidebarOpen(false);
+                }}
+                className={`group relative w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs transition-all cursor-pointer ${
                   isActive
                     ? 'gradient-brand text-white font-semibold shadow-md shadow-brand-500/20'
                     : 'text-slate-600 font-medium hover:text-navy hover:bg-brand-50'
@@ -216,7 +225,11 @@ function App() {
                   />
                   <span>{item.label}</span>
                 </div>
-                {isActive && <div className="w-1.5 h-1.5 rounded-full bg-gold-400 shrink-0" />}
+                {'url' in item && item.url ? (
+                  <ExternalLink className={`w-3.5 h-3.5 transition-colors ${isActive ? 'text-gold-400' : 'text-slate-400 group-hover:text-brand-600'}`} />
+                ) : (
+                  isActive && <div className="w-1.5 h-1.5 rounded-full bg-gold-400 shrink-0" />
+                )}
               </button>
             );
           })}
@@ -295,6 +308,7 @@ function App() {
                   {activeTab === 'deals' && 'Học viên Chốt (Deal Win)'}
                   {activeTab === 'bot' && 'Bot Gửi Tin Nhắn Tự Động'}
                   {activeTab === 'gas_tool' && 'Nhập Deal & Quản lý Công Nợ'}
+                  {activeTab === 'invoice' && 'Xuất Hoá Đơn Điện Tử'}
                 </h2>
                 <span className="hidden md:inline-block text-xs text-slate-400 font-medium">
                   • EzTech Lead Intelligence
@@ -347,6 +361,33 @@ function App() {
             )
           ) : activeTab === 'gas_tool' ? (
             <AppScriptTool />
+          ) : activeTab === 'invoice' ? (
+            <div className="bg-white rounded-2xl border border-slate-200/80 shadow-card p-6 sm:p-10 max-w-2xl mx-auto my-8 text-center space-y-5">
+              <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-200/90 text-amber-600 flex items-center justify-center mx-auto shadow-xs">
+                <Receipt className="w-8 h-8" />
+              </div>
+              <div className="space-y-1.5">
+                <h2 className="text-lg font-bold text-navy">Hệ Thống Xuất Hoá Đơn Điện Tử</h2>
+                <p className="text-xs text-slate-500 max-w-md mx-auto leading-relaxed">
+                  Trang xuất hoá đơn Google Apps Script được khởi chạy trong cửa sổ riêng để bảo đảm đầy đủ tính năng và bảo mật tài khoản.
+                </p>
+              </div>
+              <div className="pt-2">
+                <a
+                  href={INVOICE_SCRIPT_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 text-white text-xs font-semibold rounded-xl shadow-md transition-all cursor-pointer hover:shadow-lg"
+                >
+                  <Receipt className="w-4 h-4" />
+                  <span>Mở Trang Xuất Hoá Đơn (Google Apps Script)</span>
+                  <ExternalLink className="w-4 h-4" />
+                </a>
+              </div>
+              <p className="text-[11px] text-slate-400">
+                * Nếu trang không tự động bật lên, vui lòng bấm nút phía trên để mở trực tiếp.
+              </p>
+            </div>
           ) : (
             <>
               {/* Compact Inline Filter Toolbar */}
