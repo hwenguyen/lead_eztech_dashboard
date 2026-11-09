@@ -1,0 +1,67 @@
+name: Backfill Pancake History
+
+on:
+  workflow_dispatch:
+    inputs:
+      page:
+        description: 'Tên hoặc ID của Page cần cào (để trống nếu muốn cào tất cả các Page)'
+        required: false
+        default: ''
+      limit:
+        description: 'Số hội thoại tối đa cần cào thêm cho mỗi page (Mặc định: 3000)'
+        required: false
+        default: '3000'
+      chunk:
+        description: 'Số hội thoại mỗi lượt cào và lưu DB (Mặc định: 120)'
+        required: false
+        default: '120'
+      stop_date:
+        description: 'Mốc ngày dừng cào YYYY-MM-DD (Mặc định: 2024-01-01)'
+        required: false
+        default: '2024-01-01'
+
+concurrency:
+  group: pancake-backfill
+  cancel-in-progress: false
+
+jobs:
+  run-backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180 # Giới hạn tối đa 3 giờ cho tác vụ cào lịch sử sâu
+
+    steps:
+      - name: Kiểm tra mã nguồn
+        uses: actions/checkout@v4
+
+      - name: Cài đặt Python 3.10 & Kích hoạt Pip Cache
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+          cache-dependency-path: 'requirements-etl.txt'
+
+      - name: Cài đặt thư viện Python (ETL Tối ưu)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-etl.txt
+
+      - name: Chạy Backfill Dữ Liệu Lịch Sử Pancake
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PANCAKE_API_TOKEN: ${{ secrets.PANCAKE_API_TOKEN }}
+          PANCAKE_API_TOKENS: ${{ secrets.PANCAKE_API_TOKENS }}
+          PAGE_IDS: ${{ secrets.PAGE_IDS }}
+          PANCAKE_PAGES_JSON: ${{ secrets.PANCAKE_PAGES_JSON }}
+          ADMIN_SECRET_KEY: ${{ secrets.ADMIN_SECRET_KEY }}
+          WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}
+          PYTHONUNBUFFERED: "1"
+        run: |
+          PAGE_ARG=""
+          if [ -n "${{ github.event.inputs.page }}" ]; then
+            PAGE_ARG="--page \"${{ github.event.inputs.page }}\""
+          fi
+          python etl/backfill_history.py \
+            $PAGE_ARG \
+            --limit "${{ github.event.inputs.limit || '3000' }}" \
+            --chunk "${{ github.event.inputs.chunk || '120' }}" \
+            --stop-date "${{ github.event.inputs.stop_date || '2024-01-01' }}"

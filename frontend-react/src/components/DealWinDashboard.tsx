@@ -17,8 +17,7 @@ import {
   FileText,
   TrendingUp,
   PhoneCall,
-  Users,
-  History
+  Users
 } from 'lucide-react';
 import {
   AreaChart,
@@ -43,7 +42,6 @@ import {
   type DealWinSummary,
   type DealWinOptions
 } from '../services/api';
-import { BackfillModal } from './BackfillModal';
 
 export function DealWinDashboard() {
   // Preset dates: default to 30 days
@@ -90,7 +88,6 @@ export function DealWinDashboard() {
   const [loadingSummary, setLoadingSummary] = useState(false);
   const [loadingList, setLoadingList] = useState(false);
   const [syncingPancake, setSyncingPancake] = useState(false);
-  const [isBackfillOpen, setIsBackfillOpen] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   // Modal detail
@@ -380,14 +377,6 @@ export function DealWinDashboard() {
                 Cập nhật: {format(lastUpdated, 'HH:mm:ss')}
               </span>
             )}
-            <button
-              onClick={() => setIsBackfillOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-amber-800 bg-amber-50 hover:bg-amber-100 rounded-xl transition-colors border border-amber-200/90 cursor-pointer shadow-2xs"
-              title="Cào vét dữ liệu lịch sử từ Pancake về các tháng trước"
-            >
-              <History className="w-3.5 h-3.5 text-amber-600" />
-              <span>Backfill dữ liệu cũ</span>
-            </button>
             <button
               onClick={handleSyncPancake}
               disabled={syncingPancake || loadingSummary || loadingList}
@@ -936,16 +925,6 @@ export function DealWinDashboard() {
           </div>
         </div>
       )}
-
-      {/* Backfill Modal */}
-      <BackfillModal
-        isOpen={isBackfillOpen}
-        onClose={() => {
-          setIsBackfillOpen(false);
-          handleRefresh();
-        }}
-        pagesList={options.pages || []}
-      />
     </div>
   );
 }
