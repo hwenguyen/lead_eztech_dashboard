@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Depends, Query, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
+from pydantic import BaseModel
 from sqlalchemy.orm import Session, defer
 from sqlalchemy import or_, desc, func
 from collections import Counter
