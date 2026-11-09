@@ -170,7 +170,8 @@ class PancakeClient:
         page_id: str,
         existing_cache: Optional[Dict[str, Any]] = None,
         days_back: Optional[int] = None,
-        cache_loader: Optional[Callable[[List[str]], Dict[str, Any]]] = None
+        cache_loader: Optional[Callable[[List[str]], Dict[str, Any]]] = None,
+        start_after_id: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
         Lấy danh sách hội thoại qua Pancake Public API v2 với cơ chế Incremental Caching & Early Stopping:
@@ -199,7 +200,7 @@ class PancakeClient:
         now_ts = int(datetime.utcnow().timestamp())
         # Giữ since rộng: nếu Pancake lọc since theo ngày TẠO hội thoại thì thu hẹp sẽ mất lead cũ nhắn lại.
         # Việc cắt bớt do early stopping theo updated_at bên dưới đảm nhiệm.
-        since_ts = int((datetime.utcnow() - timedelta(days=365 * 2)).timestamp())
+        since_ts = int((datetime.utcnow() - timedelta(days=365 * 3)).timestamp())
         if days_back and days_back > 0:
             cutoff_dt = datetime.now(VN_TZ).replace(tzinfo=None) - timedelta(days=days_back)
         else:
@@ -207,7 +208,7 @@ class PancakeClient:
         
         t_list = time.perf_counter()
         all_convs = []
-        last_id = None
+        last_id = start_after_id
         retry_count = 0
         max_retries = 3
 
@@ -539,7 +540,7 @@ class PancakeClient:
         url_convs = f"https://pages.fm/api/public_api/v2/pages/{page_id}/conversations"
 
         now_ts = int(datetime.utcnow().timestamp())
-        since_ts = int((datetime.utcnow() - timedelta(days=365 * 2)).timestamp())
+        since_ts = int((datetime.utcnow() - timedelta(days=365 * 3)).timestamp())
         cutoff_dt = None
         if days_back and days_back > 0:
             cutoff_dt = datetime.now(VN_TZ).replace(tzinfo=None) - timedelta(days=days_back)
