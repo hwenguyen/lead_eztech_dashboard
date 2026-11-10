@@ -660,6 +660,15 @@ def _get_already_added_phones(db: Session) -> set:
 # 6. PLAYWRIGHT AUTOMATION ENGINE (PORT TỪ `pancake_addfr_backup/bot.py`)
 # ==============================================================================
 
+ZALO_PAGE_DIRECT_URLS = {
+    "Eztech Consultant": "https://pancake.vn/pzl_84899274368",
+    "Eztech Phân Tích Dữ Liệu": "https://pancake.vn/pzl_84377024368",
+    "Hiền Minh Eztech": "https://pancake.vn/pzl_84898276368",
+    "Tuấn Anh Data": "https://pancake.vn/pzl_84389528224",
+    "Ann": "https://pancake.vn/pzl_84989279368",
+}
+
+
 def _mem_mb() -> str:
     for p in ("/sys/fs/cgroup/memory.current", "/sys/fs/cgroup/memory/memory.usage_in_bytes"):
         if os.path.exists(p):
@@ -701,7 +710,8 @@ def _execute_pancake_add_friend_single(
         search_icon_btn = page.locator("button.conversation-menu-item.create-conversation-button").first
         need_open_dashboard = True
         try:
-            if "pages.fm" in (page.url or "") and search_icon_btn.is_visible():
+            cur_url = page.url or ""
+            if ("pancake.vn" in cur_url or "pages.fm" in cur_url) and search_icon_btn.is_visible():
                 page.keyboard.press("Escape")
                 time.sleep(0.5)
                 need_open_dashboard = False
@@ -709,9 +719,15 @@ def _execute_pancake_add_friend_single(
             need_open_dashboard = True
 
         if need_open_dashboard:
-            _report(f"Đang mở pages.fm cho SĐT {phone}...")
-            page.goto("https://pages.fm/", timeout=60000, wait_until="domcontentloaded")
-            time.sleep(2.5)
+            direct_url = ZALO_PAGE_DIRECT_URLS.get(target_dashboard)
+            if direct_url:
+                _report(f"Đang mở trực tiếp Page '{target_dashboard}'...")
+                page.goto(direct_url, timeout=60000, wait_until="domcontentloaded")
+                time.sleep(2.5)
+            else:
+                _report(f"Đang mở Pancake cho SĐT {phone}...")
+                page.goto("https://pancake.vn/", timeout=60000, wait_until="domcontentloaded")
+                time.sleep(2.5)
 
             # Kiểm tra sập server 502 / 504 (từ bot.py)
             title_text = page.title() or ""
@@ -724,17 +740,18 @@ def _execute_pancake_add_friend_single(
             if page.locator("text='Đăng nhập'").is_visible():
                 return "AUTH_EXPIRED", "Phiên đăng nhập Pancake (pancake_state.json) đã hết hạn!"
 
-            # Bước 1: Chọn Page Dashboard (vd: "Eztech Consultant")
-            _report(f"Đang chọn Page '{target_dashboard}'...")
-            dashboard_item = page.locator("div.dashboard-page-item", has_text=target_dashboard).first
-            dashboard_item.wait_for(state="visible", timeout=25000)
-            dashboard_item.click()
-            page.wait_for_load_state("domcontentloaded")
-            time.sleep(2.5)
+            if not direct_url:
+                # Bước 1: Chọn Page Dashboard (vd: "Eztech Consultant")
+                _report(f"Đang chọn Page '{target_dashboard}'...")
+                dashboard_item = page.locator("div.dashboard-page-item", has_text=target_dashboard).first
+                dashboard_item.wait_for(state="visible", timeout=25000)
+                dashboard_item.click()
+                page.wait_for_load_state("domcontentloaded")
+                time.sleep(2.5)
 
         # Bước 2: Bấm nút Tạo hội thoại / Tìm số điện thoại
         _report(f"Đang mở ô tìm kiếm SĐT {phone}...")
-        search_icon_btn.wait_for(state="visible", timeout=20000)
+        search_icon_btn.wait_for(state="visible", timeout=60000)
         search_icon_btn.click()
 
         # Bước 3: Điền SĐT và nhấn Enter
@@ -1288,7 +1305,7 @@ def get_add_friend_config(db: Session = Depends(get_db)):
         "skip_sources": DEFAULT_SKIP_SOURCES,
         "state_info": get_pancake_state_info(db),
         "playwright_installed": importlib.util.find_spec("playwright") is not None,
-        "build_version": "v3_low_mem",
+        "build_version": "v4_direct_url",
     }
 
 
