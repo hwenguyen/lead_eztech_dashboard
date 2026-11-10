@@ -17,6 +17,7 @@ INDEX_DDL = [
     "CREATE INDEX IF NOT EXISTS ix_deal_wins_phone_number ON deal_wins (phone_number)",
     "CREATE INDEX IF NOT EXISTS ix_deal_wins_full_name ON deal_wins (full_name)",
     "CREATE INDEX IF NOT EXISTS ix_deal_wins_care_by ON deal_wins (care_by)",
+    "CREATE INDEX IF NOT EXISTS ix_deal_wins_assigned_user ON deal_wins (assigned_user)",
     "CREATE INDEX IF NOT EXISTS ix_deal_wins_page_id ON deal_wins (page_id)",
     "CREATE INDEX IF NOT EXISTS ix_dim_leads_first_created_at ON dim_leads (first_created_at)",
     "CREATE INDEX IF NOT EXISTS ix_dim_leads_phone_at ON dim_leads (phone_at)",
@@ -91,6 +92,9 @@ def _add_missing_columns():
         if "page_id" not in existing_deals:
             ddl_statements.append(f"ALTER TABLE deal_wins ADD COLUMN {if_not_exists}page_id VARCHAR(255)")
             logger.info("Đã lên kế hoạch thêm cột deal_wins.page_id.")
+        if "assigned_user" not in existing_deals:
+            ddl_statements.append(f"ALTER TABLE deal_wins ADD COLUMN {if_not_exists}assigned_user VARCHAR(255)")
+            logger.info("Đã lên kế hoạch thêm cột deal_wins.assigned_user.")
 
     if "posts" in table_names:
         existing_posts = {col["name"] for col in inspector.get_columns("posts")}

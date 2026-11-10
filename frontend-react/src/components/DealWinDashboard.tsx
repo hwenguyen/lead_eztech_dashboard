@@ -641,6 +641,7 @@ export function DealWinDashboard() {
                 <th className="px-5 py-3 font-semibold">Học Viên</th>
                 <th className="px-5 py-3 font-semibold">SĐT / Email</th>
                 <th className="px-5 py-3 font-semibold">Page</th>
+                <th className="px-5 py-3 font-semibold">NV Được Phân</th>
                 <th className="px-5 py-3 font-semibold">Sale Chăm Sóc</th>
                 <th className="px-5 py-3 font-semibold text-right">Chi Tiết</th>
               </tr>
@@ -648,7 +649,7 @@ export function DealWinDashboard() {
             <tbody className="divide-y divide-[#E5E7EB]">
               {loadingList ? (
                 <tr>
-                  <td colSpan={6} className="px-6 py-12 text-center text-xs text-gray-500">
+                  <td colSpan={7} className="px-6 py-12 text-center text-xs text-gray-500">
                     <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2 text-[#1E5BD6]" />
                     Đang tải danh sách học viên...
                   </td>
@@ -722,6 +723,13 @@ export function DealWinDashboard() {
                         )}
                       </td>
 
+                      {/* NV Được Phân */}
+                      <td className="px-5 py-3.5 whitespace-nowrap text-xs">
+                        <span className="font-medium text-gray-700 bg-gray-100 px-2 py-0.5 rounded-md border border-gray-200">
+                          {deal.assigned_user || '—'}
+                        </span>
+                      </td>
+
                       {/* Care by Sale */}
                       <td className="px-5 py-3.5 whitespace-nowrap text-xs">
                         <span className="font-semibold text-navy bg-slate-100/90 px-2 py-0.5 rounded-md border border-slate-200">
@@ -744,7 +752,7 @@ export function DealWinDashboard() {
                 })
               ) : (
                 <tr>
-                  <td colSpan={6} className="px-6 py-12 text-center text-xs text-gray-500">
+                  <td colSpan={7} className="px-6 py-12 text-center text-xs text-gray-500">
                     Không tìm thấy học viên nào phù hợp với bộ lọc hiện tại.
                   </td>
                 </tr>
@@ -857,6 +865,10 @@ export function DealWinDashboard() {
                     <span className="font-semibold text-navy">{detailModal.care_by || 'Chưa phân công'}</span>
                   </div>
                   <div>
+                    <span className="text-xs text-gray-500 block">Nhân viên được phân:</span>
+                    <span className="font-semibold text-gray-800">{detailModal.assigned_user || '—'}</span>
+                  </div>
+                  <div className="sm:col-span-2">
                     <span className="text-xs text-gray-500 block">Fanpage / Kênh:</span>
                     <span className="font-semibold text-blue-700">{detailModal.page_id || '—'}</span>
                   </div>

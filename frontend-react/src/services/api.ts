@@ -294,6 +294,7 @@ export interface DealWinItem {
   job_title?: string;
   expectation?: string;
   care_by?: string;
+  assigned_user?: string;
   page_id?: string;
   is_student?: boolean;
   lead_tag?: string;

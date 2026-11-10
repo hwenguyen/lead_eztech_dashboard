@@ -62,8 +62,9 @@ def import_rows_to_neon(rows):
             raw_care_by = extract_field(row, ["chăm sóc", "sale", "nhân viên chốt", "nhân viên", "care_by", "sales_person"])
             
             # Map với DimLead và Pancake qua SĐT
-            dim_lead_id, is_student, pancake_care, lead_tag, page_id = find_lead_info_by_phone(phone, db)
+            dim_lead_id, is_student, pancake_care, pancake_assigned, lead_tag, page_id = find_lead_info_by_phone(phone, db)
             care_by = pancake_care or (str(raw_care_by).strip() if raw_care_by else "Chưa phân công")
+            assigned_user = pancake_assigned or care_by
             sheet_row_id = f"row_{idx}"
 
             existing = None
@@ -91,6 +92,7 @@ def import_rows_to_neon(rows):
                 existing.job_title = str(job_title).strip() if job_title else existing.job_title
                 existing.expectation = str(expectation).strip() if expectation else existing.expectation
                 existing.care_by = care_by or existing.care_by
+                existing.assigned_user = assigned_user or existing.assigned_user
                 existing.page_id = page_id or existing.page_id
                 existing.is_student = is_student
                 existing.dim_lead_id = dim_lead_id or existing.dim_lead_id
@@ -110,6 +112,7 @@ def import_rows_to_neon(rows):
                     job_title=str(job_title).strip() if job_title else None,
                     expectation=str(expectation).strip() if expectation else None,
                     care_by=care_by,
+                    assigned_user=assigned_user,
                     page_id=page_id,
                     dim_lead_id=dim_lead_id,
                     is_student=is_student,
