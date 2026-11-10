@@ -660,6 +660,17 @@ def _get_already_added_phones(db: Session) -> set:
 # 6. PLAYWRIGHT AUTOMATION ENGINE (PORT TỪ `pancake_addfr_backup/bot.py`)
 # ==============================================================================
 
+def _mem_mb() -> str:
+    for p in ("/sys/fs/cgroup/memory.current", "/sys/fs/cgroup/memory/memory.usage_in_bytes"):
+        if os.path.exists(p):
+            try:
+                with open(p) as f:
+                    return f"{int(f.read().strip()) // (1024 * 1024)}MB"
+            except Exception:
+                pass
+    return ""
+
+
 def _execute_pancake_add_friend_single(
     page: Any,
     target_dashboard: str,
@@ -670,6 +681,7 @@ def _execute_pancake_add_friend_single(
     tags: List[str],
     send_inbox_message: bool = True,
     add_note: bool = True,
+    step_cb: Any = None,
 ) -> Tuple[str, str]:
     """
     Thực thi quy trình kết bạn trên Pancake cho 1 số điện thoại (port nguyên bản từ `process_via_pancake` trong `bot.py`).
@@ -681,34 +693,52 @@ def _execute_pancake_add_friend_single(
     - `("FAILED", "Chi tiết lỗi...")`
     """
     try:
-        page.goto("https://pages.fm/", timeout=60000)
-        page.wait_for_load_state("domcontentloaded")
-        time.sleep(3)
+        def _report(msg: str):
+            if step_cb:
+                ram = _mem_mb()
+                step_cb(f"{msg} {f'[{ram}]' if ram else ''}".strip())
 
-        # Kiểm tra sập server 502 / 504 (từ bot.py)
-        title_text = page.title() or ""
-        if "502 Bad Gateway" in title_text or "504 Gateway Time-out" in title_text:
-            return "SERVER_ERROR", f"Pancake trả về lỗi máy chủ: {title_text}"
-        if page.locator("text='502 Bad Gateway'").is_visible():
-            return "SERVER_ERROR", "Pancake đang bị lỗi 502 Bad Gateway"
+        search_icon_btn = page.locator("button.conversation-menu-item.create-conversation-button").first
+        need_open_dashboard = True
+        try:
+            if "pages.fm" in (page.url or "") and search_icon_btn.is_visible():
+                page.keyboard.press("Escape")
+                time.sleep(0.5)
+                need_open_dashboard = False
+        except Exception:
+            need_open_dashboard = True
 
-        # Kiểm tra hết hạn đăng nhập
-        if page.locator("text='Đăng nhập'").is_visible():
-            return "AUTH_EXPIRED", "Phiên đăng nhập Pancake (pancake_state.json) đã hết hạn!"
+        if need_open_dashboard:
+            _report(f"Đang mở pages.fm cho SĐT {phone}...")
+            page.goto("https://pages.fm/", timeout=60000, wait_until="domcontentloaded")
+            time.sleep(2.5)
 
-        # Bước 1: Chọn Page Dashboard (vd: "Eztech Consultant")
-        dashboard_item = page.locator("div.dashboard-page-item", has_text=target_dashboard).first
-        dashboard_item.wait_for(state="visible", timeout=25000)
-        dashboard_item.click()
-        page.wait_for_load_state("domcontentloaded")
-        time.sleep(3)
+            # Kiểm tra sập server 502 / 504 (từ bot.py)
+            title_text = page.title() or ""
+            if "502 Bad Gateway" in title_text or "504 Gateway Time-out" in title_text:
+                return "SERVER_ERROR", f"Pancake trả về lỗi máy chủ: {title_text}"
+            if page.locator("text='502 Bad Gateway'").is_visible():
+                return "SERVER_ERROR", "Pancake đang bị lỗi 502 Bad Gateway"
+
+            # Kiểm tra hết hạn đăng nhập
+            if page.locator("text='Đăng nhập'").is_visible():
+                return "AUTH_EXPIRED", "Phiên đăng nhập Pancake (pancake_state.json) đã hết hạn!"
+
+            # Bước 1: Chọn Page Dashboard (vd: "Eztech Consultant")
+            _report(f"Đang chọn Page '{target_dashboard}'...")
+            dashboard_item = page.locator("div.dashboard-page-item", has_text=target_dashboard).first
+            dashboard_item.wait_for(state="visible", timeout=25000)
+            dashboard_item.click()
+            page.wait_for_load_state("domcontentloaded")
+            time.sleep(2.5)
 
         # Bước 2: Bấm nút Tạo hội thoại / Tìm số điện thoại
-        search_icon_btn = page.locator("button.conversation-menu-item.create-conversation-button").first
+        _report(f"Đang mở ô tìm kiếm SĐT {phone}...")
         search_icon_btn.wait_for(state="visible", timeout=20000)
         search_icon_btn.click()
 
         # Bước 3: Điền SĐT và nhấn Enter
+        _report(f"Đang tra cứu Zalo SĐT {phone}...")
         phone_input = page.get_by_placeholder("Nhập số điện thoại")
         phone_input.wait_for(state="visible", timeout=10000)
         phone_input.fill(phone)
@@ -885,6 +915,8 @@ def _run_add_friend_worker(task_id: str, req_data: Dict[str, Any]):
                 return
 
             try:
+                import gc
+                gc.collect()
                 from playwright.sync_api import sync_playwright
                 playwright_ctx = sync_playwright().start()
                 launch_args = [
@@ -892,14 +924,21 @@ def _run_add_friend_worker(task_id: str, req_data: Dict[str, Any]):
                     "--disable-setuid-sandbox",
                     "--disable-dev-shm-usage",
                     "--disable-gpu",
-                    "--no-zygote",
-                    "--single-process",
+                    "--disable-extensions",
+                    "--disable-background-networking",
+                    "--disable-default-apps",
+                    "--disable-sync",
+                    "--disable-translate",
+                    "--mute-audio",
+                    "--no-first-run",
+                    "--blink-settings=imagesEnabled=false",
+                    "--js-flags=--max-old-space-size=192",
                 ]
                 try:
                     with _ADD_FRIEND_LOCK:
                         task = _ADD_FRIEND_TASKS.get(task_id)
                         if task:
-                            task["current_action"] = "⏳ Đang khởi chạy trình duyệt Chromium..."
+                            task["current_action"] = f"⏳ Đang khởi chạy trình duyệt Chromium... [{_mem_mb()}]"
                     browser = playwright_ctx.chromium.launch(headless=True, args=launch_args)
                 except Exception as launch_err:
                     if "Executable doesn't exist" in str(launch_err):
@@ -922,7 +961,16 @@ def _run_add_friend_worker(task_id: str, req_data: Dict[str, Any]):
                         browser = playwright_ctx.chromium.launch(headless=True, args=launch_args)
                     else:
                         raise launch_err
-                context = browser.new_context(storage_state=state_path)
+                context = browser.new_context(
+                    storage_state=state_path,
+                    viewport={"width": 1024, "height": 640},
+                )
+                context.route(
+                    "**/*",
+                    lambda route: route.abort()
+                    if route.request.resource_type in ("image", "media", "font")
+                    else route.continue_(),
+                )
                 pw_page = context.new_page()
             except Exception as pw_err:
                 with _ADD_FRIEND_LOCK:
@@ -1003,6 +1051,12 @@ def _run_add_friend_worker(task_id: str, req_data: Dict[str, Any]):
                 )
             else:
                 # Chạy thật qua Playwright với cơ chế Retry (MAX_RETRIES từ bot.py)
+                def _update_step(msg_txt: str):
+                    with _ADD_FRIEND_LOCK:
+                        t_obj = _ADD_FRIEND_TASKS.get(task_id)
+                        if t_obj:
+                            t_obj["current_action"] = f"[{idx}/{len(target_items)}] {msg_txt}"
+
                 for attempt in range(1, max_retries + 1):
                     attempts_used = attempt
                     status_code, detail = _execute_pancake_add_friend_single(
@@ -1015,6 +1069,7 @@ def _run_add_friend_worker(task_id: str, req_data: Dict[str, Any]):
                         tags=tags,
                         send_inbox_message=send_inbox_message,
                         add_note=add_note,
+                        step_cb=_update_step,
                     )
                     status_result = status_code
                     detail_msg = detail
@@ -1233,7 +1288,7 @@ def get_add_friend_config(db: Session = Depends(get_db)):
         "skip_sources": DEFAULT_SKIP_SOURCES,
         "state_info": get_pancake_state_info(db),
         "playwright_installed": importlib.util.find_spec("playwright") is not None,
-        "build_version": "v2_only_shell",
+        "build_version": "v3_low_mem",
     }
 
 
