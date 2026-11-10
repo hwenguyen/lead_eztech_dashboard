@@ -160,6 +160,7 @@ def process_file(file_path: str, sheet_name: Optional[str] = None, phone_col: Op
                     'page': page_name,
                     'ngay_tao': date_str,
                     'tag': act.status_tag or '',
+                    'assigned': (act.assigned_users or '').strip(),
                     'conversation_id': act.conversation_id,
                 }
                 if p not in matched_data:
@@ -192,6 +193,7 @@ def process_file(file_path: str, sheet_name: Optional[str] = None, phone_col: Op
             return 0
         return len(matched_data[sdt])
 
+    df['NV được phân'] = df['_clean_sdt'].apply(lambda s: get_info(s, 'assigned'))
     df['Link_Pancake'] = df['_clean_sdt'].apply(lambda s: get_info(s, 'link_pancake'))
     df['Ten_Pancake'] = df['_clean_sdt'].apply(lambda s: get_info(s, 'ten_khach'))
     df['Page_Pancake'] = df['_clean_sdt'].apply(lambda s: get_info(s, 'page'))
