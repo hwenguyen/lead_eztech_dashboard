@@ -180,6 +180,9 @@ def process_spintax(text: str) -> str:
     return result
 
 
+resolve_spintax = process_spintax
+
+
 def render_personalized_template(
     template: str,
     recipient: Dict[str, Any],
