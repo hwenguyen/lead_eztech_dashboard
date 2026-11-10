@@ -892,8 +892,14 @@ def _run_add_friend_worker(task_id: str, req_data: Dict[str, Any]):
                     "--disable-setuid-sandbox",
                     "--disable-dev-shm-usage",
                     "--disable-gpu",
+                    "--no-zygote",
+                    "--single-process",
                 ]
                 try:
+                    with _ADD_FRIEND_LOCK:
+                        task = _ADD_FRIEND_TASKS.get(task_id)
+                        if task:
+                            task["current_action"] = "⏳ Đang khởi chạy trình duyệt Chromium..."
                     browser = playwright_ctx.chromium.launch(headless=True, args=launch_args)
                 except Exception as launch_err:
                     if "Executable doesn't exist" in str(launch_err):
@@ -901,13 +907,18 @@ def _run_add_friend_worker(task_id: str, req_data: Dict[str, Any]):
                             task = _ADD_FRIEND_TASKS.get(task_id)
                             if task:
                                 task["current_action"] = (
-                                    "⏳ Đang tải trình duyệt Chromium lần đầu trên máy chủ (khoảng 30-60s)..."
+                                    "⏳ [1/2] Đang tải trình duyệt Chromium rút gọn (headless-shell)..."
                                 )
-                        import subprocess
                         subprocess.run(
-                            [sys.executable, "-m", "playwright", "install", "chromium"],
+                            [sys.executable, "-m", "playwright", "install", "--only-shell", "chromium"],
                             check=True,
                         )
+                        with _ADD_FRIEND_LOCK:
+                            task = _ADD_FRIEND_TASKS.get(task_id)
+                            if task:
+                                task["current_action"] = (
+                                    "⏳ [2/2] Đã tải xong! Đang khởi chạy trình duyệt Chromium..."
+                                )
                         browser = playwright_ctx.chromium.launch(headless=True, args=launch_args)
                     else:
                         raise launch_err
@@ -1222,6 +1233,7 @@ def get_add_friend_config(db: Session = Depends(get_db)):
         "skip_sources": DEFAULT_SKIP_SOURCES,
         "state_info": get_pancake_state_info(db),
         "playwright_installed": importlib.util.find_spec("playwright") is not None,
+        "build_version": "v2_only_shell",
     }
 
 

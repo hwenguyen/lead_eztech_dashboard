@@ -7,7 +7,7 @@ WORKDIR /app
 # Cai dat thu vien Python va Chromium cung cac OS dependencies cho Playwright
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt \
-    && playwright install --with-deps chromium \
+    && playwright install --with-deps --only-shell chromium \
     && rm -rf /var/lib/apt/lists/*
 
 COPY . .
