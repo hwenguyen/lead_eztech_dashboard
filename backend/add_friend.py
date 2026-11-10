@@ -660,24 +660,91 @@ def _get_already_added_phones(db: Session) -> set:
 # 6. PLAYWRIGHT AUTOMATION ENGINE (PORT TỪ `pancake_addfr_backup/bot.py`)
 # ==============================================================================
 
-ZALO_PAGE_DIRECT_URLS = {
-    "Eztech Consultant": "https://pancake.vn/pzl_84899274368",
-    "Eztech Phân Tích Dữ Liệu": "https://pancake.vn/pzl_84377024368",
-    "Hiền Minh Eztech": "https://pancake.vn/pzl_84898276368",
-    "Tuấn Anh Data": "https://pancake.vn/pzl_84389528224",
-    "Ann": "https://pancake.vn/pzl_84989279368",
+import requests as http_requests
+
+ZALO_PAGE_IDS_MAP = {
+    "Eztech Consultant": "pzl_764881945463506349",
+    "Eztech Phân Tích Dữ Liệu": "pzl_629476615535063343",
+    "Hiền Minh Eztech": "pzl_131986891507252646",
+    "Tuấn Anh Data": "pzl_788602135347404973",
 }
 
 
-def _mem_mb() -> str:
-    for p in ("/sys/fs/cgroup/memory.current", "/sys/fs/cgroup/memory/memory.usage_in_bytes"):
-        if os.path.exists(p):
-            try:
-                with open(p) as f:
-                    return f"{int(f.read().strip()) // (1024 * 1024)}MB"
-            except Exception:
-                pass
-    return ""
+def _init_pancake_http_context(state_path: str, target_dashboard: str) -> Tuple[Optional[Dict[str, Any]], str]:
+    """
+    Khởi tạo phiên HTTP trực tiếp tới Pancake từ `pancake_state.json` (tốn <1MB RAM,
+    thay thế hoàn toàn việc bật trình duyệt Chromium nặng 350MB trên Render 512MB).
+    """
+    try:
+        with open(state_path, "r", encoding="utf-8") as f:
+            st = json.load(f)
+        cookies = [
+            f"{c['name']}={c['value']}"
+            for c in (st.get("cookies") or [])
+            if c.get("domain") in (".pancake.vn", "pancake.vn") and c.get("name") and c.get("value") is not None
+        ]
+        if not cookies:
+            return None, "File pancake_state.json không chứa cookie đăng nhập pancake.vn!"
+
+        session = http_requests.Session()
+        session.headers.update({
+            "Cookie": "; ".join(cookies),
+            "Referer": "https://pancake.vn/",
+            "Accept": "application/json",
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+            ),
+        })
+
+        r_pages = session.get(
+            "https://pancake.vn/api/v1/pages?version=v1&include_inactivated=false",
+            timeout=20,
+        )
+        if r_pages.status_code in (502, 504):
+            return None, f"Pancake đang bị lỗi máy chủ ({r_pages.status_code} Bad Gateway)"
+        p_data = r_pages.json()
+        if r_pages.status_code == 401 or p_data.get("error_code") == 102 or p_data.get("success") is False:
+            return None, "Phiên đăng nhập Pancake (pancake_state.json) đã hết hạn!"
+
+        activated = (p_data.get("categorized") or {}).get("activated") or p_data.get("data") or []
+        page_id = None
+        target_lower = target_dashboard.strip().lower()
+        for p in activated:
+            if not isinstance(p, dict):
+                continue
+            pname = str(p.get("name") or "").strip().lower()
+            pid = str(p.get("id") or "").strip()
+            if (pname == target_lower or pid.lower() == target_lower) and pid.startswith("pzl_"):
+                page_id = pid
+                break
+        if not page_id:
+            for p in activated:
+                if isinstance(p, dict) and str(p.get("name") or "").strip().lower() == target_lower:
+                    page_id = str(p.get("id") or "").strip()
+                    break
+        if not page_id:
+            page_id = ZALO_PAGE_IDS_MAP.get(target_dashboard)
+        if not page_id:
+            return None, f"Không tìm thấy Page '{target_dashboard}' trong tài khoản Pancake!"
+
+        tags_map: Dict[str, Dict[str, Any]] = {}
+        try:
+            r_set = session.get(
+                f"https://pancake.vn/api/v1/pages/{page_id}/settings?separate_pos=true&separate_qr=true",
+                timeout=15,
+            )
+            if r_set.status_code == 200:
+                raw_tags = ((r_set.json().get("settings") or {}).get("tags")) or []
+                for t in raw_tags:
+                    if isinstance(t, dict) and t.get("text"):
+                        tags_map[str(t["text"]).strip().lower()] = t
+        except Exception as e:
+            logger.warning(f"Không tải được danh sách tag cho Page {page_id}: {e}")
+
+        return {"session": session, "page_id": page_id, "tags_map": tags_map}, ""
+    except Exception as e:
+        return None, f"Lỗi khởi tạo phiên Pancake: {str(e)[:200]}"
 
 
 def _execute_pancake_add_friend_single(
@@ -693,172 +760,188 @@ def _execute_pancake_add_friend_single(
     step_cb: Any = None,
 ) -> Tuple[str, str]:
     """
-    Thực thi quy trình kết bạn trên Pancake cho 1 số điện thoại (port nguyên bản từ `process_via_pancake` trong `bot.py`).
-    Trả về `(status_code, detail_message)`:
-    - `("ADDED", "Đã gửi lời mời kết bạn + nhắn tin + gắn tag thành công")`
-    - `("NOT_FOUND", "Không tìm thấy Zalo / Đã kết bạn trước đó")`
-    - `("SERVER_ERROR", "Pancake 502/504 Bad Gateway")`
-    - `("AUTH_EXPIRED", "Phiên đăng nhập pancake_state.json đã hết hạn")`
-    - `("FAILED", "Chi tiết lỗi...")`
+    Thực thi quy trình kết bạn Zalo trên Pancake cho 1 số điện thoại thông qua
+    Pancake Web API (`session` từ `pancake_state.json`), giữ nguyên 100% nghiệp vụ:
+    Tra cứu SĐT -> Gửi kết bạn -> Lưu ghi chú -> Nhắn tin hộp thoại -> Gắn thẻ Tag.
     """
     try:
-        def _report(msg: str):
-            if step_cb:
-                ram = _mem_mb()
-                step_cb(f"{msg} {f'[{ram}]' if ram else ''}".strip())
+        session: http_requests.Session = page["session"]
+        page_id: str = page["page_id"]
+        tags_map: Dict[str, Dict[str, Any]] = page.get("tags_map") or {}
 
-        search_icon_btn = page.locator("button.conversation-menu-item.create-conversation-button").first
-        need_open_dashboard = True
-        try:
-            cur_url = page.url or ""
-            if ("pancake.vn" in cur_url or "pages.fm" in cur_url) and search_icon_btn.is_visible():
-                page.keyboard.press("Escape")
-                time.sleep(0.5)
-                need_open_dashboard = False
-        except Exception:
-            need_open_dashboard = True
+        intl_phone = "+84" + phone[1:] if phone.startswith("0") else (phone if phone.startswith("+") else "+" + phone)
 
-        if need_open_dashboard:
-            direct_url = ZALO_PAGE_DIRECT_URLS.get(target_dashboard)
-            if direct_url:
-                _report(f"Đang mở trực tiếp Page '{target_dashboard}'...")
-                page.goto(direct_url, timeout=60000, wait_until="domcontentloaded")
-                time.sleep(2.5)
-            else:
-                _report(f"Đang mở Pancake cho SĐT {phone}...")
-                page.goto("https://pancake.vn/", timeout=60000, wait_until="domcontentloaded")
-                time.sleep(2.5)
+        if step_cb:
+            step_cb(f"Đang tra cứu Zalo SĐT {phone}...")
 
-            # Kiểm tra sập server 502 / 504 (từ bot.py)
-            title_text = page.title() or ""
-            if "502 Bad Gateway" in title_text or "504 Gateway Time-out" in title_text:
-                return "SERVER_ERROR", f"Pancake trả về lỗi máy chủ: {title_text}"
-            if page.locator("text='502 Bad Gateway'").is_visible():
-                return "SERVER_ERROR", "Pancake đang bị lỗi 502 Bad Gateway"
+        # Bước 1: Tìm tài khoản Zalo theo SĐT
+        r_search = session.get(
+            f"https://pancake.vn/api/v1/personal_zalo/{page_id}/search_zalo_users",
+            params={"phone_number": intl_phone},
+            timeout=20,
+        )
+        if r_search.status_code in (502, 504):
+            return "SERVER_ERROR", f"Pancake trả về lỗi máy chủ: {r_search.status_code}"
 
-            # Kiểm tra hết hạn đăng nhập
-            if page.locator("text='Đăng nhập'").is_visible():
-                return "AUTH_EXPIRED", "Phiên đăng nhập Pancake (pancake_state.json) đã hết hạn!"
+        s_data = r_search.json()
+        if r_search.status_code == 401 or s_data.get("error_code") == 102:
+            return "AUTH_EXPIRED", "Phiên đăng nhập Pancake (pancake_state.json) đã hết hạn!"
 
-            if not direct_url:
-                # Bước 1: Chọn Page Dashboard (vd: "Eztech Consultant")
-                _report(f"Đang chọn Page '{target_dashboard}'...")
-                dashboard_item = page.locator("div.dashboard-page-item", has_text=target_dashboard).first
-                dashboard_item.wait_for(state="visible", timeout=25000)
-                dashboard_item.click()
-                page.wait_for_load_state("domcontentloaded")
-                time.sleep(2.5)
-
-        # Bước 2: Bấm nút Tạo hội thoại / Tìm số điện thoại
-        _report(f"Đang mở ô tìm kiếm SĐT {phone}...")
-        search_icon_btn.wait_for(state="visible", timeout=60000)
-        search_icon_btn.click()
-
-        # Bước 3: Điền SĐT và nhấn Enter
-        _report(f"Đang tra cứu Zalo SĐT {phone}...")
-        phone_input = page.get_by_placeholder("Nhập số điện thoại")
-        phone_input.wait_for(state="visible", timeout=10000)
-        phone_input.fill(phone)
-        phone_input.press("Enter")
-
-        # Chờ phản hồi từ Zalo / Pancake
-        time.sleep(2.5)
-        error_notif = page.locator(".ant-notification-notice-description")
-        if error_notif.is_visible():
-            err_text = error_notif.inner_text()
-            if "Không tìm thấy" in err_text:
+        if s_data.get("success") is False:
+            err_msg = str(s_data.get("message") or "Không tìm thấy tài khoản Zalo")
+            if "không tìm thấy" in err_msg.lower() or "not found" in err_msg.lower():
                 return "NOT_FOUND", f"Zalo báo không tìm thấy SĐT {phone}"
+            return "FAILED", f"Zalo báo: {err_msg}"
 
-        # Bước 4: Tìm nút "Kết bạn"
-        add_friend_btn = page.get_by_role("button", name="Kết bạn").first
-        has_add_friend_btn = True
-        try:
-            add_friend_btn.wait_for(state="visible", timeout=5000)
-        except Exception:
-            has_add_friend_btn = False
+        users = s_data.get("users") or []
+        if not users:
+            return "NOT_FOUND", f"Zalo báo không tìm thấy SĐT {phone}"
 
-        if not has_add_friend_btn:
-            # Kiểm tra xem có nút "Nhắn tin" không (trường hợp đã là bạn bè sẵn)
-            msg_btn_check = page.locator(".item-actions button, button").filter(has_text="Nhắn tin").first
-            if not msg_btn_check.is_visible():
-                return "NOT_FOUND", f"Không tìm thấy tài khoản Zalo hoặc nút Kết bạn cho SĐT {phone}"
+        user = users[0]
+        uid = str(user.get("uid") or "").strip()
+        if not uid:
+            return "NOT_FOUND", f"Không tìm thấy Zalo UID cho SĐT {phone}"
 
-        if has_add_friend_btn:
-            add_friend_btn.click()
+        zalo_display = user.get("display_name") or user.get("zalo_name") or phone
 
-            # Bước 5: Điền lời chào kết bạn trong Modal và xác nhận
-            greeting_input = page.locator("textarea.ant-input, input.ant-input, textarea").first
-            greeting_input.wait_for(state="visible", timeout=10000)
-            greeting_input.fill(friend_request_msg[:150])
-            time.sleep(1)
+        # Bước 2: Kiểm tra hội thoại & trạng thái bạn bè trên Pancake
+        raw_page_num = page_id.replace("pzl_", "")
+        conv_id = f"pzl_u_{raw_page_num}_{uid}"
+        r_conv = session.get(
+            f"https://pancake.vn/api/v1/pages/{page_id}/conversations/{conv_id}",
+            params={"personal_zalo_check_conv_existed": "true"},
+            timeout=20,
+        )
+        conv_data = r_conv.json() if r_conv.status_code == 200 else {}
+        from_obj = conv_data.get("from") or {}
+        is_already_friend = (from_obj.get("is_stranger") is False) and bool(from_obj.get("id"))
 
-            confirm_btn = (
-                page.locator(".send-friend-request-modal .ant-modal-footer button.color-primary")
-                .filter(has_text="Kết bạn")
-                .first
+        # Bước 3: Gửi lời mời kết bạn (nếu chưa là bạn bè)
+        if not is_already_friend:
+            if step_cb:
+                step_cb(f"Đang gửi lời mời kết bạn tới {zalo_display} ({phone})...")
+            biz = user.get("bizPkg") or {}
+            biz_label = biz.get("label") or {}
+            form_fields = [
+                ("user_id", uid),
+                ("friend[avatar]", str(user.get("avatar") or "")),
+                ("friend[bizPkg][label][EN]", str(biz_label.get("EN") or "")),
+                ("friend[bizPkg][label][VI]", str(biz_label.get("VI") or "")),
+                ("friend[bizPkg][label][bg_color]", str(biz_label.get("bg_color") or "")),
+                ("friend[bizPkg][label][title_color]", str(biz_label.get("title_color") or "")),
+                ("friend[bizPkg][pkgId]", str(biz.get("pkgId") if biz.get("pkgId") is not None else 0)),
+                ("friend[cover]", str(user.get("cover") or "")),
+                ("friend[display_name]", str(user.get("display_name") or "")),
+                ("friend[dob]", str(user.get("dob") if user.get("dob") is not None else 0)),
+                ("friend[gender]", str(user.get("gender") if user.get("gender") is not None else 0)),
+                ("friend[globalId]", str(user.get("globalId") or "")),
+                ("friend[isEnterpriseAccount]", str(user.get("isEnterpriseAccount") if user.get("isEnterpriseAccount") is not None else 0)),
+                ("friend[pc_uploaded_avatar]", str(user.get("pc_uploaded_avatar") or "")),
+                ("friend[phone_number]", str(user.get("phone_number") or intl_phone)),
+                ("friend[sdob]", str(user.get("sdob") or "")),
+                ("friend[status]", str(user.get("status") or "")),
+                ("friend[uid]", uid),
+                ("friend[zalo_name]", str(user.get("zalo_name") or "")),
+                ("greeting", friend_request_msg[:150]),
+            ]
+            r_fr = session.post(
+                f"https://pancake.vn/api/v1/personal_zalo/{page_id}/send_request_friend?",
+                files=[(k, (None, v)) for k, v in form_fields],
+                timeout=20,
             )
-            confirm_btn.wait_for(state="visible", timeout=10000)
-            confirm_btn.click()
-            time.sleep(2)
+            if r_fr.status_code in (502, 504):
+                return "SERVER_ERROR", f"Pancake trả về lỗi máy chủ khi gửi kết bạn: {r_fr.status_code}"
+            fr_data = r_fr.json() if r_fr.status_code == 200 else {}
+            if r_fr.status_code != 200 or fr_data.get("success") is False:
+                fr_msg = str(fr_data.get("message") or r_fr.text[:120])
+                if "bạn bè" in fr_msg.lower() or "friend" in fr_msg.lower():
+                    actions_done = [f"Đã là bạn bè sẵn ({zalo_display})"]
+                else:
+                    return "FAILED", f"Không gửi được kết bạn: {fr_msg}"
+            else:
+                actions_done = [f"Đã gửi lời mời kết bạn ({zalo_display})"]
+        else:
+            actions_done = [f"Đã là bạn bè sẵn ({zalo_display})"]
 
-        # Bước 6: Mở hộp thoại để Thêm ghi chú / Nhắn tin chào / Gắn Tag (nếu được bật)
-        actions_done = ["Đã gửi lời mời kết bạn"] if has_add_friend_btn else ["Đã là bạn bè sẵn"]
+        # Bước 4: Lưu ghi chú / Nhắn tin chào / Gắn Tag
         if send_inbox_message or add_note or (tags and len(tags) > 0):
-            msg_btn = page.locator(".item-actions button, button").filter(has_text="Nhắn tin").first
-            try:
-                msg_btn.wait_for(state="visible", timeout=10000)
-                msg_btn.click()
-                time.sleep(3)
+            customers = conv_data.get("customers") or []
+            customer_id = customers[0].get("id") if (customers and isinstance(customers[0], dict)) else None
 
-                # 6a. Thêm ghi chú khách hàng
-                if add_note and note_text:
-                    try:
-                        note_input = page.locator('textarea[placeholder*="ghi chú"]').first
-                        note_input.wait_for(state="visible", timeout=8000)
-                        note_input.click()
-                        note_input.fill(note_text)
-                        time.sleep(0.8)
-                        note_input.press("Enter")
+            # 4a. Thêm ghi chú khách hàng
+            if add_note and note_text and customer_id:
+                try:
+                    r_note = session.post(
+                        f"https://pancake.vn/api/v1/pages/{page_id}/customers/{customer_id}/notes?",
+                        files=[
+                            ("message", (None, note_text)),
+                            ("conversation_id", (None, conv_id)),
+                            ("images", (None, "[]")),
+                            ("links", (None, "[]")),
+                        ],
+                        timeout=15,
+                    )
+                    if r_note.status_code == 200:
                         actions_done.append("đã lưu ghi chú")
-                        time.sleep(1.5)
-                    except Exception as note_err:
-                        logger.warning(f"[{phone}] Không thể điền ghi chú: {note_err}")
+                except Exception as note_err:
+                    logger.warning(f"[{phone}] Không thể điền ghi chú: {note_err}")
 
-                # 6b. Gửi tin nhắn trực tiếp vào hộp thoại
-                if send_inbox_message and inbox_msg:
-                    try:
-                        chat_input = page.locator('#replyBoxComposer, textarea[placeholder*="Trả lời từ"]').first
-                        chat_input.wait_for(state="visible", timeout=10000)
-                        chat_input.click()
-                        chat_input.fill(inbox_msg)
-                        time.sleep(1)
-                        chat_input.press("Enter")
+            # 4b. Gửi tin nhắn trực tiếp vào hộp thoại
+            if send_inbox_message and inbox_msg:
+                try:
+                    if step_cb:
+                        step_cb(f"Đang gửi tin nhắn chào tới {zalo_display} ({phone})...")
+                    r_msg = session.post(
+                        f"https://pancake.vn/api/v1/pages/{page_id}/conversations/{conv_id}/messages?",
+                        files=[
+                            ("action", (None, "reply_inbox")),
+                            ("message", (None, inbox_msg)),
+                            ("send_by_platform", (None, "web")),
+                        ],
+                        timeout=20,
+                    )
+                    if r_msg.status_code == 200 and r_msg.json().get("success") is not False:
                         actions_done.append("đã nhắn tin chào")
-                        time.sleep(2)
-                    except Exception as chat_err:
-                        logger.warning(f"[{phone}] Không thể gửi tin nhắn hộp thoại: {chat_err}")
+                except Exception as chat_err:
+                    logger.warning(f"[{phone}] Không thể gửi tin nhắn hộp thoại: {chat_err}")
 
-                # 6c. Gắn thẻ Tag (vd: "Web", "Đào tạo"...)
-                if tags:
-                    attached_tags = []
-                    for tag_name in tags:
-                        t_clean = (tag_name or "").strip()
-                        if not t_clean:
-                            continue
-                        try:
-                            tag_btn = page.locator("button.btn-tag-item").filter(has_text=t_clean).first
-                            tag_btn.wait_for(state="visible", timeout=6000)
-                            tag_btn.click()
-                            attached_tags.append(t_clean)
-                            time.sleep(1)
-                        except Exception as tag_err:
-                            logger.warning(f"[{phone}] Không tìm thấy/gắn được tag '{t_clean}': {tag_err}")
-                    if attached_tags:
-                        actions_done.append(f"gắn tag [{', '.join(attached_tags)}]")
-            except Exception as post_err:
-                logger.warning(f"[{phone}] Không mở được màn hình Nhắn tin sau khi kết bạn: {post_err}")
+            # 4c. Gắn thẻ Tag (vd: "Web", "Đào tạo"...)
+            if tags:
+                existing_tag_ids = {
+                    str(t.get("id") if isinstance(t, dict) else t)
+                    for t in (conv_data.get("tags") or [])
+                }
+                attached_tags = []
+                for tag_name in tags:
+                    t_clean = (tag_name or "").strip()
+                    if not t_clean:
+                        continue
+                    t_obj = tags_map.get(t_clean.lower())
+                    if not t_obj:
+                        continue
+                    tid_str = str(t_obj.get("id"))
+                    try:
+                        if tid_str not in existing_tag_ids:
+                            session.post(
+                                f"https://pancake.vn/api/v1/pages/{page_id}/conversations/{conv_id}/toggle_tag?",
+                                files=[
+                                    ("tag_id", (None, tid_str)),
+                                    ("value", (None, "1")),
+                                    ("psid", (None, "undefined")),
+                                    ("tag[color]", (None, str(t_obj.get("color") or ""))),
+                                    ("tag[id]", (None, tid_str)),
+                                    ("tag[is_lead_event]", (None, str(t_obj.get("is_lead_event", False)).lower())),
+                                    ("tag[lighten_color]", (None, str(t_obj.get("lighten_color") or ""))),
+                                    ("tag[text]", (None, str(t_obj.get("text") or t_clean))),
+                                ],
+                                timeout=15,
+                            )
+                        attached_tags.append(t_clean)
+                    except Exception as tag_err:
+                        logger.warning(f"[{phone}] Không gắn được tag '{t_clean}': {tag_err}")
+                if attached_tags:
+                    actions_done.append(f"gắn tag [{', '.join(attached_tags)}]")
 
-        time.sleep(2)
         return "ADDED", ", ".join(actions_done)
 
     except Exception as e:
@@ -917,7 +1000,7 @@ def _run_add_friend_worker(task_id: str, req_data: Dict[str, Any]):
     pw_page = None
 
     try:
-        # Nếu chạy thật (Live mode), khởi tạo trình duyệt Playwright với pancake_state.json
+        # Nếu chạy thật (Live mode), khởi tạo phiên HTTP trực tiếp tới Pancake từ pancake_state.json
         if not dry_run:
             state_path = ensure_pancake_state_file()
             if not state_path:
@@ -931,72 +1014,18 @@ def _run_add_friend_worker(task_id: str, req_data: Dict[str, Any]):
                         task["finished_at"] = get_vn_now().strftime("%Y-%m-%d %H:%M:%S")
                 return
 
-            try:
-                import gc
-                gc.collect()
-                from playwright.sync_api import sync_playwright
-                playwright_ctx = sync_playwright().start()
-                launch_args = [
-                    "--no-sandbox",
-                    "--disable-setuid-sandbox",
-                    "--disable-dev-shm-usage",
-                    "--disable-gpu",
-                    "--disable-extensions",
-                    "--disable-background-networking",
-                    "--disable-default-apps",
-                    "--disable-sync",
-                    "--disable-translate",
-                    "--mute-audio",
-                    "--no-first-run",
-                    "--blink-settings=imagesEnabled=false",
-                    "--js-flags=--max-old-space-size=192",
-                ]
-                try:
-                    with _ADD_FRIEND_LOCK:
-                        task = _ADD_FRIEND_TASKS.get(task_id)
-                        if task:
-                            task["current_action"] = f"⏳ Đang khởi chạy trình duyệt Chromium... [{_mem_mb()}]"
-                    browser = playwright_ctx.chromium.launch(headless=True, args=launch_args)
-                except Exception as launch_err:
-                    if "Executable doesn't exist" in str(launch_err):
-                        with _ADD_FRIEND_LOCK:
-                            task = _ADD_FRIEND_TASKS.get(task_id)
-                            if task:
-                                task["current_action"] = (
-                                    "⏳ [1/2] Đang tải trình duyệt Chromium rút gọn (headless-shell)..."
-                                )
-                        subprocess.run(
-                            [sys.executable, "-m", "playwright", "install", "--only-shell", "chromium"],
-                            check=True,
-                        )
-                        with _ADD_FRIEND_LOCK:
-                            task = _ADD_FRIEND_TASKS.get(task_id)
-                            if task:
-                                task["current_action"] = (
-                                    "⏳ [2/2] Đã tải xong! Đang khởi chạy trình duyệt Chromium..."
-                                )
-                        browser = playwright_ctx.chromium.launch(headless=True, args=launch_args)
-                    else:
-                        raise launch_err
-                context = browser.new_context(
-                    storage_state=state_path,
-                    viewport={"width": 1024, "height": 640},
-                )
-                context.route(
-                    "**/*",
-                    lambda route: route.abort()
-                    if route.request.resource_type in ("image", "media", "font")
-                    else route.continue_(),
-                )
-                pw_page = context.new_page()
-            except Exception as pw_err:
+            with _ADD_FRIEND_LOCK:
+                task = _ADD_FRIEND_TASKS.get(task_id)
+                if task:
+                    task["current_action"] = f"⏳ Đang kết nối phiên Pancake cho Page '{page_name}'..."
+
+            pw_page, init_err = _init_pancake_http_context(state_path, page_name)
+            if not pw_page:
                 with _ADD_FRIEND_LOCK:
                     task = _ADD_FRIEND_TASKS.get(task_id)
                     if task:
                         task["is_running"] = False
-                        task["current_action"] = (
-                            f"Không thể khởi chạy trình duyệt tự động Playwright: {str(pw_err)[:300]}"
-                        )
+                        task["current_action"] = f"🛑 Dừng: {init_err}"
                         task["finished_at"] = get_vn_now().strftime("%Y-%m-%d %H:%M:%S")
                 return
 
@@ -1233,18 +1262,8 @@ def _run_add_friend_worker(task_id: str, req_data: Dict[str, Any]):
 
     finally:
         try:
-            if context:
-                context.close()
-        except Exception:
-            pass
-        try:
-            if browser:
-                browser.close()
-        except Exception:
-            pass
-        try:
-            if playwright_ctx:
-                playwright_ctx.stop()
+            if pw_page and isinstance(pw_page, dict) and pw_page.get("session"):
+                pw_page["session"].close()
         except Exception:
             pass
         db.close()
@@ -1304,8 +1323,8 @@ def get_add_friend_config(db: Session = Depends(get_db)):
         "tags": all_tags,
         "skip_sources": DEFAULT_SKIP_SOURCES,
         "state_info": get_pancake_state_info(db),
-        "playwright_installed": importlib.util.find_spec("playwright") is not None,
-        "build_version": "v4_direct_url",
+        "playwright_installed": True,
+        "build_version": "v5_http_engine",
     }
 
 

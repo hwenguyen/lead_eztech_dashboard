@@ -4,13 +4,11 @@ services:
     name: pancake-lead-api
     env: python
     plan: free
-    buildCommand: pip install -r requirements.txt && python -m playwright install --only-shell chromium
+    buildCommand: pip install -r requirements.txt
     startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: DATABASE_URL
         sync: false # Nhập Neon Database URL của bạn vào Render Dashboard
-      - key: PLAYWRIGHT_BROWSERS_PATH
-        value: "0"
 
   # Đã chuyển ETL sang GitHub Actions
 
