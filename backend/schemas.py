@@ -97,7 +97,6 @@ class DealWinItem(BaseModel):
     job_title: Optional[str] = None
     expectation: Optional[str] = None
     care_by: Optional[str] = None
-    assigned_user: Optional[str] = None
     page_id: Optional[str] = None
     is_student: Optional[bool] = False
     lead_tag: Optional[str] = None

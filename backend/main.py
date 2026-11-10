@@ -983,10 +983,9 @@ async def receive_deal_webhook(request: Request, db: Session = Depends(get_db)):
             sheet_row_id = str(sheet_row_id).strip()
 
         # Map với DimLead và Pancake qua SĐT
-        dim_lead_id, is_student, pancake_care, pancake_assigned, lead_tag, page_id = find_lead_info_by_phone(phone, db)
+        dim_lead_id, is_student, pancake_care, lead_tag, page_id = find_lead_info_by_phone(phone, db)
         from database.deal_sync import normalize_sale_name
         final_care_by = pancake_care or normalize_sale_name(care_by) or "Chưa phân công"
-        final_assigned = pancake_assigned or final_care_by
 
         # Kiểm tra trùng lặp theo sheet_row_id hoặc theo SĐT (defer raw_data để tiết kiệm băng thông)
         existing_deal = None
@@ -1007,7 +1006,6 @@ async def receive_deal_webhook(request: Request, db: Session = Depends(get_db)):
             existing_deal.job_title = str(job_title).strip() if job_title else existing_deal.job_title
             existing_deal.expectation = str(expectation).strip() if expectation else existing_deal.expectation
             existing_deal.care_by = final_care_by or existing_deal.care_by
-            existing_deal.assigned_user = final_assigned or existing_deal.assigned_user
             existing_deal.page_id = page_id or existing_deal.page_id
             existing_deal.dim_lead_id = dim_lead_id or existing_deal.dim_lead_id
             existing_deal.is_student = is_student
@@ -1027,7 +1025,6 @@ async def receive_deal_webhook(request: Request, db: Session = Depends(get_db)):
                 job_title=str(job_title).strip() if job_title else None,
                 expectation=str(expectation).strip() if expectation else None,
                 care_by=final_care_by,
-                assigned_user=final_assigned,
                 page_id=page_id,
                 dim_lead_id=dim_lead_id,
                 is_student=is_student,
@@ -1233,7 +1230,6 @@ def get_deals_list(
                 DealWin.phone_number.ilike(s),
                 DealWin.email.ilike(s),
                 DealWin.care_by.ilike(s),
-                DealWin.assigned_user.ilike(s),
                 DealWin.page_id.ilike(s)
             )
         )
@@ -1256,7 +1252,6 @@ def get_deals_list(
         DealWin.job_title,
         DealWin.expectation,
         DealWin.care_by,
-        DealWin.assigned_user,
         DealWin.page_id,
         DealWin.is_student,
         DealWin.lead_tag,
@@ -1278,7 +1273,6 @@ def get_deals_list(
             job_title=r.job_title,
             expectation=r.expectation,
             care_by=r.care_by,
-            assigned_user=r.assigned_user,
             page_id=r.page_id,
             is_student=r.is_student,
             lead_tag=r.lead_tag,
