@@ -18,6 +18,8 @@ ROUTER QUẢN LÝ KẾT BẠN ZALO TỰ ĐỘNG QUA PANCAKE (AUTO ADD FRIEND)
 """
 
 import os
+import sys
+import subprocess
 import re
 import json
 import time
@@ -885,7 +887,30 @@ def _run_add_friend_worker(task_id: str, req_data: Dict[str, Any]):
             try:
                 from playwright.sync_api import sync_playwright
                 playwright_ctx = sync_playwright().start()
-                browser = playwright_ctx.chromium.launch(headless=True)
+                launch_args = [
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--disable-gpu",
+                ]
+                try:
+                    browser = playwright_ctx.chromium.launch(headless=True, args=launch_args)
+                except Exception as launch_err:
+                    if "Executable doesn't exist" in str(launch_err):
+                        with _ADD_FRIEND_LOCK:
+                            task = _ADD_FRIEND_TASKS.get(task_id)
+                            if task:
+                                task["current_action"] = (
+                                    "⏳ Đang tải trình duyệt Chromium lần đầu trên máy chủ (khoảng 30-60s)..."
+                                )
+                        import subprocess
+                        subprocess.run(
+                            [sys.executable, "-m", "playwright", "install", "chromium"],
+                            check=True,
+                        )
+                        browser = playwright_ctx.chromium.launch(headless=True, args=launch_args)
+                    else:
+                        raise launch_err
                 context = browser.new_context(storage_state=state_path)
                 pw_page = context.new_page()
             except Exception as pw_err:
@@ -894,7 +919,7 @@ def _run_add_friend_worker(task_id: str, req_data: Dict[str, Any]):
                     if task:
                         task["is_running"] = False
                         task["current_action"] = (
-                            f"Không thể khởi chạy trình duyệt tự động Playwright: {str(pw_err)[:140]}"
+                            f"Không thể khởi chạy trình duyệt tự động Playwright: {str(pw_err)[:300]}"
                         )
                         task["finished_at"] = get_vn_now().strftime("%Y-%m-%d %H:%M:%S")
                 return
@@ -1189,12 +1214,14 @@ def get_add_friend_config(db: Session = Depends(get_db)):
         for k, v in BOT_MESSAGE_TEMPLATES.items()
     ]
 
+    import importlib.util
     return {
         "pages": DEFAULT_ZALO_PAGES,
         "templates": templates_list,
         "tags": all_tags,
         "skip_sources": DEFAULT_SKIP_SOURCES,
         "state_info": get_pancake_state_info(db),
+        "playwright_installed": importlib.util.find_spec("playwright") is not None,
     }
 
 
