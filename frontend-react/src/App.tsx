@@ -9,6 +9,7 @@ import { StatsPieChart } from './components/StatsPieChart';
 import { RemindLeadTable } from './components/RemindLeadTable';
 import { DealWinDashboard } from './components/DealWinDashboard';
 import { BulkMessengerDashboard } from './components/BulkMessengerDashboard';
+import { AutoAddFriendDashboard } from './components/AutoAddFriendDashboard';
 import { AppScriptTool } from './components/AppScriptTool';
 import { FacebookDashboard } from './components/FacebookDashboard';
 import { TikTokDashboard, TikTokIcon } from './components/TikTokDashboard';
@@ -40,7 +41,7 @@ function App() {
     }
   };
 
-  const [activeTab, setActiveTab] = useState<'overview' | 'facebook' | 'tiktok' | 'work_report' | 'remind' | 'deals' | 'bot' | 'gas_tool' | 'invoice'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'facebook' | 'tiktok' | 'work_report' | 'remind' | 'deals' | 'bot' | 'add_friend' | 'gas_tool' | 'invoice'>('overview');
   const [startDate, setStartDate] = useState(format(subDays(new Date(), 7), 'yyyy-MM-dd'));
   const [endDate, setEndDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [pageId, setPageId] = useState('');
@@ -157,6 +158,7 @@ function App() {
     { id: 'gas_tool' as const, label: 'Nhập Deal & Công Nợ', icon: Sparkles },
     { id: 'invoice' as const, label: 'Xuất hoá đơn', icon: Receipt, url: INVOICE_SCRIPT_URL },
     { id: 'bot' as const, label: 'Bot Gửi Tin', icon: Bot },
+    { id: 'add_friend' as const, label: 'Kết Bạn Tự Động', icon: UserPlus },
   ];
 
   return (
@@ -307,6 +309,7 @@ function App() {
                   {activeTab === 'remind' && 'Chăm sóc Lead (Remind)'}
                   {activeTab === 'deals' && 'Học viên Chốt (Deal Win)'}
                   {activeTab === 'bot' && 'Bot Gửi Tin Nhắn Tự Động'}
+                  {activeTab === 'add_friend' && 'Kết Bạn Zalo Tự Động (Pancake)'}
                   {activeTab === 'gas_tool' && 'Nhập Deal & Quản lý Công Nợ'}
                   {activeTab === 'invoice' && 'Xuất Hoá Đơn Điện Tử'}
                 </h2>
@@ -359,6 +362,8 @@ function App() {
             ) : (
               <BulkMessengerDashboard />
             )
+          ) : activeTab === 'add_friend' ? (
+            <AutoAddFriendDashboard />
           ) : activeTab === 'gas_tool' ? (
             <AppScriptTool />
           ) : activeTab === 'invoice' ? (

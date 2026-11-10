@@ -53,10 +53,12 @@ from backend.deal_entry import router as deal_entry_router, invalidate_deal_entr
 from backend.facebook_metrics import router as facebook_router, clear_facebook_cache
 from backend.tiktok_metrics import router as tiktok_router, clear_tiktok_cache
 from backend.work_report import router as work_report_router, clear_work_report_cache
+from backend.add_friend import router as add_friend_router
 
 app = FastAPI(title="Pancake Lead Reporting API")
 app.include_router(auth_router)
 app.include_router(broadcast_router, prefix="/api/broadcast", tags=["Broadcast"])
+app.include_router(add_friend_router, prefix="/api/add-friend", tags=["AutoAddFriend"])
 app.include_router(deal_entry_router)
 app.include_router(facebook_router)
 app.include_router(tiktok_router)
@@ -90,7 +92,7 @@ async def add_cache_headers(request: Request, call_next):
     # Bổ sung Cache-Control chuẩn cho các API đọc dữ liệu để trình duyệt tận dụng HTTP Cache (0 Network RTT)
     if request.method == "GET" and request.url.path.startswith("/api/"):
         path = request.url.path
-        if not any(skip in path for skip in ("/auth/me", "/broadcast/status", "/health")):
+        if not any(skip in path for skip in ("/auth/me", "/broadcast/status", "/add-friend/", "/health")):
             if response.status_code == 200:
                 response.headers["Cache-Control"] = "private, max-age=180, stale-while-revalidate=300"
     return response
@@ -291,6 +293,15 @@ def startup_event():
         from backend.auth import init_default_admin
         with SessionLocal() as db_session:
             init_default_admin(db_session)
+
+        # Tự động đồng bộ và tái tạo pancake_state.json từ bảng app_configs cho Playwright Bot
+        try:
+            from backend.add_friend import ensure_pancake_state_file
+            st_path = ensure_pancake_state_file()
+            if st_path:
+                logger.info(f"Pancake storage state synced from app_configs to {st_path}")
+        except Exception as st_err:
+            logger.warning(f"Could not sync pancake storage state on startup: {st_err}")
     except Exception as e:
         logger.error(f"Error ensuring database schema on startup: {e}")
 

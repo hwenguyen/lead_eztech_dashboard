@@ -279,10 +279,8 @@ export const fetchRemindLeads = async (
   return res.data;
 };
 
-// ==========================================
-// DEAL WIN (Google Sheet / Form Học Viên)
-// ==========================================
-
+// ===================================// DEAL WIN (Google Sheet / Form Học Viên)
+// ===================================
 export interface DealWinItem {
   id: number;
   sheet_row_id?: string;
@@ -1102,3 +1100,224 @@ export const stopBackfill = async (): Promise<{ status: string; message: string 
 };
 
 
+
+// ==========================================
+// AUTO ADD FRIEND ZALO VIA PANCAKE
+// ==========================================
+
+export interface AddFriendPageOption {
+  id: string;
+  name: string;
+  badge: string;
+}
+
+export interface AddFriendTemplateOption {
+  key: string;
+  label: string;
+  source_key: string;
+  message: string;
+}
+
+export interface PancakeStateInfo {
+  has_state: boolean;
+  source?: string | null;
+  storage_key?: string | null;
+  cookies_count: number;
+  origins_count: number;
+  updated_at?: string | null;
+}
+
+export interface AddFriendConfigResponse {
+  pages: AddFriendPageOption[];
+  templates: AddFriendTemplateOption[];
+  tags: string[];
+  skip_sources: string[];
+  state_info: PancakeStateInfo;
+}
+
+export interface PhoneImportItem {
+  raw_phone: string;
+  phone: string;
+  is_valid: boolean;
+  validation_note: string;
+  name: string;
+  source: string;
+  nhu_cau: string;
+  is_duplicate: boolean;
+  is_skipped_source: boolean;
+  already_added: boolean;
+  rendered_message: string;
+  rendered_note: string;
+}
+
+export interface ParsePhonesParams {
+  raw_text: string;
+  page_name: string;
+  message_template: string;
+  note_template: string;
+  use_source_template: boolean;
+  enable_spintax: boolean;
+  skip_sources: string[];
+  exclude_already_added: boolean;
+}
+
+export interface ParsePhonesResponse {
+  total_lines: number;
+  valid_count: number;
+  invalid_count: number;
+  duplicate_count: number;
+  skipped_source_count: number;
+  already_added_count: number;
+  ready_count: number;
+  items: PhoneImportItem[];
+}
+
+export interface RateLimitSettings {
+  preset: 'fast' | 'recommended' | 'ultra' | 'custom';
+  delay_min: number;
+  delay_max: number;
+  batch_size: number;
+  batch_pause_sec: number;
+  max_retries: number;
+  max_consecutive_errors: number;
+  daily_limit: number;
+  enable_spintax: boolean;
+  exclude_already_added: boolean;
+}
+
+export interface AddFriendTargetItem {
+  phone: string;
+  name: string;
+  source: string;
+  nhu_cau: string;
+  custom_message?: string;
+  custom_note?: string;
+}
+
+export interface StartAddFriendParams {
+  campaign_name: string;
+  page_name: string;
+  items: AddFriendTargetItem[];
+  message_template: string;
+  inbox_message_template?: string;
+  use_source_template: boolean;
+  send_inbox_message: boolean;
+  add_note: boolean;
+  note_template: string;
+  tags: string[];
+  rate_limit: RateLimitSettings;
+  dry_run: boolean;
+}
+
+export interface AddFriendLogItem {
+  index: number;
+  phone: string;
+  name: string;
+  source: string;
+  nhu_cau: string;
+  page_name: string;
+  message: string;
+  note: string;
+  tags: string[];
+  status: 'ADDED' | 'DRY_RUN' | 'NOT_FOUND' | 'FAILED' | 'SERVER_ERROR' | 'AUTH_EXPIRED' | string;
+  detail: string;
+  attempts: number;
+  time: string;
+}
+
+export interface AddFriendTaskStatus {
+  task_id: string;
+  campaign_name: string;
+  page_name: string;
+  is_running: boolean;
+  dry_run: boolean;
+  total: number;
+  processed: number;
+  added_count: number;
+  not_found_count: number;
+  failed_count: number;
+  current_phone: string;
+  current_action: string;
+  started_at: string;
+  finished_at?: string | null;
+  logs: AddFriendLogItem[];
+}
+
+export interface AddFriendHistoryItem {
+  id: number;
+  campaign_name: string;
+  phone: string;
+  page_name: string;
+  customer_info: string;
+  message: string;
+  status: string;
+  detail: string;
+  sent_at: string;
+}
+
+export const fetchAddFriendConfig = async (): Promise<AddFriendConfigResponse> => {
+  const res = await apiClient.get<AddFriendConfigResponse>('/add-friend/config');
+  return res.data;
+};
+
+export const fetchPancakeStateRaw = async (): Promise<{
+  status: string;
+  has_state: boolean;
+  storage_key?: string | null;
+  state_info: PancakeStateInfo;
+  state_json?: string | null;
+}> => {
+  const res = await apiClient.get('/add-friend/state');
+  return res.data;
+};
+
+export const savePancakeStateJson = async (
+  stateJson: string
+): Promise<{ status: string; message: string; state_info: PancakeStateInfo }> => {
+  const res = await apiClient.post('/add-friend/state', { state_json: stateJson });
+  return res.data;
+};
+
+export const deletePancakeState = async (): Promise<{ status: string; message: string; state_info: PancakeStateInfo }> => {
+  const res = await apiClient.delete('/add-friend/state');
+  return res.data;
+};
+
+export const parseBulkPhones = async (params: ParsePhonesParams): Promise<ParsePhonesResponse> => {
+  const res = await apiClient.post<ParsePhonesResponse>('/add-friend/parse-phones', params);
+  return res.data;
+};
+
+export const fetchLeadsWithPhonesForAddFriend = async (
+  sourceChannel: string = 'all',
+  limit: number = 50
+): Promise<{ count: number; formatted_text: string }> => {
+  const res = await apiClient.get('/add-friend/leads-phones', {
+    params: { source_channel: sourceChannel, limit }
+  });
+  return res.data;
+};
+
+export const startAddFriendCampaign = async (
+  params: StartAddFriendParams
+): Promise<{ status: string; task_id: string; campaign_name: string; total: number }> => {
+  const res = await apiClient.post('/add-friend/start', params);
+  return res.data;
+};
+
+export const fetchAddFriendStatus = async (taskId: string): Promise<AddFriendTaskStatus> => {
+  const res = await apiClient.get<AddFriendTaskStatus>(`/add-friend/status/${taskId}`);
+  return res.data;
+};
+
+export const stopAddFriendCampaign = async (taskId: string): Promise<{ status: string; task_id: string }> => {
+  const res = await apiClient.post(`/add-friend/stop/${taskId}`);
+  return res.data;
+};
+
+export const fetchAddFriendHistory = async (limit: number = 100): Promise<{ items: AddFriendHistoryItem[] }> => {
+  const res = await apiClient.get<{ items: AddFriendHistoryItem[] }>('/add-friend/history', {
+    params: { limit }
+  });
+  return res.data;
+};
