@@ -28,6 +28,7 @@ import {
   fetchBroadcastOptions,
   previewBroadcast,
   startBroadcast,
+  fetchActiveBroadcast,
   fetchBroadcastStatus,
   stopBroadcast,
   fetchBroadcastHistory,
@@ -326,9 +327,34 @@ export const BulkMessengerDashboard: React.FC = () => {
     }
   };
 
+  const restoreActiveTask = async () => {
+    try {
+      const active = await fetchActiveBroadcast();
+      if (active && active.task_id) {
+        setActiveTaskId(active.task_id);
+        setTaskStatus(active);
+        localStorage.setItem('eztech_active_broadcast_task_id', active.task_id);
+        return;
+      }
+      const savedId = localStorage.getItem('eztech_active_broadcast_task_id');
+      if (savedId) {
+        try {
+          const st = await fetchBroadcastStatus(savedId);
+          setActiveTaskId(st.task_id);
+          setTaskStatus(st);
+        } catch {
+          localStorage.removeItem('eztech_active_broadcast_task_id');
+        }
+      }
+    } catch (err) {
+      console.error('Không thể khôi phục tiến trình đang chạy:', err);
+    }
+  };
+
   useEffect(() => {
     loadOptions();
     loadHistory();
+    restoreActiveTask();
   }, []);
 
   // Polling tiến độ nếu có task đang chạy
@@ -473,6 +499,7 @@ export const BulkMessengerDashboard: React.FC = () => {
         max_consecutive_errors: maxConsecutiveErrors
       });
       setActiveTaskId(res.task_id);
+      localStorage.setItem('eztech_active_broadcast_task_id', res.task_id);
     } catch (err: any) {
       console.error('Lỗi khởi động broadcast:', err);
       const errDetail = err.response?.data?.detail || 'Không thể bắt đầu gửi tin';

@@ -1343,6 +1343,16 @@ def start_broadcast(req: BroadcastStartRequest, background_tasks: BackgroundTask
     return {"status": "STARTED", "task_id": task_id, "campaign_name": req.campaign_name}
 
 
+@router.get("/active", response_model=Optional[BroadcastStatusResponse])
+def get_active_broadcast():
+    """Lấy tác vụ đang chạy hiện tại trên server để khôi phục thanh tiến độ khi F5."""
+    with _BROADCAST_LOCK:
+        running = [t for t in _BROADCAST_TASKS.values() if t.get("is_running")]
+        if running:
+            return BroadcastStatusResponse(**running[-1])
+        return None
+
+
 @router.get("/status/{task_id}", response_model=BroadcastStatusResponse)
 def get_broadcast_status(task_id: str):
     """Lấy tiến độ gửi tin real-time của một tác vụ đang chạy."""
@@ -1355,8 +1365,15 @@ def get_broadcast_status(task_id: str):
 
 @router.post("/stop/{task_id}")
 def stop_broadcast(task_id: str):
-    """Dừng khẩn cấp tác vụ gửi tin đang chạy."""
+    """Dừng khẩn cấp tác vụ gửi tin đang chạy (hỗ trợ 'all' hoặc 'active')."""
     with _BROADCAST_LOCK:
+        if task_id in ("all", "active"):
+            stopped = []
+            for tid, t in _BROADCAST_TASKS.items():
+                if t.get("is_running"):
+                    t["is_running"] = False
+                    stopped.append(tid)
+            return {"status": "STOPPING", "task_id": ",".join(stopped) or "none"}
         task = _BROADCAST_TASKS.get(task_id)
         if not task:
             raise HTTPException(status_code=404, detail="Không tìm thấy tác vụ.")

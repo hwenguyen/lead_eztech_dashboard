@@ -551,6 +551,11 @@ export const startBroadcast = async (params: BroadcastStartParams): Promise<{ st
   return res.data;
 };
 
+export const fetchActiveBroadcast = async (): Promise<BroadcastStatusResponse | null> => {
+  const res = await apiClient.get<BroadcastStatusResponse | null>('/broadcast/active');
+  return res.data;
+};
+
 export const fetchBroadcastStatus = async (taskId: string): Promise<BroadcastStatusResponse> => {
   const res = await apiClient.get<BroadcastStatusResponse>('/broadcast/status/' + taskId);
   return res.data;

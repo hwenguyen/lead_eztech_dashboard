@@ -21,6 +21,11 @@ FastAPI backend (`backend/`) + React frontend (`frontend-react/`) trên Render (
 
 ## Session
 
+### 2026-11-11 — Khôi phục thanh tiến độ & nút Dừng khẩn cấp khi F5 trang (Bot Gửi Tin)
+- **Backend (`backend/broadcast.py`)**: Thêm endpoint `GET /api/broadcast/active` trả về tác vụ đang chạy trên server (`is_running = True`), đồng thời hỗ trợ `POST /api/broadcast/stop/all` (hoặc `/active`).
+- **Frontend (`BulkMessengerDashboard.tsx`, `api.ts`)**: Tự động gọi `fetchActiveBroadcast()` khi tải trang (F5) và lưu `task_id` vào `localStorage` để khôi phục ngay thanh tiến độ real-time cùng nút **Dừng khẩn cấp**.
+
+
 ### 2026-11-06 — Tạm thời tắt phần rep comment trong ETL
 - **ETL Pipeline (`etl/pipeline.py`)**: Chuyển biến môi trường `ENABLE_COMMENT_REPLY` sang mặc định `false` (chỉ chạy khi có giá trị `true`/`1`/`yes`).
 - **GitHub Actions Workflow (`.github/workflows/pancake-etl.yml`)**: Đặt `ENABLE_COMMENT_REPLY: 'false'` ở bước chạy `python -m etl.pipeline`.
