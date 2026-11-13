@@ -31,7 +31,7 @@ PHONE_TAG = "đã add"
 _CACHE_LOCK = threading.RLock()
 _CLASSIFY_CACHE: Dict[Tuple[str, str, Optional[str], Optional[str]], Tuple[float, Dict[int, Any]]] = {}
 _PERIOD_QUERY_CACHE: Dict[Tuple[str, str, Optional[str]], Tuple[float, List[Any], Set[int]]] = {}
-CACHE_TTL = 900.0  # 15 phut
+CACHE_TTL = 1800.0  # 30 phút (được xóa tự động sau mỗi lần ETL)
 
 def get_period_ttl(end_dt: datetime) -> float:
     """Neu ky nam hoan toan trong qua khu (truoc hom nay), cache 24h (86400s) vi so lieu da chot, khong doi.

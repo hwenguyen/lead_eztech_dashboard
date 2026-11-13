@@ -354,7 +354,7 @@ class BroadcastCampaignSummary(BaseModel):
 _CANDIDATES_CACHE_LOCK = threading.RLock()
 _CANDIDATES_CACHE_DATA: Optional[List[Any]] = None
 _CANDIDATES_CACHE_TIME: float = 0.0
-_CANDIDATES_CACHE_TTL: float = 900.0  # Cache in-memory 15 phút (tiết kiệm 99% băng thông Neon Egress)
+_CANDIDATES_CACHE_TTL: float = 3600.0  # Cache in-memory 60 phút (được xóa tự động sau mỗi lần ETL)
 
 def clear_broadcast_cache():
     """Xoá cache dữ liệu Broadcast."""
@@ -951,7 +951,7 @@ def _run_broadcast_worker(task_id: str, req_data: Dict[str, Any]):
 _OPTIONS_CACHE_LOCK = threading.Lock()
 _OPTIONS_CACHE_DATA: Optional[Dict[str, Any]] = None
 _OPTIONS_CACHE_TIME: float = 0.0
-_OPTIONS_CACHE_TTL: float = 300.0  # Tự động cache 5 phút
+_OPTIONS_CACHE_TTL: float = 1800.0  # Tự động cache 30 phút (xóa sau mỗi lần ETL)
 
 
 @router.get("/options", response_model=BroadcastOptionsResponse)

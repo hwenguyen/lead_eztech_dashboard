@@ -679,6 +679,18 @@ ZALO_PAGE_IDS_MAP = {
 }
 
 _PAGE_TAGS_CACHE: Dict[str, Any] = {"ts": 0.0, "pages": None, "tags_by_page": None}
+_LEAD_FILTERS_CACHE: Dict[int, Tuple[float, Dict[str, List[str]]]] = {}
+_ADDED_TAG_CACHE: Dict[int, Tuple[float, set]] = {}
+_ADD_FRIEND_CACHE_TTL = 1800.0  # 30 phút (xóa tự động sau mỗi lần ETL)
+
+
+def clear_add_friend_cache():
+    """Xóa bộ nhớ đệm trang Kết Bạn Tự Động để tiết kiệm Neon Egress."""
+    _PAGE_TAGS_CACHE["ts"] = 0.0
+    _PAGE_TAGS_CACHE["pages"] = None
+    _PAGE_TAGS_CACHE["tags_by_page"] = None
+    _LEAD_FILTERS_CACHE.clear()
+    _ADDED_TAG_CACHE.clear()
 
 
 def _has_added_tag(raw_tags: Optional[str]) -> bool:
@@ -696,7 +708,7 @@ def _fetch_pancake_pages_and_tags(
     if (
         not force_refresh
         and _PAGE_TAGS_CACHE["tags_by_page"] is not None
-        and (now_ts - float(_PAGE_TAGS_CACHE["ts"])) < 300.0
+        and (now_ts - float(_PAGE_TAGS_CACHE["ts"])) < _ADD_FRIEND_CACHE_TTL
     ):
         return _PAGE_TAGS_CACHE["pages"], _PAGE_TAGS_CACHE["tags_by_page"]
 
@@ -1497,50 +1509,63 @@ def get_add_friend_config(refresh_tags: bool = Query(False), db: Session = Depen
             all_tags_set.add(t)
     all_tags = sorted(all_tags_set) if all_tags_set else list(DEFAULT_AVAILABLE_TAGS)
 
-    # Bộ lọc danh sách khách hàng từ DB (Nhân viên, Page Nguồn, Tag)
-    employees_set = set()
-    lead_tags_set = set()
-    source_pages_set = set()
-    try:
-        emp_rows = (
-            db.query(FactLeadActivity.assigned_users)
-            .filter(FactLeadActivity.assigned_users.isnot(None), FactLeadActivity.assigned_users != "")
-            .distinct()
-            .limit(300)
-            .all()
-        )
-        for (raw_emp,) in emp_rows:
-            for part in str(raw_emp).split(","):
-                name = normalize_sale_name(part.strip())
-                if name:
-                    employees_set.add(name)
+    # Bộ lọc danh sách khách hàng từ DB (Nhân viên, Page Nguồn, Tag) - cache 30 phút
+    bind_key = id(db.get_bind()) if db.get_bind() is not None else 0
+    now_ts = time.time()
+    cached_filters = _LEAD_FILTERS_CACHE.get(bind_key)
+    if not refresh_tags and cached_filters and (now_ts - cached_filters[0] < _ADD_FRIEND_CACHE_TTL):
+        lead_filters = cached_filters[1]
+    else:
+        employees_set = set()
+        lead_tags_set = set()
+        source_pages_set = set()
+        try:
+            emp_rows = (
+                db.query(FactLeadActivity.assigned_users)
+                .filter(FactLeadActivity.assigned_users.isnot(None), FactLeadActivity.assigned_users != "")
+                .distinct()
+                .limit(300)
+                .all()
+            )
+            for (raw_emp,) in emp_rows:
+                for part in str(raw_emp).split(","):
+                    name = normalize_sale_name(part.strip())
+                    if name:
+                        employees_set.add(name)
 
-        tag_rows = (
-            db.query(FactLeadActivity.status_tag)
-            .filter(FactLeadActivity.status_tag.isnot(None), FactLeadActivity.status_tag != "")
-            .distinct()
-            .limit(300)
-            .all()
-        )
-        for (raw_tag,) in tag_rows:
-            for part in str(raw_tag).split(","):
-                t = part.strip()
-                if t and len(t) <= 50:
-                    lead_tags_set.add(t)
+            tag_rows = (
+                db.query(FactLeadActivity.status_tag)
+                .filter(FactLeadActivity.status_tag.isnot(None), FactLeadActivity.status_tag != "")
+                .distinct()
+                .limit(300)
+                .all()
+            )
+            for (raw_tag,) in tag_rows:
+                for part in str(raw_tag).split(","):
+                    t = part.strip()
+                    if t and len(t) <= 50:
+                        lead_tags_set.add(t)
 
-        pg_rows = (
-            db.query(DimLead.page_id)
-            .filter(DimLead.page_id.isnot(None), DimLead.page_id != "", DimLead.phone_number.isnot(None), DimLead.phone_number != "")
-            .distinct()
-            .limit(200)
-            .all()
-        )
-        for (raw_pg,) in pg_rows:
-            canon = resolve_canonical_page_name(raw_pg, fallback=str(raw_pg or ""))
-            if canon and not is_zalo_channel(raw_pg):
-                source_pages_set.add(canon)
-    except Exception as filter_err:
-        logger.warning(f"Không lấy được bộ lọc Leads: {filter_err}")
+            pg_rows = (
+                db.query(DimLead.page_id)
+                .filter(DimLead.page_id.isnot(None), DimLead.page_id != "", DimLead.phone_number.isnot(None), DimLead.phone_number != "")
+                .distinct()
+                .limit(200)
+                .all()
+            )
+            for (raw_pg,) in pg_rows:
+                canon = resolve_canonical_page_name(raw_pg, fallback=str(raw_pg or ""))
+                if canon and not is_zalo_channel(raw_pg):
+                    source_pages_set.add(canon)
+        except Exception as filter_err:
+            logger.warning(f"Không lấy được bộ lọc Leads: {filter_err}")
+
+        lead_filters = {
+            "employees": sorted(employees_set),
+            "source_pages": sorted(source_pages_set),
+            "lead_tags": sorted(lead_tags_set),
+        }
+        _LEAD_FILTERS_CACHE[bind_key] = (now_ts, lead_filters)
 
     templates_list = [
         {
@@ -1557,11 +1582,7 @@ def get_add_friend_config(refresh_tags: bool = Query(False), db: Session = Depen
         "templates": templates_list,
         "tags": all_tags,
         "tags_by_page": tags_by_page,
-        "lead_filters": {
-            "employees": sorted(employees_set),
-            "source_pages": sorted(source_pages_set),
-            "lead_tags": sorted(lead_tags_set),
-        },
+        "lead_filters": lead_filters,
         "skip_sources": DEFAULT_SKIP_SOURCES,
         "state_info": get_pancake_state_info(db),
         "playwright_installed": True,
@@ -1734,27 +1755,36 @@ def get_leads_with_phones(
     Lấy danh sách khách hàng có SĐT từ Database theo bộ lọc (Nhân viên, Page Nguồn, Tag)
     và tự động loại bỏ SĐT đã có tag 'Đã add' hoặc đã chạy kết bạn trước đó.
     """
-    skip_phones = _get_already_added_phones(db) if exclude_already_added else set()
+    skip_phones = set(_get_already_added_phones(db)) if exclude_already_added else set()
     if exclude_added_tag:
-        try:
-            tagged_rows = (
-                db.query(DimLead.phone_number, FactLeadActivity.status_tag)
-                .join(FactLeadActivity, FactLeadActivity.lead_id == DimLead.id)
-                .filter(
-                    DimLead.phone_number.isnot(None),
-                    DimLead.phone_number != "",
-                    FactLeadActivity.status_tag.ilike("%add%"),
+        bind_key = id(db.get_bind()) if db.get_bind() is not None else 0
+        now_ts = time.time()
+        cached_added = _ADDED_TAG_CACHE.get(bind_key)
+        if cached_added and (now_ts - cached_added[0] < _ADD_FRIEND_CACHE_TTL):
+            skip_phones |= cached_added[1]
+        else:
+            added_tag_set = set()
+            try:
+                tagged_rows = (
+                    db.query(DimLead.phone_number, FactLeadActivity.status_tag)
+                    .join(FactLeadActivity, FactLeadActivity.lead_id == DimLead.id)
+                    .filter(
+                        DimLead.phone_number.isnot(None),
+                        DimLead.phone_number != "",
+                        FactLeadActivity.status_tag.ilike("%add%"),
+                    )
+                    .distinct()
+                    .all()
                 )
-                .distinct()
-                .all()
-            )
-            for raw_p, raw_tag in tagged_rows:
-                if _has_added_tag(raw_tag):
-                    cp, ok, _ = normalize_vn_phone(raw_p)
-                    if ok and cp:
-                        skip_phones.add(cp)
-        except Exception as err:
-            logger.warning(f"Không kiểm tra được tag 'Đã add' trong DB: {err}")
+                for raw_p, raw_tag in tagged_rows:
+                    if _has_added_tag(raw_tag):
+                        cp, ok, _ = normalize_vn_phone(raw_p)
+                        if ok and cp:
+                            added_tag_set.add(cp)
+                _ADDED_TAG_CACHE[bind_key] = (now_ts, added_tag_set)
+            except Exception as err:
+                logger.warning(f"Không kiểm tra được tag 'Đã add' trong DB: {err}")
+            skip_phones |= added_tag_set
 
     emp_filter = normalize_sale_name(employee.strip()) if employee and employee.strip() else ""
     src_filter = source_page.strip().lower() if source_page and source_page.strip() else ""
@@ -1780,10 +1810,25 @@ def get_leads_with_phones(
             ),
         )
     )
-    if tag_filter and tag_filter != "__no_tag__":
-        query = query.filter(FactLeadActivity.status_tag.ilike(f"%{tag.strip()}%"))
+    if emp_filter:
+        if emp_filter.lower() == "__unassigned__":
+            query = query.filter(or_(FactLeadActivity.assigned_users.is_(None), FactLeadActivity.assigned_users == ""))
+        else:
+            query = query.filter(FactLeadActivity.assigned_users.isnot(None), FactLeadActivity.assigned_users != "")
+    if src_filter:
+        possible_pids = {source_page.strip()}
+        for k, v in KNOWN_PAGE_NAMES.items():
+            if v.lower() == src_filter or k.lower() == src_filter:
+                possible_pids.add(k)
+                possible_pids.add(v)
+        query = query.filter(DimLead.page_id.in_(list(possible_pids)))
+    if tag_filter:
+        if tag_filter == "__no_tag__":
+            query = query.filter(or_(FactLeadActivity.status_tag.is_(None), FactLeadActivity.status_tag == ""))
+        else:
+            query = query.filter(FactLeadActivity.status_tag.ilike(f"%{tag.strip()}%"))
 
-    scan_limit = 4000 if (emp_filter or src_filter or tag_filter) else max(limit * 8, 500)
+    scan_limit = 1500 if (emp_filter or src_filter or tag_filter) else max(limit * 8, 500)
     rows = query.order_by(DimLead.first_created_at.desc()).limit(scan_limit).all()
 
     result_lines = []

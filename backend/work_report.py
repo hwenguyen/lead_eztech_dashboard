@@ -24,7 +24,7 @@ logger = logging.getLogger("WorkReportService")
 
 _WORK_REPORT_CACHE: Dict[str, Tuple[float, Any]] = {}
 _WORK_REPORT_LOCK = threading.Lock()
-_WORK_REPORT_TTL = 900.0  # Cache in-memory 15 phút giúp giảm 100% Neon Egress cho các lượt xem lặp lại
+_WORK_REPORT_TTL = 1800.0  # Cache in-memory 30 phút (xóa sau mỗi lần ETL) giúp giảm tối đa Neon Egress
 
 def clear_work_report_cache():
     """Xóa bộ đệm báo cáo công việc."""

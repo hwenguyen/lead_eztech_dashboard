@@ -11,6 +11,7 @@ Nối trực tiếp từ bảng `deal_wins` (DB Deal Win có sẵn) sang `sales_
   + Reconcile công nợ cô lập theo đúng SĐT vừa thay đổi (chỉ đọc/ghi 1-3 dòng).
 """
 
+import os
 import json
 import re
 import time
@@ -53,23 +54,26 @@ def get_vn_now() -> datetime:
 _CACHE_LOCK = threading.Lock()
 _DEALS_CACHE: Optional[List[Dict[str, Any]]] = None
 _DEALS_CACHE_TS: float = 0.0
-DEALS_CACHE_TTL = 300  # 5 phút
+DEALS_CACHE_TTL = 1800  # 30 phút (cập nhật tức thì khi có ghi mới / webhook)
 
 _LISTS_CACHE: Optional[Dict[str, List[str]]] = None
 _LISTS_CACHE_TS: float = 0.0
-LISTS_CACHE_TTL = 600  # 10 phút
+LISTS_CACHE_TTL = 1800  # 30 phút
 
 _LOGS_CACHE: Optional[List[Dict[str, Any]]] = None
 _LOGS_CACHE_TS: float = 0.0
-LOGS_CACHE_TTL = 300  # 5 phút
+LOGS_CACHE_TTL = 1800  # 30 phút
 
 _PANCAKE_PHONE_CACHE: Dict[str, Tuple[float, Dict[str, Any]]] = {}
-PANCAKE_PHONE_TTL = 600  # 10 phút
+PANCAKE_PHONE_TTL = 1800  # 30 phút
 
 _LAST_SYNCED_DEAL_WIN_ID: int = -1
 _LAST_SYNC_CHECK_TS: float = 0.0
-SYNC_CHECK_INTERVAL = 120  # Chỉ kiểm tra MAX(id) của deal_wins mỗi 2 phút (4 bytes query)
+SYNC_CHECK_INTERVAL = 300  # Kiểm tra MAX(id) của deal_wins mỗi 5 phút (4 bytes query)
 _PANCAKE_LINKS_BACKFILLED: bool = False
+CONFIG_KEY_SHEET_SYNC = "deal_sheet_webhook_v1"
+_SHEET_CFG_CACHE: Optional[Dict[str, Any]] = None
+_SHEET_CFG_TS: float = 0.0
 
 
 def invalidate_deal_entry_cache():
@@ -1415,6 +1419,7 @@ def save_deal(payload: DealSavePayload, db: Session = Depends(get_db)):
 
     deals = reconcile_phones_and_update_cache(db, affected_phones)
     debts = build_debt_summary(deals)
+    _sync_phones_to_google_sheet_async(db, deals, affected_phones, action="upsert_phone")
     return {
         "ok": True,
         "dealId": deal_uid,
@@ -1459,6 +1464,7 @@ def update_deal_classes(deal_id: str, payload: SetClassesPayload, db: Session = 
 
     deals = reconcile_phones_and_update_cache(db, {phone})
     debts = build_debt_summary(deals)
+    _sync_phones_to_google_sheet_async(db, deals, {phone}, action="upsert_phone")
     return {"ok": True, "deals": deals, "debts": debts, "lists": lists}
 
 
@@ -1484,6 +1490,7 @@ def delete_deal(deal_id: str, actor: str = Query("admin"), db: Session = Depends
 
     deals = reconcile_phones_and_update_cache(db, {phone})
     debts = build_debt_summary(deals)
+    _sync_phones_to_google_sheet_async(db, deals, {phone}, action="delete", deal_id=deal_id)
     return {"ok": True, "deals": deals, "debts": debts}
 
 
@@ -1520,3 +1527,223 @@ def get_deal_logs(limit: int = Query(50, ge=1, le=200), db: Session = Depends(ge
         _LOGS_CACHE_TS = now_ts
 
     return {"ok": True, "logs": logs_list[:limit]}
+
+
+# ───────────────────────── Google Sheet Live Sync (Apps Script Webhook) ─────────────────────────
+
+def _fmt_date_vi(iso: Optional[str]) -> str:
+    if not iso:
+        return ""
+    s = str(iso).strip()
+    if len(s) >= 10 and s[4] == "-" and s[7] == "-":
+        return f"{s[8:10]}/{s[5:7]}/{s[:4]}"
+    return s
+
+
+def _deal_to_sheet_row(d: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "id": d.get("id") or "",
+        "ngayThu": _fmt_date_vi(d.get("ngayThu")),
+        "ngayContact": _fmt_date_vi(d.get("ngayContact")),
+        "sdt": d.get("sdt") or "",
+        "hoTen": d.get("hoTen") or "",
+        "email": d.get("email") or "",
+        "namSinh": d.get("namSinh") or "",
+        "diaChi": d.get("diaChi") or "",
+        "linhVuc": d.get("linhVuc") or "",
+        "chucVu": d.get("chucVu") or "",
+        "kyVong": d.get("kyVong") or "",
+        "zalo": d.get("zalo") or "",
+        "nhomCS": d.get("nhomCS") or "",
+        "chuongTrinh": d.get("chuongTrinh") or "",
+        "lop": ", ".join(d.get("lop") or []),
+        "nvCS": d.get("nvCS") or "",
+        "zaloCS": d.get("zaloCS") or "",
+        "nguon": d.get("nguon") or "",
+        "daThu": int(d.get("daThu") or 0),
+        "phaiThu": int(d.get("phaiThu") or 0),
+        "tongTien": int(d.get("tongTien") or 0),
+        "ngayThuAR": _fmt_date_vi(d.get("ngayThuAR")),
+        "trangThai": d.get("trangThai") or "",
+        "note": d.get("note") or "",
+        "nguoiNhap": d.get("nguoiNhap") or "",
+        "taoLuc": d.get("taoLuc") or "",
+        "thuNo": int(d.get("thuNo") or 0),
+        "daThuNo": int(d.get("daThuNo") or 0),
+        "conNo": int(d.get("conNo") or 0),
+    }
+
+
+DEFAULT_SHEET_WEBHOOK_URL = (
+    "https://script.google.com/macros/s/"
+    "AKfycbylGvV3REKqJS9OXDPrPUoHr1EZQCdaWgM-_TVh-k9A89czXsfFQ4S8hulohjRghzZmug/exec"
+)
+
+
+def _read_sheet_sync_config(db: Session) -> Dict[str, Any]:
+    global _SHEET_CFG_CACHE, _SHEET_CFG_TS
+    now_ts = time.time()
+    if _SHEET_CFG_CACHE is not None and (now_ts - _SHEET_CFG_TS) < 300.0:
+        return dict(_SHEET_CFG_CACHE)
+
+    env_url = os.getenv("DEAL_SHEET_WEBHOOK_URL", DEFAULT_SHEET_WEBHOOK_URL).strip()
+    cfg_data: Dict[str, Any] = {
+        "webhook_url": env_url,
+        "sheet_url": "",
+        "only_students": True,
+        "auto_sync": True,
+    }
+    row = db.query(AppConfig).filter(AppConfig.config_key == CONFIG_KEY_SHEET_SYNC).first()
+    if row and row.config_value:
+        try:
+            saved = json.loads(row.config_value)
+            if isinstance(saved, dict):
+                if "webhook_url" in saved:
+                    cfg_data["webhook_url"] = str(saved.get("webhook_url") or "").strip()
+                if saved.get("sheet_url"):
+                    cfg_data["sheet_url"] = str(saved["sheet_url"]).strip()
+                if "only_students" in saved:
+                    cfg_data["only_students"] = bool(saved["only_students"])
+                if "auto_sync" in saved:
+                    cfg_data["auto_sync"] = bool(saved["auto_sync"])
+        except Exception:
+            pass
+
+    with _CACHE_LOCK:
+        _SHEET_CFG_CACHE = dict(cfg_data)
+        _SHEET_CFG_TS = now_ts
+    return cfg_data
+
+
+def _post_to_google_sheet(webhook_url: str, body: Dict[str, Any], timeout: int = 20) -> Dict[str, Any]:
+    import requests as http_requests
+    resp = http_requests.post(webhook_url, json=body, timeout=timeout, allow_redirects=True)
+    if resp.status_code != 200:
+        raise RuntimeError(f"Google Sheet Web App HTTP {resp.status_code}: {resp.text[:160]}")
+    try:
+        data = resp.json()
+        if isinstance(data, dict) and data.get("ok") is False:
+            raise RuntimeError(data.get("error") or "Apps Script trả về lỗi")
+        return data if isinstance(data, dict) else {"ok": True}
+    except ValueError:
+        # Apps Script đôi khi trả HTML lỗi phân quyền (chưa bật "Anyone")
+        if "<html" in resp.text.lower():
+            raise RuntimeError("Apps Script yêu cầu đăng nhập — hãy kiểm tra quyền truy cập là 'Bất kỳ ai (Anyone)'.")
+        return {"ok": True}
+
+
+def _sync_phones_to_google_sheet_async(
+    db: Session,
+    deals: List[Dict[str, Any]],
+    affected_phones: Set[str],
+    action: str = "upsert_phone",
+    deal_id: str = "",
+) -> None:
+    """Đẩy các giao dịch của SĐT vừa sửa sang Google Sheet trong luồng nền (0 DB egress thêm)."""
+    cfg = _read_sheet_sync_config(db)
+    webhook_url = (cfg.get("webhook_url") or "").strip()
+    if not webhook_url or not cfg.get("auto_sync", True):
+        return
+
+    only_students = bool(cfg.get("only_students", False))
+    clean_targets = {clean_phone(p) for p in affected_phones if p}
+    rows_payload = [
+        _deal_to_sheet_row(d)
+        for d in deals
+        if clean_phone(d.get("sdt")) in clean_targets
+        and (not only_students or d.get("isStudent", True))
+    ]
+    if action == "upsert_phone" and not rows_payload:
+        return
+
+    body: Dict[str, Any] = {"action": action, "rows": rows_payload}
+    if deal_id:
+        body["deal_id"] = deal_id
+
+    def _worker():
+        try:
+            _post_to_google_sheet(webhook_url, body, timeout=20)
+        except Exception as err:
+            logger.warning(f"Live sync Google Sheet ({action}) thất bại: {err}")
+
+    threading.Thread(target=_worker, daemon=True).start()
+
+
+class SheetSyncConfigPayload(BaseModel):
+    webhook_url: str = ""
+    sheet_url: Optional[str] = ""
+    only_students: bool = False
+    auto_sync: bool = True
+
+
+@router.get("/sheet-sync/config")
+def get_sheet_sync_config(db: Session = Depends(get_db)):
+    cfg = _read_sheet_sync_config(db)
+    return {
+        "ok": True,
+        "configured": bool(cfg.get("webhook_url")),
+        "webhook_url": cfg.get("webhook_url") or "",
+        "sheet_url": cfg.get("sheet_url") or "",
+        "only_students": bool(cfg.get("only_students", False)),
+        "auto_sync": bool(cfg.get("auto_sync", True)),
+    }
+
+
+@router.put("/sheet-sync/config")
+def save_sheet_sync_config(payload: SheetSyncConfigPayload, db: Session = Depends(get_db)):
+    global _SHEET_CFG_CACHE, _SHEET_CFG_TS
+    data = {
+        "webhook_url": (payload.webhook_url or "").strip(),
+        "sheet_url": (payload.sheet_url or "").strip(),
+        "only_students": bool(payload.only_students),
+        "auto_sync": bool(payload.auto_sync),
+    }
+    row = db.query(AppConfig).filter(AppConfig.config_key == CONFIG_KEY_SHEET_SYNC).first()
+    if not row:
+        row = AppConfig(
+            config_key=CONFIG_KEY_SHEET_SYNC,
+            config_value=json.dumps(data, ensure_ascii=False),
+        )
+        db.add(row)
+    else:
+        row.config_value = json.dumps(data, ensure_ascii=False)
+        row.updated_at = get_vn_now()
+    db.commit()
+
+    with _CACHE_LOCK:
+        _SHEET_CFG_CACHE = dict(data)
+        _SHEET_CFG_TS = time.time()
+
+    return {"ok": True, "configured": bool(data["webhook_url"]), **data}
+
+
+@router.post("/sheet-sync/push-all")
+def push_all_deals_to_google_sheet(db: Session = Depends(get_db)):
+    """Đẩy toàn bộ bảng Deal hiện có trong RAM Cache sang Google Sheet (khởi tạo hoặc đồng bộ lại)."""
+    cfg = _read_sheet_sync_config(db)
+    webhook_url = (cfg.get("webhook_url") or "").strip()
+    if not webhook_url:
+        raise HTTPException(
+            status_code=400,
+            detail="Chưa cấu hình URL Google Apps Script Web App (.../exec).",
+        )
+
+    deals = get_cached_deals(db)
+    only_students = bool(cfg.get("only_students", False))
+    rows_payload = [
+        _deal_to_sheet_row(d)
+        for d in deals
+        if not only_students or d.get("isStudent", True)
+    ]
+
+    try:
+        _post_to_google_sheet(webhook_url, {"action": "replace_all", "rows": rows_payload}, timeout=45)
+    except Exception as err:
+        raise HTTPException(status_code=502, detail=str(err))
+
+    return {
+        "ok": True,
+        "synced_count": len(rows_payload),
+        "message": f"Đã đồng bộ {len(rows_payload)} giao dịch lên Google Sheet.",
+    }
+

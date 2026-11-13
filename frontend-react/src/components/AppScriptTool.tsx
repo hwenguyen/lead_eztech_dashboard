@@ -9,6 +9,8 @@ import {
   Save,
   ChevronLeft,
   ChevronRight,
+  FileSpreadsheet,
+  ExternalLink,
 } from 'lucide-react';
 import {
   fetchDealEntryInit,
@@ -17,12 +19,16 @@ import {
   updateSalesDealClasses,
   saveDealEntryLists,
   fetchDealEntryLogs,
+  fetchDealSheetConfig,
+  saveDealSheetConfig,
+  pushAllDealsToGoogleSheet,
   getStoredAuth,
   type SalesDealRecord,
   type DebtSummaryData,
   type DealEntryLists,
   type PhoneLookupResponse,
   type DealAuditLogItem,
+  type DealSheetSyncConfig,
 } from '../services/api';
 
 const fmtMoney = (n: number | undefined | null) => {
@@ -193,6 +199,58 @@ export function AppScriptTool() {
   });
   const [newItemText, setNewItemText] = useState<Record<string, string>>({});
 
+  // Đồng bộ Google Sheet Live (Apps Script Webhook)
+  const [showSheetModal, setShowSheetModal] = useState(false);
+  const [sheetCfg, setSheetCfg] = useState<DealSheetSyncConfig>({
+    webhook_url: '',
+    sheet_url: '',
+    only_students: true,
+    auto_sync: true,
+    configured: false,
+  });
+  const [savingSheetCfg, setSavingSheetCfg] = useState(false);
+  const [pushingSheet, setPushingSheet] = useState(false);
+  const [sheetFeedback, setSheetFeedback] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const handleSaveSheetCfg = async () => {
+    setSavingSheetCfg(true);
+    setSheetFeedback(null);
+    try {
+      const res = await saveDealSheetConfig({
+        webhook_url: sheetCfg.webhook_url.trim(),
+        sheet_url: sheetCfg.sheet_url.trim(),
+        only_students: sheetCfg.only_students,
+        auto_sync: sheetCfg.auto_sync,
+      });
+      setSheetCfg((prev) => ({ ...prev, ...res }));
+      setSheetFeedback({ ok: true, text: 'Đã lưu cấu hình Google Sheet Live.' });
+    } catch (err: any) {
+      setSheetFeedback({ ok: false, text: err?.response?.data?.detail || 'Không lưu được cấu hình.' });
+    } finally {
+      setSavingSheetCfg(false);
+    }
+  };
+
+  const handlePushAllToSheet = async () => {
+    setPushingSheet(true);
+    setSheetFeedback(null);
+    try {
+      await saveDealSheetConfig({
+        webhook_url: sheetCfg.webhook_url.trim(),
+        sheet_url: sheetCfg.sheet_url.trim(),
+        only_students: sheetCfg.only_students,
+        auto_sync: sheetCfg.auto_sync,
+      });
+      const res = await pushAllDealsToGoogleSheet();
+      setSheetFeedback({ ok: true, text: res.message || `Đã đồng bộ ${res.synced_count} dòng.` });
+      showToast(`Đã đẩy ${res.synced_count} dòng lên Google Sheet`);
+    } catch (err: any) {
+      setSheetFeedback({ ok: false, text: err?.response?.data?.detail || 'Đồng bộ thất bại.' });
+    } finally {
+      setPushingSheet(false);
+    }
+  };
+
   const loadAll = async (force: boolean = false) => {
     setLoading(true);
     try {
@@ -222,6 +280,11 @@ export function AppScriptTool() {
 
   useEffect(() => {
     loadAll(false);
+    fetchDealSheetConfig()
+      .then((cfg) => {
+        if (cfg) setSheetCfg((prev) => ({ ...prev, ...cfg }));
+      })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -1217,6 +1280,38 @@ export function AppScriptTool() {
               >
                 Xuất CSV
               </button>
+
+              <button
+                onClick={() => {
+                  setSheetFeedback(null);
+                  setShowSheetModal(true);
+                }}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors cursor-pointer ${
+                  sheetCfg.configured && sheetCfg.auto_sync
+                    ? 'text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border-emerald-200'
+                    : 'text-slate-700 bg-slate-50 hover:bg-slate-100 border-slate-200'
+                }`}
+                title="Cấu hình & Đồng bộ live lên Google Sheet qua Apps Script"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5" />
+                <span>Google Sheet Live</span>
+                {sheetCfg.configured && sheetCfg.auto_sync && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                )}
+              </button>
+
+              {sheetCfg.sheet_url && isUrl(sheetCfg.sheet_url) && (
+                <a
+                  href={toSafeHref(sheetCfg.sheet_url)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-eztech hover:bg-eztech-light border border-slate-200 rounded-lg transition-colors"
+                  title="Mở Google Sheet"
+                >
+                  <span>Mở Sheet</span>
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+              )}
 
               <button
                 onClick={() => loadAll(true)}
@@ -2454,6 +2549,133 @@ export function AppScriptTool() {
               >
                 {saving ? 'Đang lưu...' : 'Lưu & Đồng Bộ Lớp'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Cấu Hình Google Sheet Live */}
+      {showSheetModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-[1px] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xl max-w-lg w-full p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <FileSpreadsheet className="w-5 h-5 text-emerald-600" />
+                <div>
+                  <h3 className="text-sm font-bold text-navy">Google Sheet Live (Apps Script)</h3>
+                  <p className="text-xs text-slate-500">
+                    Tự động đồng bộ từng giao dịch khi lưu/sửa/xóa (~1-2s, không tốn egress DB).
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowSheetModal(false)}
+                className="p-1 text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-600 space-y-1">
+              <div className="font-semibold text-navy">Cách thiết lập nhanh (1 lần):</div>
+              <div>1. Mở Google Sheet muốn đồng bộ → <b>Tiện ích mở rộng → Apps Script</b>.</div>
+              <div>
+                2. Dán nội dung file <code className="px-1 py-0.5 bg-white border border-slate-200 rounded">scripts/deal_entry_google_sheet.gs</code> vào trình soạn thảo rồi lưu.
+              </div>
+              <div>
+                3. Chọn <b>Triển khai → Tùy chọn triển khai mới → Ứng dụng web</b> (Quyền truy cập: <b>Bất kỳ ai</b>) → Copy URL <code className="px-1 py-0.5 bg-white border border-slate-200 rounded">/exec</code>.
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Apps Script Web App URL (<code className="font-normal">.../exec</code>)
+                </label>
+                <input
+                  type="url"
+                  placeholder="https://script.google.com/macros/s/.../exec"
+                  value={sheetCfg.webhook_url}
+                  onChange={(e) => setSheetCfg((p) => ({ ...p, webhook_url: e.target.value }))}
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-eztech"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Link Google Sheet (tùy chọn, để hiện nút Mở Sheet)
+                </label>
+                <input
+                  type="url"
+                  placeholder="https://docs.google.com/spreadsheets/d/..."
+                  value={sheetCfg.sheet_url}
+                  onChange={(e) => setSheetCfg((p) => ({ ...p, sheet_url: e.target.value }))}
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-eztech"
+                />
+              </div>
+
+              <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={sheetCfg.only_students}
+                  onChange={(e) => setSheetCfg((p) => ({ ...p, only_students: e.target.checked }))}
+                  className="rounded border-slate-300 text-eztech focus:ring-eztech"
+                />
+                <span>Chỉ đồng bộ dòng có tag &quot;Đã là học viên&quot;</span>
+              </label>
+
+              <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={sheetCfg.auto_sync}
+                  onChange={(e) => setSheetCfg((p) => ({ ...p, auto_sync: e.target.checked }))}
+                  className="rounded border-slate-300 text-eztech focus:ring-eztech"
+                />
+                <span>Tự động đẩy lên Google Sheet ngay khi Lưu / Sửa lớp / Xóa giao dịch</span>
+              </label>
+            </div>
+
+            {sheetFeedback && (
+              <div
+                className={`px-3 py-2 rounded-lg text-xs border ${
+                  sheetFeedback.ok
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                    : 'bg-rose-50 text-rose-700 border-rose-200'
+                }`}
+              >
+                {sheetFeedback.text}
+              </div>
+            )}
+
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={handlePushAllToSheet}
+                disabled={pushingSheet || !sheetCfg.webhook_url.trim()}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-semibold rounded-lg cursor-pointer"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${pushingSheet ? 'animate-spin' : ''}`} />
+                <span>{pushingSheet ? 'Đang đẩy...' : 'Đồng bộ toàn bộ lên Sheet'}</span>
+              </button>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowSheetModal(false)}
+                  className="px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer"
+                >
+                  Đóng
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveSheetCfg}
+                  disabled={savingSheetCfg}
+                  className="inline-flex items-center gap-1.5 px-4 py-1.5 bg-eztech hover:bg-eztech-dark disabled:opacity-50 text-white text-xs font-semibold rounded-lg cursor-pointer"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>{savingSheetCfg ? 'Đang lưu...' : 'Lưu cấu hình'}</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>

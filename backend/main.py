@@ -54,7 +54,7 @@ from backend.deal_entry import router as deal_entry_router, invalidate_deal_entr
 from backend.facebook_metrics import router as facebook_router, clear_facebook_cache
 from backend.tiktok_metrics import router as tiktok_router, clear_tiktok_cache
 from backend.work_report import router as work_report_router, clear_work_report_cache
-from backend.add_friend import router as add_friend_router
+from backend.add_friend import router as add_friend_router, clear_add_friend_cache
 
 app = FastAPI(title="Pancake Lead Reporting API")
 app.include_router(auth_router)
@@ -93,7 +93,19 @@ async def add_cache_headers(request: Request, call_next):
     # Bổ sung Cache-Control chuẩn cho các API đọc dữ liệu để trình duyệt tận dụng HTTP Cache (0 Network RTT)
     if request.method == "GET" and request.url.path.startswith("/api/"):
         path = request.url.path
-        if not any(skip in path for skip in ("/auth/me", "/broadcast/status", "/add-friend/", "/health")):
+        if not any(
+            skip in path
+            for skip in (
+                "/auth/me",
+                "/broadcast/status",
+                "/add-friend/status",
+                "/add-friend/active",
+                "/add-friend/state",
+                "/add-friend/leads-phones",
+                "/add-friend/history",
+                "/health",
+            )
+        ):
             if response.status_code == 200:
                 response.headers["Cache-Control"] = "private, max-age=180, stale-while-revalidate=300"
     return response
@@ -486,19 +498,19 @@ def get_pages(db: Session = Depends(get_db)):
 
 _REMIND_CACHE: Dict[str, Tuple[float, Any]] = {}
 _REMIND_LOCK = threading.Lock()
-_REMIND_TTL = 900.0  # 15 phút TTL cache để tiết kiệm băng thông Neon
+_REMIND_TTL = 3600.0  # 60 phút TTL cache (xóa sau mỗi lần ETL) để tiết kiệm tối đa Neon Egress
 
 _LAST_MSG_CACHE: Dict[str, Tuple[float, Optional[str]]] = {}
 _LAST_MSG_LOCK = threading.Lock()
-_LAST_MSG_TTL = 900.0  # 15 phút cache tin nhắn cuối
+_LAST_MSG_TTL = 1800.0  # 30 phút cache tin nhắn cuối
 
 _TAG_TL_CACHE: Dict[str, Tuple[float, List[dict]]] = {}
 _TAG_TL_LOCK = threading.Lock()
-_TAG_TL_TTL = 900.0  # 15 phút cache tag_timeline theo từng hội thoại
+_TAG_TL_TTL = 1800.0  # 30 phút cache tag_timeline theo từng hội thoại
 
 _DEAL_CACHE: Dict[str, Tuple[float, Any]] = {}
 _DEAL_CACHE_LOCK = threading.Lock()
-_DEAL_CACHE_TTL = 300.0  # 5 phút cache cho Deal Win
+_DEAL_CACHE_TTL = 1800.0  # 30 phút cache cho Deal Win (xóa tức thì khi có webhook / sync)
 
 def _fetch_tag_timelines(db: Session, conv_ids: List[str]) -> Dict[str, List[dict]]:
     """Chỉ tải cột JSON tag_timeline cho đúng 15-20 hội thoại hiển thị trên trang hiện tại (tiết kiệm 99.9% Egress)."""
@@ -542,6 +554,7 @@ def clear_cache():
     clear_facebook_cache()
     clear_tiktok_cache()
     clear_work_report_cache()
+    clear_add_friend_cache()
     with _PAGES_LOCK:
         _PAGES_CACHE.clear()
     with _REMIND_LOCK:

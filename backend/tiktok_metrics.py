@@ -28,10 +28,10 @@ logger = logging.getLogger("TikTokMetricsService")
 
 router = APIRouter(prefix="/api/tiktok", tags=["TikTok Analytics"])
 
-# In-memory TTL Cache (5 phút) để tối ưu băng thông
+# In-memory TTL Cache (30 phút; xóa tự động sau mỗi lần ETL) để tối ưu băng thông
 _TT_CACHE: Dict[str, Any] = {}
 _TT_CACHE_LOCK = threading.Lock()
-TT_CACHE_TTL = 900  # 15 phút cache tiết kiệm egress
+TT_CACHE_TTL = 1800
 
 TIKTOK_KNOWN_PAGES = [
     {"id": "tt_7196601676597871618", "name": "Anh Kế toán làm Data (TikTok)"},
@@ -258,14 +258,14 @@ def get_tiktok_metrics(
                 DealWin.page_id.like("tt_%"),
             )
         )
-    deals: List[DealWin] = deal_query.all()
+    deals = deal_query.with_entities(DealWin.phone_number).all()
     tt_deal_wins = len(deals)
 
     # Khớp chính xác Deal Win với từng video dựa trên SĐT thu được từ video đó
     post_deals_map: Dict[str, int] = Counter()
-    for d in deals:
-        if d.phone_number:
-            dp = normalize_phone(d.phone_number) or d.phone_number.strip()
+    for (d_phone,) in deals:
+        if d_phone:
+            dp = normalize_phone(d_phone) or d_phone.strip()
             for clean_pid, pset in post_phones_set.items():
                 if dp in pset:
                     post_deals_map[clean_pid] += 1

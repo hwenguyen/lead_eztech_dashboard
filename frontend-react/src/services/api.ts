@@ -849,6 +849,30 @@ export const fetchDealEntryLogs = async (limit: number = 100): Promise<{ ok: boo
   return res.data;
 };
 
+export interface DealSheetSyncConfig {
+  ok?: boolean;
+  configured?: boolean;
+  webhook_url: string;
+  sheet_url: string;
+  only_students: boolean;
+  auto_sync: boolean;
+}
+
+export const fetchDealSheetConfig = async (): Promise<DealSheetSyncConfig> => {
+  const res = await apiClient.get('/deal-entry/sheet-sync/config');
+  return res.data;
+};
+
+export const saveDealSheetConfig = async (payload: DealSheetSyncConfig): Promise<DealSheetSyncConfig> => {
+  const res = await apiClient.put('/deal-entry/sheet-sync/config', payload);
+  return res.data;
+};
+
+export const pushAllDealsToGoogleSheet = async (): Promise<{ ok: boolean; synced_count: number; message: string }> => {
+  const res = await apiClient.post('/deal-entry/sheet-sync/push-all');
+  return res.data;
+};
+
 // ==========================================
 // FACEBOOK ANALYTICS
 // ==========================================

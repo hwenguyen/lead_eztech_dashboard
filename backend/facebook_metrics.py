@@ -32,16 +32,19 @@ logger = logging.getLogger("FacebookMetricsService")
 
 router = APIRouter(prefix="/api/facebook", tags=["Facebook Analytics"])
 
-# In-memory TTL Cache (5 phút) để tối ưu băng thông Neon
+# In-memory TTL Cache (30 phút; xóa tự động sau mỗi lần ETL) để tối ưu băng thông Neon
 _FB_CACHE_LOCK = threading.RLock()
 _FB_CACHE: Dict[Tuple[str, str, Optional[str]], Tuple[float, Dict[str, Any]]] = {}
-FB_CACHE_TTL = 900  # 15 phút cache tiết kiệm egress.0  # 5 phút
+_FB_PAGES_CACHE: Tuple[float, Any] = (0.0, None)
+FB_CACHE_TTL = 1800
 
 
 def clear_facebook_cache():
     """Xóa bộ nhớ đệm metrics Facebook."""
+    global _FB_PAGES_CACHE
     with _FB_CACHE_LOCK:
         _FB_CACHE.clear()
+        _FB_PAGES_CACHE = (0.0, None)
 
 
 def is_fb_page(page_id_or_name: Optional[str]) -> bool:
@@ -74,7 +77,13 @@ def get_facebook_page_names() -> List[Dict[str, str]]:
 
 @router.get("/pages")
 def get_facebook_pages(db: Session = Depends(get_db)):
-    """API trả về danh sách các Fanpage Facebook phục vụ bộ lọc."""
+    """API trả về danh sách các Fanpage Facebook phục vụ bộ lọc (cache 1 giờ)."""
+    global _FB_PAGES_CACHE
+    now_ts = time.time()
+    with _FB_CACHE_LOCK:
+        if _FB_PAGES_CACHE[1] is not None and (now_ts - _FB_PAGES_CACHE[0] < 3600.0):
+            return _FB_PAGES_CACHE[1]
+
     # Lấy từ cấu hình cố định
     configured = get_facebook_page_names()
     # Lấy thêm từ dữ liệu thực tế trong bảng posts nếu có
@@ -85,7 +94,10 @@ def get_facebook_pages(db: Session = Depends(get_db)):
         if cname not in seen:
             seen.add(cname)
             configured.append({"id": pid, "name": cname})
-    return {"pages": configured}
+    res = {"pages": configured}
+    with _FB_CACHE_LOCK:
+        _FB_PAGES_CACHE = (now_ts, res)
+    return res
 
 
 @router.get("/metrics")
@@ -300,14 +312,14 @@ def get_facebook_metrics(
                 DealWin.page_id.ilike("%Facebook%"),
             )
         )
-    deals: List[DealWin] = deal_query.all()
+    deals = deal_query.with_entities(DealWin.phone_number).all()
     fb_deal_wins = len(deals)
 
     # Khớp chính xác Deal Win với từng bài viết dựa trên SĐT thu được từ bài đó
     post_deals_map: Dict[str, int] = Counter()
-    for d in deals:
-        if d.phone_number:
-            dp = normalize_phone(d.phone_number) or d.phone_number.strip()
+    for (d_phone,) in deals:
+        if d_phone:
+            dp = normalize_phone(d_phone) or d_phone.strip()
             for clean_pid, pset in post_phones_set.items():
                 if dp in pset:
                     post_deals_map[clean_pid] += 1
