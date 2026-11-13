@@ -704,7 +704,7 @@ def _fetch_pancake_pages_and_tags(
     known_names_lower = {p["name"].lower() for p in pages_list}
     tags_by_page: Dict[str, List[str]] = {p["name"]: [] for p in pages_list}
 
-    state_path = ensure_pancake_state_file(db)
+    state_path = ensure_pancake_state_file()
     if state_path and os.path.exists(state_path):
         try:
             with open(state_path, "r", encoding="utf-8") as f:
