@@ -27,6 +27,7 @@ import {
   deletePancakeState,
   fetchLeadsWithPhonesForAddFriend,
   startAddFriendCampaign,
+  fetchActiveAddFriendTask,
   fetchAddFriendStatus,
   stopAddFriendCampaign,
   fetchAddFriendHistory,
@@ -35,6 +36,8 @@ import {
   type AddFriendTaskStatus,
   type AddFriendHistoryItem
 } from '../services/api';
+
+const ACTIVE_TASK_STORAGE_KEY = 'addfriend_active_task_id';
 
 const DEFAULT_PAGES = [
   'Eztech Consultant',
@@ -102,12 +105,17 @@ export const AutoAddFriendDashboard: React.FC = () => {
   const [copiedState, setCopiedState] = useState(false);
   const [stateFeedback, setStateFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  // 1. Danh sách SĐT (chỉ SĐT)
-  const [rawPhoneText, setRawPhoneText] = useState(
-    '0987654321\n0912345678\n0905112233'
-  );
+  // 1. Danh sách SĐT & Bộ lọc lấy từ DB
+  const [rawPhoneText, setRawPhoneText] = useState('');
   const [phoneError, setPhoneError] = useState<string | null>(null);
   const [loadingLeads, setLoadingLeads] = useState(false);
+  const [filterEmployee, setFilterEmployee] = useState('');
+  const [filterSourcePage, setFilterSourcePage] = useState('');
+  const [filterLeadTag, setFilterLeadTag] = useState('');
+  const [excludeAddedTag, setExcludeAddedTag] = useState(true);
+  const [leadMetaMap, setLeadMetaMap] = useState<
+    Record<string, { name: string; source: string; nhu_cau: string }>
+  >({});
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // 2. Page, Tin nhắn chào & Tag
@@ -117,8 +125,9 @@ export const AutoAddFriendDashboard: React.FC = () => {
     'Chào bạn, mình là {page}. Mình xin phép kết bạn để trao đổi chi tiết hơn về dịch vụ bên mình nhé ạ!'
   );
   const [sendInboxMessage, setSendInboxMessage] = useState(true);
-  const [selectedTags, setSelectedTags] = useState<string[]>(['Web']);
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [customTagInput, setCustomTagInput] = useState('');
+  const [customTagsByPage, setCustomTagsByPage] = useState<Record<string, string[]>>({});
 
   // 3. Rate Limit
   const [rateLimit, setRateLimit] = useState<RateLimitSettings>({
@@ -158,23 +167,55 @@ export const AutoAddFriendDashboard: React.FC = () => {
     fetchAddFriendConfig()
       .then((data) => setConfig(data))
       .catch(() => {});
+
+    fetchActiveAddFriendTask()
+      .then((res) => {
+        if (res.active) {
+          setTaskStatus(res.active);
+          if (res.active.is_running) {
+            setActiveTaskId(res.active.task_id);
+            localStorage.setItem(ACTIVE_TASK_STORAGE_KEY, res.active.task_id);
+          } else {
+            localStorage.removeItem(ACTIVE_TASK_STORAGE_KEY);
+          }
+          return;
+        }
+        const savedId = localStorage.getItem(ACTIVE_TASK_STORAGE_KEY);
+        if (savedId) setActiveTaskId(savedId);
+      })
+      .catch(() => {
+        const savedId = localStorage.getItem(ACTIVE_TASK_STORAGE_KEY);
+        if (savedId) setActiveTaskId(savedId);
+      });
   }, []);
 
   useEffect(() => {
     if (!activeTaskId) return;
+    let cancelled = false;
     let timer: ReturnType<typeof setInterval> | null = null;
     const poll = async () => {
       try {
         const st = await fetchAddFriendStatus(activeTaskId);
+        if (cancelled) return;
         setTaskStatus(st);
-        if (!st.is_running && timer) clearInterval(timer);
-      } catch {
-        // ignore
+        if (!st.is_running) {
+          if (timer) clearInterval(timer);
+          localStorage.removeItem(ACTIVE_TASK_STORAGE_KEY);
+          setActiveTaskId(null);
+        }
+      } catch (err: any) {
+        if (cancelled) return;
+        if (err?.response?.status === 404) {
+          if (timer) clearInterval(timer);
+          localStorage.removeItem(ACTIVE_TASK_STORAGE_KEY);
+          setActiveTaskId(null);
+        }
       }
     };
     poll();
     timer = setInterval(poll, 1500);
     return () => {
+      cancelled = true;
       if (timer) clearInterval(timer);
     };
   }, [activeTaskId]);
@@ -226,20 +267,26 @@ export const AutoAddFriendDashboard: React.FC = () => {
     setLoadingLeads(true);
     setBanner(null);
     try {
-      const res = await fetchLeadsWithPhonesForAddFriend(channel, 50);
-      if (!res.formatted_text || res.count === 0) {
-        setBanner({ type: 'info', text: 'Không có SĐT mới nào chưa kết bạn.' });
+      const res = await fetchLeadsWithPhonesForAddFriend({
+        sourceChannel: channel,
+        employee: filterEmployee || undefined,
+        sourcePage: filterSourcePage || undefined,
+        tag: filterLeadTag || undefined,
+        excludeAddedTag,
+        limit: 50
+      });
+      if (!res.items || res.count === 0) {
+        setBanner({ type: 'info', text: 'Không tìm thấy SĐT phù hợp bộ lọc (hoặc đã có tag Đã add / đã chạy).' });
         return;
       }
-      // Chỉ lấy cột SĐT
-      const phonesOnly = res.formatted_text
-        .split(/\r?\n/)
-        .map((line) => line.split('\t')[0]?.trim())
-        .filter(Boolean)
-        .join('\n');
-      setRawPhoneText(phonesOnly);
+      const nextMeta: Record<string, { name: string; source: string; nhu_cau: string }> = {};
+      for (const it of res.items) {
+        nextMeta[it.phone] = { name: it.name, source: it.source, nhu_cau: it.nhu_cau };
+      }
+      setLeadMetaMap(nextMeta);
+      setRawPhoneText(res.items.map((it) => it.phone).join('\n'));
       setPhoneError(null);
-      setBanner({ type: 'success', text: `Đã nạp ${res.count} số điện thoại.` });
+      setBanner({ type: 'success', text: `Đã nạp ${res.count} số điện thoại từ DB.` });
     } catch {
       setBanner({ type: 'error', text: 'Không thể tải SĐT từ hệ thống.' });
     } finally {
@@ -256,6 +303,16 @@ export const AutoAddFriendDashboard: React.FC = () => {
     setRawPhoneText(validPhones.join('\n'));
   };
 
+  const handleSelectPage = (pg: string) => {
+    setSelectedPage(pg);
+    const nextPageTags = [
+      ...(config?.tags_by_page?.[pg] || []),
+      ...(customTagsByPage[pg] || [])
+    ];
+    const nextLower = new Set(nextPageTags.map((t) => t.toLowerCase()));
+    setSelectedTags((prev) => prev.filter((t) => nextLower.has(t.toLowerCase())));
+  };
+
   const handleToggleTag = (tag: string) => {
     setSelectedTags((prev) => (prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]));
   };
@@ -263,6 +320,11 @@ export const AutoAddFriendDashboard: React.FC = () => {
   const handleAddCustomTag = () => {
     const clean = customTagInput.trim();
     if (!clean) return;
+    setCustomTagsByPage((prev) => {
+      const existing = prev[selectedPage] || [];
+      if (existing.includes(clean)) return prev;
+      return { ...prev, [selectedPage]: [...existing, clean] };
+    });
     if (!selectedTags.includes(clean)) setSelectedTags((prev) => [...prev, clean]);
     setCustomTagInput('');
   };
@@ -334,22 +396,46 @@ export const AutoAddFriendDashboard: React.FC = () => {
       return;
     }
 
+    // Nếu người dùng đã gõ tag vào ô nhập nhưng chưa bấm nút '+', tự động gộp vào danh sách tag
+    const pendingTag = customTagInput.trim();
+    const tagsToSend = pendingTag && !selectedTags.includes(pendingTag)
+      ? [...selectedTags, pendingTag]
+      : selectedTags;
+    if (pendingTag) {
+      setCustomTagsByPage((prev) => {
+        const existing = prev[selectedPage] || [];
+        return existing.includes(pendingTag) ? prev : { ...prev, [selectedPage]: [...existing, pendingTag] };
+      });
+      setSelectedTags(tagsToSend);
+      setCustomTagInput('');
+    }
+
     setStarting(true);
+    setTaskStatus(null);
     try {
       const res = await startAddFriendCampaign({
         campaign_name: `ketban_${new Date().toISOString().slice(0, 10).replace(/-/g, '')}`,
         page_name: selectedPage,
-        items: validPhones.map((phone) => ({ phone, name: '', source: '', nhu_cau: '' })),
+        items: validPhones.map((phone) => {
+          const meta = leadMetaMap[phone];
+          return {
+            phone,
+            name: meta?.name || '',
+            source: meta?.source || '',
+            nhu_cau: meta?.nhu_cau || ''
+          };
+        }),
         message_template: messageTemplate,
         inbox_message_template: messageTemplate,
         use_source_template: false,
         send_inbox_message: sendInboxMessage,
         add_note: false,
         note_template: '',
-        tags: selectedTags,
+        tags: tagsToSend,
         rate_limit: rateLimit,
         dry_run: dryRun
       });
+      localStorage.setItem(ACTIVE_TASK_STORAGE_KEY, res.task_id);
       setActiveTaskId(res.task_id);
     } catch (err: any) {
       setBanner({
@@ -381,9 +467,10 @@ export const AutoAddFriendDashboard: React.FC = () => {
   };
 
   const availableTags = useMemo(() => {
-    const base = ['Web', 'Đào tạo', 'Lead Other', 'Đã add', 'Đang tư vấn', 'Xin file'];
-    return Array.from(new Set([...base, ...selectedTags]));
-  }, [selectedTags]);
+    const pageTags = config?.tags_by_page?.[selectedPage] || [];
+    const customForPage = customTagsByPage[selectedPage] || [];
+    return Array.from(new Set([...pageTags, ...customForPage]));
+  }, [config, selectedPage, customTagsByPage]);
 
   const pagesList = config?.pages?.map((p) => p.name) || DEFAULT_PAGES;
   const renderedPreview = messageTemplate.replace(/\{page\}/g, selectedPage);
@@ -498,7 +585,76 @@ export const AutoAddFriendDashboard: React.FC = () => {
                       onClick={() => handlePullLeadsPhones('all')}
                       className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 cursor-pointer disabled:opacity-50"
                     >
-                      SĐT Mới
+                      {loadingLeads ? 'Đang lấy...' : 'Lấy SĐT'}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Bộ lọc lấy SĐT từ DB */}
+                <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-2.5 space-y-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <select
+                      aria-label="Lọc theo Nhân viên"
+                      value={filterEmployee}
+                      onChange={(e) => setFilterEmployee(e.target.value)}
+                      className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700 outline-none focus:border-emerald-500"
+                    >
+                      <option value="">Tất cả Nhân viên</option>
+                      <option value="__unassigned__">Chưa phân công</option>
+                      {(config?.lead_filters?.employees || []).map((emp) => (
+                        <option key={emp} value={emp}>
+                          {emp}
+                        </option>
+                      ))}
+                    </select>
+
+                    <select
+                      aria-label="Lọc theo Page Nguồn"
+                      value={filterSourcePage}
+                      onChange={(e) => setFilterSourcePage(e.target.value)}
+                      className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700 outline-none focus:border-emerald-500"
+                    >
+                      <option value="">Tất cả Page nguồn</option>
+                      {(config?.lead_filters?.source_pages || []).map((pg) => (
+                        <option key={pg} value={pg}>
+                          {pg}
+                        </option>
+                      ))}
+                    </select>
+
+                    <select
+                      aria-label="Lọc theo Tag"
+                      value={filterLeadTag}
+                      onChange={(e) => setFilterLeadTag(e.target.value)}
+                      className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700 outline-none focus:border-emerald-500"
+                    >
+                      <option value="">Tất cả Tag</option>
+                      <option value="__no_tag__">Chưa có tag</option>
+                      {(config?.lead_filters?.lead_tags || []).map((t) => (
+                        <option key={t} value={t}>
+                          {t}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-2">
+                    <label className="inline-flex items-center gap-1.5 text-xs text-slate-700 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={excludeAddedTag}
+                        onChange={(e) => setExcludeAddedTag(e.target.checked)}
+                        className="w-3.5 h-3.5 accent-emerald-600 rounded"
+                      />
+                      <span>Chỉ lấy số chưa có tag &quot;Đã add&quot;</span>
+                    </label>
+                    <button
+                      type="button"
+                      disabled={loadingLeads}
+                      onClick={() => handlePullLeadsPhones('all')}
+                      className="text-[11px] font-semibold text-emerald-700 hover:underline cursor-pointer disabled:opacity-50"
+                    >
+                      Áp dụng &amp; Tải danh sách
                     </button>
                   </div>
                 </div>
@@ -613,7 +769,7 @@ export const AutoAddFriendDashboard: React.FC = () => {
                         <button
                           key={pg}
                           type="button"
-                          onClick={() => setSelectedPage(pg)}
+                          onClick={() => handleSelectPage(pg)}
                           className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
                             active
                               ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
@@ -682,8 +838,11 @@ export const AutoAddFriendDashboard: React.FC = () => {
 
                 {/* Gắn Tag */}
                 <div className="space-y-2 pt-2 border-t border-slate-100">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-bold text-slate-900">4. Gắn Tag</span>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm font-bold text-slate-900">
+                      4. Gắn Tag{' '}
+                      <span className="text-xs font-medium text-indigo-600">({selectedPage})</span>
+                    </span>
                     <div className="flex items-center gap-1.5">
                       <label htmlFor="custom-tag" className="sr-only">
                         Tag mới
@@ -713,26 +872,32 @@ export const AutoAddFriendDashboard: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="flex flex-wrap gap-1.5">
-                    {availableTags.map((tag) => {
-                      const active = selectedTags.includes(tag);
-                      return (
-                        <button
-                          key={tag}
-                          type="button"
-                          onClick={() => handleToggleTag(tag)}
-                          className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
-                            active
-                              ? 'bg-indigo-600 text-white border-indigo-600'
-                              : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
-                          }`}
-                        >
-                          <Tag className="w-3 h-3" />
-                          <span>{tag}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
+                  {availableTags.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {availableTags.map((tag) => {
+                        const active = selectedTags.includes(tag);
+                        return (
+                          <button
+                            key={tag}
+                            type="button"
+                            onClick={() => handleToggleTag(tag)}
+                            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
+                              active
+                                ? 'bg-indigo-600 text-white border-indigo-600'
+                                : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                            }`}
+                          >
+                            <Tag className="w-3 h-3" />
+                            <span>{tag}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-slate-400">
+                      Chưa tải được tag từ Pancake cho Page &quot;{selectedPage}&quot;. Hãy cấu hình phiên Pancake hoặc nhập tên tag ở trên.
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -921,7 +1086,7 @@ export const AutoAddFriendDashboard: React.FC = () => {
                 />
               </div>
 
-              <div className="grid grid-cols-4 gap-3 text-center">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 text-center">
                 <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200/70">
                   <div className="text-[11px] text-slate-500">Đã chạy</div>
                   <div className="text-sm font-bold text-slate-900 tabular-nums">
@@ -929,8 +1094,20 @@ export const AutoAddFriendDashboard: React.FC = () => {
                   </div>
                 </div>
                 <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200">
-                  <div className="text-[11px] text-emerald-700">Thành công</div>
+                  <div className="text-[11px] text-emerald-700">Đã gửi kết bạn</div>
                   <div className="text-sm font-bold text-emerald-800 tabular-nums">{taskStatus.added_count}</div>
+                </div>
+                <div className="p-2.5 rounded-xl bg-sky-50 border border-sky-200">
+                  <div className="text-[11px] text-sky-700">Đã là bạn bè</div>
+                  <div className="text-sm font-bold text-sky-800 tabular-nums">
+                    {taskStatus.already_friend_count ?? 0}
+                  </div>
+                </div>
+                <div className="p-2.5 rounded-xl bg-orange-50 border border-orange-200">
+                  <div className="text-[11px] text-orange-700">Thiếu bước</div>
+                  <div className="text-sm font-bold text-orange-800 tabular-nums">
+                    {taskStatus.partial_count ?? 0}
+                  </div>
                 </div>
                 <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200">
                   <div className="text-[11px] text-amber-700">Không có Zalo</div>
@@ -968,7 +1145,17 @@ export const AutoAddFriendDashboard: React.FC = () => {
                             {log.status === 'ADDED' || log.status === 'DRY_RUN' ? (
                               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700">
                                 <CheckCircle2 className="w-3 h-3" />
-                                {log.status === 'DRY_RUN' ? 'Chạy thử' : 'Đã kết bạn'}
+                                {log.status === 'DRY_RUN' ? 'Chạy thử' : 'Đã gửi kết bạn'}
+                              </span>
+                            ) : log.status === 'ALREADY_FRIEND' ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-sky-50 text-sky-700">
+                                <CheckCircle2 className="w-3 h-3" />
+                                Đã là bạn bè
+                              </span>
+                            ) : log.status === 'PARTIAL' ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-orange-50 text-orange-700">
+                                <AlertTriangle className="w-3 h-3" />
+                                Thiếu bước
                               </span>
                             ) : log.status === 'NOT_FOUND' ? (
                               <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-700">
@@ -981,7 +1168,7 @@ export const AutoAddFriendDashboard: React.FC = () => {
                               </span>
                             )}
                           </td>
-                          <td className="py-2 px-3 text-slate-600 max-w-md truncate">{log.detail}</td>
+                          <td className="py-2 px-3 text-slate-600 max-w-md break-words">{log.detail}</td>
                           <td className="py-2 px-3 tabular-nums text-slate-400 text-right">{log.time}</td>
                         </tr>
                       ))}

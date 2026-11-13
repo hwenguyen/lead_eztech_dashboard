@@ -32,15 +32,18 @@ from typing import List, Dict, Any, Optional, Tuple
 from fastapi import APIRouter, Depends, Query, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
-from sqlalchemy import desc, func
+from sqlalchemy import desc, func, or_
 
 from database.db import get_db, SessionLocal
 from database.models import DimLead, FactLeadActivity, BotAutoReplyLog, AppConfig
+from database.deal_sync import normalize_sale_name
 from etl.utils import (
     VN_TZ,
     ZALO_PAGE_NAMES,
     KNOWN_PAGE_NAMES,
     resolve_canonical_page_name,
+    is_zalo_channel,
+    resolve_api_page_id,
 )
 from backend.broadcast import (
     infer_vietnamese_gender,
@@ -55,6 +58,11 @@ router = APIRouter()
 # Khóa và bộ nhớ quản lý các tiến trình Kết bạn tự động đang chạy
 _ADD_FRIEND_LOCK = threading.Lock()
 _ADD_FRIEND_TASKS: Dict[str, Dict[str, Any]] = {}
+_LATEST_TASK_ID: Optional[str] = None
+
+
+def _serialize_task_snapshot(task: Dict[str, Any]) -> Dict[str, Any]:
+    return {**task, "logs": list(task.get("logs") or [])}
 
 # Đường dẫn lưu file phiên đăng nhập Pancake cho Playwright
 PANCAKE_STATE_FILE = os.path.join(os.getcwd(), "pancake_state.json")
@@ -634,13 +642,13 @@ def _extract_columns_from_line(line: str) -> Tuple[str, str, str, str]:
 
 
 def _get_already_added_phones(db: Session) -> set:
-    """Lấy tập hợp các SĐT đã từng được kết bạn thành công (status='SENT' hoặc 'ADDED') trong bảng bot_auto_replies."""
+    """Lấy tập hợp các SĐT đã từng được kết bạn/xử lý thành công trong bảng bot_auto_replies."""
     try:
         rows = (
             db.query(BotAutoReplyLog.customer_id, BotAutoReplyLog.conversation_id)
             .filter(
                 BotAutoReplyLog.case_id.like("addfriend_%"),
-                BotAutoReplyLog.status.in_(["SENT", "ADDED"]),
+                BotAutoReplyLog.status.in_(["SENT", "ADDED", "ALREADY_FRIEND", "PARTIAL"]),
             )
             .all()
         )
@@ -667,7 +675,136 @@ ZALO_PAGE_IDS_MAP = {
     "Eztech Phân Tích Dữ Liệu": "pzl_629476615535063343",
     "Hiền Minh Eztech": "pzl_131986891507252646",
     "Tuấn Anh Data": "pzl_788602135347404973",
+    "Ann": "pzl_1800700961123909439",
 }
+
+_PAGE_TAGS_CACHE: Dict[str, Any] = {"ts": 0.0, "pages": None, "tags_by_page": None}
+
+
+def _has_added_tag(raw_tags: Optional[str]) -> bool:
+    if not raw_tags:
+        return False
+    low = str(raw_tags).lower()
+    return ("đã add" in low) or ("da add" in low)
+
+
+def _fetch_pancake_pages_and_tags(
+    db: Session, force_refresh: bool = False
+) -> Tuple[List[Dict[str, str]], Dict[str, List[str]]]:
+    """Lấy danh sách Page Zalo và thẻ Tag hiện có của từng Page Zalo từ Pancake (kèm cache 5 phút)."""
+    now_ts = time.time()
+    if (
+        not force_refresh
+        and _PAGE_TAGS_CACHE["tags_by_page"] is not None
+        and (now_ts - float(_PAGE_TAGS_CACHE["ts"])) < 300.0
+    ):
+        return _PAGE_TAGS_CACHE["pages"], _PAGE_TAGS_CACHE["tags_by_page"]
+
+    pages_list = [dict(p) for p in DEFAULT_ZALO_PAGES]
+    known_names_lower = {p["name"].lower() for p in pages_list}
+    tags_by_page: Dict[str, List[str]] = {p["name"]: [] for p in pages_list}
+
+    state_path = ensure_pancake_state_file(db)
+    if state_path and os.path.exists(state_path):
+        try:
+            with open(state_path, "r", encoding="utf-8") as f:
+                st = json.load(f)
+            cookies = [
+                f"{c['name']}={c['value']}"
+                for c in (st.get("cookies") or [])
+                if c.get("domain") in (".pancake.vn", "pancake.vn") and c.get("name") and c.get("value") is not None
+            ]
+            if cookies:
+                s = http_requests.Session()
+                s.headers.update({
+                    "Cookie": "; ".join(cookies),
+                    "Referer": "https://pancake.vn/",
+                    "Accept": "application/json",
+                    "User-Agent": (
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+                    ),
+                })
+                rp = s.get(
+                    "https://pancake.vn/api/v1/pages?version=v1&include_inactivated=false",
+                    timeout=12,
+                )
+                if rp.status_code == 200:
+                    acts = ((rp.json().get("categorized") or {}).get("activated")) or rp.json().get("data") or []
+                    for p in acts:
+                        if not isinstance(p, dict):
+                            continue
+                        pid = str(p.get("id") or "").strip()
+                        pname = str(p.get("name") or "").strip()
+                        if not pid.startswith("pzl_") or not pname:
+                            continue
+                        ZALO_PAGE_IDS_MAP[pname] = pid
+                        if pname.lower() not in known_names_lower:
+                            known_names_lower.add(pname.lower())
+                            pages_list.append({"id": pname, "name": pname, "badge": "Zalo Personal"})
+                            tags_by_page.setdefault(pname, [])
+
+                        try:
+                            rs = s.get(
+                                f"https://pancake.vn/api/v1/pages/{pid}/settings?separate_pos=true&separate_qr=true",
+                                timeout=10,
+                            )
+                            if rs.status_code == 200:
+                                raw_tags = ((rs.json().get("settings") or {}).get("tags")) or []
+                                page_tags: List[str] = []
+                                seen_t = set()
+                                for t in raw_tags:
+                                    if isinstance(t, dict) and t.get("text"):
+                                        txt = str(t["text"]).strip()
+                                        if txt and txt.lower() not in seen_t:
+                                            seen_t.add(txt.lower())
+                                            page_tags.append(txt)
+                                tags_by_page[pname] = page_tags
+                        except Exception as tag_err:
+                            logger.warning(f"Không tải được tag từ Pancake cho Page {pname}: {tag_err}")
+        except Exception as err:
+            logger.warning(f"Không tải được danh sách Page/Tag từ Pancake: {err}")
+
+    # Bổ sung fallback từ DB nếu Page chưa lấy được tag từ Pancake (vd chưa cài pancake_state)
+    empty_pages = [pname for pname, tlist in tags_by_page.items() if not tlist]
+    if empty_pages:
+        try:
+            rows = (
+                db.query(DimLead.page_id, FactLeadActivity.conversation_id, FactLeadActivity.status_tag)
+                .join(FactLeadActivity, FactLeadActivity.lead_id == DimLead.id)
+                .filter(
+                    FactLeadActivity.status_tag.isnot(None),
+                    FactLeadActivity.status_tag != "",
+                    ~FactLeadActivity.conversation_id.like("pzl_g_%"),
+                )
+                .distinct()
+                .limit(500)
+                .all()
+            )
+            db_map: Dict[str, List[str]] = {}
+            for pg, conv_id, raw_tag in rows:
+                if not is_zalo_channel(pg, conv_id):
+                    continue
+                canon = resolve_canonical_page_name(pg, fallback=str(pg or ""))
+                if not canon:
+                    continue
+                bucket = db_map.setdefault(canon, [])
+                for part in str(raw_tag).split(","):
+                    t = part.strip()
+                    if t and len(t) <= 35 and t not in bucket:
+                        bucket.append(t)
+            for pname in empty_pages:
+                for k, v in db_map.items():
+                    if k.lower() == pname.lower() and v:
+                        tags_by_page[pname] = sorted(v)
+                        break
+        except Exception:
+            pass
+
+    _PAGE_TAGS_CACHE["ts"] = now_ts
+    _PAGE_TAGS_CACHE["pages"] = pages_list
+    _PAGE_TAGS_CACHE["tags_by_page"] = tags_by_page
+    return pages_list, tags_by_page
 
 
 def _init_pancake_http_context(state_path: str, target_dashboard: str) -> Tuple[Optional[Dict[str, Any]], str]:
@@ -855,6 +992,7 @@ def _execute_pancake_add_friend_single(
             if r_fr.status_code != 200 or fr_data.get("success") is False:
                 fr_msg = str(fr_data.get("message") or r_fr.text[:120])
                 if "bạn bè" in fr_msg.lower() or "friend" in fr_msg.lower():
+                    is_already_friend = True
                     actions_done = [f"Đã là bạn bè sẵn ({zalo_display})"]
                 else:
                     return "FAILED", f"Không gửi được kết bạn: {fr_msg}"
@@ -863,9 +1001,25 @@ def _execute_pancake_add_friend_single(
         else:
             actions_done = [f"Đã là bạn bè sẵn ({zalo_display})"]
 
+        sub_step_failed = False
+
         # Bước 4: Lưu ghi chú / Nhắn tin chào / Gắn Tag
         if send_inbox_message or add_note or (tags and len(tags) > 0):
             customers = conv_data.get("customers") or []
+            # Nếu hội thoại mới tạo sau khi gửi kết bạn, tải lại để có customer_id và tags mới nhất
+            if not is_already_friend and (not customers or add_note or tags):
+                try:
+                    time.sleep(0.5)
+                    r_conv2 = session.get(
+                        f"https://pancake.vn/api/v1/pages/{page_id}/conversations/{conv_id}",
+                        params={"personal_zalo_check_conv_existed": "true"},
+                        timeout=15,
+                    )
+                    if r_conv2.status_code == 200:
+                        conv_data = r_conv2.json() or conv_data
+                        customers = conv_data.get("customers") or customers
+                except Exception:
+                    pass
             customer_id = customers[0].get("id") if (customers and isinstance(customers[0], dict)) else None
 
             # 4a. Thêm ghi chú khách hàng
@@ -900,29 +1054,45 @@ def _execute_pancake_add_friend_single(
                         ],
                         timeout=20,
                     )
-                    if r_msg.status_code == 200 and r_msg.json().get("success") is not False:
+                    msg_json = {}
+                    try:
+                        msg_json = r_msg.json()
+                    except Exception:
+                        pass
+                    if r_msg.status_code == 200 and msg_json.get("success") is not False:
                         actions_done.append("đã nhắn tin chào")
+                    else:
+                        err_reason = str(msg_json.get("message") or f"HTTP {r_msg.status_code}")[:100]
+                        logger.warning(f"[{phone}] Gửi tin nhắn chào thất bại: {err_reason}")
+                        actions_done.append(f"lỗi nhắn tin ({err_reason})")
+                        sub_step_failed = True
                 except Exception as chat_err:
                     logger.warning(f"[{phone}] Không thể gửi tin nhắn hộp thoại: {chat_err}")
+                    actions_done.append(f"lỗi nhắn tin ({str(chat_err)[:80]})")
+                    sub_step_failed = True
 
-            # 4c. Gắn thẻ Tag (vd: "Web", "Đào tạo"...)
+            # 4c. Gắn thẻ Tag (khớp với tag hiện có trên Page Zalo đã chọn)
             if tags:
                 existing_tag_ids = {
                     str(t.get("id") if isinstance(t, dict) else t)
                     for t in (conv_data.get("tags") or [])
                 }
+                norm_tags_map = {re.sub(r"\s+", " ", k).strip(): v for k, v in tags_map.items()}
                 attached_tags = []
+                failed_tags = []
                 for tag_name in tags:
                     t_clean = (tag_name or "").strip()
                     if not t_clean:
                         continue
-                    t_obj = tags_map.get(t_clean.lower())
+                    t_low = t_clean.lower()
+                    t_obj = tags_map.get(t_low) or norm_tags_map.get(re.sub(r"\s+", " ", t_low))
                     if not t_obj:
+                        failed_tags.append(f"{t_clean} (không có trên Page)")
                         continue
                     tid_str = str(t_obj.get("id"))
                     try:
                         if tid_str not in existing_tag_ids:
-                            session.post(
+                            r_tag = session.post(
                                 f"https://pancake.vn/api/v1/pages/{page_id}/conversations/{conv_id}/toggle_tag?",
                                 files=[
                                     ("tag_id", (None, tid_str)),
@@ -936,13 +1106,28 @@ def _execute_pancake_add_friend_single(
                                 ],
                                 timeout=15,
                             )
+                            tag_ok = r_tag.status_code == 200
+                            if tag_ok:
+                                try:
+                                    tag_ok = r_tag.json().get("success") is not False
+                                except Exception:
+                                    pass
+                            if not tag_ok:
+                                failed_tags.append(f"{t_clean} (HTTP {r_tag.status_code})")
+                                continue
                         attached_tags.append(t_clean)
                     except Exception as tag_err:
                         logger.warning(f"[{phone}] Không gắn được tag '{t_clean}': {tag_err}")
+                        failed_tags.append(t_clean)
                 if attached_tags:
                     actions_done.append(f"gắn tag [{', '.join(attached_tags)}]")
+                if failed_tags:
+                    actions_done.append(f"lỗi tag [{', '.join(failed_tags)}]")
+                    sub_step_failed = True
 
-        return "ADDED", ", ".join(actions_done)
+        if sub_step_failed:
+            return "PARTIAL", ", ".join(actions_done)
+        return ("ALREADY_FRIEND" if is_already_friend else "ADDED"), ", ".join(actions_done)
 
     except Exception as e:
         err_str = str(e)
@@ -1120,7 +1305,14 @@ def _run_add_friend_worker(task_id: str, req_data: Dict[str, Any]):
                     status_result = status_code
                     detail_msg = detail
 
-                    if status_code in ("ADDED", "NOT_FOUND", "SERVER_ERROR", "AUTH_EXPIRED"):
+                    if status_code in (
+                        "ADDED",
+                        "ALREADY_FRIEND",
+                        "PARTIAL",
+                        "NOT_FOUND",
+                        "SERVER_ERROR",
+                        "AUTH_EXPIRED",
+                    ):
                         break
 
                     # Nếu FAILED và còn lượt thử lại -> nghỉ 5s giống bot.py rồi thử lại
@@ -1137,7 +1329,7 @@ def _run_add_friend_worker(task_id: str, req_data: Dict[str, Any]):
             # Lưu nhật ký vào bảng BotAutoReplyLog để theo dõi lịch sử lâu dài
             db_status = (
                 "SENT"
-                if status_result == "ADDED"
+                if status_result in ("ADDED", "ALREADY_FRIEND")
                 else ("DRY_RUN" if status_result == "DRY_RUN" else status_result)
             )
             try:
@@ -1150,7 +1342,7 @@ def _run_add_friend_worker(task_id: str, req_data: Dict[str, Any]):
                     reply_message=friend_msg,
                     sent_at=get_vn_now(),
                     status=db_status,
-                    error_message=detail_msg if status_result != "ADDED" else detail_msg,
+                    error_message=detail_msg,
                 )
                 db.add(log_row)
                 db.commit()
@@ -1165,6 +1357,12 @@ def _run_add_friend_worker(task_id: str, req_data: Dict[str, Any]):
                     task["processed"] += 1
                     if status_result in ("ADDED", "DRY_RUN"):
                         task["added_count"] += 1
+                        consecutive_errors = 0
+                    elif status_result == "ALREADY_FRIEND":
+                        task["already_friend_count"] = task.get("already_friend_count", 0) + 1
+                        consecutive_errors = 0
+                    elif status_result == "PARTIAL":
+                        task["partial_count"] = task.get("partial_count", 0) + 1
                         consecutive_errors = 0
                     elif status_result == "NOT_FOUND":
                         task["not_found_count"] += 1
@@ -1255,9 +1453,16 @@ def _run_add_friend_worker(task_id: str, req_data: Dict[str, Any]):
                 task["is_running"] = False
                 task["finished_at"] = get_vn_now().strftime("%Y-%m-%d %H:%M:%S")
                 if not str(task.get("current_action", "")).startswith("🛑"):
+                    summary_parts = [f"Gửi kết bạn: {task['added_count']}"]
+                    if task.get("already_friend_count", 0) > 0:
+                        summary_parts.append(f"Đã là bạn: {task['already_friend_count']}")
+                    if task.get("partial_count", 0) > 0:
+                        summary_parts.append(f"Thiếu bước: {task['partial_count']}")
+                    summary_parts.append(f"Không có Zalo: {task['not_found_count']}")
+                    summary_parts.append(f"Lỗi: {task['failed_count']}")
                     task["current_action"] = (
                         f"✅ Hoàn tất chiến dịch! Đã xử lý {task['processed']}/{task['total']} số "
-                        f"(Thành công: {task['added_count']}, Không tìm thấy Zalo: {task['not_found_count']}, Lỗi: {task['failed_count']})."
+                        f"({', '.join(summary_parts)})."
                     )
 
     finally:
@@ -1274,37 +1479,68 @@ def _run_add_friend_worker(task_id: str, req_data: Dict[str, Any]):
 # ==============================================================================
 
 @router.get("/config")
-def get_add_friend_config(db: Session = Depends(get_db)):
+def get_add_friend_config(refresh_tags: bool = Query(False), db: Session = Depends(get_db)):
     """
     Trả về toàn bộ cấu hình khởi tạo cho trang Kết Bạn Tự Động:
     - Danh sách các Page Zalo trên Pancake (`pages`)
+    - Danh sách Tag thực tế theo từng Page Zalo (`tags_by_page`)
+    - Bộ lọc danh sách SĐT từ kho Leads (`lead_filters`: employees, source_pages, lead_tags)
     - Bộ mẫu tin nhắn chào theo nguồn từ `bot.py` (`templates`)
-    - Danh sách thẻ Tag gợi ý + các Tag thực tế từ DB (`tags`)
     - Danh sách nguồn mặc định bỏ qua (`skip_sources`)
     - Trạng thái cấu hình phiên đăng nhập `pancake_state.json` (`state_info`)
     """
-    # Lấy thêm các tag thực tế đang có trong DB để gợi ý đầy đủ
-    db_tags_set = set(DEFAULT_AVAILABLE_TAGS)
+    pages_list, tags_by_page = _fetch_pancake_pages_and_tags(db, force_refresh=refresh_tags)
+
+    all_tags_set = set()
+    for ptags in tags_by_page.values():
+        for t in ptags:
+            all_tags_set.add(t)
+    all_tags = sorted(all_tags_set) if all_tags_set else list(DEFAULT_AVAILABLE_TAGS)
+
+    # Bộ lọc danh sách khách hàng từ DB (Nhân viên, Page Nguồn, Tag)
+    employees_set = set()
+    lead_tags_set = set()
+    source_pages_set = set()
     try:
-        rows = (
+        emp_rows = (
+            db.query(FactLeadActivity.assigned_users)
+            .filter(FactLeadActivity.assigned_users.isnot(None), FactLeadActivity.assigned_users != "")
+            .distinct()
+            .limit(300)
+            .all()
+        )
+        for (raw_emp,) in emp_rows:
+            for part in str(raw_emp).split(","):
+                name = normalize_sale_name(part.strip())
+                if name:
+                    employees_set.add(name)
+
+        tag_rows = (
             db.query(FactLeadActivity.status_tag)
             .filter(FactLeadActivity.status_tag.isnot(None), FactLeadActivity.status_tag != "")
+            .distinct()
+            .limit(300)
+            .all()
+        )
+        for (raw_tag,) in tag_rows:
+            for part in str(raw_tag).split(","):
+                t = part.strip()
+                if t and len(t) <= 50:
+                    lead_tags_set.add(t)
+
+        pg_rows = (
+            db.query(DimLead.page_id)
+            .filter(DimLead.page_id.isnot(None), DimLead.page_id != "", DimLead.phone_number.isnot(None), DimLead.phone_number != "")
             .distinct()
             .limit(200)
             .all()
         )
-        for (raw_tag,) in rows:
-            for part in str(raw_tag).split(","):
-                t = part.strip()
-                if t and len(t) <= 35:
-                    db_tags_set.add(t)
-    except Exception:
-        pass
-
-    # Đưa các tag quan trọng trong bot.py lên đầu
-    priority_tags = ["Web", "Đào tạo", "Lead Other", "Đã add", "Đang tư vấn", "Xin file", "Tham gia nhóm"]
-    other_tags = sorted([t for t in db_tags_set if t not in priority_tags])
-    all_tags = priority_tags + other_tags
+        for (raw_pg,) in pg_rows:
+            canon = resolve_canonical_page_name(raw_pg, fallback=str(raw_pg or ""))
+            if canon and not is_zalo_channel(raw_pg):
+                source_pages_set.add(canon)
+    except Exception as filter_err:
+        logger.warning(f"Không lấy được bộ lọc Leads: {filter_err}")
 
     templates_list = [
         {
@@ -1316,15 +1552,20 @@ def get_add_friend_config(db: Session = Depends(get_db)):
         for k, v in BOT_MESSAGE_TEMPLATES.items()
     ]
 
-    import importlib.util
     return {
-        "pages": DEFAULT_ZALO_PAGES,
+        "pages": pages_list,
         "templates": templates_list,
         "tags": all_tags,
+        "tags_by_page": tags_by_page,
+        "lead_filters": {
+            "employees": sorted(employees_set),
+            "source_pages": sorted(source_pages_set),
+            "lead_tags": sorted(lead_tags_set),
+        },
         "skip_sources": DEFAULT_SKIP_SOURCES,
         "state_info": get_pancake_state_info(db),
         "playwright_installed": True,
-        "build_version": "v5_http_engine",
+        "build_version": "v6_page_tags_filters",
     }
 
 
@@ -1351,6 +1592,7 @@ def save_pancake_state(req: SavePancakeStateRequest, db: Session = Depends(get_d
     ok, msg, info = save_pancake_state_to_db(req.state_json, db)
     if not ok:
         raise HTTPException(status_code=400, detail=msg)
+    _PAGE_TAGS_CACHE["ts"] = 0.0
 
     return {
         "status": "OK",
@@ -1365,6 +1607,7 @@ def delete_pancake_state(db: Session = Depends(get_db)):
     ok, msg = delete_pancake_state_from_db(db)
     if not ok:
         raise HTTPException(status_code=500, detail=msg)
+    _PAGE_TAGS_CACHE["ts"] = 0.0
     return {
         "status": "OK",
         "message": msg,
@@ -1479,43 +1722,120 @@ def parse_bulk_phones(req: ParsePhonesRequest, db: Session = Depends(get_db)):
 @router.get("/leads-phones")
 def get_leads_with_phones(
     source_channel: str = Query("all", description="all | tiktok | facebook"),
-    limit: int = Query(50, ge=1, le=300),
+    employee: Optional[str] = Query(None, description="Lọc theo tên Nhân viên phụ trách"),
+    source_page: Optional[str] = Query(None, description="Lọc theo tên Page Nguồn"),
+    tag: Optional[str] = Query(None, description="Lọc theo tên Tag (hoặc __no_tag__)"),
+    exclude_added_tag: bool = Query(True, description="Loại bỏ các SĐT đã có tag 'Đã add'"),
+    exclude_already_added: bool = Query(True, description="Loại bỏ các SĐT đã chạy kết bạn trong hệ thống"),
+    limit: int = Query(50, ge=1, le=500),
     db: Session = Depends(get_db),
 ):
     """
-    Lấy nhanh danh sách khách hàng có để lại SĐT từ các kênh nguồn (TikTok, Facebook...)
-    trong Database để người dùng có thể bấm 1 nút nạp thẳng vào ô Import SĐT kết bạn Zalo.
+    Lấy danh sách khách hàng có SĐT từ Database theo bộ lọc (Nhân viên, Page Nguồn, Tag)
+    và tự động loại bỏ SĐT đã có tag 'Đã add' hoặc đã chạy kết bạn trước đó.
     """
-    already_added = _get_already_added_phones(db)
+    skip_phones = _get_already_added_phones(db) if exclude_already_added else set()
+    if exclude_added_tag:
+        try:
+            tagged_rows = (
+                db.query(DimLead.phone_number, FactLeadActivity.status_tag)
+                .join(FactLeadActivity, FactLeadActivity.lead_id == DimLead.id)
+                .filter(
+                    DimLead.phone_number.isnot(None),
+                    DimLead.phone_number != "",
+                    FactLeadActivity.status_tag.ilike("%add%"),
+                )
+                .distinct()
+                .all()
+            )
+            for raw_p, raw_tag in tagged_rows:
+                if _has_added_tag(raw_tag):
+                    cp, ok, _ = normalize_vn_phone(raw_p)
+                    if ok and cp:
+                        skip_phones.add(cp)
+        except Exception as err:
+            logger.warning(f"Không kiểm tra được tag 'Đã add' trong DB: {err}")
 
-    query = db.query(DimLead).filter(
-        DimLead.phone_number.isnot(None),
-        DimLead.phone_number != "",
+    emp_filter = normalize_sale_name(employee.strip()) if employee and employee.strip() else ""
+    src_filter = source_page.strip().lower() if source_page and source_page.strip() else ""
+    tag_filter = tag.strip().lower() if tag and tag.strip() else ""
+
+    query = (
+        db.query(
+            DimLead.phone_number,
+            DimLead.name,
+            DimLead.page_id,
+            DimLead.first_created_at,
+            FactLeadActivity.assigned_users,
+            FactLeadActivity.status_tag,
+            FactLeadActivity.conversation_id,
+        )
+        .outerjoin(FactLeadActivity, FactLeadActivity.lead_id == DimLead.id)
+        .filter(
+            DimLead.phone_number.isnot(None),
+            DimLead.phone_number != "",
+            or_(
+                FactLeadActivity.conversation_id.is_(None),
+                ~FactLeadActivity.conversation_id.like("pzl_g_%"),
+            ),
+        )
     )
-    rows = query.order_by(DimLead.first_created_at.desc()).limit(limit * 3).all()
+    if tag_filter and tag_filter != "__no_tag__":
+        query = query.filter(FactLeadActivity.status_tag.ilike(f"%{tag.strip()}%"))
+
+    scan_limit = 4000 if (emp_filter or src_filter or tag_filter) else max(limit * 8, 500)
+    rows = query.order_by(DimLead.first_created_at.desc()).limit(scan_limit).all()
 
     result_lines = []
     seen = set()
-    for lead in rows:
-        clean_p, ok, _ = normalize_vn_phone(lead.phone_number)
-        if not ok or clean_p in seen or clean_p in already_added:
+    for raw_phone, lead_name, lead_page_id, _created_at, assigned_users, status_tag, _conv_id in rows:
+        clean_p, ok, _ = normalize_vn_phone(raw_phone)
+        if not ok or clean_p in seen or clean_p in skip_phones:
             continue
 
-        pg_canonical = resolve_canonical_page_name(lead.page_id, fallback=lead.page_id or "")
-        is_tt = "tiktok" in pg_canonical.lower() or str(lead.page_id).startswith("tt_")
-        if source_channel == "tiktok" and not is_tt:
-            continue
-        if source_channel == "facebook" and is_tt:
-            continue
+        pg_canonical = resolve_canonical_page_name(lead_page_id, fallback=lead_page_id or "")
+        is_tt = "tiktok" in pg_canonical.lower() or str(lead_page_id).startswith("tt_")
+        if src_filter:
+            if pg_canonical.lower() != src_filter:
+                continue
+        else:
+            if source_channel == "tiktok" and not is_tt:
+                continue
+            if source_channel == "facebook" and is_tt:
+                continue
+
+        emp_names = [
+            normalize_sale_name(p.strip())
+            for p in str(assigned_users or "").split(",")
+            if p.strip()
+        ]
+        if emp_filter:
+            if emp_filter.lower() == "__unassigned__":
+                if emp_names:
+                    continue
+            elif not any(en.lower() == emp_filter.lower() for en in emp_names):
+                continue
+
+        row_tags = [t.strip() for t in str(status_tag or "").split(",") if t.strip()]
+        if tag_filter:
+            if tag_filter == "__no_tag__":
+                if row_tags:
+                    continue
+            elif not any(rt.lower() == tag_filter for rt in row_tags):
+                continue
 
         seen.add(clean_p)
-        clean_name = (lead.name or "").replace("\t", " ").replace("|", " ").strip()
+        clean_name = (lead_name or "").replace("\t", " ").replace("|", " ").strip()
+        emp_label = ", ".join(dict.fromkeys(emp_names)) if emp_names else ""
+        nhu_cau_text = "Tư vấn từ " + ("TikTok" if is_tt else "Fanpage")
         result_lines.append({
             "phone": clean_p,
             "name": clean_name,
             "source": pg_canonical,
-            "nhu_cau": "Tư vấn từ " + ("TikTok" if is_tt else "Fanpage"),
-            "line": f"{clean_p}\t{clean_name}\t{pg_canonical}\tTư vấn khóa học",
+            "employee": emp_label,
+            "tags": row_tags,
+            "nhu_cau": nhu_cau_text,
+            "line": f"{clean_p}\t{clean_name}\t{pg_canonical}\t{nhu_cau_text}",
         })
         if len(result_lines) >= limit:
             break
@@ -1530,6 +1850,7 @@ def get_leads_with_phones(
 @router.post("/start")
 def start_add_friend_campaign(req: StartAddFriendRequest):
     """Khởi chạy chiến dịch Kết bạn tự động trong nền (hỗ trợ cả Dry-Run và Chạy thật)."""
+    global _LATEST_TASK_ID
     if not req.items:
         raise HTTPException(status_code=400, detail="Danh sách số điện thoại cần kết bạn đang trống.")
     if not req.page_name or not req.page_name.strip():
@@ -1559,6 +1880,8 @@ def start_add_friend_campaign(req: StartAddFriendRequest):
         "total": total_targets,
         "processed": 0,
         "added_count": 0,
+        "already_friend_count": 0,
+        "partial_count": 0,
         "not_found_count": 0,
         "failed_count": 0,
         "current_phone": "",
@@ -1570,6 +1893,7 @@ def start_add_friend_campaign(req: StartAddFriendRequest):
 
     with _ADD_FRIEND_LOCK:
         _ADD_FRIEND_TASKS[task_id] = task_state
+        _LATEST_TASK_ID = task_id
 
     req_dict = req.dict() if hasattr(req, "dict") else req.model_dump()
     worker = threading.Thread(
@@ -1587,6 +1911,18 @@ def start_add_friend_campaign(req: StartAddFriendRequest):
     }
 
 
+@router.get("/active")
+def get_active_add_friend_task():
+    """Trả về tiến trình đang chạy (hoặc vừa hoàn tất gần nhất) để UI tự khôi phục khi đổi tab/refresh."""
+    with _ADD_FRIEND_LOCK:
+        for t in reversed(list(_ADD_FRIEND_TASKS.values())):
+            if t.get("is_running"):
+                return {"active": _serialize_task_snapshot(t)}
+        if _LATEST_TASK_ID and _LATEST_TASK_ID in _ADD_FRIEND_TASKS:
+            return {"active": _serialize_task_snapshot(_ADD_FRIEND_TASKS[_LATEST_TASK_ID])}
+        return {"active": None}
+
+
 @router.get("/status/{task_id}")
 def get_add_friend_status(task_id: str):
     """Lấy tiến độ thời gian thực của chiến dịch kết bạn tự động."""
@@ -1594,7 +1930,7 @@ def get_add_friend_status(task_id: str):
         task = _ADD_FRIEND_TASKS.get(task_id)
         if not task:
             raise HTTPException(status_code=404, detail="Không tìm thấy tiến trình kết bạn này.")
-        return task
+        return _serialize_task_snapshot(task)
 
 
 @router.post("/stop/{task_id}")

@@ -1138,10 +1138,18 @@ export interface PancakeStateInfo {
   updated_at?: string | null;
 }
 
+export interface AddFriendLeadFilters {
+  employees: string[];
+  source_pages: string[];
+  lead_tags: string[];
+}
+
 export interface AddFriendConfigResponse {
   pages: AddFriendPageOption[];
   templates: AddFriendTemplateOption[];
   tags: string[];
+  tags_by_page?: Record<string, string[]>;
+  lead_filters?: AddFriendLeadFilters;
   skip_sources: string[];
   state_info: PancakeStateInfo;
 }
@@ -1230,7 +1238,7 @@ export interface AddFriendLogItem {
   message: string;
   note: string;
   tags: string[];
-  status: 'ADDED' | 'DRY_RUN' | 'NOT_FOUND' | 'FAILED' | 'SERVER_ERROR' | 'AUTH_EXPIRED' | string;
+  status: 'ADDED' | 'ALREADY_FRIEND' | 'PARTIAL' | 'DRY_RUN' | 'NOT_FOUND' | 'FAILED' | 'SERVER_ERROR' | 'AUTH_EXPIRED' | string;
   detail: string;
   attempts: number;
   time: string;
@@ -1245,6 +1253,8 @@ export interface AddFriendTaskStatus {
   total: number;
   processed: number;
   added_count: number;
+  already_friend_count?: number;
+  partial_count?: number;
   not_found_count: number;
   failed_count: number;
   current_phone: string;
@@ -1299,12 +1309,37 @@ export const parseBulkPhones = async (params: ParsePhonesParams): Promise<ParseP
   return res.data;
 };
 
+export interface LeadsPhonesFilterParams {
+  sourceChannel?: string;
+  employee?: string;
+  sourcePage?: string;
+  tag?: string;
+  excludeAddedTag?: boolean;
+  limit?: number;
+}
+
+export interface LeadsPhonesResultItem {
+  phone: string;
+  name: string;
+  source: string;
+  employee?: string;
+  tags?: string[];
+  nhu_cau: string;
+  line: string;
+}
+
 export const fetchLeadsWithPhonesForAddFriend = async (
-  sourceChannel: string = 'all',
-  limit: number = 50
-): Promise<{ count: number; formatted_text: string }> => {
+  filters: LeadsPhonesFilterParams = {}
+): Promise<{ count: number; items: LeadsPhonesResultItem[]; formatted_text: string }> => {
   const res = await apiClient.get('/add-friend/leads-phones', {
-    params: { source_channel: sourceChannel, limit }
+    params: {
+      source_channel: filters.sourceChannel || 'all',
+      ...(filters.employee ? { employee: filters.employee } : {}),
+      ...(filters.sourcePage ? { source_page: filters.sourcePage } : {}),
+      ...(filters.tag ? { tag: filters.tag } : {}),
+      exclude_added_tag: filters.excludeAddedTag ?? true,
+      limit: filters.limit ?? 50,
+    },
   });
   return res.data;
 };
@@ -1313,6 +1348,11 @@ export const startAddFriendCampaign = async (
   params: StartAddFriendParams
 ): Promise<{ status: string; task_id: string; campaign_name: string; total: number }> => {
   const res = await apiClient.post('/add-friend/start', params);
+  return res.data;
+};
+
+export const fetchActiveAddFriendTask = async (): Promise<{ active: AddFriendTaskStatus | null }> => {
+  const res = await apiClient.get<{ active: AddFriendTaskStatus | null }>('/add-friend/active');
   return res.data;
 };
 
