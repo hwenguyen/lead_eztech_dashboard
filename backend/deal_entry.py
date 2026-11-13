@@ -28,8 +28,14 @@ from sqlalchemy import desc, asc, func, or_
 from database.db import get_db
 from database.models import SalesDeal, DealAuditLog, AppConfig, DealWin, DimLead, FactLeadActivity
 from database.schema import ensure_schema
-from database.deal_sync import normalize_sale_name, pick_best_assigned_user, sync_all_deals_with_dim_leads
-from etl.utils import normalize_phone, resolve_canonical_page_name, build_pancake_url
+from database.deal_sync import (
+    DEFAULT_SOURCE_PAGE,
+    _resolve_lead_items,
+    normalize_sale_name,
+    pick_best_assigned_user,
+    sync_all_deals_with_dim_leads,
+)
+from etl.utils import normalize_phone, resolve_canonical_page_name, build_pancake_url, is_zalo_channel
 
 logger = logging.getLogger("DealEntryService")
 
@@ -110,6 +116,7 @@ LIST_SEED: Dict[str, List[str]] = {
         "Facebook Phân tích",
         "Facebook Giải pháp",
         "Data Talk",
+        DEFAULT_SOURCE_PAGE,
     ],
     "chuongTrinh": [
         "Data Finance",
@@ -377,7 +384,7 @@ def _backfill_all_pancake_links(db: Session, rows: List[SalesDeal], force: bool 
     return updated
 
 
-def sync_from_deal_wins(db: Session, force: bool = False) -> int:
+def sync_from_deal_wins(db: Session, force: bool = False, skip_dim_sync: bool = False) -> int:
     """
     Nối trực tiếp dữ liệu học viên từ bảng `deal_wins` sang `sales_deals`:
     - Chỉ kiểm tra `SELECT MAX(id) FROM deal_wins` (4 bytes). Nếu không có dòng mới và không force -> tốn 0 Egress.
@@ -391,7 +398,7 @@ def sync_from_deal_wins(db: Session, force: bool = False) -> int:
     if not force and _LAST_SYNCED_DEAL_WIN_ID >= 0 and (now_ts - _LAST_SYNC_CHECK_TS) < SYNC_CHECK_INTERVAL:
         return 0
 
-    if force:
+    if force and not skip_dim_sync:
         sync_all_deals_with_dim_leads(db, full_scan=True)
 
     max_dw_id = db.query(func.max(DealWin.id)).scalar() or 0
@@ -422,6 +429,7 @@ def sync_from_deal_wins(db: Session, force: bool = False) -> int:
         DealWin.expectation,
         DealWin.care_by,
         DealWin.page_id,
+        DealWin.source_page,
         DealWin.dim_lead_id,
         DealWin.is_student,
         DealWin.lead_tag,
@@ -444,16 +452,22 @@ def sync_from_deal_wins(db: Session, force: bool = False) -> int:
             new_nv = (dw.care_by or "").strip()
             if new_nv == "Chưa phân công":
                 new_nv = ""
-            new_nguon = resolve_canonical_page_name(dw.page_id, fallback=dw.page_id) if dw.page_id else ""
+            new_nguon = (dw.source_page or "").strip() or DEFAULT_SOURCE_PAGE
             new_is_student = bool(dw.is_student) if dw.is_student is not None else True
             new_tag = (dw.lead_tag or "").strip()
             if (sd.nv_cs or "") != new_nv:
                 sd.nv_cs = new_nv
                 sync_dirty = True
-            if (sd.nguon or "") != new_nguon:
+            cur_nguon = (sd.nguon or "").strip()
+            # Cập nhật nguồn nếu đang trống, đang bị dính tên Zalo, hoặc DealWin có nguồn FB/TikTok cụ thể
+            if (
+                not cur_nguon
+                or is_zalo_channel(cur_nguon)
+                or (new_nguon != DEFAULT_SOURCE_PAGE and cur_nguon != new_nguon)
+            ) and cur_nguon != new_nguon:
                 sd.nguon = new_nguon
                 sync_dirty = True
-            new_zalo_cs = resolve_canonical_zalo_cs(dw.page_id or new_nguon)
+            new_zalo_cs = resolve_canonical_zalo_cs(dw.page_id) if dw.page_id else ""
             if new_zalo_cs and (sd.zalo_cs or "") != new_zalo_cs:
                 sd.zalo_cs = new_zalo_cs
                 sync_dirty = True
@@ -506,7 +520,7 @@ def sync_from_deal_wins(db: Session, force: bool = False) -> int:
         p_info = phone_pancake_map.get(phone, {})
         ngay_contact = l_info.get("ngay_contact") or p_info.get("ngay_contact") or ""
         zalo_link = l_info.get("zalo") or p_info.get("zalo") or ""
-        nguon_name = resolve_canonical_page_name(r.page_id, fallback=r.page_id) if r.page_id else ""
+        nguon_name = (r.source_page or "").strip() or DEFAULT_SOURCE_PAGE
 
         new_deal = SalesDeal(
             deal_uid=str(uuid.uuid4()),
@@ -528,7 +542,7 @@ def sync_from_deal_wins(db: Session, force: bool = False) -> int:
             chuong_trinh="",
             lop=phone_classes_map.get(phone, ""),
             nv_cs=(r.care_by or "").strip(),
-            zalo_cs=resolve_canonical_zalo_cs(r.page_id or nguon_name),
+            zalo_cs=resolve_canonical_zalo_cs(r.page_id) if r.page_id else "",
             nguon=nguon_name,
             da_thu=0,
             phai_thu=0,
@@ -774,7 +788,7 @@ def model_to_dict(row: SalesDeal) -> Dict[str, Any]:
         "lop": lop_list,
         "chucVu": row.chuc_vu or "",
         "nvCS": row.nv_cs or "",
-        "zaloCS": row.zalo_cs or resolve_canonical_zalo_cs(row.nguon) or "",
+        "zaloCS": row.zalo_cs or (resolve_canonical_zalo_cs(row.nguon) if is_zalo_channel(row.nguon) else "") or "",
         "nguon": row.nguon or "",
         "daThu": da_thu,
         "phaiThu": phai_thu,
@@ -1083,7 +1097,6 @@ def _lookup_pancake_lightweight(db: Session, phone: str) -> Dict[str, Any]:
     first_contact = first_dt.strftime("%Y-%m-%d") if first_dt else ""
     zalo_url = ""
     best_score = (-1, -1, -1, -1)
-    source_page = ""
     conv_items: List[Dict[str, Any]] = []
 
     for idx, (name, _, page_id, cust_id, conv_id, assigned_users, status_tag, msg_count) in enumerate(rows):
@@ -1097,6 +1110,7 @@ def _lookup_pancake_lightweight(db: Session, phone: str) -> Dict[str, Any]:
         conv_items.append({
             "lead_id": idx,
             "page_id": pg_name,
+            "conversation_id": conv_id or "",
             "status_tag": status_tag or "",
             "assigned": assigned_users or "",
             "message_count": int(msg_count or 0),
@@ -1120,9 +1134,8 @@ def _lookup_pancake_lightweight(db: Session, phone: str) -> Dict[str, Any]:
             best_score = score
             if candidate_url:
                 zalo_url = candidate_url
-            if pg_name:
-                source_page = pg_name
 
+    _, _, _, _, best_zalo_page, best_source_page = _resolve_lead_items(conv_items)
     assigned_sale = pick_best_assigned_user(conv_items) or ""
 
     info = {
@@ -1130,8 +1143,8 @@ def _lookup_pancake_lightweight(db: Session, phone: str) -> Dict[str, Any]:
         "hoTen": lead_name,
         "ngayContact": first_contact,
         "zalo": zalo_url,
-        "nguon": source_page,
-        "zaloCS": resolve_canonical_zalo_cs(source_page),
+        "nguon": best_source_page,
+        "zaloCS": resolve_canonical_zalo_cs(best_zalo_page) if best_zalo_page else "",
         "nvCS": assigned_sale,
     }
     with _CACHE_LOCK:
@@ -1205,7 +1218,7 @@ def lookup_phone(
         "nhomCS": (hit.get("nhomCS") if hit else "") or "",
         "nvCS": (hit.get("nvCS") if hit else pancake_info.get("nvCS")) or "",
         "zaloCS": (
-            (hit.get("zaloCS") or resolve_canonical_zalo_cs(hit.get("nguon")))
+            (hit.get("zaloCS") or (resolve_canonical_zalo_cs(hit.get("nguon")) if is_zalo_channel(hit.get("nguon")) else ""))
             if hit
             else pancake_info.get("zaloCS")
         ) or "",

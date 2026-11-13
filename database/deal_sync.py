@@ -5,7 +5,9 @@ from typing import Optional, Tuple, Iterable, Set, List, Dict, Any
 from sqlalchemy import or_
 from sqlalchemy.orm import Session, defer
 from database.models import DealWin, DimLead, FactLeadActivity
-from etl.utils import VN_TZ, resolve_canonical_page_name
+from etl.utils import VN_TZ, resolve_canonical_page_name, is_zalo_channel
+
+DEFAULT_SOURCE_PAGE = "Other/ Web"
 
 def normalize_sale_name(raw: Optional[str]) -> Optional[str]:
     """
@@ -122,15 +124,16 @@ def pick_best_assigned_user(items: List[Dict[str, Any]]) -> Optional[str]:
     return best_emp
 
 
-def _resolve_lead_items(items: List[Dict[str, Any]]) -> Tuple[Optional[int], bool, Optional[str], Optional[str], Optional[str]]:
+def _resolve_lead_items(items: List[Dict[str, Any]]) -> Tuple[Optional[int], bool, Optional[str], Optional[str], Optional[str], str]:
     """
     Tổng hợp danh sách hội thoại của 1 SĐT:
-    - Trả về: (dim_lead_id, is_student, care_by, lead_tag, page_id)
-    - Vì 1 lead có thể nhắn trên nhiều kênh: chỉ lấy hội thoại thuộc kênh có số lượng tin nhắn (message_count) nhiều nhất.
+    - Trả về: (dim_lead_id, is_student, care_by, lead_tag, page_id, source_page)
+    - page_id: chỉ lấy Page Zalo chăm sóc chính (kênh Zalo có số lượng tin nhắn nhiều nhất).
+    - source_page: chỉ lấy Page Facebook/TikTok nơi khách gửi SĐT có số lượng tin nhắn nhiều nhất, mặc định "Other/ Web".
     - Nhân viên phụ trách lấy theo assigned_user có số lượng tin nhắn của lead trong hội thoại với nhân viên đó nhiều nhất.
     """
     if not items:
-        return None, False, None, None, None
+        return None, False, None, None, None, DEFAULT_SOURCE_PAGE
 
     all_tags = []
     for it in items:
@@ -142,7 +145,6 @@ def _resolve_lead_items(items: List[Dict[str, Any]]) -> Tuple[Optional[int], boo
 
     is_student = any('học viên' in (it.get('status_tag') or '').lower() for it in items)
 
-    # Ưu tiên xét trong các hội thoại có nhân viên phụ trách (nếu có), chọn hội thoại thuộc kênh có số tin nhắn nhiều nhất
     assigned_pool = [it for it in items if normalize_sale_name(it.get('assigned'))] or items
     best_conv = max(
         assigned_pool,
@@ -152,26 +154,48 @@ def _resolve_lead_items(items: List[Dict[str, Any]]) -> Tuple[Optional[int], boo
             int(x.get('lead_id') or 0),
         ),
     )
-
     best_lead_id = best_conv['lead_id']
-    best_page = best_conv.get('page_id') or None
+
+    zalo_items = [it for it in items if is_zalo_channel(it.get('page_id'), it.get('conversation_id'))]
+    if zalo_items:
+        best_zalo = max(
+            zalo_items,
+            key=lambda x: (
+                int(x.get('message_count') or 0),
+                1 if normalize_sale_name(x.get('assigned')) else 0,
+                1 if 'học viên' in (x.get('status_tag') or '').lower() else 0,
+                int(x.get('lead_id') or 0),
+            ),
+        )
+        best_page = best_zalo.get('page_id') or None
+    else:
+        best_page = None
+
+    source_msgs: Dict[str, int] = {}
+    for it in items:
+        pg = (it.get('page_id') or '').strip()
+        if pg and not is_zalo_channel(pg, it.get('conversation_id')):
+            source_msgs[pg] = source_msgs.get(pg, 0) + int(it.get('message_count') or 0)
+    source_page = max(source_msgs.items(), key=lambda kv: kv[1])[0] if source_msgs else DEFAULT_SOURCE_PAGE
+
     assigned_user = pick_best_assigned_user(items)
 
-    return best_lead_id, is_student, assigned_user, combined_tags, best_page
+    return best_lead_id, is_student, assigned_user, combined_tags, best_page, source_page
 
 
-def find_lead_info_by_phone(phone: Optional[str], db: Session) -> Tuple[Optional[int], bool, Optional[str], Optional[str], Optional[str]]:
+def find_lead_info_by_phone(phone: Optional[str], db: Session) -> Tuple[Optional[int], bool, Optional[str], Optional[str], Optional[str], str]:
     """
     Tìm thông tin DimLead và FactLeadActivity theo SĐT.
-    Trả về: (dim_lead_id, is_student, care_by, lead_tag, page_id)
+    Trả về: (dim_lead_id, is_student, care_by, lead_tag, page_id, source_page)
     """
     if not phone or not str(phone).strip():
-        return None, False, None, None, None
+        return None, False, None, None, None, DEFAULT_SOURCE_PAGE
 
     clean_phone = str(phone).strip()
     rows = db.query(
         DimLead.id,
         DimLead.page_id,
+        FactLeadActivity.conversation_id,
         FactLeadActivity.status_tag,
         FactLeadActivity.assigned_users,
         FactLeadActivity.message_count
@@ -183,17 +207,18 @@ def find_lead_info_by_phone(phone: Optional[str], db: Session) -> Tuple[Optional
     ).all()
 
     if not rows:
-        return None, False, None, None, None
+        return None, False, None, None, None, DEFAULT_SOURCE_PAGE
 
     items = [
         {
             'lead_id': lid,
             'page_id': resolve_canonical_page_name(pg, fallback=pg) if pg else '',
+            'conversation_id': conv_id or '',
             'status_tag': (status_tag or '').strip(),
             'assigned': (assigned_users or '').strip(),
             'message_count': int(msg_cnt or 0),
         }
-        for lid, pg, status_tag, assigned_users, msg_cnt in rows
+        for lid, pg, conv_id, status_tag, assigned_users, msg_cnt in rows
     ]
     return _resolve_lead_items(items)
 
@@ -227,6 +252,7 @@ def sync_all_deals_with_dim_leads(
             or_(
                 DealWin.dim_lead_id.is_(None),
                 DealWin.page_id.is_(None),
+                DealWin.source_page.is_(None),
                 DealWin.updated_at >= cutoff
             )
         )
@@ -246,6 +272,7 @@ def sync_all_deals_with_dim_leads(
                 DimLead.id,
                 DimLead.phone_number,
                 DimLead.page_id,
+                FactLeadActivity.conversation_id,
                 FactLeadActivity.status_tag,
                 FactLeadActivity.assigned_users,
                 FactLeadActivity.message_count
@@ -256,12 +283,13 @@ def sync_all_deals_with_dim_leads(
                 ~FactLeadActivity.conversation_id.like("pzl_g_%")
             ).all()
 
-            for lid, phone, pg, status_tag, assigned, msg_cnt in leads:
+            for lid, phone, pg, conv_id, status_tag, assigned, msg_cnt in leads:
                 if phone not in lead_map:
                     lead_map[phone] = []
                 lead_map[phone].append({
                     'lead_id': lid,
                     'page_id': resolve_canonical_page_name(pg, fallback=pg) if pg else '',
+                    'conversation_id': conv_id or '',
                     'status_tag': status_tag or '',
                     'assigned': (assigned or '').strip(),
                     'message_count': int(msg_cnt or 0),
@@ -275,13 +303,17 @@ def sync_all_deals_with_dim_leads(
         phone = d.phone_number
         items = lead_map.get(phone)
         if items:
-            new_lead_id, new_is_student, new_care, new_tag, new_page_id = _resolve_lead_items(items)
+            new_lead_id, new_is_student, new_care, new_tag, new_page_id, new_source_page = _resolve_lead_items(items)
             if d.dim_lead_id != new_lead_id:
                 d.dim_lead_id = new_lead_id
                 has_changes = True
 
             if d.page_id != new_page_id:
                 d.page_id = new_page_id
+                has_changes = True
+
+            if d.source_page != new_source_page:
+                d.source_page = new_source_page
                 has_changes = True
 
             if d.lead_tag != new_tag:
@@ -312,6 +344,9 @@ def sync_all_deals_with_dim_leads(
                 has_changes = True
             if d.page_id is not None:
                 d.page_id = None
+                has_changes = True
+            if d.source_page != DEFAULT_SOURCE_PAGE:
+                d.source_page = DEFAULT_SOURCE_PAGE
                 has_changes = True
 
             norm_care = normalize_sale_name(d.care_by)

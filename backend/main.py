@@ -14,7 +14,7 @@ import threading
 import logging
 from database.db import get_db, SessionLocal
 from database.models import DimLead, FactLeadActivity, RawConversation, DealWin
-from database.deal_sync import find_lead_info_by_phone, sync_all_deals_with_dim_leads
+from database.deal_sync import find_lead_info_by_phone, sync_all_deals_with_dim_leads, DEFAULT_SOURCE_PAGE
 from database.schema import ensure_schema
 from backend.schemas import (
     LeadMetricsSummary,
@@ -38,6 +38,7 @@ from etl.utils import (
     normalize_phone,
     is_page_id,
     resolve_canonical_page_name,
+    is_zalo_channel,
     KNOWN_PAGE_NAMES,
     ZALO_PAGE_NAMES,
     VN_TZ,
@@ -983,7 +984,7 @@ async def receive_deal_webhook(request: Request, db: Session = Depends(get_db)):
             sheet_row_id = str(sheet_row_id).strip()
 
         # Map với DimLead và Pancake qua SĐT
-        dim_lead_id, is_student, pancake_care, lead_tag, page_id = find_lead_info_by_phone(phone, db)
+        dim_lead_id, is_student, pancake_care, lead_tag, page_id, source_page = find_lead_info_by_phone(phone, db)
         from database.deal_sync import normalize_sale_name
         final_care_by = pancake_care or normalize_sale_name(care_by) or "Chưa phân công"
 
@@ -1006,7 +1007,8 @@ async def receive_deal_webhook(request: Request, db: Session = Depends(get_db)):
             existing_deal.job_title = str(job_title).strip() if job_title else existing_deal.job_title
             existing_deal.expectation = str(expectation).strip() if expectation else existing_deal.expectation
             existing_deal.care_by = final_care_by or existing_deal.care_by
-            existing_deal.page_id = page_id or existing_deal.page_id
+            existing_deal.page_id = page_id
+            existing_deal.source_page = source_page
             existing_deal.dim_lead_id = dim_lead_id or existing_deal.dim_lead_id
             existing_deal.is_student = is_student
             existing_deal.lead_tag = lead_tag or existing_deal.lead_tag
@@ -1026,6 +1028,7 @@ async def receive_deal_webhook(request: Request, db: Session = Depends(get_db)):
                 expectation=str(expectation).strip() if expectation else None,
                 care_by=final_care_by,
                 page_id=page_id,
+                source_page=source_page,
                 dim_lead_id=dim_lead_id,
                 is_student=is_student,
                 lead_tag=lead_tag,
@@ -1053,7 +1056,9 @@ async def receive_deal_webhook(request: Request, db: Session = Depends(get_db)):
 def trigger_deal_leads_sync(db: Session = Depends(get_db)):
     """Đồng bộ Deal Win với DimLead (map SĐT, kiểm tra tag Đã là học viên, cập nhật nhân viên chăm sóc từ Pancake)."""
     from database.deal_sync import sync_all_deals_with_dim_leads, normalize_sale_name
+    from backend.deal_entry import sync_from_deal_wins
     total, students, updated = sync_all_deals_with_dim_leads(db, full_scan=True)
+    sync_from_deal_wins(db, force=True, skip_dim_sync=True)
     with _DEAL_CACHE_LOCK:
         _DEAL_CACHE.clear()
     invalidate_deal_entry_cache()
@@ -1105,12 +1110,45 @@ def get_deals_options(
     )
     if only_student:
         pages_query = pages_query.filter(DealWin.is_student == True)
-    pages = sorted({resolve_canonical_page_name(r[0], fallback=r[0]) for r in pages_query.all() if r[0] and str(r[0]).strip()})
+    pages = sorted({
+        resolve_canonical_page_name(r[0], fallback=r[0])
+        for r in pages_query.all()
+        if r[0] and str(r[0]).strip() and is_zalo_channel(r[0])
+    })
 
-    res = DealWinOptions(sales_persons=sales, pages=pages)
+    sources_query = db.query(DealWin.source_page).distinct().filter(
+        DealWin.source_page.isnot(None),
+        func.trim(DealWin.source_page) != ""
+    )
+    if only_student:
+        sources_query = sources_query.filter(DealWin.is_student == True)
+    sources = sorted({str(r[0]).strip() for r in sources_query.all() if r[0] and str(r[0]).strip()})
+    if DEFAULT_SOURCE_PAGE not in sources:
+        sources.append(DEFAULT_SOURCE_PAGE)
+
+    res = DealWinOptions(sales_persons=sales, pages=pages, sources=sources)
     with _DEAL_CACHE_LOCK:
         _DEAL_CACHE[cache_key] = (time.time(), res)
     return res
+
+
+def _apply_deal_source_filter(filters_or_query, source_page: Optional[str], is_query: bool = False):
+    if not source_page or not source_page.strip():
+        return filters_or_query
+    val = source_page.strip()
+    if val == DEFAULT_SOURCE_PAGE:
+        cond = or_(
+            DealWin.source_page == DEFAULT_SOURCE_PAGE,
+            DealWin.source_page.is_(None),
+            func.trim(DealWin.source_page) == "",
+        )
+    else:
+        cond = DealWin.source_page == val
+    if is_query:
+        return filters_or_query.filter(cond)
+    filters_or_query.append(cond)
+    return filters_or_query
+
 
 @app.get("/api/deals/summary", response_model=DealWinSummary)
 def get_deals_summary(
@@ -1118,12 +1156,13 @@ def get_deals_summary(
     end_date: Optional[datetime] = None,
     sales_person: Optional[str] = None,
     page_id: Optional[str] = None,
+    source_page: Optional[str] = None,
     only_student: bool = Query(True, description="Chỉ tính những ai có tag Đã là học viên"),
     db: Session = Depends(get_db)
 ):
     """Thống kê tổng quan Deal Win theo khoảng thời gian - Tối ưu 100% bằng in-memory cache và thống kê sale chuẩn xác."""
     start, end = resolve_period(start_date, end_date)
-    cache_key = f"deals_summary_{start}_{end}_{sales_person}_{page_id}_{only_student}"
+    cache_key = f"deals_summary_{start}_{end}_{sales_person}_{page_id}_{source_page}_{only_student}"
 
     with _DEAL_CACHE_LOCK:
         if cache_key in _DEAL_CACHE:
@@ -1138,12 +1177,18 @@ def get_deals_summary(
         filters.append(DealWin.care_by.ilike(f"%{sales_person.strip()}%"))
     if page_id and page_id.strip():
         filters.append(DealWin.page_id == page_id.strip())
+    _apply_deal_source_filter(filters, source_page, is_query=False)
 
     # 1. Total deals count
     total_deals = db.query(func.count(DealWin.id)).filter(*filters).scalar() or 0
 
     # 2. Total phones collected in period (SĐT thu về trong kỳ) & Tỷ lệ Convert
-    leads = classify_leads(db, start, end, page_id=page_id.strip() if page_id else None)
+    lead_page_filter = None
+    if page_id and page_id.strip():
+        lead_page_filter = page_id.strip()
+    elif source_page and source_page.strip() and source_page.strip() != DEFAULT_SOURCE_PAGE:
+        lead_page_filter = source_page.strip()
+    leads = classify_leads(db, start, end, page_id=lead_page_filter)
     if sales_person and sales_person.strip():
         target_norm = normalize_text(sales_person)
         phones_count = 0
@@ -1202,6 +1247,7 @@ def get_deals_list(
     end_date: Optional[datetime] = None,
     sales_person: Optional[str] = None,
     page_id: Optional[str] = None,
+    source_page: Optional[str] = None,
     search: Optional[str] = None,
     only_student: bool = Query(True, description="Chỉ hiển thị những ai có tag Đã là học viên"),
     page: int = Query(1, ge=1),
@@ -1222,6 +1268,8 @@ def get_deals_list(
     if page_id and page_id.strip():
         query = query.filter(DealWin.page_id == page_id.strip())
 
+    query = _apply_deal_source_filter(query, source_page, is_query=True)
+
     if search and search.strip():
         s = f"%{search.strip()}%"
         query = query.filter(
@@ -1230,7 +1278,8 @@ def get_deals_list(
                 DealWin.phone_number.ilike(s),
                 DealWin.email.ilike(s),
                 DealWin.care_by.ilike(s),
-                DealWin.page_id.ilike(s)
+                DealWin.page_id.ilike(s),
+                DealWin.source_page.ilike(s)
             )
         )
 
@@ -1253,6 +1302,7 @@ def get_deals_list(
         DealWin.expectation,
         DealWin.care_by,
         DealWin.page_id,
+        DealWin.source_page,
         DealWin.is_student,
         DealWin.lead_tag,
         DealWin.dim_lead_id,
@@ -1274,6 +1324,7 @@ def get_deals_list(
             expectation=r.expectation,
             care_by=r.care_by,
             page_id=r.page_id,
+            source_page=r.source_page or DEFAULT_SOURCE_PAGE,
             is_student=r.is_student,
             lead_tag=r.lead_tag,
             dim_lead_id=r.dim_lead_id,
@@ -1297,7 +1348,9 @@ def get_deal_detail(deal_id: int, db: Session = Depends(get_db)):
     deal = db.query(DealWin).filter(DealWin.id == deal_id).first()
     if not deal:
         raise HTTPException(status_code=404, detail="Deal không tồn tại")
-    return DealWinItem.from_orm(deal)
+    item = DealWinItem.from_orm(deal)
+    item.source_page = item.source_page or DEFAULT_SOURCE_PAGE
+    return item
 
 
 

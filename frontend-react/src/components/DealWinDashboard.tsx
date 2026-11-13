@@ -53,11 +53,12 @@ export function DealWinDashboard() {
   const [onlyStudent, setOnlyStudent] = useState<boolean>(true);
   const [selectedSale, setSelectedSale] = useState('');
   const [selectedPage, setSelectedPage] = useState('');
+  const [selectedSource, setSelectedSource] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [activeSearch, setActiveSearch] = useState('');
 
   // Dropdown options
-  const [options, setOptions] = useState<DealWinOptions>({ sales_persons: [], pages: [] });
+  const [options, setOptions] = useState<DealWinOptions>({ sales_persons: [], pages: [], sources: [] });
 
   // Distinct single sales persons list (tách tên đơn lẻ, không để các cụm ghép phẩy)
   const salesPersonsList = React.useMemo(() => {
@@ -129,7 +130,8 @@ export function DealWinDashboard() {
         endDate,
         selectedSale || undefined,
         onlyStudent,
-        selectedPage || undefined
+        selectedPage || undefined,
+        selectedSource || undefined
       );
       setSummary(res);
       setLastUpdated(new Date());
@@ -152,7 +154,8 @@ export function DealWinDashboard() {
         selectedSale || undefined,
         activeSearch || undefined,
         onlyStudent,
-        selectedPage || undefined
+        selectedPage || undefined,
+        selectedSource || undefined
       );
       setDeals(res.data);
       setTotalDeals(res.total);
@@ -169,7 +172,7 @@ export function DealWinDashboard() {
   useEffect(() => {
     loadSummaryData();
     loadListData(1);
-  }, [startDate, endDate, selectedSale, selectedPage, activeSearch, onlyStudent]);
+  }, [startDate, endDate, selectedSale, selectedPage, selectedSource, activeSearch, onlyStudent]);
 
   const handleSyncPancake = async () => {
     setSyncingPancake(true);
@@ -328,9 +331,9 @@ export function DealWinDashboard() {
             </select>
           </div>
 
-          {/* Page Filter */}
-          <div className="flex flex-col gap-1 min-w-[190px]">
-            <label className="text-xs font-medium text-[#4B5563]">Fanpage / Kênh</label>
+          {/* Page Filter (Zalo Chăm Sóc) */}
+          <div className="flex flex-col gap-1 min-w-[180px]">
+            <label className="text-xs font-medium text-[#4B5563]">Page Zalo CS</label>
             <select
               value={selectedPage}
               onChange={e => setSelectedPage(e.target.value)}
@@ -339,6 +342,21 @@ export function DealWinDashboard() {
               <option value="">Tất cả Page ({(options.pages || []).length})</option>
               {(options.pages || []).map(pg => (
                 <option key={pg} value={pg}>{pg}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Source Filter */}
+          <div className="flex flex-col gap-1 min-w-[180px]">
+            <label className="text-xs font-medium text-[#4B5563]">Nguồn</label>
+            <select
+              value={selectedSource}
+              onChange={e => setSelectedSource(e.target.value)}
+              className="px-3 py-2 border border-[#E5E7EB] rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#1E5BD6]/20 focus:border-[#1E5BD6] transition-all text-[#111827] cursor-pointer font-medium"
+            >
+              <option value="">Tất cả Nguồn ({(options.sources || []).length})</option>
+              {(options.sources || []).map(src => (
+                <option key={src} value={src}>{src}</option>
               ))}
             </select>
           </div>
@@ -640,7 +658,8 @@ export function DealWinDashboard() {
                 <th className="px-5 py-3 font-semibold">Thời gian</th>
                 <th className="px-5 py-3 font-semibold">Học Viên</th>
                 <th className="px-5 py-3 font-semibold">SĐT / Email</th>
-                <th className="px-5 py-3 font-semibold">Page</th>
+                <th className="px-5 py-3 font-semibold">Page Zalo CS</th>
+                <th className="px-5 py-3 font-semibold">Nguồn</th>
                 <th className="px-5 py-3 font-semibold">Sale Chăm Sóc</th>
                 <th className="px-5 py-3 font-semibold text-right">Chi Tiết</th>
               </tr>
@@ -648,7 +667,7 @@ export function DealWinDashboard() {
             <tbody className="divide-y divide-[#E5E7EB]">
               {loadingList ? (
                 <tr>
-                  <td colSpan={6} className="px-6 py-12 text-center text-xs text-gray-500">
+                  <td colSpan={7} className="px-6 py-12 text-center text-xs text-gray-500">
                     <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2 text-[#1E5BD6]" />
                     Đang tải danh sách học viên...
                   </td>
@@ -711,7 +730,7 @@ export function DealWinDashboard() {
                         )}
                       </td>
 
-                      {/* Page */}
+                      {/* Page Zalo CS */}
                       <td className="px-5 py-3.5 whitespace-nowrap text-xs">
                         {deal.page_id ? (
                           <span className="font-medium text-brand-700 bg-brand-50 px-2 py-0.5 rounded-md border border-brand-200/60">
@@ -720,6 +739,25 @@ export function DealWinDashboard() {
                         ) : (
                           <span className="text-gray-400">—</span>
                         )}
+                      </td>
+
+                      {/* Nguồn */}
+                      <td className="px-5 py-3.5 whitespace-nowrap text-xs">
+                        {(() => {
+                          const src = deal.source_page || 'Other/ Web';
+                          const isOther = src === 'Other/ Web';
+                          return (
+                            <span
+                              className={`font-medium px-2 py-0.5 rounded-md border ${
+                                isOther
+                                  ? 'text-gray-600 bg-gray-100 border-gray-200'
+                                  : 'text-indigo-700 bg-indigo-50 border-indigo-200/70'
+                              }`}
+                            >
+                              {src}
+                            </span>
+                          );
+                        })()}
                       </td>
 
                       {/* Care by Sale */}
@@ -744,7 +782,7 @@ export function DealWinDashboard() {
                 })
               ) : (
                 <tr>
-                  <td colSpan={6} className="px-6 py-12 text-center text-xs text-gray-500">
+                  <td colSpan={7} className="px-6 py-12 text-center text-xs text-gray-500">
                     Không tìm thấy học viên nào phù hợp với bộ lọc hiện tại.
                   </td>
                 </tr>
@@ -857,8 +895,12 @@ export function DealWinDashboard() {
                     <span className="font-semibold text-navy">{detailModal.care_by || 'Chưa phân công'}</span>
                   </div>
                   <div>
-                    <span className="text-xs text-gray-500 block">Fanpage / Kênh:</span>
+                    <span className="text-xs text-gray-500 block">Page Zalo chăm sóc:</span>
                     <span className="font-semibold text-blue-700">{detailModal.page_id || '—'}</span>
+                  </div>
+                  <div>
+                    <span className="text-xs text-gray-500 block">Nguồn (FB / TikTok / Web):</span>
+                    <span className="font-semibold text-indigo-700">{detailModal.source_page || 'Other/ Web'}</span>
                   </div>
                   <div className="sm:col-span-2">
                     <span className="text-xs text-gray-500 block">Trạng thái gắn tag Pancake:</span>

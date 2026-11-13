@@ -283,6 +283,8 @@ def get_facebook_metrics(
     if target_page_name or target_page_id:
         deal_query = deal_query.filter(
             or_(
+                DealWin.source_page == target_page_id,
+                DealWin.source_page == target_page_name,
                 DealWin.page_id == target_page_id,
                 DealWin.page_id == target_page_name,
             )
@@ -290,6 +292,9 @@ def get_facebook_metrics(
     else:
         deal_query = deal_query.filter(
             or_(
+                DealWin.source_page.in_(fb_page_names),
+                DealWin.source_page.in_(fb_page_ids),
+                DealWin.source_page.ilike("%Facebook%"),
                 DealWin.page_id.in_(fb_page_names),
                 DealWin.page_id.in_(fb_page_ids),
                 DealWin.page_id.ilike("%Facebook%"),
