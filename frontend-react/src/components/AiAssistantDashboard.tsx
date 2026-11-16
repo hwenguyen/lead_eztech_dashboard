@@ -40,6 +40,59 @@ const CATEGORY_LABELS: Record<string, string> = {
   chung: 'Tài liệu dùng chung (Tất cả AI)',
 };
 
+const renderInlineMarkdown = (text: string): React.ReactNode[] => {
+  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`|https?:\/\/[^\s)]+)/g);
+  return parts.map((part, i) => {
+    if (part.startsWith('**') && part.endsWith('**') && part.length > 4) {
+      return <strong key={i} className="font-semibold text-navy">{part.slice(2, -2)}</strong>;
+    }
+    if (part.startsWith('`') && part.endsWith('`') && part.length > 2) {
+      return <code key={i} className="px-1 py-0.5 rounded bg-slate-200/70 text-[11px] font-mono">{part.slice(1, -1)}</code>;
+    }
+    if (/^https?:\/\//.test(part)) {
+      return (
+        <a key={i} href={part} target="_blank" rel="noopener noreferrer" className="text-eztech underline break-all">
+          {part}
+        </a>
+      );
+    }
+    return <React.Fragment key={i}>{part}</React.Fragment>;
+  });
+};
+
+const FormattedAnswer: React.FC<{ content: string }> = ({ content }) => {
+  const lines = content.split('\n');
+  return (
+    <div className="space-y-1.5">
+      {lines.map((line, idx) => {
+        const trimmed = line.trim();
+        if (!trimmed) return <div key={idx} className="h-1" />;
+        if (trimmed === '---' || trimmed === '***') {
+          return <hr key={idx} className="border-slate-200 my-1.5" />;
+        }
+        const hMatch = trimmed.match(/^(#{1,4})\s+(.*)$/);
+        if (hMatch) {
+          return (
+            <div key={idx} className="font-bold text-navy text-[13px] pt-1">
+              {renderInlineMarkdown(hMatch[2])}
+            </div>
+          );
+        }
+        const ulMatch = trimmed.match(/^[-*•]\s+(.*)$/);
+        if (ulMatch) {
+          return (
+            <div key={idx} className="flex items-start gap-1.5 pl-2">
+              <span className="text-eztech font-bold">•</span>
+              <span className="flex-1">{renderInlineMarkdown(ulMatch[1])}</span>
+            </div>
+          );
+        }
+        return <p key={idx}>{renderInlineMarkdown(trimmed)}</p>;
+      })}
+    </div>
+  );
+};
+
 export const AiAssistantDashboard: React.FC = () => {
   const [assistants, setAssistants] = useState<AiAssistantProfile[]>([]);
   const [selectedAssistantId, setSelectedAssistantId] = useState<'sale' | 'ke_toan' | 'quy_trinh'>('sale');
@@ -589,7 +642,11 @@ export const AiAssistantDashboard: React.FC = () => {
                       : 'bg-slate-50 border border-slate-200/90 text-navy'
                   }`}
                 >
-                  <div className="whitespace-pre-wrap">{turn.content}</div>
+                  {turn.role === 'user' ? (
+                    <div className="whitespace-pre-wrap">{turn.content}</div>
+                  ) : (
+                    <FormattedAnswer content={turn.content} />
+                  )}
 
                   {turn.role === 'assistant' &&
                     ((turn.sources && turn.sources.length > 0) ||

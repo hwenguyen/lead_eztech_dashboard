@@ -308,7 +308,7 @@ def retrieve_relevant_chunks(
     query_text: str,
     categories: List[str],
     api_key: str,
-    top_k: int = 4,
+    top_k: int = 6,
 ) -> List[Dict[str, Any]]:
     all_chunks = _load_knowledge_cache(db)
     target_chunks = [c for c in all_chunks if c["category"] in categories]
@@ -325,8 +325,8 @@ def retrieve_relevant_chunks(
         vec_score = cosine_similarity(query_vec, chunk.get("embedding")) if query_vec else 0.0
         kw_hits = sum(1 for tok in q_tokens if tok in chunk["norm_content"])
         kw_score = (kw_hits / len(q_tokens)) if q_tokens else 0.0
-        final_score = (vec_score * 0.78) + (kw_score * 0.22) if query_vec else kw_score
-        if final_score > 0.12 or len(target_chunks) <= top_k:
+        final_score = (vec_score * 0.75) + (kw_score * 0.25) if query_vec else kw_score
+        if final_score > 0.08 or len(target_chunks) <= top_k:
             scored.append((final_score, chunk))
 
     scored.sort(key=lambda x: x[0], reverse=True)
@@ -354,41 +354,46 @@ def build_live_data_context(db: Session, assistant_id: str, question: str) -> Tu
     search_digits = [re.sub(r"\D", "", m) for m in phone_matches if len(re.sub(r"\D", "", m)) >= 4]
 
     if assistant_id == "sale":
-        try:
-            start_7d = (now_vn - timedelta(days=7)).replace(hour=0, minute=0, second=0, microsecond=0)
-            end_now = now_vn.replace(hour=23, minute=59, second=59, microsecond=999999)
-            leads_map = classify_leads(db, start_7d, end_now)
-            new_leads = recontact_leads = new_phone = recontact_phone = 0
-            emp_counts: Dict[str, int] = {}
-            phone_emp_counts: Dict[str, int] = {}
-            for ld in leads_map.values():
-                emp = ld.primary_employee or "Chưa phân công"
-                if ld.is_new:
-                    new_leads += 1
-                    emp_counts[emp] = emp_counts.get(emp, 0) + 1
+        wants_kpi = any(
+            kw in norm_q
+            for kw in ("lead", "sdt", "so dien thoai", "kpi", "bao nhieu", "tong", "nhan vien", "thong ke", "7 ngay", "tuan", "hom nay", "ti le")
+        )
+        if wants_kpi:
+            try:
+                start_7d = (now_vn - timedelta(days=7)).replace(hour=0, minute=0, second=0, microsecond=0)
+                end_now = now_vn.replace(hour=23, minute=59, second=59, microsecond=999999)
+                leads_map = classify_leads(db, start_7d, end_now)
+                new_leads = recontact_leads = new_phone = recontact_phone = 0
+                emp_counts: Dict[str, int] = {}
+                phone_emp_counts: Dict[str, int] = {}
+                for ld in leads_map.values():
+                    emp = ld.primary_employee or "Chưa phân công"
+                    if ld.is_new:
+                        new_leads += 1
+                        emp_counts[emp] = emp_counts.get(emp, 0) + 1
+                        if ld.has_phone:
+                            new_phone += 1
+                    else:
+                        recontact_leads += 1
+                        if ld.has_phone:
+                            recontact_phone += 1
                     if ld.has_phone:
-                        new_phone += 1
-                else:
-                    recontact_leads += 1
-                    if ld.has_phone:
-                        recontact_phone += 1
-                if ld.has_phone:
-                    phone_emp_counts[emp] = phone_emp_counts.get(emp, 0) + 1
+                        phone_emp_counts[emp] = phone_emp_counts.get(emp, 0) + 1
 
-            total_leads = new_leads + recontact_leads
-            total_phone = new_phone + recontact_phone
-            emp_stats = ", ".join(f"{k}: {v} lead mới" for k, v in list(emp_counts.items())[:8])
-            phone_emp = ", ".join(f"{k}: {v} SĐT" for k, v in list(phone_emp_counts.items())[:8])
-            context_blocks.append(
-                f"[DỮ LIỆU LEAD 7 NGÀY QUA ({start_7d.strftime('%d/%m/%Y')} - {now_vn.strftime('%d/%m/%Y')})]\n"
-                f"- Tổng Lead: {total_leads} (Lead Mới: {new_leads}, Contact Lại: {recontact_leads})\n"
-                f"- Tổng SĐT thu được: {total_phone} (SĐT Mới: {new_phone}, SĐT Contact Lại: {recontact_phone})\n"
-                f"- Phân bổ Lead Mới theo nhân sự: {emp_stats or 'Chưa có'}\n"
-                f"- Phân bổ SĐT theo nhân sự: {phone_emp or 'Chưa có'}"
-            )
-            tools_used.append("KPI Lead 7 ngày (lead_metrics)")
-        except Exception as e:
-            logger.warning(f"Sale KPI tool error: {e}")
+                total_leads = new_leads + recontact_leads
+                total_phone = new_phone + recontact_phone
+                emp_stats = ", ".join(f"{k}: {v} lead mới" for k, v in list(emp_counts.items())[:8])
+                phone_emp = ", ".join(f"{k}: {v} SĐT" for k, v in list(phone_emp_counts.items())[:8])
+                context_blocks.append(
+                    f"[DỮ LIỆU LEAD 7 NGÀY QUA ({start_7d.strftime('%d/%m/%Y')} - {now_vn.strftime('%d/%m/%Y')})]\n"
+                    f"- Tổng Lead: {total_leads} (Lead Mới: {new_leads}, Contact Lại: {recontact_leads})\n"
+                    f"- Tổng SĐT thu được: {total_phone} (SĐT Mới: {new_phone}, SĐT Contact Lại: {recontact_phone})\n"
+                    f"- Phân bổ Lead Mới theo nhân sự: {emp_stats or 'Chưa có'}\n"
+                    f"- Phân bổ SĐT theo nhân sự: {phone_emp or 'Chưa có'}"
+                )
+                tools_used.append("KPI Lead 7 ngày (lead_metrics)")
+            except Exception as e:
+                logger.warning(f"Sale KPI tool error: {e}")
 
         if search_digits:
             digit_q = search_digits[0][-9:]
@@ -413,46 +418,51 @@ def build_live_data_context(db: Session, assistant_id: str, question: str) -> Tu
                 tools_used.append(f"Tra cứu SĐT ({digit_q})")
 
     elif assistant_id == "ke_toan":
-        try:
-            totals = db.query(
-                func.count(SalesDeal.id),
-                func.coalesce(func.sum(SalesDeal.tong_tien), 0),
-                func.coalesce(func.sum(SalesDeal.da_thu), 0),
-                func.coalesce(func.sum(SalesDeal.con_no), 0),
-            ).first()
-            deal_win_count = db.query(func.count(DealWin.id)).scalar() or 0
-            debt_count = db.query(func.count(SalesDeal.id)).filter(SalesDeal.con_no > 0).scalar() or 0
-            if totals:
-                cnt, tong_tien, da_thu, con_no = totals
-                context_blocks.append(
-                    f"[TỔNG HỢP DOANH THU & CÔNG NỢ TRÊN HỆ THỐNG]\n"
-                    f"- Tổng số học viên (Deal Win): {deal_win_count:,} học viên\n"
-                    f"- Tổng số bản ghi Nhập Deal (sales_deals): {cnt:,} deal\n"
-                    f"- Tổng học phí phải thu: {int(tong_tien):,} VNĐ\n"
-                    f"- Tổng tiền đã thu: {int(da_thu):,} VNĐ\n"
-                    f"- Tổng công nợ còn phải thu: {int(con_no):,} VNĐ ({debt_count} deal còn nợ)"
-                )
-                tools_used.append("Tổng hợp Doanh thu & Công nợ (sales_deals)")
+        wants_finance_stats = bool(search_digits) or any(
+            kw in norm_q
+            for kw in ("doanh thu", "tong hop", "bao nhieu", "cong no", "con no", "da thu", "phai thu", "chua dong", "so lieu", "bao cao", "hien tai")
+        )
+        if wants_finance_stats:
+            try:
+                totals = db.query(
+                    func.count(SalesDeal.id),
+                    func.coalesce(func.sum(SalesDeal.tong_tien), 0),
+                    func.coalesce(func.sum(SalesDeal.da_thu), 0),
+                    func.coalesce(func.sum(SalesDeal.con_no), 0),
+                ).first()
+                deal_win_count = db.query(func.count(DealWin.id)).scalar() or 0
+                debt_count = db.query(func.count(SalesDeal.id)).filter(SalesDeal.con_no > 0).scalar() or 0
+                if totals:
+                    cnt, tong_tien, da_thu, con_no = totals
+                    context_blocks.append(
+                        f"[TỔNG HỢP DOANH THU & CÔNG NỢ TRÊN HỆ THỐNG]\n"
+                        f"- Tổng số học viên (Deal Win): {deal_win_count:,} học viên\n"
+                        f"- Tổng số bản ghi Nhập Deal (sales_deals): {cnt:,} deal\n"
+                        f"- Tổng học phí phải thu: {int(tong_tien):,} VNĐ\n"
+                        f"- Tổng tiền đã thu: {int(da_thu):,} VNĐ\n"
+                        f"- Tổng công nợ còn phải thu: {int(con_no):,} VNĐ ({debt_count} deal còn nợ)"
+                    )
+                    tools_used.append("Tổng hợp Doanh thu & Công nợ (sales_deals)")
 
-            if "no" in norm_q or "chua dong" in norm_q or "con no" in norm_q or search_digits:
-                q_deals = db.query(SalesDeal)
-                if search_digits:
-                    q_deals = q_deals.filter(SalesDeal.sdt.like(f"%{search_digits[0][-9:]}%"))
-                else:
-                    q_deals = q_deals.filter(SalesDeal.con_no > 0)
-                top_deals = q_deals.order_by(desc(SalesDeal.con_no), desc(SalesDeal.id)).limit(8).all()
-                if top_deals:
-                    d_lines = ["[DANH SÁCH DEAL / CÔNG NỢ CHI TIẾT]"]
-                    for d in top_deals:
-                        d_lines.append(
-                            f"- Học viên: {d.ho_ten} | SĐT: {d.sdt} | Chương trình: {d.chuong_trinh or 'Chưa rõ'} | "
-                            f"Lớp: {d.lop or '-'} | Đã thu: {int(d.da_thu or 0):,}đ | Còn nợ: {int(d.con_no or 0):,}đ | "
-                            f"Hạn AR: {d.ngay_thu_ar or '-'} | NV CS: {d.nv_cs or '-'}"
-                        )
-                    context_blocks.append("\n".join(d_lines))
-                    tools_used.append("Chi tiết Công nợ học viên")
-        except Exception as e:
-            logger.warning(f"Accounting tool error: {e}")
+                if "no" in norm_q or "chua dong" in norm_q or "con no" in norm_q or search_digits:
+                    q_deals = db.query(SalesDeal)
+                    if search_digits:
+                        q_deals = q_deals.filter(SalesDeal.sdt.like(f"%{search_digits[0][-9:]}%"))
+                    else:
+                        q_deals = q_deals.filter(SalesDeal.con_no > 0)
+                    top_deals = q_deals.order_by(desc(SalesDeal.con_no), desc(SalesDeal.id)).limit(8).all()
+                    if top_deals:
+                        d_lines = ["[DANH SÁCH DEAL / CÔNG NỢ CHI TIẾT]"]
+                        for d in top_deals:
+                            d_lines.append(
+                                f"- Học viên: {d.ho_ten} | SĐT: {d.sdt} | Chương trình: {d.chuong_trinh or 'Chưa rõ'} | "
+                                f"Lớp: {d.lop or '-'} | Đã thu: {int(d.da_thu or 0):,}đ | Còn nợ: {int(d.con_no or 0):,}đ | "
+                                f"Hạn AR: {d.ngay_thu_ar or '-'} | NV CS: {d.nv_cs or '-'}"
+                            )
+                        context_blocks.append("\n".join(d_lines))
+                        tools_used.append("Chi tiết Công nợ học viên")
+            except Exception as e:
+                logger.warning(f"Accounting tool error: {e}")
 
     return "\n\n".join(context_blocks), tools_used
 
@@ -477,7 +487,8 @@ def call_gemini_generate(
         "contents": contents,
         "generationConfig": {
             "temperature": 0.25,
-            "maxOutputTokens": 1536,
+            "maxOutputTokens": 4096,
+            "thinkingConfig": {"thinkingBudget": 0},
         },
     }
 
@@ -486,10 +497,20 @@ def call_gemini_generate(
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
         try:
             resp = requests.post(url, json=payload, timeout=25)
+            # Nếu model không hỗ trợ thinkingConfig thì thử lại bỏ thinkingConfig
+            if resp.status_code == 400 and "thinking" in resp.text.lower():
+                fallback_payload = {
+                    **payload,
+                    "generationConfig": {"temperature": 0.25, "maxOutputTokens": 4096},
+                }
+                resp = requests.post(url, json=fallback_payload, timeout=25)
             if resp.status_code == 200:
                 data = resp.json()
                 candidates = data.get("candidates") or []
                 if candidates:
+                    finish_reason = candidates[0].get("finishReason")
+                    if finish_reason and finish_reason != "STOP":
+                        logger.warning(f"Gemini {model_name} finishReason={finish_reason}")
                     parts = candidates[0].get("content", {}).get("parts") or []
                     answer = "".join(p.get("text", "") for p in parts).strip()
                     if answer:
@@ -689,7 +710,7 @@ def chat_with_assistant(req: ChatRequest, db: Session = Depends(get_db)):
         query_text=req.question,
         categories=assistant["categories"],
         api_key=api_key,
-        top_k=4,
+        top_k=6,
     )
 
     # 2. Lấy dữ liệu trực tiếp từ hệ thống (KPI Lead, SĐT, hoặc Công nợ Kế toán)
