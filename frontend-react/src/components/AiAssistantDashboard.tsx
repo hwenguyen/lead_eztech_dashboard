@@ -647,32 +647,6 @@ export const AiAssistantDashboard: React.FC = () => {
                   ) : (
                     <FormattedAnswer content={turn.content} />
                   )}
-
-                  {turn.role === 'assistant' &&
-                    ((turn.sources && turn.sources.length > 0) ||
-                      (turn.tools_used && turn.tools_used.length > 0)) && (
-                      <div className="pt-2 border-t border-slate-200/80 flex flex-wrap items-center gap-1.5 text-[10px] text-slate-500">
-                        {turn.tools_used?.map((t, i) => (
-                          <span
-                            key={`tool-${i}`}
-                            className="px-2 py-0.5 rounded bg-amber-50 border border-amber-200 text-amber-800 font-medium"
-                          >
-                            API: {t}
-                          </span>
-                        ))}
-                        {turn.sources?.map((s, i) => (
-                          <span
-                            key={`src-${i}`}
-                            className="px-2 py-0.5 rounded bg-eztech-light text-eztech font-medium"
-                          >
-                            RAG: {s.doc_name} ({Math.round(s.score * 100)}%)
-                          </span>
-                        ))}
-                        {turn.model && (
-                          <span className="ml-auto text-slate-400 font-mono">{turn.model}</span>
-                        )}
-                      </div>
-                    )}
                 </div>
               </div>
             ))
