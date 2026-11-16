@@ -17,6 +17,7 @@ import { WorkReportDashboard } from './components/WorkReportDashboard';
 import { AiAssistantDashboard } from './components/AiAssistantDashboard';
 import { LoginPage } from './components/LoginPage';
 import { ChangePasswordModal } from './components/ChangePasswordModal';
+import { ThemeToggle } from './components/ThemeToggle';
 import { fetchSummary, fetchTrend, fetchLeads, fetchEmployees, fetchPages, getStoredAuth, logoutApi, clearClientApiCache, type SummaryData, type TrendData, type Lead, type AuthUser } from './services/api';
 
 function App() {
@@ -182,7 +183,7 @@ function App() {
         {/* Brand / Logo Header - Synced with eztech-official.com */}
         <div className="h-16 px-4 border-b border-slate-100 flex items-center justify-between bg-white">
           <div className="flex items-center gap-2.5">
-            <img src="/brand_ngang.png" alt="EzTech - Giải pháp dữ liệu cho doanh nghiệp" className="h-8 w-auto max-w-[155px] object-contain shrink-0" />
+            <img src="/brand_ngang.png" alt="EzTech - Giải pháp dữ liệu cho doanh nghiệp" className="h-8 w-auto max-w-[155px] object-contain shrink-0 dark:brightness-125" />
             <div className="border-l border-slate-200 pl-2">
               <span className="text-[10px] font-bold text-navy uppercase tracking-wider block leading-tight">CRM</span>
               <span className="text-[9px] text-slate-400 font-medium block">Lead Analytics</span>
@@ -322,13 +323,14 @@ function App() {
               </div>
             </div>
 
-            {/* Right: Last updated & Refresh button */}
-            <div className="flex items-center gap-3">
+            {/* Right: Last updated, Theme Toggle & Refresh button */}
+            <div className="flex items-center gap-2.5">
               {lastUpdated && (
                 <span className="text-[11px] font-mono text-slate-400 hidden sm:inline-block tabular-nums">
                   Cập nhật {format(lastUpdated, 'HH:mm')}
                 </span>
               )}
+              <ThemeToggle />
               <button
                 onClick={handleRefresh}
                 disabled={loading}
@@ -580,7 +582,7 @@ function App() {
                       }
                       colorMap={{
                         'Lead Other': '#1E5BD6',
-                        'Đào tạo': '#0A1F44',
+                        'Đào tạo': 'var(--ez-chart-navy)',
                         'Other': '#F5B400',
                       }}
                     />
@@ -590,7 +592,7 @@ function App() {
                       stats={summary?.tag_stats}
                       colorMap={{
                         'Lead Other': '#1E5BD6',
-                        'Đào tạo': '#0A1F44',
+                        'Đào tạo': 'var(--ez-chart-navy)',
                         'Other': '#F5B400',
                       }}
                     />

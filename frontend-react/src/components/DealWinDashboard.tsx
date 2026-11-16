@@ -513,7 +513,7 @@ export function DealWinDashboard() {
                   <stop offset="95%" stopColor="#1E5BD6" stopOpacity={0} />
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F3F4F6" />
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--ez-chart-grid)" />
               <XAxis
                 dataKey="date"
                 tickFormatter={str => {
@@ -521,13 +521,13 @@ export function DealWinDashboard() {
                   const parts = str.split('-');
                   return parts.length >= 3 ? `${parts[2]}/${parts[1]}` : str;
                 }}
-                tick={{ fontSize: 11, fill: '#6B7280' }}
+                tick={{ fontSize: 11, fill: 'var(--ez-chart-axis)' }}
                 axisLine={false}
                 tickLine={false}
               />
               <YAxis
                 allowDecimals={false}
-                tick={{ fontSize: 11, fill: '#6B7280' }}
+                tick={{ fontSize: 11, fill: 'var(--ez-chart-axis)' }}
                 axisLine={false}
                 tickLine={false}
               />
@@ -575,12 +575,12 @@ export function DealWinDashboard() {
                 data={topSalesData}
                 margin={{ top: 0, right: 20, left: 20, bottom: 0 }}
               >
-                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#F3F4F6" />
-                <XAxis type="number" allowDecimals={false} tick={{ fontSize: 10, fill: '#6B7280' }} axisLine={false} tickLine={false} />
+                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="var(--ez-chart-grid)" />
+                <XAxis type="number" allowDecimals={false} tick={{ fontSize: 10, fill: 'var(--ez-chart-axis)' }} axisLine={false} tickLine={false} />
                 <YAxis
                   dataKey="name"
                   type="category"
-                  tick={{ fontSize: 11, fill: '#1E293B', fontWeight: 500 }}
+                  tick={{ fontSize: 11, fill: 'var(--ez-text)', fontWeight: 500 }}
                   axisLine={false}
                   tickLine={false}
                   width={90}

@@ -46,7 +46,7 @@ export function TrendChart({ data }: TrendChartProps) {
               Lead Mới
             </span>
             <span className="flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-navy inline-block" />
+              <span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: 'var(--ez-chart-navy)' }} />
               Contact Lại
             </span>
             <span className="flex items-center gap-1.5">
@@ -63,20 +63,20 @@ export function TrendChart({ data }: TrendChartProps) {
                 <stop offset="95%" stopColor="#1E5BD6" stopOpacity={0}/>
               </linearGradient>
               <linearGradient id="colorContact" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#0A1F44" stopOpacity={0.10}/>
-                <stop offset="95%" stopColor="#0A1F44" stopOpacity={0}/>
+                <stop offset="5%" stopColor="var(--ez-chart-navy)" stopOpacity={0.14}/>
+                <stop offset="95%" stopColor="var(--ez-chart-navy)" stopOpacity={0}/>
               </linearGradient>
               <linearGradient id="colorPhone" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="5%" stopColor="#F5B400" stopOpacity={0.18}/>
                 <stop offset="95%" stopColor="#F5B400" stopOpacity={0}/>
               </linearGradient>
             </defs>
-            <XAxis dataKey="date" stroke="#94A3B8" fontSize={11} tickLine={false} axisLine={false} />
-            <YAxis stroke="#94A3B8" fontSize={11} tickLine={false} axisLine={false} />
-            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
+            <XAxis dataKey="date" stroke="var(--ez-chart-axis)" fontSize={11} tickLine={false} axisLine={false} />
+            <YAxis stroke="var(--ez-chart-axis)" fontSize={11} tickLine={false} axisLine={false} />
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--ez-chart-grid)" />
             <Tooltip content={<CustomTooltip />} />
             <Area type="monotone" name="Lead Mới" dataKey="new_leads" stroke="#1E5BD6" strokeWidth={2} fillOpacity={1} fill="url(#colorNew)" dot={false} />
-            <Area type="monotone" name="Lead Contact Lại" dataKey="recontact_leads" stroke="#0A1F44" strokeWidth={1.75} fillOpacity={1} fill="url(#colorContact)" dot={false} />
+            <Area type="monotone" name="Lead Contact Lại" dataKey="recontact_leads" stroke="var(--ez-chart-navy)" strokeWidth={1.75} fillOpacity={1} fill="url(#colorContact)" dot={false} />
             <Area type="monotone" name="SĐT thu được" dataKey="phone_leads" stroke="#F5B400" strokeWidth={2} fillOpacity={1} fill="url(#colorPhone)" dot={false} />
           </AreaChart>
         </ResponsiveContainer>
@@ -90,12 +90,12 @@ export function TrendChart({ data }: TrendChartProps) {
         </div>
         <ResponsiveContainer width="100%" height={245}>
           <BarChart data={data} margin={{ top: 5, right: 5, left: -24, bottom: 0 }} barSize={8}>
-            <XAxis dataKey="date" stroke="#94A3B8" fontSize={10} tickLine={false} axisLine={false} />
-            <YAxis stroke="#94A3B8" fontSize={10} tickLine={false} axisLine={false} />
-            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
+            <XAxis dataKey="date" stroke="var(--ez-chart-axis)" fontSize={10} tickLine={false} axisLine={false} />
+            <YAxis stroke="var(--ez-chart-axis)" fontSize={10} tickLine={false} axisLine={false} />
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--ez-chart-grid)" />
             <Tooltip content={<CustomTooltip />} />
             <Bar name="Lead Mới" dataKey="new_leads" fill="#1E5BD6" radius={[3, 3, 0, 0]} />
-            <Bar name="Contact Lại" dataKey="recontact_leads" fill="#0A1F44" radius={[3, 3, 0, 0]} />
+            <Bar name="Contact Lại" dataKey="recontact_leads" fill="var(--ez-chart-navy)" radius={[3, 3, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
       </div>

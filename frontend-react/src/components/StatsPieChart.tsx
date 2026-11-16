@@ -10,7 +10,7 @@ interface StatsPieChartProps {
   headerAction?: React.ReactNode;
 }
 
-const COLORS = ['#1E5BD6', '#0A1F44', '#F5B400', '#3B82F6', '#64748B', '#10B981', '#94A3B8', '#CBD5E1'];
+const COLORS = ['#1E5BD6', 'var(--ez-chart-navy)', '#F5B400', '#3B82F6', '#64748B', '#10B981', '#94A3B8', '#CBD5E1'];
 
 const CustomLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent }: any) => {
   if (percent < 0.06) return null;
@@ -76,10 +76,13 @@ export function StatsPieChart({ title, subtitle, stats, colorMap, unit = 'Lead',
               <Tooltip
                 contentStyle={{
                   borderRadius: '10px',
-                  border: '1px solid #E2E8F0',
+                  backgroundColor: 'var(--ez-tooltip-bg)',
+                  border: '1px solid var(--ez-tooltip-border)',
+                  color: 'var(--ez-text)',
                   fontSize: '12px',
-                  boxShadow: '0 4px 12px rgba(10,31,68,0.06)'
+                  boxShadow: '0 4px 12px rgba(10,31,68,0.12)'
                 }}
+                itemStyle={{ color: 'var(--ez-text)' }}
                 formatter={(value: number) => [value.toLocaleString(), unit]}
               />
             </PieChart>

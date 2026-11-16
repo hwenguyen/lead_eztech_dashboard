@@ -3,6 +3,17 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <script>
+      try {
+        var s = localStorage.getItem("color-scheme");
+        if (s === "light" || s === "dark") {
+          document.querySelector('meta[name="color-scheme"]').content = s;
+        }
+        var d = s === "dark" || (!s && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.classList.toggle("dark", d);
+      } catch (e) {}
+    </script>
     <title>EzTech Lead Analytics — Giải pháp dữ liệu cho doanh nghiệp</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>

@@ -519,23 +519,23 @@ export function FacebookDashboard() {
                     <stop offset="95%" stopColor="#1E5BD6" stopOpacity={0.0} />
                   </linearGradient>
                   <linearGradient id="fbCommentGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#0A1F44" stopOpacity={0.2} />
-                    <stop offset="95%" stopColor="#0A1F44" stopOpacity={0.0} />
+                    <stop offset="5%" stopColor="var(--ez-chart-navy)" stopOpacity={0.2} />
+                    <stop offset="95%" stopColor="var(--ez-chart-navy)" stopOpacity={0.0} />
                   </linearGradient>
                   <linearGradient id="fbPhoneGrad" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#10B981" stopOpacity={0.3} />
                     <stop offset="95%" stopColor="#10B981" stopOpacity={0.0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--ez-chart-grid)" vertical={false} />
                 <XAxis
                   dataKey="date"
-                  tick={{ fontSize: 11, fill: '#94a3b8' }}
+                  tick={{ fontSize: 11, fill: 'var(--ez-chart-axis)' }}
                   tickFormatter={d => {
                     const parts = d.split('-');
                     return parts.length === 3 ? `${parts[2]}/${parts[1]}` : d;
                   }}
-                  axisLine={{ stroke: '#e2e8f0' }}
+                  axisLine={{ stroke: 'var(--ez-border)' }}
                   tickLine={false}
                 />
                 <YAxis
@@ -581,7 +581,7 @@ export function FacebookDashboard() {
                   type="monotone"
                   dataKey="comments"
                   name="Bình luận"
-                  stroke="#0A1F44"
+                  stroke="var(--ez-chart-navy)"
                   strokeWidth={1.5}
                   fill="url(#fbCommentGrad)"
                 />
@@ -619,6 +619,7 @@ export function FacebookDashboard() {
                       innerRadius={30}
                       outerRadius={50}
                       paddingAngle={3}
+                      stroke="none"
                     >
                       {reactionPieData.map(entry => (
                         <Cell key={entry.name} fill={entry.color} />
@@ -651,6 +652,7 @@ export function FacebookDashboard() {
                       innerRadius={30}
                       outerRadius={50}
                       paddingAngle={3}
+                      stroke="none"
                     >
                       {formatPieData.map(entry => (
                         <Cell key={entry.name} fill={entry.color} />
@@ -804,6 +806,7 @@ export function FacebookDashboard() {
                       innerRadius={36}
                       outerRadius={56}
                       paddingAngle={3}
+                      stroke="none"
                     >
                       {channelLeadData.map(entry => (
                         <Cell key={entry.name} fill={entry.color} />
@@ -883,15 +886,15 @@ export function FacebookDashboard() {
               <div className="h-[220px] w-full">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={data?.trend || []} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--ez-chart-grid)" vertical={false} />
                     <XAxis
                       dataKey="date"
-                      tick={{ fontSize: 10, fill: '#94a3b8' }}
+                      tick={{ fontSize: 10, fill: 'var(--ez-chart-axis)' }}
                       tickFormatter={d => {
                         const parts = d.split('-');
                         return parts.length === 3 ? `${parts[2]}/${parts[1]}` : d;
                       }}
-                      axisLine={{ stroke: '#e2e8f0' }}
+                      axisLine={{ stroke: 'var(--ez-border)' }}
                       tickLine={false}
                     />
                     <YAxis

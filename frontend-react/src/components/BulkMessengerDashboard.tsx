@@ -1276,7 +1276,7 @@ export const BulkMessengerDashboard: React.FC = () => {
               <div
                 className={`rounded-2xl border p-5 shadow-sm space-y-4 transition-all ${
                   zaloProtection
-                    ? 'bg-gradient-to-br from-emerald-50/70 via-white to-teal-50/40 border-emerald-200'
+                    ? 'bg-gradient-to-br from-emerald-50/70 via-white to-teal-50/40 dark:from-emerald-950/40 dark:via-slate-900 dark:to-teal-950/30 border-emerald-200'
                     : 'bg-white border-gray-200'
                 }`}
               >

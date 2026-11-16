@@ -462,8 +462,8 @@ export function TikTokDashboard() {
               <AreaChart data={data?.trend || []} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                 <defs>
                   <linearGradient id="ttCommentGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#0A1F44" stopOpacity={0.25} />
-                    <stop offset="95%" stopColor="#0A1F44" stopOpacity={0.0} />
+                    <stop offset="5%" stopColor="var(--ez-chart-navy)" stopOpacity={0.25} />
+                    <stop offset="95%" stopColor="var(--ez-chart-navy)" stopOpacity={0.0} />
                   </linearGradient>
                   <linearGradient id="ttLeadGrad" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#1E5BD6" stopOpacity={0.25} />
@@ -474,15 +474,15 @@ export function TikTokDashboard() {
                     <stop offset="95%" stopColor="#10B981" stopOpacity={0.0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--ez-chart-grid)" vertical={false} />
                 <XAxis
                   dataKey="date"
-                  tick={{ fontSize: 11, fill: '#94a3b8' }}
+                  tick={{ fontSize: 11, fill: 'var(--ez-chart-axis)' }}
                   tickFormatter={d => {
                     const parts = d.split('-');
                     return parts.length === 3 ? `${parts[2]}/${parts[1]}` : d;
                   }}
-                  axisLine={{ stroke: '#e2e8f0' }}
+                  axisLine={{ stroke: 'var(--ez-border)' }}
                   tickLine={false}
                 />
                 <YAxis
@@ -520,7 +520,7 @@ export function TikTokDashboard() {
                   type="monotone"
                   dataKey="comments"
                   name="Bình luận"
-                  stroke="#0A1F44"
+                  stroke="var(--ez-chart-navy)"
                   strokeWidth={2}
                   fill="url(#ttCommentGrad)"
                 />
@@ -563,6 +563,7 @@ export function TikTokDashboard() {
                     innerRadius={36}
                     outerRadius={60}
                     paddingAngle={3}
+                    stroke="none"
                   >
                     {channelPieData.map(entry => (
                       <Cell key={entry.name} fill={entry.color} />
@@ -700,6 +701,7 @@ export function TikTokDashboard() {
                       innerRadius={36}
                       outerRadius={56}
                       paddingAngle={3}
+                      stroke="none"
                     >
                       {channelLeadData.map(entry => (
                         <Cell key={entry.name} fill={entry.color} />
@@ -766,15 +768,15 @@ export function TikTokDashboard() {
               <div className="h-[220px] w-full">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={data?.trend || []} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--ez-chart-grid)" vertical={false} />
                     <XAxis
                       dataKey="date"
-                      tick={{ fontSize: 10, fill: '#94a3b8' }}
+                      tick={{ fontSize: 10, fill: 'var(--ez-chart-axis)' }}
                       tickFormatter={d => {
                         const parts = d.split('-');
                         return parts.length === 3 ? `${parts[2]}/${parts[1]}` : d;
                       }}
-                      axisLine={{ stroke: '#e2e8f0' }}
+                      axisLine={{ stroke: 'var(--ez-border)' }}
                       tickLine={false}
                     />
                     <YAxis

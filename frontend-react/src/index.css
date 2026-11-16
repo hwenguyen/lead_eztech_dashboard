@@ -2,15 +2,303 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ============================================================================
+ * EzTech Design Tokens & Modern Dark Mode (light-dark() + fallback + <meta>)
+ * ============================================================================ */
+:root {
+  color-scheme: light dark;
+
+  /* Surfaces */
+  --ez-page: #F3F6FA;
+  --ez-card: #FFFFFF;
+  --ez-card-translucent: rgba(255, 255, 255, 0.92);
+  --ez-elevated: #F8FAFC;
+  --ez-muted: #F1F5F9;
+  --ez-muted-strong: #E2E8F0;
+  --ez-sheet-header: #f8f9fa;
+  --ez-sheet-col: #f1f3f4;
+  --ez-sheet-gold: #fff2cc;
+
+  /* Borders & Dividers */
+  --ez-border: #E2E8F0;
+  --ez-border-soft: #F1F5F9;
+  --ez-border-strong: #CBD5E1;
+
+  /* Typography */
+  --ez-text: #0A1F44;
+  --ez-text-secondary: #475569;
+  --ez-text-muted: #64748B;
+  --ez-text-subtle: #94A3B8;
+  --ez-text-faint: #CBD5E1;
+
+  /* Brand & Semantic Text */
+  --ez-navy-bg: #0A1F44;
+  --ez-brand-text: #1E5BD6;
+  --ez-brand-tint: #E6F0FF;
+  --ez-brand-tint-strong: #DCEAFF;
+  --ez-brand-border: #C8DCFF;
+  --ez-gold-text: #9A6E00;
+  --ez-gold-tint: #FFFBEB;
+  --ez-gold-tint-strong: #FEF3C6;
+  --ez-gold-border: #FFE082;
+
+  /* Tinted Badge Semantics (Light defaults) */
+  --ez-emerald-bg: #ECFDF5;
+  --ez-emerald-text: #047857;
+  --ez-emerald-border: rgba(167, 243, 208, 0.8);
+  --ez-amber-bg: #FFFBEB;
+  --ez-amber-text: #B45309;
+  --ez-amber-border: rgba(253, 230, 138, 0.85);
+  --ez-rose-bg: #FFF1F2;
+  --ez-rose-text: #BE123C;
+  --ez-rose-border: rgba(254, 205, 211, 0.85);
+  --ez-indigo-bg: #EEF2FF;
+  --ez-indigo-text: #4338CA;
+  --ez-indigo-border: rgba(199, 210, 254, 0.85);
+  --ez-blue-bg: #EFF6FF;
+  --ez-blue-text: #1D4ED8;
+  --ez-blue-border: rgba(191, 219, 254, 0.85);
+  --ez-purple-bg: #FAF5FF;
+  --ez-purple-text: #7E22CE;
+  --ez-purple-border: rgba(233, 213, 255, 0.85);
+
+  /* Charts */
+  --ez-chart-grid: #F1F5F9;
+  --ez-chart-axis: #94A3B8;
+  --ez-chart-navy: #0A1F44;
+  --ez-tooltip-bg: rgba(255, 255, 255, 0.96);
+  --ez-tooltip-border: #E2E8F0;
+
+  /* Native Controls & Scrollbar */
+  --ez-accent: #1E5BD6;
+  --ez-scrollbar-track: transparent;
+  --ez-scrollbar-thumb: #CBD5E1;
+  --ez-scrollbar-thumb-hover: #94A3B8;
+
+  scrollbar-color: var(--ez-scrollbar-thumb) var(--ez-scrollbar-track);
+}
+
+/* Native light-dark() enhancement for modern browsers */
+@supports (color: light-dark(white, black)) {
+  :root {
+    --ez-accent: light-dark(#1E5BD6, #60A5FA);
+    --ez-scrollbar-thumb: light-dark(#CBD5E1, #334155);
+    --ez-scrollbar-thumb-hover: light-dark(#94A3B8, #475569);
+  }
+}
+
+/* Reflect <meta name="color-scheme"> override back into CSS color-scheme property */
+:root:has(> head > meta[name="color-scheme"][content="dark"]) {
+  color-scheme: dark;
+}
+:root:has(> head > meta[name="color-scheme"][content="light"]) {
+  color-scheme: light;
+}
+
+/* Dark tokens: active when <meta content="dark">, .dark, or OS dark without light override */
+:root:has(> head > meta[name="color-scheme"][content="dark"]),
+:root.dark {
+  --ez-page: #070D19;
+  --ez-card: #0F172A;
+  --ez-card-translucent: rgba(15, 23, 42, 0.90);
+  --ez-elevated: #162033;
+  --ez-muted: #1E293B;
+  --ez-muted-strong: #283548;
+  --ez-sheet-header: #131D31;
+  --ez-sheet-col: #1A263D;
+  --ez-sheet-gold: #3B2F0E;
+
+  --ez-border: #253349;
+  --ez-border-soft: #1B273B;
+  --ez-border-strong: #334155;
+
+  --ez-text: #F1F5F9;
+  --ez-text-secondary: #CBD5E1;
+  --ez-text-muted: #94A3B8;
+  --ez-text-subtle: #94A3B8;
+  --ez-text-faint: #475569;
+
+  --ez-navy-bg: #1E3A8A;
+  --ez-brand-text: #60A5FA;
+  --ez-brand-tint: rgba(30, 91, 214, 0.18);
+  --ez-brand-tint-strong: rgba(59, 130, 246, 0.25);
+  --ez-brand-border: rgba(96, 165, 250, 0.35);
+  --ez-gold-text: #FFD24D;
+  --ez-gold-tint: rgba(255, 193, 7, 0.14);
+  --ez-gold-tint-strong: rgba(255, 193, 7, 0.22);
+  --ez-gold-border: rgba(255, 193, 7, 0.35);
+
+  --ez-emerald-bg: rgba(16, 185, 129, 0.14);
+  --ez-emerald-text: #34D399;
+  --ez-emerald-border: rgba(52, 211, 153, 0.32);
+  --ez-amber-bg: rgba(245, 158, 11, 0.15);
+  --ez-amber-text: #FBBF24;
+  --ez-amber-border: rgba(251, 191, 36, 0.32);
+  --ez-rose-bg: rgba(244, 63, 94, 0.15);
+  --ez-rose-text: #FB7185;
+  --ez-rose-border: rgba(251, 113, 133, 0.32);
+  --ez-indigo-bg: rgba(99, 102, 241, 0.16);
+  --ez-indigo-text: #A5B4FC;
+  --ez-indigo-border: rgba(165, 180, 252, 0.32);
+  --ez-blue-bg: rgba(59, 130, 246, 0.16);
+  --ez-blue-text: #60A5FA;
+  --ez-blue-border: rgba(96, 165, 250, 0.32);
+  --ez-purple-bg: rgba(168, 85, 247, 0.16);
+  --ez-purple-text: #C084FC;
+  --ez-purple-border: rgba(192, 132, 252, 0.32);
+
+  --ez-chart-grid: #1E293B;
+  --ez-chart-axis: #94A3B8;
+  --ez-chart-navy: #38BDF8;
+  --ez-tooltip-bg: rgba(15, 23, 42, 0.96);
+  --ez-tooltip-border: #334155;
+
+  --ez-accent: #60A5FA;
+  --ez-scrollbar-thumb: #334155;
+  --ez-scrollbar-thumb-hover: #475569;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not(:has(> head > meta[name="color-scheme"][content="light"])) {
+    --ez-page: #070D19;
+    --ez-card: #0F172A;
+    --ez-card-translucent: rgba(15, 23, 42, 0.90);
+    --ez-elevated: #162033;
+    --ez-muted: #1E293B;
+    --ez-muted-strong: #283548;
+    --ez-sheet-header: #131D31;
+    --ez-sheet-col: #1A263D;
+    --ez-sheet-gold: #3B2F0E;
+
+    --ez-border: #253349;
+    --ez-border-soft: #1B273B;
+    --ez-border-strong: #334155;
+
+    --ez-text: #F1F5F9;
+    --ez-text-secondary: #CBD5E1;
+    --ez-text-muted: #94A3B8;
+    --ez-text-subtle: #94A3B8;
+    --ez-text-faint: #475569;
+
+    --ez-navy-bg: #1E3A8A;
+    --ez-brand-text: #60A5FA;
+    --ez-brand-tint: rgba(30, 91, 214, 0.18);
+    --ez-brand-tint-strong: rgba(59, 130, 246, 0.25);
+    --ez-brand-border: rgba(96, 165, 250, 0.35);
+    --ez-gold-text: #FFD24D;
+    --ez-gold-tint: rgba(255, 193, 7, 0.14);
+    --ez-gold-tint-strong: rgba(255, 193, 7, 0.22);
+    --ez-gold-border: rgba(255, 193, 7, 0.35);
+
+    --ez-emerald-bg: rgba(16, 185, 129, 0.14);
+    --ez-emerald-text: #34D399;
+    --ez-emerald-border: rgba(52, 211, 153, 0.32);
+    --ez-amber-bg: rgba(245, 158, 11, 0.15);
+    --ez-amber-text: #FBBF24;
+    --ez-amber-border: rgba(251, 191, 36, 0.32);
+    --ez-rose-bg: rgba(244, 63, 94, 0.15);
+    --ez-rose-text: #FB7185;
+    --ez-rose-border: rgba(251, 113, 133, 0.32);
+    --ez-indigo-bg: rgba(99, 102, 241, 0.16);
+    --ez-indigo-text: #A5B4FC;
+    --ez-indigo-border: rgba(165, 180, 252, 0.32);
+    --ez-blue-bg: rgba(59, 130, 246, 0.16);
+    --ez-blue-text: #60A5FA;
+    --ez-blue-border: rgba(96, 165, 250, 0.32);
+    --ez-purple-bg: rgba(168, 85, 247, 0.16);
+    --ez-purple-text: #C084FC;
+    --ez-purple-border: rgba(192, 132, 252, 0.32);
+
+    --ez-chart-grid: #1E293B;
+    --ez-chart-axis: #94A3B8;
+    --ez-chart-navy: #38BDF8;
+    --ez-tooltip-bg: rgba(15, 23, 42, 0.96);
+    --ez-tooltip-border: #334155;
+
+    --ez-accent: #60A5FA;
+    --ez-scrollbar-thumb: #334155;
+    --ez-scrollbar-thumb-hover: #475569;
+  }
+}
+
+/* Segmented Light/Dark Switcher active state driven cleanly by CSS */
+.theme-seg-light {
+  background-color: #FFFFFF;
+  color: #0A1F44;
+  box-shadow: 0 1px 2px rgba(10, 31, 68, 0.08);
+}
+.theme-seg-light svg {
+  color: #F59E0B;
+}
+.theme-seg-dark {
+  background-color: transparent;
+  color: #64748B;
+}
+.theme-seg-dark:hover {
+  color: #0A1F44;
+}
+
+:root:has(> head > meta[name="color-scheme"][content="dark"]) .theme-seg-light,
+:root.dark .theme-seg-light {
+  background-color: transparent;
+  color: #94A3B8;
+  box-shadow: none;
+}
+:root:has(> head > meta[name="color-scheme"][content="dark"]) .theme-seg-light svg,
+:root.dark .theme-seg-light svg {
+  color: #94A3B8;
+}
+:root:has(> head > meta[name="color-scheme"][content="dark"]) .theme-seg-light:hover,
+:root.dark .theme-seg-light:hover {
+  color: #F1F5F9;
+}
+:root:has(> head > meta[name="color-scheme"][content="dark"]) .theme-seg-dark,
+:root.dark .theme-seg-dark {
+  background-color: #1E5BD6;
+  color: #FFFFFF;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+}
+:root:has(> head > meta[name="color-scheme"][content="dark"]) .theme-seg-dark svg,
+:root.dark .theme-seg-dark svg {
+  color: #FFD24D;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not(:has(> head > meta[name="color-scheme"][content="light"])) .theme-seg-light {
+    background-color: transparent;
+    color: #94A3B8;
+    box-shadow: none;
+  }
+  :root:not(:has(> head > meta[name="color-scheme"][content="light"])) .theme-seg-light svg {
+    color: #94A3B8;
+  }
+  :root:not(:has(> head > meta[name="color-scheme"][content="light"])) .theme-seg-light:hover {
+    color: #F1F5F9;
+  }
+  :root:not(:has(> head > meta[name="color-scheme"][content="light"])) .theme-seg-dark {
+    background-color: #1E5BD6;
+    color: #FFFFFF;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  }
+  :root:not(:has(> head > meta[name="color-scheme"][content="light"])) .theme-seg-dark svg {
+    color: #FFD24D;
+  }
+}
+
 @layer base {
+  html {
+    accent-color: var(--ez-accent);
+  }
   body {
-    @apply bg-surface text-foreground font-sans antialiased selection:bg-brand-500/15 selection:text-brand-600;
+    background-color: var(--ez-page);
+    color: var(--ez-text);
+    @apply font-sans antialiased selection:bg-brand-500/20 selection:text-brand-600;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   }
 }
 
 @layer utilities {
-  /* Official EzTech Brand Gradients from eztech-official.com */
+  /* Official EzTech Brand Gradients */
   .gradient-brand {
     background: linear-gradient(135deg, #0A1F44 0%, #1E5BD6 100%);
   }
@@ -18,25 +306,396 @@
     background: linear-gradient(135deg, #FFE082 0%, #FFC107 100%);
   }
   .gradient-surface {
-    background: linear-gradient(180deg, #FFFFFF 0%, #F3F6FA 100%);
+    background: linear-gradient(180deg, var(--ez-card) 0%, var(--ez-page) 100%);
   }
   .gradient-card {
-    background: linear-gradient(180deg, #FFFFFF 0%, #F8FAFD 100%);
+    background: linear-gradient(180deg, var(--ez-card) 0%, var(--ez-elevated) 100%);
   }
 }
 
-/* Minimalist custom scrollbar */
-.custom-scrollbar::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
+/* ============================================================================
+ * Tokenized Dark-Ready Utility Surfaces (specificity 0,1,0 so dark:* always wins)
+ * ============================================================================ */
+:where(html) .bg-bg-page,
+:where(html) .bg-surface,
+:where(html) .bg-background,
+:where(html) .bg-\[\#F3F6FA\] {
+  background-color: var(--ez-page);
 }
-.custom-scrollbar::-webkit-scrollbar-track {
-  background: transparent;
+
+:where(html) .bg-white,
+:where(html) .bg-card {
+  background-color: var(--ez-card);
 }
-.custom-scrollbar::-webkit-scrollbar-thumb {
-  background: #CBD5E1;
-  border-radius: 9999px;
+
+:where(html) .bg-white\/90,
+:where(html) .bg-white\/95 {
+  background-color: var(--ez-card-translucent);
 }
-.custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: #94A3B8;
+
+:where(html) .bg-slate-50,
+:where(html) .bg-slate-50\/40,
+:where(html) .bg-slate-50\/50,
+:where(html) .bg-slate-50\/60,
+:where(html) .bg-slate-50\/70,
+:where(html) .bg-slate-50\/80,
+:where(html) .bg-slate-50\/90,
+:where(html) .bg-gray-50,
+:where(html) .bg-gray-50\/80,
+:where(html) .bg-\[\#F8FAFC\] {
+  background-color: var(--ez-elevated);
+}
+
+:where(html) .bg-slate-100,
+:where(html) .bg-slate-100\/90,
+:where(html) .bg-gray-100 {
+  background-color: var(--ez-muted);
+}
+
+:where(html) .bg-slate-200,
+:where(html) .bg-slate-200\/70,
+:where(html) .bg-slate-200\/80,
+:where(html) .bg-gray-200,
+:where(html) .bg-\[\#E5E7EB\] {
+  background-color: var(--ez-muted-strong);
+}
+
+:where(html) .bg-\[\#f8f9fa\] { background-color: var(--ez-sheet-header); }
+:where(html) .bg-\[\#f1f3f4\] { background-color: var(--ez-sheet-col); }
+:where(html) .bg-\[\#fff2cc\] { background-color: var(--ez-sheet-gold); }
+:where(html) .bg-navy { background-color: var(--ez-navy-bg); }
+
+/* Hover surfaces */
+:where(html) .hover\:bg-slate-50:hover,
+:where(html) .hover\:bg-slate-50\/70:hover,
+:where(html) .hover\:bg-slate-50\/80:hover,
+:where(html) .hover\:bg-gray-50:hover,
+:where(html) .hover\:bg-\[\#F8FAFC\]:hover {
+  background-color: var(--ez-elevated);
+}
+
+:where(html) .hover\:bg-slate-100:hover,
+:where(html) .hover\:bg-slate-100\/70:hover,
+:where(html) .hover\:bg-gray-100:hover,
+:where(html) .hover\:bg-slate-200:hover,
+:where(html) .hover\:bg-gray-200:hover {
+  background-color: var(--ez-muted);
+}
+
+:where(html) .focus\:bg-white:focus {
+  background-color: var(--ez-card);
+}
+
+/* Borders & Dividers */
+:where(html) .border-slate-100,
+:where(html) .border-gray-100 {
+  border-color: var(--ez-border-soft);
+}
+
+:where(html) .border-slate-200,
+:where(html) .border-slate-200\/60,
+:where(html) .border-slate-200\/70,
+:where(html) .border-slate-200\/80,
+:where(html) .border-slate-200\/90,
+:where(html) .border-gray-200,
+:where(html) .border-\[\#E5E7EB\] {
+  border-color: var(--ez-border);
+}
+
+:where(html) .border-slate-300,
+:where(html) .border-slate-400,
+:where(html) .border-gray-300,
+:where(html) .hover\:border-slate-300:hover {
+  border-color: var(--ez-border-strong);
+}
+
+:where(html) .divide-slate-50 > :not([hidden]) ~ :not([hidden]),
+:where(html) .divide-slate-100 > :not([hidden]) ~ :not([hidden]),
+:where(html) .divide-gray-100 > :not([hidden]) ~ :not([hidden]) {
+  border-color: var(--ez-border-soft);
+}
+
+:where(html) .divide-slate-200\/70 > :not([hidden]) ~ :not([hidden]),
+:where(html) .divide-\[\#E5E7EB\] > :not([hidden]) ~ :not([hidden]) {
+  border-color: var(--ez-border);
+}
+
+/* Text Colors */
+:where(html) .text-navy,
+:where(html) .text-foreground,
+:where(html) .text-\[\#111827\],
+:where(html) .text-slate-900,
+:where(html) .text-slate-800,
+:where(html) .text-gray-900,
+:where(html) .text-gray-800,
+:where(html) .hover\:text-navy:hover,
+:where(html) .hover\:text-slate-900:hover {
+  color: var(--ez-text);
+}
+
+:where(html) .text-slate-700,
+:where(html) .text-slate-600,
+:where(html) .text-gray-700,
+:where(html) .text-gray-600,
+:where(html) .text-\[\#4B5563\],
+:where(html) .hover\:text-slate-700:hover,
+:where(html) .hover\:text-slate-600:hover,
+:where(html) .hover\:text-gray-600:hover {
+  color: var(--ez-text-secondary);
+}
+
+:where(html) .text-slate-500,
+:where(html) .text-gray-500 {
+  color: var(--ez-text-muted);
+}
+
+:where(html) .text-slate-400,
+:where(html) .text-gray-400 {
+  color: var(--ez-text-subtle);
+}
+
+:where(html) .text-slate-300,
+:where(html) .text-gray-300 {
+  color: var(--ez-text-faint);
+}
+
+/* Brand & Semantic Tinted Badges / Text */
+:where(html) .text-eztech,
+:where(html) .text-\[\#1E5BD6\],
+:where(html) .text-brand-600,
+:where(html) .text-brand-700,
+:where(html) .hover\:text-eztech:hover,
+:where(html) .hover\:text-brand-600:hover,
+:where(html) .group:hover .group-hover\:text-brand-600 {
+  color: var(--ez-brand-text);
+}
+
+:where(html) .bg-eztech-light,
+:where(html) .bg-eztech-light\/40,
+:where(html) .bg-eztech-light\/50,
+:where(html) .bg-eztech-light\/60,
+:where(html) .bg-eztech-light\/70,
+:where(html) .bg-brand-50,
+:where(html) .hover\:bg-brand-50:hover,
+:where(html) .hover\:bg-eztech-light:hover,
+:where(html) .hover\:bg-eztech-light\/20:hover,
+:where(html) .hover\:bg-eztech-light\/30:hover,
+:where(html) .hover\:bg-eztech-light\/40:hover {
+  background-color: var(--ez-brand-tint);
+}
+
+:where(html) .bg-brand-100,
+:where(html) .hover\:bg-brand-100:hover,
+:where(html) .hover\:bg-eztech-border\/50:hover {
+  background-color: var(--ez-brand-tint-strong);
+}
+
+:where(html) .border-eztech-border,
+:where(html) .border-eztech-border\/50,
+:where(html) .border-eztech-border\/60,
+:where(html) .border-eztech-border\/70,
+:where(html) .border-brand-200,
+:where(html) .border-brand-200\/60,
+:where(html) .border-brand-200\/70,
+:where(html) .border-brand-200\/80,
+:where(html) .hover\:border-eztech-border:hover {
+  border-color: var(--ez-brand-border);
+}
+
+:where(html) .text-gold-dark,
+:where(html) .text-gold-700 {
+  color: var(--ez-gold-text);
+}
+:where(html) .bg-gold-light,
+:where(html) .bg-gold-50\/40 {
+  background-color: var(--ez-gold-tint);
+}
+:where(html) .bg-gold-100 {
+  background-color: var(--ez-gold-tint-strong);
+}
+:where(html) .border-gold-border,
+:where(html) .border-gold-border\/80,
+:where(html) .border-gold-300 {
+  border-color: var(--ez-gold-border);
+}
+
+:where(html) .bg-emerald-50,
+:where(html) .bg-emerald-50\/50,
+:where(html) .bg-emerald-50\/70,
+:where(html) .bg-emerald-50\/80,
+:where(html) .bg-emerald-50\/90,
+:where(html) .bg-emerald-100,
+:where(html) .hover\:bg-emerald-50\/50:hover,
+:where(html) .hover\:bg-emerald-100:hover {
+  background-color: var(--ez-emerald-bg);
+}
+:where(html) .text-emerald-600,
+:where(html) .text-emerald-700,
+:where(html) .text-emerald-800,
+:where(html) .text-emerald-900 {
+  color: var(--ez-emerald-text);
+}
+:where(html) .border-emerald-100,
+:where(html) .border-emerald-200,
+:where(html) .border-emerald-200\/60,
+:where(html) .border-emerald-200\/70,
+:where(html) .border-emerald-200\/90,
+:where(html) .border-emerald-300 {
+  border-color: var(--ez-emerald-border);
+}
+
+:where(html) .bg-amber-50,
+:where(html) .bg-amber-50\/60,
+:where(html) .bg-amber-100,
+:where(html) .hover\:bg-amber-50\/30:hover,
+:where(html) .hover\:bg-amber-100:hover,
+:where(html) .hover\:bg-amber-100\/80:hover {
+  background-color: var(--ez-amber-bg);
+}
+:where(html) .text-amber-600,
+:where(html) .text-amber-700,
+:where(html) .text-amber-800,
+:where(html) .text-amber-900 {
+  color: var(--ez-amber-text);
+}
+:where(html) .border-amber-200,
+:where(html) .border-amber-200\/60,
+:where(html) .border-amber-200\/70,
+:where(html) .border-amber-200\/90,
+:where(html) .border-amber-300 {
+  border-color: var(--ez-amber-border);
+}
+
+:where(html) .bg-rose-50,
+:where(html) .bg-rose-50\/50,
+:where(html) .bg-rose-50\/80,
+:where(html) .bg-red-50,
+:where(html) .bg-red-50\/60,
+:where(html) .bg-red-100,
+:where(html) .hover\:bg-rose-50:hover,
+:where(html) .hover\:bg-rose-100:hover {
+  background-color: var(--ez-rose-bg);
+}
+:where(html) .text-rose-600,
+:where(html) .text-rose-700,
+:where(html) .text-rose-800,
+:where(html) .text-red-600,
+:where(html) .text-red-700,
+:where(html) .text-red-900,
+:where(html) .hover\:text-rose-600:hover,
+:where(html) .hover\:text-red-600:hover,
+:where(html) .hover\:text-red-700:hover {
+  color: var(--ez-rose-text);
+}
+:where(html) .border-rose-200,
+:where(html) .border-rose-200\/60,
+:where(html) .border-rose-200\/70,
+:where(html) .border-rose-300,
+:where(html) .border-red-200 {
+  border-color: var(--ez-rose-border);
+}
+
+:where(html) .bg-indigo-50,
+:where(html) .bg-indigo-50\/20,
+:where(html) .bg-indigo-50\/50,
+:where(html) .bg-indigo-50\/60,
+:where(html) .bg-indigo-50\/90,
+:where(html) .bg-indigo-100,
+:where(html) .hover\:bg-indigo-50:hover,
+:where(html) .hover\:bg-indigo-50\/50:hover,
+:where(html) .hover\:bg-indigo-100:hover {
+  background-color: var(--ez-indigo-bg);
+}
+:where(html) .text-indigo-600,
+:where(html) .text-indigo-700,
+:where(html) .text-indigo-900,
+:where(html) .hover\:text-indigo-600:hover,
+:where(html) .hover\:text-indigo-700:hover,
+:where(html) .hover\:text-indigo-800:hover {
+  color: var(--ez-indigo-text);
+}
+:where(html) .border-indigo-200,
+:where(html) .border-indigo-200\/70,
+:where(html) .border-indigo-200\/80,
+:where(html) .hover\:border-indigo-300:hover {
+  border-color: var(--ez-indigo-border);
+}
+
+:where(html) .bg-blue-50,
+:where(html) .bg-blue-50\/50,
+:where(html) .bg-blue-50\/60,
+:where(html) .bg-blue-50\/80,
+:where(html) .bg-blue-100,
+:where(html) .hover\:bg-blue-50\/30:hover,
+:where(html) .hover\:bg-blue-50\/40:hover,
+:where(html) .hover\:bg-blue-100:hover,
+:where(html) .hover\:bg-blue-100\/80:hover {
+  background-color: var(--ez-blue-bg);
+}
+:where(html) .text-blue-600,
+:where(html) .text-blue-700,
+:where(html) .text-blue-800,
+:where(html) .text-blue-900,
+:where(html) .hover\:text-blue-800:hover {
+  color: var(--ez-blue-text);
+}
+:where(html) .border-blue-200,
+:where(html) .border-blue-200\/80 {
+  border-color: var(--ez-blue-border);
+}
+
+:where(html) .bg-purple-50,
+:where(html) .bg-purple-100,
+:where(html) .hover\:bg-purple-50\/30:hover {
+  background-color: var(--ez-purple-bg);
+}
+:where(html) .text-purple-600,
+:where(html) .text-purple-700,
+:where(html) .text-purple-900,
+:where(html) .hover\:text-purple-800:hover {
+  color: var(--ez-purple-text);
+}
+:where(html) .border-purple-100,
+:where(html) .border-purple-200,
+:where(html) .border-purple-200\/90 {
+  border-color: var(--ez-purple-border);
+}
+
+/* Recharts default tooltip adaptation */
+.recharts-default-tooltip {
+  background-color: var(--ez-tooltip-bg) !important;
+  border-color: var(--ez-tooltip-border) !important;
+  border-radius: 10px !important;
+  color: var(--ez-text) !important;
+}
+.recharts-tooltip-item,
+.recharts-tooltip-label {
+  color: var(--ez-text) !important;
+}
+
+/* Standard Scrollbar Styling (never animate scrollbar-color) */
+.custom-scrollbar {
+  scrollbar-color: var(--ez-scrollbar-thumb) var(--ez-scrollbar-track);
+  scrollbar-width: thin;
+}
+
+/* Legacy WebKit fallback scoped to browsers without scrollbar-color */
+@supports not (scrollbar-color: auto) {
+  .custom-scrollbar {
+    scrollbar-width: auto;
+  }
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: var(--ez-scrollbar-track);
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: var(--ez-scrollbar-thumb);
+    border-radius: 9999px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: var(--ez-scrollbar-thumb-hover);
+  }
 }

@@ -7,7 +7,7 @@ interface RatioChartProps {
   newPhoneLeads: number;
 }
 
-const COLORS = ['#1E5BD6', '#0A1F44', '#F5B400'];
+const COLORS = ['#1E5BD6', 'var(--ez-chart-navy)', '#F5B400'];
 
 const CustomLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent }: any) => {
   if (percent < 0.05) return null;
@@ -60,10 +60,13 @@ export function RatioChart({ newLeads, recontactLeads, totalLeads, newPhoneLeads
               <Tooltip
                 contentStyle={{
                   borderRadius: '10px',
-                  border: '1px solid #E2E8F0',
+                  backgroundColor: 'var(--ez-tooltip-bg)',
+                  border: '1px solid var(--ez-tooltip-border)',
+                  color: 'var(--ez-text)',
                   fontSize: '12px',
-                  boxShadow: '0 4px 12px rgba(10,31,68,0.06)'
+                  boxShadow: '0 4px 12px rgba(10,31,68,0.12)'
                 }}
+                itemStyle={{ color: 'var(--ez-text)' }}
                 formatter={(value: number) => [value.toLocaleString(), 'Lead']}
               />
             </PieChart>
@@ -72,7 +75,7 @@ export function RatioChart({ newLeads, recontactLeads, totalLeads, newPhoneLeads
           <div className="mt-3 pt-3 border-t border-slate-100 space-y-2">
             <div className="flex items-center justify-between text-xs">
               <span className="flex items-center gap-2 text-slate-600">
-                <span className="w-2 h-2 rounded-full bg-navy inline-block" />
+                <span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: 'var(--ez-chart-navy)' }} />
                 Tỉ lệ Contact Lại
               </span>
               <span className="font-mono font-semibold text-navy tabular-nums">{recontactRate}%</span>

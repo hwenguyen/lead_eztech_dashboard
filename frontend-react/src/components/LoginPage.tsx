@@ -9,6 +9,7 @@ import {
   ArrowRight
 } from 'lucide-react';
 import { loginApi, type AuthUser } from '../services/api';
+import { ThemeToggle } from './ThemeToggle';
 
 interface LoginPageProps {
   onLoginSuccess: (user: AuthUser) => void;
@@ -53,9 +54,12 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, embedded =
 
   return (
     <div className={embedded ? "py-6 flex items-center justify-center p-2 relative text-gray-800" : "min-h-screen bg-gradient-to-br from-navy via-brand-950 to-[#071630] flex items-center justify-center p-4 relative overflow-hidden text-gray-800"}>
-      {/* Decorative Glow Elements for standalone */}
+      {/* Decorative Glow Elements & Theme Toggle for standalone */}
       {!embedded && (
         <>
+          <div className="absolute top-4 right-4 z-20">
+            <ThemeToggle />
+          </div>
           <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-brand-500/15 rounded-full blur-3xl pointer-events-none" />
           <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-gold-500/10 rounded-full blur-3xl pointer-events-none" />
         </>
@@ -63,14 +67,14 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, embedded =
 
       <div className="max-w-md w-full relative z-10">
         {/* Card Container */}
-        <div className={embedded ? "bg-white rounded-3xl shadow-xl border border-gray-200 p-8 sm:p-10 space-y-6" : "bg-white/95 backdrop-blur-xl rounded-3xl shadow-2xl border border-white/20 p-8 sm:p-10 space-y-6"}>
+        <div className={embedded ? "bg-white rounded-3xl shadow-xl border border-gray-200 p-8 sm:p-10 space-y-6" : "bg-white/95 backdrop-blur-xl rounded-3xl shadow-2xl border border-white/20 dark:border-slate-700/80 p-8 sm:p-10 space-y-6"}>
           {/* Header & Logo */}
           <div className="text-center space-y-2">
-            <div className="inline-flex items-center justify-center p-3 rounded-2xl bg-gradient-to-tr from-brand-50 to-white border border-brand-200/80 shadow-inner mb-1">
+            <div className="inline-flex items-center justify-center p-3 rounded-2xl bg-gradient-to-tr from-brand-50 to-white dark:from-slate-800 dark:to-slate-900 border border-brand-200/80 shadow-inner mb-1">
               {embedded ? (
                 <Lock className="w-8 h-8 text-brand-500" />
               ) : (
-                <img src="/brand_ngang.png" alt="EzTech" className="h-10 w-auto object-contain" />
+                <img src="/brand_ngang.png" alt="EzTech" className="h-10 w-auto object-contain dark:brightness-125" />
               )}
             </div>
             <h1 className="text-2xl font-extrabold text-navy tracking-tight">

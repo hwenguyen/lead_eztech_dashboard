@@ -75,7 +75,7 @@ export function KpiCard({ title, value, subtitle, icon, color = 'blue', trend, h
       className={cn(
         "group relative bg-white rounded-2xl border p-4 shadow-card hover:shadow-card-hover transition-all duration-200 flex flex-col justify-between gap-3",
         highlight
-          ? "border-gold-400/80 bg-gradient-to-b from-white to-gold-50/40 shadow-xs"
+          ? "border-gold-400/80 bg-gradient-to-b from-white to-gold-50/40 dark:from-slate-900 dark:to-amber-950/30 shadow-xs"
           : "border-slate-200/80 hover:border-brand-400/50"
       )}
     >
