@@ -15,6 +15,7 @@ import os
 import re
 import json
 import time
+import base64
 import random
 import logging
 import threading
@@ -280,9 +281,161 @@ class BroadcastPreviewResponse(BaseModel):
     recipients: List[BroadcastRecipientItem]
 
 
+class BroadcastImagePayload(BaseModel):
+    filename: str = "image.jpg"
+    content_type: str = "image/jpeg"
+    data_base64: str
+
+
+ALLOWED_IMAGE_MIME_TYPES = {
+    "image/jpeg",
+    "image/jpg",
+    "image/png",
+    "image/gif",
+    "image/webp",
+}
+MAX_BROADCAST_IMAGES = 10
+MAX_BROADCAST_IMAGE_BYTES = 5 * 1024 * 1024
+VALID_SEND_MODES = ("text_then_images", "images_then_text", "images_only")
+
+
+def decode_broadcast_images(
+    images: List[Union[BroadcastImagePayload, Dict[str, Any]]]
+) -> List[Dict[str, Any]]:
+    """Giải mã và kiểm tra tính hợp lệ (MIME, base64, dung lượng <= 5MB, tối đa 10 ảnh)."""
+    if not images:
+        return []
+    if len(images) > MAX_BROADCAST_IMAGES:
+        raise ValueError(f"Chỉ cho phép đính kèm tối đa {MAX_BROADCAST_IMAGES} ảnh mỗi chiến dịch.")
+
+    decoded: List[Dict[str, Any]] = []
+    for idx, item in enumerate(images, 1):
+        fname = (item.filename if isinstance(item, BroadcastImagePayload) else item.get("filename")) or f"image_{idx}.jpg"
+        ctype_raw = (item.content_type if isinstance(item, BroadcastImagePayload) else item.get("content_type")) or ""
+        ctype = ctype_raw.split(";")[0].strip().lower()
+        if ctype == "image/jpg":
+            ctype = "image/jpeg"
+        if ctype not in ALLOWED_IMAGE_MIME_TYPES:
+            raise ValueError(f"Ảnh '{fname}' có định dạng '{ctype_raw}' không được hỗ trợ (chỉ nhận JPG/PNG/GIF/WEBP).")
+
+        b64_str = (item.data_base64 if isinstance(item, BroadcastImagePayload) else item.get("data_base64")) or ""
+        b64_str = b64_str.strip()
+        if "," in b64_str and b64_str.lower().startswith("data:"):
+            b64_str = b64_str.split(",", 1)[1].strip()
+        if not b64_str:
+            raise ValueError(f"Ảnh '{fname}' có dữ liệu base64 rỗng.")
+
+        try:
+            raw_bytes = base64.b64decode(b64_str, validate=True)
+        except Exception:
+            raise ValueError(f"Ảnh '{fname}' có dữ liệu base64 không hợp lệ.")
+
+        if not raw_bytes:
+            raise ValueError(f"Ảnh '{fname}' bị rỗng (0 bytes).")
+        if len(raw_bytes) > MAX_BROADCAST_IMAGE_BYTES:
+            raise ValueError(f"Ảnh '{fname}' vượt quá giới hạn tối đa 5MB mỗi ảnh.")
+
+        decoded.append({
+            "filename": fname,
+            "content_type": ctype,
+            "bytes": raw_bytes,
+            "data_base64": b64_str,
+        })
+    return decoded
+
+
+def _get_max_content_ids_for_channel(api_page_id: str, conversation_id: str, is_zalo: bool = False) -> int:
+    """Theo Pancake OpenAPI: Facebook & personal_zalo tối đa 30 ảnh/lần gọi; các kênh khác tối đa 1."""
+    pid = str(api_page_id or "").strip().lower()
+    cid = str(conversation_id or "").strip().lower()
+    if is_zalo or pid.startswith("pzl_") or cid.startswith("pzl_"):
+        return 30
+    if pid.startswith("fb_") or cid.startswith("fb_") or (pid.isdigit() and not cid.startswith(("tt_", "zl_", "ig_", "tg_", "wa_", "web_"))):
+        return 30
+    return 1
+
+
+def _send_images_with_auto_reupload(
+    client: PancakeClient,
+    api_page_id: str,
+    conversation_id: str,
+    decoded_images: List[Dict[str, Any]],
+    uploaded_cache: Dict[str, List[str]],
+    is_zalo: bool = False,
+) -> Dict[str, Any]:
+    """Upload ảnh theo từng Page (có cache) và gửi content_ids theo batch giới hạn kênh; tự re-upload 1 lần nếu FB hết hạn."""
+    if not decoded_images:
+        return {"success": True}
+
+    def _ensure_uploaded(force_refresh: bool = False) -> Tuple[Optional[List[str]], Optional[Dict[str, Any]]]:
+        if not force_refresh and uploaded_cache.get(api_page_id):
+            return uploaded_cache[api_page_id], None
+        new_ids: List[str] = []
+        for img in decoded_images:
+            up_res = client.upload_content(
+                page_id=api_page_id,
+                file_bytes=img["bytes"],
+                filename=img["filename"],
+                content_type=img["content_type"],
+                conversation_id=conversation_id,
+            )
+            if not up_res.get("success") or not up_res.get("id"):
+                return None, {
+                    "success": False,
+                    "message": up_res.get("message") or f"Upload ảnh '{img['filename']}' lên kênh {api_page_id} thất bại",
+                    **{k: v for k, v in up_res.items() if k in ("message_code", "error_code", "status_code")},
+                }
+            new_ids.append(str(up_res["id"]))
+        uploaded_cache[api_page_id] = new_ids
+        return new_ids, None
+
+    content_ids, upload_err = _ensure_uploaded(force_refresh=False)
+    if upload_err:
+        return upload_err
+
+    chunk_size = _get_max_content_ids_for_channel(api_page_id, conversation_id, is_zalo=is_zalo)
+    reupload_used = False
+    idx = 0
+    last_res: Dict[str, Any] = {"success": True}
+
+    while idx < len(content_ids):
+        chunk = content_ids[idx : idx + chunk_size]
+        res = client.send_message(
+            page_id=api_page_id,
+            conversation_id=conversation_id,
+            message="",
+            action="reply_inbox",
+            content_ids=chunk,
+        )
+        if res.get("success"):
+            last_res = res
+            idx += chunk_size
+            if idx < len(content_ids):
+                time.sleep(0.4)
+            continue
+
+        err_code = str(res.get("message_code") or "")
+        err_text = str(res.get("message") or "")
+        is_fb_expired = "invalid_upload_fb_attachments_result" in err_code or "invalid_upload_fb_attachments_result" in err_text.lower()
+        if is_fb_expired and not reupload_used:
+            reupload_used = True
+            uploaded_cache.pop(api_page_id, None)
+            refreshed_ids, reupload_err = _ensure_uploaded(force_refresh=True)
+            if reupload_err:
+                return reupload_err
+            content_ids = refreshed_ids
+            continue
+
+        return res
+
+    return last_res
+
+
 class BroadcastStartRequest(BaseModel):
     campaign_name: str
-    template: str
+    template: str = ""
+    images: List[BroadcastImagePayload] = Field(default_factory=list)
+    send_mode: str = "text_then_images"
     page_id: Optional[str] = "all"
     name_filter: Optional[str] = None
     employee: Optional[str] = "all"
@@ -734,7 +887,15 @@ def _run_broadcast_worker(task_id: str, req_data: Dict[str, Any]):
 
     try:
         campaign_name = req_data["campaign_name"].strip()
-        template = req_data["template"]
+        template = req_data.get("template") or ""
+        decoded_images = decode_broadcast_images(req_data.get("images") or [])
+        send_mode = (req_data.get("send_mode") or "text_then_images").strip()
+        if send_mode not in VALID_SEND_MODES:
+            send_mode = "text_then_images"
+        send_text = bool(template.strip()) and send_mode != "images_only"
+        send_images = len(decoded_images) > 0
+        image_summary = ", ".join(img["filename"] for img in decoded_images)
+
         limit = int(req_data.get("limit", 50))
         base_delay = max(0.5, float(req_data.get("delay", 1.5)))
         dry_run = bool(req_data.get("dry_run", True))
@@ -775,9 +936,13 @@ def _run_broadcast_worker(task_id: str, req_data: Dict[str, Any]):
                 _BROADCAST_TASKS[task_id]["total"] = len(recipients)
 
         zalo_sent_count = 0
+        zalo_batch_counter = 0
         consecutive_failures = 0
+        uploaded_ids_cache: Dict[str, List[str]] = {}
+        ordered_steps = ["images", "text"] if send_mode == "images_then_text" else ["text", "images"]
+        active_steps = [s for s in ordered_steps if (s == "text" and send_text) or (s == "images" and send_images)]
 
-        # 2. Duyệt gửi từng tin nhắn
+        # 2. Duyệt gửi từng khách hàng
         for index, rec in enumerate(recipients, 1):
             with _BROADCAST_LOCK:
                 task = _BROADCAST_TASKS.get(task_id)
@@ -788,22 +953,34 @@ def _run_broadcast_worker(task_id: str, req_data: Dict[str, Any]):
                 task["current_recipient"] = f"[{index}/{len(recipients)}] Đang gửi ({channel_badge}): {rec.get('name')} ({rec['conversation_id']})"
 
             is_zalo = bool(rec.get("is_zalo"))
-            personalized_msg = render_personalized_template(
-                template=template,
-                recipient=rec,
-                enable_spintax=enable_spintax,
-                anti_spam_variation=(is_zalo and zalo_protection),
+            personalized_msg = (
+                render_personalized_template(
+                    template=template,
+                    recipient=rec,
+                    enable_spintax=enable_spintax,
+                    anti_spam_variation=(is_zalo and zalo_protection),
+                )
+                if send_text
+                else ""
             )
+            if send_text and send_images:
+                logged_reply = f"{personalized_msg}\n[Đính kèm {len(decoded_images)} ảnh: {image_summary}]"
+            elif send_images:
+                logged_reply = f"[Chỉ gửi {len(decoded_images)} ảnh: {image_summary}]"
+            else:
+                logged_reply = personalized_msg
+
             conv_id = rec["conversation_id"]
             display_page = rec["page_id"]
             api_page_id = rec.get("api_page_id") or resolve_api_page_id(display_page, conv_id)
 
             log_status = "SENT"
             err_msg = None
+            zalo_calls_sent = 0
+            cancelled_mid_recipient = False
 
             if dry_run:
                 log_status = "DRY_RUN"
-                res = {"success": True, "message": "[DRY-RUN] Giả lập gửi thành công"}
                 time.sleep(0.15)
             else:
                 # Tra cứu đúng Token cho Page hiện tại
@@ -819,15 +996,55 @@ def _run_broadcast_worker(task_id: str, req_data: Dict[str, Any]):
                         clients_by_token[page_tok] = PancakeClient(api_token=page_tok)
                     client = clients_by_token[page_tok]
 
-                    res = client.send_message(
-                        page_id=api_page_id,
-                        conversation_id=conv_id,
-                        message=personalized_msg,
-                        action="reply_inbox",
-                    )
-                    if not res.get("success"):
-                        log_status = "FAILED"
-                        err_msg = res.get("message") or res.get("message_code") or "Lỗi gửi tin qua Pancake API"
+                    completed_steps: List[str] = []
+                    for step_idx, step in enumerate(active_steps):
+                        if step_idx > 0:
+                            step_wait = random.uniform(1.0, 2.0)
+                            if not _sleep_with_cancel_check(
+                                task_id,
+                                step_wait,
+                                f"📎 Chuẩn bị gửi phần tiếp theo cho {rec.get('name')}",
+                            ):
+                                cancelled_mid_recipient = True
+                                break
+
+                        if step == "text":
+                            res = client.send_message(
+                                page_id=api_page_id,
+                                conversation_id=conv_id,
+                                message=personalized_msg,
+                                action="reply_inbox",
+                            )
+                            step_calls = 1
+                        else:
+                            res = _send_images_with_auto_reupload(
+                                client=client,
+                                api_page_id=api_page_id,
+                                conversation_id=conv_id,
+                                decoded_images=decoded_images,
+                                uploaded_cache=uploaded_ids_cache,
+                                is_zalo=is_zalo,
+                            )
+                            chunk_sz = _get_max_content_ids_for_channel(api_page_id, conv_id, is_zalo=is_zalo)
+                            step_calls = max(1, (len(decoded_images) + chunk_sz - 1) // chunk_sz)
+
+                        if res.get("success"):
+                            completed_steps.append(step)
+                            if is_zalo:
+                                zalo_calls_sent += step_calls
+                        else:
+                            log_status = "FAILED"
+                            raw_err = res.get("message") or res.get("message_code") or "Lỗi gửi tin qua Pancake API"
+                            if completed_steps:
+                                done_label = "chữ" if completed_steps[0] == "text" else "ảnh"
+                                fail_label = "ảnh" if step == "images" else "chữ"
+                                err_msg = f"[Đã gửi {done_label}, gửi {fail_label} thất bại] {raw_err}"
+                            else:
+                                err_msg = raw_err
+                            break
+
+            if cancelled_mid_recipient:
+                break
 
             # Lưu lịch sử vào bảng bot_auto_replies
             try:
@@ -837,7 +1054,7 @@ def _run_broadcast_worker(task_id: str, req_data: Dict[str, Any]):
                     page_id=display_page,
                     case_id=campaign_name,
                     customer_message=f"[BROADCAST] {rec.get('status_tag') or ''}",
-                    reply_message=personalized_msg,
+                    reply_message=logged_reply,
                     sent_at=get_vn_now(),
                     status=log_status,
                     error_message=err_msg,
@@ -871,12 +1088,13 @@ def _run_broadcast_worker(task_id: str, req_data: Dict[str, Any]):
                     if len(t["logs"]) > 100:
                         t["logs"] = t["logs"][-100:]
 
-            # 3. Xử lý chống Rate Limit & Bảo vệ tài khoản sau mỗi tin gửi thật
+            # 3. Xử lý chống Rate Limit & Bảo vệ tài khoản sau mỗi khách
             if not dry_run:
                 if log_status == "SENT":
                     consecutive_failures = 0
                     if is_zalo:
-                        zalo_sent_count += 1
+                        zalo_sent_count += max(1, zalo_calls_sent)
+                        zalo_batch_counter += max(1, zalo_calls_sent)
                 else:
                     consecutive_failures += 1
                     # Kiểm tra Circuit Breaker (ngắt tự động nếu lỗi liên tiếp vượt ngưỡng)
@@ -908,7 +1126,8 @@ def _run_broadcast_worker(task_id: str, req_data: Dict[str, Any]):
                 if index < len(recipients):
                     if is_zalo and zalo_protection:
                         # Kiểm tra nghỉ giải lao theo chặng (Batch Cooldown)
-                        if zalo_sent_count > 0 and zalo_sent_count % zalo_batch_size == 0:
+                        if zalo_batch_counter >= zalo_batch_size:
+                            zalo_batch_counter = 0
                             cooldown_sec = random.uniform(zalo_batch_pause, zalo_batch_pause * 1.25)
                             logger.info(f"[ZALO ANTI-BAN] Đã gửi {zalo_sent_count} tin Zalo. Nghỉ giải lao {cooldown_sec:.0f}s...")
                             if not _sleep_with_cancel_check(
@@ -1295,8 +1514,21 @@ def start_broadcast(req: BroadcastStartRequest, background_tasks: BackgroundTask
     """Bắt đầu chạy chiến dịch gửi tin hàng loạt trong nền (hỗ trợ cả Live và Dry-run)."""
     if not req.campaign_name or not req.campaign_name.strip():
         raise HTTPException(status_code=400, detail="Vui lòng đặt Tên chiến dịch.")
-    if not req.template or not req.template.strip():
-        raise HTTPException(status_code=400, detail="Vui lòng nhập Nội dung tin nhắn.")
+
+    mode = (req.send_mode or "text_then_images").strip()
+    if mode not in VALID_SEND_MODES:
+        mode = "text_then_images"
+
+    try:
+        decoded_images = decode_broadcast_images(req.images)
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+
+    has_template = bool(req.template and req.template.strip())
+    if mode == "images_only" and not decoded_images:
+        raise HTTPException(status_code=400, detail="Chế độ 'Chỉ gửi ảnh' yêu cầu đính kèm ít nhất 1 ảnh.")
+    if not has_template and not decoded_images:
+        raise HTTPException(status_code=400, detail="Vui lòng nhập Nội dung tin nhắn hoặc đính kèm ít nhất 1 ảnh.")
 
     # Nếu gửi thật (dry_run=False), kiểm tra trước xem đã có Token chưa để báo lỗi ngay lập tức
     if not req.dry_run:
