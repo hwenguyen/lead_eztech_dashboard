@@ -22,7 +22,8 @@ import {
   Key,
   Search,
   ChevronDown,
-  X
+  X,
+  Image as ImageIcon
 } from 'lucide-react';
 import {
   fetchBroadcastOptions,
@@ -40,8 +41,19 @@ import {
   type BroadcastCampaignSummary,
   type BroadcastHistoryItem,
   type BroadcastStatusResponse,
-  type TokenStatusResponse
+  type TokenStatusResponse,
+  type BroadcastImageItem
 } from '../services/api';
+
+type AttachedBroadcastImage = BroadcastImageItem & {
+  id: string;
+  sizeBytes: number;
+  previewUrl: string;
+};
+
+const MAX_BROADCAST_IMAGES = 10;
+const MAX_IMAGE_FILE_BYTES = 5 * 1024 * 1024;
+const ALLOWED_IMAGE_MIME_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
 
 export const BulkMessengerDashboard: React.FC = () => {
   // Navigation sub-tabs
@@ -86,11 +98,14 @@ export const BulkMessengerDashboard: React.FC = () => {
   const [enableSpintax, setEnableSpintax] = useState<boolean>(true);
   const [maxConsecutiveErrors, setMaxConsecutiveErrors] = useState<number>(5);
 
-  // Message Content & Template
+  // Message Content, Template & Images
   const [template, setTemplate] = useState<string>(
     '{Chào|Xin chào|Dạ chào} {gender_title} {name}, bên em gửi {gender_title_lower} thông tin ưu đãi mới nhất từ hệ thống ạ!'
   );
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [attachedImages, setAttachedImages] = useState<AttachedBroadcastImage[]>([]);
+  const [sendMode, setSendMode] = useState<'text_then_images' | 'images_then_text' | 'images_only'>('text_then_images');
+  const imageInputRef = useRef<HTMLInputElement>(null);
 
   // Preview State & Custom Recipient Management
   const [originalRecipients, setOriginalRecipients] = useState<BroadcastRecipientItem[]>([]);
@@ -460,6 +475,88 @@ export const BulkMessengerDashboard: React.FC = () => {
     }
   };
 
+  const handleSelectImages = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = '';
+    if (files.length === 0) return;
+
+    const remainingSlots = MAX_BROADCAST_IMAGES - attachedImages.length;
+    if (remainingSlots <= 0) {
+      alert(`Chỉ cho phép đính kèm tối đa ${MAX_BROADCAST_IMAGES} ảnh mỗi chiến dịch.`);
+      return;
+    }
+
+    const errors: string[] = [];
+    const acceptedFiles = files.slice(0, remainingSlots);
+    if (files.length > remainingSlots) {
+      errors.push(`Đã giới hạn chỉ lấy ${remainingSlots} ảnh đầu (tối đa ${MAX_BROADCAST_IMAGES} ảnh).`);
+    }
+
+    const readFileAsDataUrl = (file: File): Promise<string> =>
+      new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ''));
+        reader.onerror = () => reject(new Error(`Không thể đọc ảnh ${file.name}`));
+        reader.readAsDataURL(file);
+      });
+
+    const newItems: AttachedBroadcastImage[] = [];
+    for (const f of acceptedFiles) {
+      const mime = (f.type || '').toLowerCase();
+      if (!ALLOWED_IMAGE_MIME_TYPES.includes(mime)) {
+        errors.push(`"${f.name}": định dạng không hỗ trợ (chỉ nhận JPG/PNG/GIF/WEBP).`);
+        continue;
+      }
+      if (f.size <= 0 || f.size > MAX_IMAGE_FILE_BYTES) {
+        errors.push(`"${f.name}": dung lượng phải ≤ 5MB.`);
+        continue;
+      }
+      try {
+        const dataUrl = await readFileAsDataUrl(f);
+        const b64 = dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl;
+        newItems.push({
+          id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          filename: f.name,
+          content_type: mime,
+          sizeBytes: f.size,
+          data_base64: b64,
+          previewUrl: dataUrl
+        });
+      } catch (err: any) {
+        errors.push(err?.message || `Lỗi đọc file "${f.name}"`);
+      }
+    }
+
+    if (newItems.length > 0) {
+      setAttachedImages((prev) => [...prev, ...newItems]);
+    }
+    if (errors.length > 0) {
+      alert(errors.join('\n'));
+    }
+  };
+
+  const handleRemoveImage = (id: string) => {
+    setAttachedImages((prev) => {
+      const next = prev.filter((item) => item.id !== id);
+      if (next.length === 0 && sendMode === 'images_only') {
+        setSendMode('text_then_images');
+      }
+      return next;
+    });
+  };
+
+  const openConfirmModal = () => {
+    if (sendMode === 'images_only' && attachedImages.length === 0) {
+      alert('Vui lòng chọn ít nhất 1 ảnh khi dùng chế độ Chỉ gửi ảnh.');
+      return;
+    }
+    if (!template.trim() && attachedImages.length === 0) {
+      alert('Vui lòng nhập nội dung tin nhắn hoặc đính kèm ít nhất 1 ảnh.');
+      return;
+    }
+    setShowConfirmModal(true);
+  };
+
   // Bắt đầu gửi tin
   const handleStartBroadcast = async () => {
     setShowConfirmModal(false);
@@ -476,6 +573,12 @@ export const BulkMessengerDashboard: React.FC = () => {
       const res = await startBroadcast({
         campaign_name: campaignName,
         template: template,
+        images: attachedImages.map(({ filename, content_type, data_base64 }) => ({
+          filename,
+          content_type,
+          data_base64
+        })),
+        send_mode: attachedImages.length > 0 ? sendMode : 'text_then_images',
         page_id: pageId,
         name_filter: nameFilter,
         employee: employee,
@@ -1395,9 +1498,118 @@ export const BulkMessengerDashboard: React.FC = () => {
                   rows={5}
                   value={template}
                   onChange={(e) => setTemplate(e.target.value)}
-                  placeholder="Nhập nội dung tin nhắn gửi khách..."
-                  className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-xl text-xs focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all leading-relaxed"
+                  disabled={attachedImages.length > 0 && sendMode === 'images_only'}
+                  placeholder={
+                    attachedImages.length > 0 && sendMode === 'images_only'
+                      ? 'Đang bật chế độ Chỉ gửi ảnh (bỏ qua nội dung chữ)...'
+                      : 'Nhập nội dung tin nhắn gửi khách (hoặc để trống nếu chỉ gửi ảnh)...'
+                  }
+                  className={`w-full px-3 py-2 border border-gray-300 rounded-xl text-xs focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all leading-relaxed ${
+                    attachedImages.length > 0 && sendMode === 'images_only'
+                      ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                      : 'bg-gray-50'
+                  }`}
                 />
+
+                {/* Đính kèm hình ảnh (hỗ trợ gửi kèm chữ hoặc chỉ ảnh qua Pancake API) */}
+                <div className="bg-gray-50/80 border border-dashed border-gray-300 rounded-xl p-3 space-y-2.5">
+                  <input
+                    ref={imageInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/gif,image/webp"
+                    multiple
+                    onChange={handleSelectImages}
+                    className="hidden"
+                  />
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center gap-1.5 text-xs font-semibold text-navy">
+                      <ImageIcon className="w-3.5 h-3.5 text-indigo-600" />
+                      <span>Đính kèm ảnh ({attachedImages.length}/10)</span>
+                      <span className="text-[10px] font-normal text-gray-500">≤ 5MB/ảnh · JPG, PNG, WEBP</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {attachedImages.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAttachedImages([]);
+                            if (sendMode === 'images_only') setSendMode('text_then_images');
+                          }}
+                          className="text-[11px] text-red-500 hover:text-red-700 font-medium"
+                        >
+                          Xóa hết ảnh
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => imageInputRef.current?.click()}
+                        disabled={attachedImages.length >= MAX_BROADCAST_IMAGES}
+                        className="px-2.5 py-1 bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-lg text-[11px] font-semibold shadow-sm transition-colors disabled:opacity-50"
+                      >
+                        + Chọn ảnh
+                      </button>
+                    </div>
+                  </div>
+
+                  {attachedImages.length > 0 && (
+                    <>
+                      <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                        {attachedImages.map((img) => (
+                          <div
+                            key={img.id}
+                            className="relative group bg-white border border-gray-200 rounded-lg overflow-hidden shadow-xs"
+                          >
+                            <img
+                              src={img.previewUrl}
+                              alt={img.filename}
+                              className="w-full h-16 object-cover"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveImage(img.id)}
+                              title="Xóa ảnh này"
+                              className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/65 hover:bg-red-600 text-white flex items-center justify-center text-[10px] transition-colors"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                            <div className="px-1.5 py-0.5 text-[9px] text-gray-500 truncate border-t border-gray-100">
+                              {(img.sizeBytes / 1024).toFixed(0)}KB · {img.filename}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="space-y-1.5 pt-1 border-t border-gray-200">
+                        <span className="block text-[11px] font-semibold text-gray-700">
+                          Thứ tự gửi (Pancake gửi riêng chữ &amp; ảnh):
+                        </span>
+                        <div className="grid grid-cols-3 gap-1.5">
+                          {[
+                            { id: 'text_then_images', label: 'Chữ → Ảnh' },
+                            { id: 'images_then_text', label: 'Ảnh → Chữ' },
+                            { id: 'images_only', label: 'Chỉ gửi ảnh' }
+                          ].map((m) => (
+                            <button
+                              key={m.id}
+                              type="button"
+                              onClick={() => setSendMode(m.id as any)}
+                              className={`px-2 py-1.5 rounded-lg text-[11px] font-semibold border transition-all ${
+                                sendMode === m.id
+                                  ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+                                  : 'bg-white text-gray-700 border-gray-200 hover:bg-indigo-50/50'
+                              }`}
+                            >
+                              {m.label}
+                            </button>
+                          ))}
+                        </div>
+                        <p className="text-[10px] text-amber-700 leading-snug">
+                          Lưu ý API Pancake: Khi gửi kèm chữ + ảnh, hệ thống tự tách thành 2 tin nhắn riêng biệt cho mỗi khách (tăng gấp đôi lượt request trên Zalo).
+                        </p>
+                      </div>
+                    </>
+                  )}
+                </div>
 
                 {/* Khung mô phỏng Live Preview */}
                 <div className="bg-gradient-to-b from-gray-50 to-gray-100 border border-gray-200 rounded-xl p-3.5 space-y-2">
@@ -1411,10 +1623,26 @@ export const BulkMessengerDashboard: React.FC = () => {
                     </span>
                   </div>
 
-                  <div className="bg-white p-3 rounded-lg border border-gray-200 shadow-sm">
-                    <p className="text-xs text-gray-800 whitespace-pre-wrap leading-relaxed">
-                      {sampleRenderedText}
-                    </p>
+                  <div className="space-y-2">
+                    {(sendMode === 'images_then_text' ? ['images', 'text'] : ['text', 'images']).map((part) => {
+                      if (part === 'images' && attachedImages.length > 0) {
+                        return (
+                          <div key="images" className="bg-white p-2 rounded-lg border border-gray-200 shadow-sm flex flex-wrap gap-1.5">
+                            {attachedImages.map((img) => (
+                              <img key={img.id} src={img.previewUrl} alt={img.filename} className="h-14 w-14 object-cover rounded border border-gray-100" />
+                            ))}
+                          </div>
+                        );
+                      }
+                      if (part === 'text' && (attachedImages.length === 0 || (sendMode !== 'images_only' && template.trim().length > 0))) {
+                        return (
+                          <div key="text" className="bg-white p-3 rounded-lg border border-gray-200 shadow-sm">
+                            <p className="text-xs text-gray-800 whitespace-pre-wrap leading-relaxed">{sampleRenderedText}</p>
+                          </div>
+                        );
+                      }
+                      return null;
+                    })}
                   </div>
                 </div>
 
@@ -1475,7 +1703,7 @@ export const BulkMessengerDashboard: React.FC = () => {
 
                   <button
                     type="button"
-                    onClick={() => setShowConfirmModal(true)}
+                    onClick={openConfirmModal}
                     disabled={isStarting || (taskStatus?.is_running ?? false)}
                     className={`flex-1 px-4 py-2.5 rounded-xl text-xs font-bold text-white flex items-center justify-center gap-2 shadow-sm transition-all ${
                       dryRun
@@ -1574,7 +1802,7 @@ export const BulkMessengerDashboard: React.FC = () => {
                   </div>
                   <button
                     type="button"
-                    onClick={() => setShowConfirmModal(true)}
+                    onClick={openConfirmModal}
                     className={`px-3 py-1.5 rounded-lg text-xs font-bold text-white flex items-center justify-center gap-1.5 shadow-sm transition-all flex-shrink-0 ${
                       dryRun ? 'bg-blue-600 hover:bg-blue-700' : 'bg-red-600 hover:bg-red-700'
                     }`}
@@ -2156,12 +2384,32 @@ export const BulkMessengerDashboard: React.FC = () => {
                 </span>
               </div>
               <div className="flex justify-between">
+                <span className="text-gray-500">Hình ảnh đính kèm:</span>
+                <span className="font-semibold text-gray-800">
+                  {attachedImages.length > 0
+                    ? `${attachedImages.length} ảnh (${
+                        sendMode === 'images_only'
+                          ? 'Chỉ gửi ảnh'
+                          : sendMode === 'images_then_text'
+                          ? 'Ảnh → Chữ'
+                          : 'Chữ → Ảnh'
+                      })`
+                    : 'Không có (Chỉ gửi chữ)'}
+                </span>
+              </div>
+              <div className="flex justify-between">
                 <span className="text-gray-500">Chế độ:</span>
                 <span className={`font-bold ${dryRun ? 'text-blue-600' : 'text-red-600'}`}>
                   {dryRun ? 'Mô phỏng (Không gọi API thật)' : 'GỬI THẬT ĐẾN KHÁCH HÀNG'}
                 </span>
               </div>
             </div>
+
+            {hasZaloInSelection && attachedImages.length > 0 && sendMode !== 'images_only' && (
+              <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-xl p-3 text-[11px] leading-relaxed">
+                <strong>Cảnh báo Zalo cá nhân:</strong> Do Pancake không cho phép gửi chữ và ảnh trong cùng 1 request, mỗi khách sẽ nhận <strong>2 tin tách rời</strong> (tốn gấp đôi request). Nên cân nhắc giảm số lượng khách hoặc bật chế độ <strong>Siêu an toàn</strong>.
+              </div>
+            )}
 
             <div className="flex items-center justify-end gap-3 pt-2">
               <button

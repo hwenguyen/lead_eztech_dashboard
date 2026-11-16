@@ -443,9 +443,17 @@ export interface BroadcastPreviewResponse {
   recipients: BroadcastRecipientItem[];
 }
 
+export interface BroadcastImageItem {
+  filename: string;
+  content_type: string;
+  data_base64: string;
+}
+
 export interface BroadcastStartParams {
   campaign_name: string;
   template: string;
+  images?: BroadcastImageItem[];
+  send_mode?: 'text_then_images' | 'images_then_text' | 'images_only';
   page_id?: string;
   name_filter?: string;
   employee?: string;
