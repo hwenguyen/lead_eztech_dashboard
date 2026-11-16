@@ -152,15 +152,28 @@ Dành cho khách hàng (Chủ doanh nghiệp, CFO, KTT) **không muốn tự h�
 - **Trên Facebook Messenger:** Dùng lý do kỹ thuật thực tế: *"Do Mess hạn chế gửi file > 25MB nên chị cho em xin SĐT để kết bạn Zalo, gửi đầy đủ lộ trình, quyền lợi và bộ demo nhé ạ"*. Nếu khách không cho số, gửi tóm tắt lộ trình K1-K2-K3 kèm link demo ngay trên Mess.
 - **Khách từ Web / Xin Tool (All-in-One, EzHoadon, EzExcel, Prompt AI):** Tặng đúng bản dùng thử/hướng dẫn (EzExcel 3 ngày, video hướng dẫn EzHoadon, 1 file trong bộ 100 AIO) → Dừng ~30 phút hoặc hỏi tiếp khó khăn xử lý dữ liệu để chuyển dần sang tư vấn khóa Data Finance / bộ B2C.
 
-### B. Phân nhánh tư vấn theo Công cụ khách đang dùng (`Kịch bản chuyên sâu.xlsx`)
-1. **Khách dùng Excel là chính:**
-   - Đồng cảm: Càng làm lâu dữ liệu càng nhiều khiến Excel nặng, link nhiều file dễ lỗi, mỗi tháng phải cập nhật lại từ đầu rất mất thời gian tổng hợp, không còn thời gian phân tích sâu.
-   - Giải pháp: **Power Query** (tích hợp sẵn trong Excel, chỉ kéo thả/tick chọn không cần nhớ hàm phức tạp) giúp tự động gom hàng chục file; **Power BI** tạo Dashboard mẫu 1 lần, tháng sau chỉ cần import dữ liệu mới và bấm Refresh là tự cập nhật.
-2. **Khách dùng phần mềm kế toán (MISA, FAST...) là chính:**
-   - Khẳng định phần mềm kế toán rất tốt cho hạch toán & lưu trữ, **nhưng** khi cần đối chiếu từ nhiều nguồn (sao kê ngân hàng, công nợ, sàn TMĐT) hoặc sếp muốn xem báo cáo quản trị đa chiều theo yêu cầu riêng thì mẫu có sẵn của phần mềm bị giới hạn.
-   - Nhấn mạnh trong khóa học có **case thực chiến trực tiếp trên sổ NKC kết xuất từ MISA** (đối chiếu sao kê ngân hàng vs NKC MISA, lên P&L từ NKC MISA, tạo form đổ hạch toán tự động ngược vào MISA).
-3. **Khách ít tương tác / Chỉ muốn hỏi giá & thông tin nhanh:**
-   - Gửi ngay đoạn ngắn gọn nêu đúng giá trị Power Query + Power BI cho kế toán + trình tự chuẩn **8 bước gửi lộ trình**: (1) Danh sách K1-K2-K3 kèm số buổi & học phí lẻ → (2) File PDF lộ trình → (3) Giá combo ưu đãi 7.5tr → (4) Link 3 Demo báo cáo học viên trả bài → (5) Tóm tắt nội dung K1/K3 vs K2 → (6) Nhấn mạnh Support 1-1 & thực hành trên dữ liệu công ty mình → (7) Câu hỏi chạm insight chốt lịch khai giảng.
+### B. FLOW Chuẩn Bám Sát `Kịch bản chuyên sâu.xlsx` (Không nhảy cóc)
+
+- **Step 1 — Chăm sóc trước (Khách mới hỏi chung chung, chưa nói rõ công cụ đang làm):**
+  - **Tuyệt đối chưa gửi lộ trình K1-K2-K3 hay báo giá 4.5tr / 7.5tr ngay ở tin đầu.**
+  - Chỉ chào nhẹ nhàng và hỏi đúng câu khai thác: *"Dạ chị cho em hỏi thêm mình một xíu là hiện tại mình chủ yếu đang xử lý dữ liệu thủ công bằng Excel hay mình dùng phần mềm kế toán là chính ạ?"* (hoặc *"Dạ chị cho em hỏi thêm một xíu hiện tại mình chủ yếu xử lý dữ liệu thủ công bằng Excel có phải không ạ?"*).
+
+- **Step 2 — Phân nhánh sau khi khách trả lời (hoặc khách chỉ hỏi giá / không phản hồi):**
+  1. **Khách dùng Excel là chính:** Đồng cảm file nặng, link giữa các file dễ lỗi, mỗi tháng phải cập nhật lại từ đầu rất mất thời gian tổng hợp → giới thiệu Power Query (tích hợp sẵn trong Excel, kéo thả và tick chọn không phải code) và Power BI (làm một form mẫu, tháng sau import dữ liệu mới tự cập nhật) → **cuối tin xin phép gửi full lộ trình Data Finance**.
+  2. **Khách dùng phần mềm kế toán (MISA, FAST...) là chính:** Ghi nhận phần mềm hỗ trợ tốt hạch toán và lưu trữ, nhưng khi đối chiếu nhiều nguồn hoặc sếp muốn báo cáo quản trị đa chiều theo yêu cầu riêng thì bị giới hạn bởi mẫu có sẵn → nâng cấp thêm Power Query (đối chiếu sao kê, công nợ, hạch toán tự động) và Power BI → **cuối tin xin phép gửi full lộ trình Data Finance** (nhấn mạnh có case thực chiến trực tiếp trên sổ NKC kết xuất từ MISA).
+  3. **Khách ít tương tác hoặc chỉ muốn hỏi học phí và thông tin khóa học:** Gửi đoạn ngắn nêu giá trị Power Query và Power BI trong tối ưu đối soát và báo cáo quản trị rồi gửi lộ trình chuẩn.
+
+- **Step 3 — Quy trình Gửi lộ trình mới (8 bước chuẩn):**
+  1. Danh sách K1 (Power BI quản trị TCKD - 10 buổi - 4.5tr), K2 (Power Query, Excel và AI cho TCKT - 14 buổi - 5tr), K3 (Power BI lập và phân tích BCTC E-learning - 9 buổi).
+  2. File PDF lộ trình (Finance hoặc Business).
+  3. Báo ưu đãi đăng ký 2 khóa đầu được tặng khóa 3 giảm còn 7.5tr.
+  4. Gửi 3 link Demo học viên trả bài (K1.1, K1.2 Báo cáo Lãi Lỗ, K3).
+  5. Giải thích rõ vai trò K1/K3 (tổ chức dữ liệu, trình bày báo cáo quản trị) và K2 (xử lý, đối soát, tích hợp dữ liệu nhiều nguồn, Power Query, Pivot Table, AI lên báo cáo P&L động trên Excel).
+  6. Nhấn mạnh tính cá nhân hóa: mỗi học viên có 1 bạn DA support 1-1 trong và cả sau khóa học, thực hành trên dữ liệu công ty mình.
+  7. Chạm vào insight hoặc hỏi lại lịch/băn khoăn của khách.
+
+- **Step 4 — Chăm sóc sau khi gửi lộ trình:**
+  - Chỉ giải đáp đúng vấn đề khách hỏi (Online/Offline, sĩ số 20–22 người, học K2 trước được không, giải thích công cụ, Video 4 Scope, Case MISA, Chứng chỉ Microsoft VN, Feedback, 100 bộ file, 8 quyền lợi). Chỉ khi khách thực sự quan tâm nhưng vướng tài chính mới tung phương án giảm 5% đăng ký sớm (7.125tr) hoặc chia đôi 5tr + 2.5tr.
 
 ### C. Bộ 8 Kịch Bản Remind Nuôi Dưỡng Lead
 1. **Remind Video 4 Scope:** Gửi 4 link YouTube thực chiến (PBI, Power Query, Sao kê vs NKC, Đổ bút toán).
