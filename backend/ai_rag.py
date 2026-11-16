@@ -9,6 +9,7 @@ Module AI Nội Bộ (Multi-Agent RAG + Internal API Tools):
 
 import os
 import re
+import json
 import html
 import math
 import uuid
@@ -366,6 +367,14 @@ def build_live_data_context(db: Session, assistant_id: str, question: str) -> Tu
     phone_matches = re.findall(r"(?:\+?84|0)?\d[\d\s\.\-]{3,11}\d", question)
     search_digits = [re.sub(r"\D", "", m) for m in phone_matches if len(re.sub(r"\D", "", m)) >= 4]
 
+    def _phone_filter(col, raw_digits: str):
+        if len(raw_digits) >= 9:
+            last9 = raw_digits[-9:]
+            norm_p = normalize_phone(raw_digits)
+            candidates = list({p for p in (norm_p, f"0{last9}", f"84{last9}", f"+84{last9}", raw_digits) if p})
+            return col.in_(candidates)
+        return col.like(f"%{raw_digits}%")
+
     if assistant_id == "sale":
         wants_kpi = any(
             kw in norm_q
@@ -409,11 +418,12 @@ def build_live_data_context(db: Session, assistant_id: str, question: str) -> Tu
                 logger.warning(f"Sale KPI tool error: {e}")
 
         if search_digits:
-            digit_q = search_digits[0][-9:]
+            raw_d = search_digits[0]
+            digit_q = raw_d[-9:]
             leads = (
                 db.query(DimLead, FactLeadActivity)
                 .outerjoin(FactLeadActivity, FactLeadActivity.lead_id == DimLead.id)
-                .filter(DimLead.phone_number.like(f"%{digit_q}%"))
+                .filter(_phone_filter(DimLead.phone_number, raw_d))
                 .order_by(desc(FactLeadActivity.contacted_at))
                 .limit(5)
                 .all()
@@ -434,20 +444,23 @@ def build_live_data_context(db: Session, assistant_id: str, question: str) -> Tu
                 context_blocks.append("\n".join(lines))
                 tools_used.append(f"Tra cứu SĐT ({digit_q})")
 
-                # Kéo tối đa 12 tin nhắn thật gần nhất của 1-2 hội thoại khớp SĐT để AI bám sát mạch chat
+                # Chỉ SELECT đúng payload['messages'] (không kéo cả payload lớn như tag_timeline) để tối ưu Neon Egress
                 if conv_ids:
                     raw_rows = (
-                        db.query(RawConversation)
+                        db.query(RawConversation.page_id, RawConversation.payload["messages"])
                         .filter(RawConversation.pancake_id.in_(conv_ids[:2]))
                         .all()
                     )
                     chat_lines: List[str] = ["[LỊCH SỬ CHAT THẬT GẦN NHẤT VỚI KHÁCH HÀNG]"]
-                    for r_row in raw_rows:
-                        payload = r_row.payload or {}
-                        msgs = payload.get("messages") or []
+                    for page_id_val, msgs in raw_rows:
+                        if isinstance(msgs, str):
+                            try:
+                                msgs = json.loads(msgs)
+                            except Exception:
+                                msgs = []
                         if not isinstance(msgs, list) or not msgs:
                             continue
-                        page_label = resolve_canonical_page_name(r_row.page_id)
+                        page_label = resolve_canonical_page_name(page_id_val)
                         chat_lines.append(f"--- Hội thoại trên {page_label} ---")
                         for m in msgs[-12:]:
                             raw_txt = html.unescape(str(m.get("message") or m.get("original_message") or ""))
@@ -490,7 +503,7 @@ def build_live_data_context(db: Session, assistant_id: str, question: str) -> Tu
                 if "no" in norm_q or "chua dong" in norm_q or "con no" in norm_q or search_digits:
                     q_deals = db.query(SalesDeal)
                     if search_digits:
-                        q_deals = q_deals.filter(SalesDeal.sdt.like(f"%{search_digits[0][-9:]}%"))
+                        q_deals = q_deals.filter(_phone_filter(SalesDeal.sdt, search_digits[0]))
                     else:
                         q_deals = q_deals.filter(SalesDeal.con_no > 0)
                     top_deals = q_deals.order_by(desc(SalesDeal.con_no), desc(SalesDeal.id)).limit(8).all()
