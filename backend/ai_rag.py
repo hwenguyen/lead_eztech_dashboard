@@ -87,8 +87,14 @@ AI_ASSISTANTS: Dict[str, Dict[str, Any]] = {
             "- Trả lời thẳng, ngắn gọn, chính xác theo dữ liệu hệ thống và tài liệu RAG, không chèn `[Nguồn: ...]`."
         ),
         "sample_questions": [
+            "Khách nhắn: Em ơi tư vấn cho chị khóa học kế toán bên em với",
+            "Khách nhắn: Chị chủ yếu làm thủ công bằng Excel thôi em ạ, file nặng lắm",
+            "Khách nhắn: Chị đang dùng MISA rồi thì có cần học thêm Power Query với Power BI không?",
             "Khách nhắn: Chị thấy học phí 7tr5 hơi cao em ạ, với chị hay tăng ca tối sợ không theo kịp lịch học",
             "Khách nhắn: Em ơi chị dùng MacBook với chỉ biết Excel cơ bản thôi có học được khóa kế toán không?",
+            "Khách nhắn: Cho chị hỏi học K2 trước rồi mới học K1 có được không em?",
+            "Khách nhắn: Giờ có AI làm hết rồi sao vẫn phải đi học vậy em?",
+            "Khách nhắn: Bên em có lớp học offline không hay chỉ học online?",
             "Tóm tắt chỉ số Lead và SĐT 7 ngày qua theo từng nhân viên",
         ],
     },
@@ -106,8 +112,13 @@ AI_ASSISTANTS: Dict[str, Dict[str, Any]] = {
         ),
         "sample_questions": [
             "Tổng hợp doanh thu đã thu và công nợ còn phải thu hiện tại",
+            "Quy trình xuất hóa đơn cho công ty khi khách đã cọc trước 1-2 triệu qua Momo?",
+            "Phân biệt khi nào dùng mẫu hóa đơn TEZ và khi nào dùng mẫu TEE?",
             "Quy trình đối soát Deal Win và nhập công nợ học viên mới như thế nào?",
-            "Quy định bảo lưu và hoàn học phí cho học viên?",
+            "Quy định bảo lưu, chuyển nhượng và hoàn học phí cho học viên?",
+            "Khách không cần lấy hóa đơn và đóng 1 lần qua STK công ty thì xử lý sao?",
+            "Chính sách chia 2 đợt học phí và chiết khấu sinh viên áp dụng thế nào?",
+            "Liệt kê các deal còn công nợ cần theo dõi hiện tại",
         ],
     },
     "quy_trinh": {
@@ -125,7 +136,11 @@ AI_ASSISTANTS: Dict[str, Dict[str, Any]] = {
         "sample_questions": [
             "Cách tính Lead Mới, Lead Contact Lại và SĐT thu được trên Dashboard?",
             "Quy tắc phân biệt tag Đào tạo và Lead Other trên Pancake?",
+            "Chuỗi trạng thái gắn Tag CRM chuẩn từ Có thông tin đến Đã là học viên?",
             "Khi nào Bot tự động dừng trả lời để nhân viên tư vấn 1-1?",
+            "Quy trình trợ giảng và support 1-1 cần làm gì trước, trong và sau mỗi buổi học?",
+            "Vì sao mặc định Dashboard không gộp tin nhắn từ các page Zalo?",
+            "Quy tắc lọc bỏ nhóm chat Zalo (pzl_g_) hoạt động như thế nào?",
         ],
     },
 }

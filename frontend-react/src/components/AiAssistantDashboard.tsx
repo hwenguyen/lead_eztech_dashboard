@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Bot,
   Send,
@@ -103,6 +103,7 @@ export const AiAssistantDashboard: React.FC = () => {
     ke_toan: [],
     quy_trinh: [],
   });
+  const [sampleSeed, setSampleSeed] = useState<number>(() => Math.random());
   const [question, setQuestion] = useState<string>('');
   const [chatLoading, setChatLoading] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string>('');
@@ -161,6 +162,15 @@ export const AiAssistantDashboard: React.FC = () => {
     };
 
   const currentTurns = chatHistories[selectedAssistantId] || [];
+
+  const randomSampleQuestions = useMemo(() => {
+    const pool = [...(currentAssistant.sample_questions || [])];
+    for (let i = pool.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [pool[i], pool[j]] = [pool[j], pool[i]];
+    }
+    return pool.slice(0, 3);
+  }, [currentAssistant.sample_questions, selectedAssistantId, sampleSeed]);
 
   const handleSendChat = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -317,6 +327,7 @@ export const AiAssistantDashboard: React.FC = () => {
                   onClick={() => {
                     setSelectedAssistantId(ast.id);
                     setDocCategory(ast.id);
+                    setSampleSeed(Math.random());
                   }}
                   className={`relative px-4 py-2 text-xs font-semibold whitespace-nowrap transition-colors cursor-pointer border-b-2 ${
                     selected
@@ -574,7 +585,10 @@ export const AiAssistantDashboard: React.FC = () => {
           {currentTurns.length > 0 && (
             <button
               type="button"
-              onClick={() => setChatHistories((prev) => ({ ...prev, [selectedAssistantId]: [] }))}
+              onClick={() => {
+                setChatHistories((prev) => ({ ...prev, [selectedAssistantId]: [] }));
+                setSampleSeed(Math.random());
+              }}
               className="text-xs text-slate-500 hover:text-rose-600 font-medium px-2.5 py-1 rounded-lg hover:bg-rose-50 cursor-pointer"
             >
               Xóa hội thoại
@@ -597,9 +611,9 @@ export const AiAssistantDashboard: React.FC = () => {
                   Trợ lý tự động kết hợp tài liệu nội bộ (RAG) và dữ liệu thời gian thực trên hệ thống EzTech.
                 </p>
               </div>
-              {currentAssistant.sample_questions.length > 0 && (
+              {randomSampleQuestions.length > 0 && (
                 <div className="flex flex-wrap items-center justify-center gap-2 pt-2">
-                  {currentAssistant.sample_questions.map((sq, idx) => (
+                  {randomSampleQuestions.map((sq, idx) => (
                     <button
                       key={idx}
                       type="button"
