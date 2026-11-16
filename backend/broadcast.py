@@ -1006,6 +1006,11 @@ def _run_broadcast_worker(task_id: str, req_data: Dict[str, Any]):
                                 f"📎 Chuẩn bị gửi phần tiếp theo cho {rec.get('name')}",
                             ):
                                 cancelled_mid_recipient = True
+                                if completed_steps:
+                                    log_status = "FAILED"
+                                    done_label = "chữ" if completed_steps[0] == "text" else "ảnh"
+                                    fail_label = "ảnh" if step == "images" else "chữ"
+                                    err_msg = f"[Đã gửi {done_label}, dừng khẩn cấp trước khi gửi {fail_label}]"
                                 break
 
                         if step == "text":
@@ -1043,7 +1048,8 @@ def _run_broadcast_worker(task_id: str, req_data: Dict[str, Any]):
                                 err_msg = raw_err
                             break
 
-            if cancelled_mid_recipient:
+            if cancelled_mid_recipient and log_status == "SENT":
+                # Bị dừng trước khi kịp gửi bước nào
                 break
 
             # Lưu lịch sử vào bảng bot_auto_replies
@@ -1090,11 +1096,15 @@ def _run_broadcast_worker(task_id: str, req_data: Dict[str, Any]):
 
             # 3. Xử lý chống Rate Limit & Bảo vệ tài khoản sau mỗi khách
             if not dry_run:
+                if is_zalo and zalo_calls_sent > 0:
+                    zalo_sent_count += zalo_calls_sent
+                    zalo_batch_counter += zalo_calls_sent
+
+                if cancelled_mid_recipient:
+                    break
+
                 if log_status == "SENT":
                     consecutive_failures = 0
-                    if is_zalo:
-                        zalo_sent_count += max(1, zalo_calls_sent)
-                        zalo_batch_counter += max(1, zalo_calls_sent)
                 else:
                     consecutive_failures += 1
                     # Kiểm tra Circuit Breaker (ngắt tự động nếu lỗi liên tiếp vượt ngưỡng)

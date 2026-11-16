@@ -225,6 +225,170 @@ def test_send_images_caches_per_page_and_reuploads_on_fb_expiry():
     print("[PASS] test_send_images_caches_per_page_and_reuploads_on_fb_expiry passed!")
 
 
+def test_worker_logs_partial_send_when_cancelled_mid_recipient():
+    import base64
+    from unittest.mock import MagicMock, patch
+    from backend.broadcast import _run_broadcast_worker
+
+    _BROADCAST_TASKS.clear()
+    task_id = "task_cancel_mid"
+    _BROADCAST_TASKS[task_id] = {
+        "task_id": task_id,
+        "campaign_name": "camp_cancel",
+        "is_running": True,
+        "total": 0,
+        "processed": 0,
+        "success": 0,
+        "failed": 0,
+        "dry_run": False,
+        "current_recipient": None,
+        "started_at": "2026-11-16 14:00:00",
+        "finished_at": None,
+        "logs": [],
+    }
+
+    fake_db = MagicMock()
+    added_logs = []
+    fake_db.add.side_effect = lambda obj: added_logs.append(obj)
+
+    fake_client = MagicMock()
+    fake_client.send_message.return_value = {"success": True, "id": "msg_text_ok"}
+
+    candidates = [{
+        "lead_id": 1,
+        "customer_id": "c1",
+        "conversation_id": "514400205095512_111",
+        "name": "Nguyen A",
+        "gender": "male",
+        "gender_title": "Anh",
+        "phone_number": "0901",
+        "page_id": "Anh Kế toán làm Data (Facebook)",
+        "api_page_id": "514400205095512",
+        "is_zalo": False,
+        "status_tag": "",
+        "assigned_users": "",
+        "first_created_at": None,
+        "contacted_at": None,
+        "days_since_contact": 0,
+    }]
+
+    sample_b64 = base64.b64encode(b"imgdata").decode("ascii")
+    req_data = {
+        "campaign_name": "camp_cancel",
+        "template": "Chao {name}",
+        "send_mode": "text_then_images",
+        "images": [{"filename": "p.jpg", "content_type": "image/jpeg", "data_base64": sample_b64}],
+        "dry_run": False,
+        "limit": 10,
+        "custom_token": "tok_test",
+    }
+
+    with (
+        patch("backend.broadcast.SessionLocal", return_value=fake_db),
+        patch("backend.broadcast._filter_broadcast_candidates", return_value=candidates),
+        patch("backend.broadcast.PancakeClient", return_value=fake_client),
+        patch("backend.broadcast._sleep_with_cancel_check", return_value=False),
+    ):
+        _run_broadcast_worker(task_id, req_data)
+
+    assert len(added_logs) == 1, f"Expected partial send log recorded in DB, got {len(added_logs)}"
+    assert added_logs[0].status == "FAILED"
+    assert "Đã gửi chữ" in (added_logs[0].error_message or "")
+    assert _BROADCAST_TASKS[task_id]["processed"] == 1
+    assert _BROADCAST_TASKS[task_id]["failed"] == 1
+    _BROADCAST_TASKS.clear()
+    print("[PASS] test_worker_logs_partial_send_when_cancelled_mid_recipient passed!")
+
+
+def test_worker_counts_zalo_calls_on_partial_failure():
+    import base64
+    from unittest.mock import MagicMock, patch
+    from backend.broadcast import _run_broadcast_worker
+
+    _BROADCAST_TASKS.clear()
+    task_id = "task_zalo_count"
+    _BROADCAST_TASKS[task_id] = {
+        "task_id": task_id,
+        "campaign_name": "camp_zalo",
+        "is_running": True,
+        "total": 0,
+        "processed": 0,
+        "success": 0,
+        "failed": 0,
+        "dry_run": False,
+        "current_recipient": None,
+        "started_at": "2026-11-16 14:00:00",
+        "finished_at": None,
+        "logs": [],
+    }
+
+    fake_db = MagicMock()
+    fake_client = MagicMock()
+    fake_client.upload_content.return_value = {"success": True, "id": "cnt_zl_1", "attachment_type": "PHOTO"}
+
+    # Lead 1: text OK (+1 call), images FAIL. Lead 2: text OK (+1 call), images OK (+1 call) => total 3 calls >= batch_size(3)
+    def fake_send(page_id, conversation_id, message="", action="reply_inbox", content_ids=None, **kwargs):
+        if conversation_id == "pzl_u_1" and content_ids:
+            return {"success": False, "message": "temporary image error"}
+        return {"success": True, "id": "ok"}
+
+    fake_client.send_message.side_effect = fake_send
+
+    candidates = [
+        {
+            "lead_id": i,
+            "customer_id": f"c{i}",
+            "conversation_id": f"pzl_u_{i}",
+            "name": f"Khach {i}",
+            "gender": "male",
+            "gender_title": "Anh",
+            "phone_number": f"090{i}",
+            "page_id": "Eztech Phân Tích Dữ Liệu",
+            "api_page_id": "pzl_629476615535063343",
+            "is_zalo": True,
+            "status_tag": "",
+            "assigned_users": "",
+            "first_created_at": None,
+            "contacted_at": None,
+            "days_since_contact": 0,
+        }
+        for i in (1, 2, 3)
+    ]
+
+    sleep_prefixes = []
+
+    def fake_sleep(tid, secs, status_prefix=None):
+        sleep_prefixes.append(status_prefix or "")
+        return True
+
+    sample_b64 = base64.b64encode(b"imgdata").decode("ascii")
+    req_data = {
+        "campaign_name": "camp_zalo",
+        "template": "Chao {name}",
+        "send_mode": "text_then_images",
+        "images": [{"filename": "p.jpg", "content_type": "image/jpeg", "data_base64": sample_b64}],
+        "dry_run": False,
+        "limit": 10,
+        "zalo_protection": True,
+        "zalo_batch_size": 3,
+        "custom_token": "tok_test",
+    }
+
+    with (
+        patch("backend.broadcast.SessionLocal", return_value=fake_db),
+        patch("backend.broadcast._filter_broadcast_candidates", return_value=candidates),
+        patch("backend.broadcast.PancakeClient", return_value=fake_client),
+        patch("backend.broadcast._sleep_with_cancel_check", side_effect=fake_sleep),
+    ):
+        _run_broadcast_worker(task_id, req_data)
+
+    assert any("Nghỉ giải lao bảo vệ Zalo" in p for p in sleep_prefixes), (
+        f"Expected Zalo batch pause after 3 real calls (1 partial + 2 full), got pauses: {sleep_prefixes}"
+    )
+    _BROADCAST_TASKS.clear()
+    print("[PASS] test_worker_counts_zalo_calls_on_partial_failure passed!")
+
+
 if __name__ == "__main__":
     test_broadcast_requests_schema()
     test_active_broadcast_and_stop()
@@ -232,4 +396,6 @@ if __name__ == "__main__":
     test_start_broadcast_empty_template_requires_images()
     test_channel_content_id_batch_limits()
     test_send_images_caches_per_page_and_reuploads_on_fb_expiry()
+    test_worker_logs_partial_send_when_cancelled_mid_recipient()
+    test_worker_counts_zalo_calls_on_partial_failure()
     print("[PASS] ALL BROADCAST SCHEMA TESTS PASSED!")
