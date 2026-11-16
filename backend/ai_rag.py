@@ -9,6 +9,7 @@ Module AI Nội Bộ (Multi-Agent RAG + Internal API Tools):
 
 import os
 import re
+import html
 import math
 import uuid
 import time
@@ -29,6 +30,7 @@ from database.models import (
     AppConfig,
     DimLead,
     FactLeadActivity,
+    RawConversation,
     SalesDeal,
     DealWin,
     get_vn_now,
@@ -76,6 +78,8 @@ AI_ASSISTANTS: Dict[str, Dict[str, Any]] = {
             "  + KHÔNG dùng gạch đầu dòng, KHÔNG đánh số thứ tự 1/2/3, KHÔNG in đậm **...** bên trong nội dung tin nhắn gửi khách.\n"
             "  + HẠN CHẾ TỐI ĐA dấu gạch ngang dài (— / –) và dấu đóng mở ngoặc () trong tin nhắn; diễn đạt thành câu nối tự nhiên bằng dấu phẩy hoặc dấu chấm.\n"
             "  + Đưa đúng thông tin giá, quyền lợi, lịch học, link (nếu cần) từ tài liệu RAG và kết thúc bằng 1 câu hỏi mở nhẹ nhàng để dẫn bước tiếp theo.\n"
+            "  + NẾU CÓ `[LỊCH SỬ CHAT THẬT GẦN NHẤT VỚI KHÁCH HÀNG]` ở ngữ cảnh: đọc kỹ xem Sale đã gửi gì trước đó và khách đã hỏi gì để viết tiếp nối mạch tự nhiên, KHÔNG gửi lại y nguyên những nội dung Sale vừa gửi.\n"
+            "  + KHÓA CỨNG VS SÁNG TẠO & NGUỒN NGOÀI: Giữ chính xác 100% học phí, số buổi, ưu đãi, STK, link, chính sách từ tài liệu RAG nội bộ; nhưng được phép sáng tạo cách dẫn dắt đồng cảm, ví dụ thực tế theo ngành nghề của khách và tận dụng thông tin tìm kiếm bên ngoài (nếu có) để tư vấn thuyết phục hơn.\n"
             "  + Có thể thêm 1 dòng ngắn **Gợi ý cho Sale:** ở cuối (1–2 câu ngắn nhắc chiến thuật chốt hoặc tag CRM), TUYỆT ĐỐI KHÔNG ghi `[Nguồn: ...]` ở bất kỳ chỗ nào.\n\n"
             "2. KHI SALE HỎI TRA CỨU NỘI BỘ (số liệu Lead/SĐT, tra SĐT khách, hỏi quy trình/chính sách):\n"
             "- Trả lời thẳng, ngắn gọn, chính xác theo dữ liệu hệ thống và tài liệu RAG. KHÔNG chèn `[Nguồn: ...]` vào cuối câu trả lời.\n\n"
@@ -410,11 +414,13 @@ def build_live_data_context(db: Session, assistant_id: str, question: str) -> Tu
                 db.query(DimLead, FactLeadActivity)
                 .outerjoin(FactLeadActivity, FactLeadActivity.lead_id == DimLead.id)
                 .filter(DimLead.phone_number.like(f"%{digit_q}%"))
+                .order_by(desc(FactLeadActivity.contacted_at))
                 .limit(5)
                 .all()
             )
             if leads:
                 lines = ["[KẾT QUẢ TRA CỨU LEAD THEO SĐT]"]
+                conv_ids: List[str] = []
                 for ld, act in leads:
                     page_name = resolve_canonical_page_name(ld.page_id)
                     p_url = build_pancake_url(ld.page_id, act.conversation_id if act else None)
@@ -423,8 +429,36 @@ def build_live_data_context(db: Session, assistant_id: str, question: str) -> Tu
                         f"Tag: {act.status_tag if act else 'Chưa gắn'} | Sale: {act.assigned_users if act else 'Chưa phân'} | "
                         f"Link Pancake: {p_url or 'N/A'}"
                     )
+                    if act and act.conversation_id and act.conversation_id not in conv_ids:
+                        conv_ids.append(act.conversation_id)
                 context_blocks.append("\n".join(lines))
                 tools_used.append(f"Tra cứu SĐT ({digit_q})")
+
+                # Kéo tối đa 12 tin nhắn thật gần nhất của 1-2 hội thoại khớp SĐT để AI bám sát mạch chat
+                if conv_ids:
+                    raw_rows = (
+                        db.query(RawConversation)
+                        .filter(RawConversation.pancake_id.in_(conv_ids[:2]))
+                        .all()
+                    )
+                    chat_lines: List[str] = ["[LỊCH SỬ CHAT THẬT GẦN NHẤT VỚI KHÁCH HÀNG]"]
+                    for r_row in raw_rows:
+                        payload = r_row.payload or {}
+                        msgs = payload.get("messages") or []
+                        if not isinstance(msgs, list) or not msgs:
+                            continue
+                        page_label = resolve_canonical_page_name(r_row.page_id)
+                        chat_lines.append(f"--- Hội thoại trên {page_label} ---")
+                        for m in msgs[-12:]:
+                            raw_txt = html.unescape(str(m.get("message") or m.get("original_message") or ""))
+                            clean_txt = re.sub(r"<[^>]+>", " ", raw_txt)
+                            clean_txt = re.sub(r"\s+", " ", clean_txt).strip()
+                            if clean_txt:
+                                sender_role = "Khách" if m.get("role") == "Khách hàng" else "Sale/Admin"
+                                chat_lines.append(f"{sender_role}: {clean_txt[:280]}")
+                    if len(chat_lines) > 1:
+                        context_blocks.append("\n".join(chat_lines))
+                        tools_used.append("Lịch sử chat khách (raw_conversations)")
 
     elif assistant_id == "ke_toan":
         wants_finance_stats = bool(search_digits) or any(
@@ -481,7 +515,9 @@ def call_gemini_generate(
     user_prompt: str,
     history: List[Dict[str, str]],
     api_key: str,
-) -> Tuple[str, str]:
+    temperature: float = 0.25,
+    enable_search: bool = False,
+) -> Tuple[str, str, bool]:
     contents: List[Dict[str, Any]] = []
     for msg in history[-6:]:
         role = "model" if msg.get("role") == "assistant" else "user"
@@ -491,29 +527,41 @@ def call_gemini_generate(
 
     contents.append({"role": "user", "parts": [{"text": user_prompt}]})
 
-    payload = {
+    base_payload: Dict[str, Any] = {
         "systemInstruction": {"parts": [{"text": system_prompt}]},
         "contents": contents,
         "generationConfig": {
-            "temperature": 0.25,
+            "temperature": temperature,
             "maxOutputTokens": 4096,
             "thinkingConfig": {"thinkingBudget": 0},
         },
     }
 
+    def _post_gemini(model_name: str, body: Dict[str, Any]) -> requests.Response:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
+        resp = requests.post(url, json=body, timeout=25)
+        if resp.status_code == 400 and "thinking" in resp.text.lower():
+            no_think = {**body, "generationConfig": {"temperature": temperature, "maxOutputTokens": 4096}}
+            resp = requests.post(url, json=no_think, timeout=25)
+        return resp
+
     last_error = ""
     for model_name in GENERATION_MODELS:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
         try:
-            resp = requests.post(url, json=payload, timeout=25)
-            # Nếu model không hỗ trợ thinkingConfig thì thử lại bỏ thinkingConfig
-            if resp.status_code == 400 and "thinking" in resp.text.lower():
-                fallback_payload = {
-                    **payload,
-                    "generationConfig": {"temperature": 0.25, "maxOutputTokens": 4096},
-                }
-                resp = requests.post(url, json=fallback_payload, timeout=25)
-            if resp.status_code == 200:
+            used_search = False
+            resp = None
+            if enable_search:
+                search_payload = {**base_payload, "tools": [{"google_search": {}}]}
+                resp = _post_gemini(model_name, search_payload)
+                if resp.status_code == 200:
+                    used_search = True
+                elif resp.status_code in (400, 403, 429):
+                    # Nếu gói API chưa mở Search Grounding hoặc model không hỗ trợ tools thì lùi về generateContent chuẩn
+                    resp = _post_gemini(model_name, base_payload)
+            else:
+                resp = _post_gemini(model_name, base_payload)
+
+            if resp is not None and resp.status_code == 200:
                 data = resp.json()
                 candidates = data.get("candidates") or []
                 if candidates:
@@ -523,8 +571,10 @@ def call_gemini_generate(
                     parts = candidates[0].get("content", {}).get("parts") or []
                     answer = "".join(p.get("text", "") for p in parts).strip()
                     if answer:
-                        return answer, model_name
-            last_error = f"{model_name} HTTP {resp.status_code}: {resp.text[:180]}"
+                        gm = candidates[0].get("groundingMetadata") or {}
+                        actually_searched = used_search and bool(gm.get("webSearchQueries") or gm.get("groundingChunks"))
+                        return answer, model_name, actually_searched
+            last_error = f"{model_name} HTTP {resp.status_code if resp else 'ERR'}: {(resp.text[:180] if resp else '')}"
             logger.warning(f"Gemini model {model_name} fallback: {last_error}")
         except Exception as e:
             last_error = f"{model_name} exception: {e}"
@@ -743,12 +793,17 @@ def chat_with_assistant(req: ChatRequest, db: Session = Depends(get_db)):
         f"Hãy trả lời dựa trên dữ liệu hệ thống và tài liệu nội bộ ở trên."
     )
 
-    answer, model_used = call_gemini_generate(
+    is_sale = assistant["id"] == "sale"
+    answer, model_used, searched_web = call_gemini_generate(
         system_prompt=assistant["system_prompt"],
         user_prompt=composed_prompt,
         history=[m.model_dump() for m in req.history],
         api_key=api_key,
+        temperature=0.5 if is_sale else 0.25,
+        enable_search=is_sale,
     )
+    if searched_web:
+        tools_used.append("Google Search Grounding")
 
     return {
         "assistant_id": assistant["id"],
