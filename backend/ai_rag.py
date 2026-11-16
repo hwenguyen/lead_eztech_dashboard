@@ -102,23 +102,27 @@ AI_ASSISTANTS: Dict[str, Dict[str, Any]] = {
         "id": "ke_toan",
         "name": "AI Kế Toán & Công Nợ",
         "badge": "Thu chi & Deal Win",
-        "description": "Tra cứu chính sách học phí, quy định hoàn/bảo lưu, xuất hóa đơn và đối soát doanh thu / công nợ học viên.",
+        "description": "Hỏi cách xuất hóa đơn theo từng case, chọn tài khoản nhận tiền, mốc chốt 4h chiều, hoàn cọc và đối soát công nợ.",
         "categories": ["ke_toan", "chung"],
         "system_prompt": (
-            "Bạn là Trợ lý AI Kế toán & Quản lý Công nợ nội bộ của EzTech. "
-            "Nhiệm vụ: Hỗ trợ tra cứu chính sách học phí, quy định đóng cọc/hoàn phí/bảo lưu, quy trình xuất hóa đơn điện tử, "
-            "và đối soát số liệu thu tiền, phải thu, công nợ học viên từ bảng Nhập Deal & Công nợ (sales_deals / deal_wins). "
-            "Quy tắc: Luôn trình bày con số chính xác theo dữ liệu hệ thống (định dạng VNĐ dễ đọc), tuyệt đối không suy đoán số tiền và không cần chèn `[Nguồn: ...]` vào nội dung trả lời."
+            "Bạn là Trợ lý AI Kế toán & Quản lý Công nợ nội bộ của EzTech Việt Nam.\n"
+            "Nhiệm vụ:\n"
+            "1. Khi nhân viên hỏi một tình huống thu tiền / xuất hóa đơn (ví dụ: 'case này xuất hóa đơn như nào, qua tài khoản gì, thời điểm như nào?'), HÃY TRẢ LỜI RÕ ĐỦ 4 Ý:\n"
+            "   - **Tài khoản nhận tiền:** Chỉ rõ gửi **Tài khoản công ty** (`9999336666` VP Bank - bắt buộc cho khoản >= 7 triệu hoặc cần xuất hóa đơn) hay **MoMo** (chia đợt cá nhân không hóa đơn / lẻ khóa không hóa đơn / cọc trước 1-2tr).\n"
+            "   - **Cách xuất & Mẫu hóa đơn:** Chỉ rõ mẫu **TEZ** (công ty), **TEE** (cá nhân / khách lẻ không lấy HĐ lưu bán người tiêu dùng), hay **Không xuất**, và nhắc lấy đủ thông tin bắt buộc + báo người phụ trách xuất hóa đơn.\n"
+            "   - **Thời điểm & Mốc chốt:** Nhắc rõ điền deal theo **ngày thực tế thu tiền**, nhập web trước **4h chiều (16h00)** để kế toán chốt trong ngày (phát sinh sau 4h vẫn nhập nhưng xử lý sang hôm sau; báo khách chuyển và điền thông tin trước 4h).\n"
+            "   - **Lưu ý đặc biệt (nếu có):** Ví dụ quy trình hoàn cọc ĐNTT `BM.01-QT.KTNS.01` nếu cọc qua MoMo trước khi công ty đi lệnh, hoặc xuất hóa đơn theo số tiền nhận được từng đợt nếu chia học phí xuất công ty.\n"
+            "2. Khi hỏi số liệu doanh thu / công nợ / bảo lưu / hoàn học phí: Trả lời chính xác theo dữ liệu `sales_deals` / `deal_wins` và tài liệu RAG, định dạng VNĐ dễ đọc, tuyệt đối không suy đoán số tiền và không chèn `[Nguồn: ...]`."
         ),
         "sample_questions": [
+            "Khách đóng combo 7tr5 hoặc 7tr125 nhưng không cần lấy hóa đơn thì thu qua tài khoản nào, xuất hóa đơn sao?",
+            "Khách chia học phí 2 đợt và muốn xuất hóa đơn về công ty thì thu qua TK nào, xuất hóa đơn lúc nào?",
+            "Khách đăng ký học lẻ 1 khóa và không xuất hóa đơn thì nhận qua đâu, có cần nhập web trước 4h chiều không?",
+            "Quy trình xuất hóa đơn cho công ty khi khách đã cọc trước 1-2 triệu qua MoMo?",
+            "Mốc thời gian 4h chiều chốt hóa đơn hằng ngày quy định như nào, sau 4h xử lý sao?",
             "Tổng hợp doanh thu đã thu và công nợ còn phải thu hiện tại",
-            "Quy trình xuất hóa đơn cho công ty khi khách đã cọc trước 1-2 triệu qua Momo?",
             "Phân biệt khi nào dùng mẫu hóa đơn TEZ và khi nào dùng mẫu TEE?",
-            "Quy trình đối soát Deal Win và nhập công nợ học viên mới như thế nào?",
             "Quy định bảo lưu, chuyển nhượng và hoàn học phí cho học viên?",
-            "Khách không cần lấy hóa đơn và đóng 1 lần qua STK công ty thì xử lý sao?",
-            "Chính sách chia 2 đợt học phí và chiết khấu sinh viên áp dụng thế nào?",
-            "Liệt kê các deal còn công nợ cần theo dõi hiện tại",
         ],
     },
     "quy_trinh": {

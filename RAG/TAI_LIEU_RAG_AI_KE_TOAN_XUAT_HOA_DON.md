@@ -1,109 +1,94 @@
-# Quy Trình Xuất Hóa Đơn & Đối Soát Thu Tiền / Hoàn Cọc (RAG AI Kế Toán EzTech)
+# Quy Trình Xuất Hóa Đơn, Chọn Tài Khoản & Thời Điểm Chốt (RAG AI Kế Toán EzTech)
 
-> Tài liệu chuẩn hóa quy trình nội bộ từ **Quy trình xuất hóa đơn - EzTech.pptx**, áp dụng cho Bộ phận Kế toán, Nhân sự Check lệnh và Sale khi chốt giao dịch, theo dõi deal và phát hành hóa đơn điện tử tại **Công ty TNHH Công nghệ EzTech Việt Nam**.
+> Tài liệu chuẩn hóa hợp nhất từ **Quy trình xuất hóa đơn.xlsx** và **Quy trình xuất hóa đơn - EzTech.pptx**, áp dụng cho Bộ phận Kế toán, Nhân sự Check lệnh và Sale khi tư vấn thanh toán, nhập deal và phát hành hóa đơn điện tử tại **Công ty TNHH Công nghệ EzTech Việt Nam**.
 
 ---
 
-## 1. Thông Tin Pháp Nhân & Tài Khoản Nhận Tiền Chính Thức
+## 1. Thông Tin Pháp Nhân & Tài Khoản Nhận Tiền
 
 - **Thông tin pháp nhân xuất hóa đơn:**
   - **Tên đơn vị:** Công ty TNHH Công nghệ EzTech Việt Nam
   - **Mã số thuế (MST):** `0110633252`
   - **Địa chỉ:** 79 Ngọc Hồi, Phường Hoàng Liệt, Hà Nội
   - **Điện thoại / Email:** `(+84) 0898276368` | `contact@eztech-official.com`
-- **Hai kênh tài khoản nhận thanh toán:**
+- **Hai tài khoản nhận tiền chính thức:**
   1. **Tài khoản công ty (Bắt buộc xuất hóa đơn):**
-     - **Chủ tài khoản:** Công ty TNHH công nghệ EzTech Viet Nam
+     - **Tên tài khoản:** Công ty TNHH công nghệ EzTech Viet Nam
      - **Số tài khoản:** `9999336666`
-     - **Ngân hàng:** VP Bank – Chi nhánh Trần Hưng Đạo
+     - **Ngân hàng:** Ngân hàng TMCP Việt Nam Thịnh Vượng (VP Bank) – Chi nhánh Trần Hưng Đạo
      - **Nguyên tắc bắt buộc:** *Mọi khoản tiền đi qua tài khoản công ty bắt buộc phải xuất hóa đơn.*
-  2. **Tài khoản cá nhân (Momo):** Dùng cho trường hợp nhận cọc trước khi khách xuất hóa đơn công ty (sẽ hoàn cọc sau), hoặc khách không cần xuất hóa đơn và đóng làm 2 lần.
+  2. **Tài khoản cá nhân (MoMo):** Dùng cho trường hợp chia học phí cá nhân không xuất hóa đơn, đăng ký lẻ khóa không xuất hóa đơn công ty, hoặc nhận cọc 1–2 triệu trước khi khách đi lệnh công ty.
 
 ---
 
-## 2. Bảng Phân Loại 4 Trường Hợp Chốt Khách, Tài Khoản & Mẫu Hóa Đơn (`TEZ` / `TEE`)
+## 2. Quy Định Thời Điểm Nhập Deal & Mốc Chốt 4h Chiều (16h00) Hằng Ngày
 
-Khi phát sinh giao dịch, Kế toán và Sale đối chiếu đúng bảng phân loại dưới đây để gửi đúng số tài khoản và chọn đúng mẫu hóa đơn khi phát hành:
-
-| Trường hợp khách hàng | Tài khoản gửi khách | Mẫu hóa đơn áp dụng | Ghi chú nghiệp vụ |
-|---|---|---|---|
-| **1. Xuất hóa đơn cho Công ty** | **STK công ty** (`9999336666` VP Bank) | **TEZ** | Nếu khách cọc trước 1–2 triệu bằng TK cá nhân thì nhận qua **Momo**, sau đó làm quy trình hoàn cọc khi tiền công ty về TK EzTech. |
-| **2. Xuất hóa đơn cho Cá nhân** | **STK công ty** (`9999336666` VP Bank) | **TEE** | Bắt buộc xin Họ tên, Số CCCD (hoặc MST cá nhân) và Địa chỉ theo đơn vị hành chính **sau sáp nhập**. |
-| **3. Không cần lấy hóa đơn (đóng 1 lần / qua TK cty)** | **STK công ty** (`9999336666` VP Bank) | **TEE** *(lưu bán cho người tiêu dùng)* | Vẫn bắt buộc nhập lên Web theo dõi hóa đơn và báo người phụ trách xuất hóa đơn. |
-| **4. Không cần hóa đơn, chia 2 lần đóng** | **Momo** (Tài khoản cá nhân) | **Chưa áp dụng** | Thu qua tài khoản cá nhân Momo theo chính sách chia 2 đợt. |
-
----
-
-## 3. Quy Trình Nhập Liệu Trên "Web Theo Dõi Deal & Xuất Hóa Đơn"
-
-Mọi giao dịch chuyển qua **STK công ty** (bao gồm cả khách xuất công ty, xuất cá nhân và khách lẻ không lấy hóa đơn) đều phải được nhập đầy đủ lên **Web Theo dõi deal & xuất hóa đơn** (tab `Xuất hoá đơn` trên Dashboard):
-
-### Các trường thông tin bắt buộc khi "Thêm deal mới"
-- **Ngày chuyển tiền:** Ngày thực tế tiền về sao kê (`dd/mm/yyyy`).
-- **Hình thức thu tiền:** Chọn `Tk công ty` hoặc `Momo`.
-- **Họ và tên khách & Số điện thoại:** Dùng đối chiếu học viên trên hệ thống.
-- **Nhân viên chăm sóc:** Chọn đúng Sale phụ trách deal.
-- **Loại hóa đơn:** Chọn đúng 1 trong 3 loại tương ứng với mẫu TEZ/TEE:
-  - `Xuất hóa đơn về công ty` (Mẫu **TEZ**)
-  - `Xuất hóa đơn cho cá nhân` (Mẫu **TEE**)
-  - `Khách lẻ không lấy hóa đơn` (Mẫu **TEE** — bán cho người tiêu dùng)
-- **Số tiền cần xuất (VNĐ)** và **Số tiền đã chuyển (VNĐ)**.
-- **Thông tin xuất hóa đơn (có thể điền sau):**
-  - *Công ty:* Tên công ty + Mã số thuế + Địa chỉ trụ sở (và Email nhận hóa đơn).
-  - *Cá nhân:* Họ tên + Số CCCD/MST + Địa chỉ sau sáp nhập.
-  - *Khách lẻ không lấy hóa đơn:* Ghi chú nội dung sao kê giao dịch chuyển khoản để Kế toán đối soát.
-- **Note sao kê chuyển khoản / lưu ý đặc biệt:** Ghi rõ nếu có hoàn cọc (ví dụ: `"Hoàn lại cọc 1tr"`) hoặc lưu ý xuất hóa đơn riêng.
+- **Nguyên tắc điền ngày Deal:** **PHẢI điền deal dựa trên NGÀY THỰC TẾ THU TIỀN** trên sao kê.
+- **Quy trình chung 5 bước khi Win Deal:**
+  1. Khi win deal, nhập đầy đủ thông tin khách lên **Web theo dõi hóa đơn** (ưu tiên xuất hóa đơn trước).
+  2. Chọn tài khoản nhận tiền theo đúng 6 trường hợp ở Mục 3 bên dưới.
+  3. Gửi tài khoản cho khách và xin thông tin xuất hóa đơn (nếu có).
+  4. **Báo người phụ trách xuất hóa đơn (Bắt buộc phải báo).**
+  5. Nhập thông tin **trước 4h chiều (16h00)** để kế toán chốt danh sách trong ngày.
+- **Mốc thời gian chốt hóa đơn hằng ngày (16h00 / 4h chiều):**
+  - Kế toán chốt danh sách xuất hóa đơn trên web theo dõi vào lúc **4h chiều (16h00) hằng ngày**, nên nhân viên cần input đầy đủ thông tin **trước 4h chiều**.
+  - Các khoản phát sinh **sau 4h chiều vẫn cần input lên web** bình thường để theo dõi (sẽ xử lý vào ngày làm việc kế tiếp).
+  - **Lưu ý báo trước với khách hàng:** Kế toán làm việc đến **4h chiều**, nên khách cần chuyển tiền và điền thông tin hóa đơn **trước 4h chiều**. Sau 4h chiều, kế toán không giải quyết các vấn đề liên quan đến hóa đơn trong ngày.
 
 ---
 
-## 4. Chi Tiết Quy Trình Từng Trường Hợp (Cho Kế Toán & Sale)
+## 3. Bảng Tra Nhanh: Case Này Nhận Qua Tài Khoản Gì & Mẫu Hóa Đơn Nào?
 
-### Trường hợp A: Khách xuất hóa đơn cho Công ty (Thanh toán thẳng từ TK công ty)
+| STT | Trường hợp / Case khách hàng | Tài khoản nhận tiền | Mẫu hóa đơn | Ghi chú quan trọng |
+|---|---|---|---|---|
+| **1** | Khách muốn xuất hóa đơn về **Công ty** | **Tài khoản công ty** (`9999336666` VP Bank) | **TEZ** | Ưu tiên gửi tài khoản công ty. |
+| **2** | Khách muốn xuất hóa đơn cho **Cá nhân** | **Tài khoản công ty** (`9999336666` VP Bank) | **TEE** | Ưu tiên gửi tài khoản công ty. Xin Tên, CCCD, địa chỉ sau sáp nhập. |
+| **3** | Khách **chia học phí**, là **cá nhân** và **không xuất hóa đơn** | **MoMo** | **Không xuất** | Chưa áp dụng mẫu hóa đơn. |
+| **4** | Khách **chia học phí**, **xuất hóa đơn về công ty** | **Tài khoản công ty** (`9999336666` VP Bank) | **TEZ** | *Hóa đơn được xuất theo số tiền thực tế nhận được từng đợt*, nên vẫn gửi tài khoản công ty. |
+| **5** | Khách **đăng ký lẻ khóa** (không xuất hóa đơn công ty) | **MoMo** | **Không xuất** | Thu qua tài khoản cá nhân MoMo. |
+| **6** | Khách **đăng ký lẻ khóa**, **có xuất hóa đơn về công ty** | **Tài khoản công ty** (`9999336666` VP Bank) | **TEZ** | Ưu tiên tài khoản công ty. |
+| **7** | **Khoản tiền từ 7 triệu trở lên** | **Tài khoản công ty** (`9999336666` VP Bank) | **TEZ** (nếu Cty) / **TEE** (nếu Cá nhân hoặc không lấy HĐ) | **Tự động về tài khoản công ty**, bắt buộc xuất hóa đơn. |
+| **8** | Khách **không cần xuất hóa đơn** nhưng đã chuyển vào **TK công ty** (ví dụ ≥ 7tr hoặc đóng 1 lần qua TK Cty) | **Tài khoản công ty** (`9999336666` VP Bank) | **TEE** *(lưu bán cho người tiêu dùng)* | Bắt buộc nhập web theo dõi & báo người phụ trách xuất hóa đơn. |
+
+---
+
+## 4. Chi Tiết Quy Trình Từng Trường Hợp
+
+### A. Khách cần xuất hóa đơn về Công ty (Bắt buộc xuất hóa đơn — Mẫu `TEZ`)
 1. Gửi **STK công ty** (`9999336666` – VP Bank Trần Hưng Đạo).
-2. Xin đủ 4 thông tin xuất hóa đơn công ty: **Tên công ty, Mã số thuế, Địa chỉ, Email nhận hóa đơn**.
-3. Input thông tin giao dịch lên **Web theo dõi hóa đơn** (chọn loại `Xuất hóa đơn về công ty`, mẫu **TEZ**).
-4. **Báo người phụ trách xuất hóa đơn (Bắt buộc)** để kiểm tra sao kê, gửi hóa đơn nháp (nếu cần) và phát hành hóa đơn điện tử mẫu **TEZ**.
+2. Xin đủ 4 thông tin công ty: **Tên công ty, Mã số thuế, Địa chỉ, Email nhận hóa đơn**.
+3. Input lên **Web theo dõi hóa đơn** (chọn loại `Xuất hóa đơn về công ty`) trước 4h chiều dựa trên ngày thực tế thu tiền.
+4. **Báo người phụ trách xuất hóa đơn (Bắt buộc)**.
 
-### Trường hợp B: Khách xuất hóa đơn cho Công ty nhưng cọc trước 1–2 triệu bằng tài khoản cá nhân
-Áp dụng khi khách muốn giữ suất/ưu đãi sớm bằng tiền cá nhân (1–2 triệu), sau đó công ty của khách mới đi lệnh chuyển đủ tiền khóa học từ tài khoản công ty:
-- **Bước 1 — Nhận cọc qua Momo & Báo khách:**
-  - Gửi khách tài khoản **Momo** cá nhân để nhận khoản cọc 1–2 triệu (hoặc theo dõi nếu khách lỡ chuyển khoản cọc trước).
-  - Thông báo rõ với khách: *Sau khi công ty của khách chuyển tiền đi lệnh vào STK công ty EzTech (`9999336666`), EzTech sẽ thực hiện hoàn lại đúng số tiền đã cọc cá nhân.*
-  - Đề nghị khách chuyển khoản toàn bộ phần tiền xuất hóa đơn từ tài khoản công ty vào STK công ty EzTech.
-- **Bước 2 — Lập Đề nghị thanh toán hoàn cọc (sau khi tiền về STK công ty):**
-  - Chỉ thực hiện **sau khi tiền đã vào tài khoản công ty** và xác nhận khớp sao kê.
-  - Lập **Đề nghị thanh toán (`ĐNTT`)** theo biểu mẫu chuẩn **`BM.01-QT.KTNS.01`** (kính gửi Ban giám đốc & Phòng Kế toán, Bộ phận `Finance and Accounting`, Số `dd/mm/yyyy/ĐNTT`):
-    - Ghi rõ nội dung đề nghị: *Hoàn cọc học phí cho anh/chị [Tên học viên]*.
-    - Diễn giải chi tiết số tiền hoàn (`1.000.000` hoặc `2.000.000 VNĐ`), ghi chú lý do (học viên cọc trước bằng TK cá nhân, đã chuyển đủ từ TK công ty để xuất hóa đơn về công ty).
-    - Điền đủ thông tin chuyển khoản hoàn cọc: **Tên người thụ hưởng, Số tài khoản, Ngân hàng, Đề nghị thanh toán trước ngày...**
-  - *Lưu ý mẫu file:* File mẫu hoàn cọc Excel (`ĐNTT [Tên học viên].xlsx`) đã có sẵn trên kênh Check lệnh (nếu chưa thấy thì hỏi lại **chị Linh**).
-- **Bước 3 — Gửi Check lệnh, Hoàn cọc & Xuất hóa đơn (Bắt buộc):**
-  - Nhập deal lên Web theo dõi hóa đơn, ghi chú tại mục *Note sao kê*: `"Hoàn lại cọc 1tr"` (hoặc số tiền cọc tương ứng).
-  - Gửi file **Đề nghị thanh toán (`ĐNTT`)** lên kênh **Check lệnh** kèm thông tin học viên, nguồn, số tiền đã về TK công ty và thông tin/mã QR tài khoản nhận hoàn cọc của khách.
-  - Kế toán thực hiện **hoàn cọc** cho khách, đồng thời **bắt buộc xuất hóa đơn mẫu TEZ** cho toàn bộ khoản tiền đã nhận qua tài khoản công ty.
+*Trường hợp riêng — Khách xuất hóa đơn công ty nhưng cọc trước 1–2 triệu bằng tài khoản cá nhân:*
+- **Bước 1:** Gửi **MoMo** để khách cọc 1–2 triệu. Báo rõ với khách: sau khi công ty đi lệnh chuyển đủ vào STK công ty EzTech (`9999336666`), EzTech sẽ hoàn lại tiền cọc vào tài khoản cá nhân của khách.
+- **Bước 2:** Sau khi tiền về **tài khoản công ty**, lập **Đề nghị thanh toán (`ĐNTT`) hoàn cọc** theo mẫu chuẩn **`BM.01-QT.KTNS.01`** (file mẫu `ĐNTT [Tên học viên].xlsx` có sẵn trên Check lệnh, nếu chưa thấy hỏi chị Linh), ghi rõ thông tin TK nhận hoàn cọc của khách.
+- **Bước 3:** Gửi ĐNTT lên **Check lệnh**, ghi chú trên web hóa đơn (ví dụ `"Hoàn lại cọc 1tr"`), tiến hành hoàn cọc và **bắt buộc xuất hóa đơn mẫu TEZ**.
 
-### Trường hợp C: Khách xuất hóa đơn cho Cá nhân
+### B. Khách cần xuất hóa đơn cho Cá nhân (Bắt buộc xuất hóa đơn — Mẫu `TEE`)
 1. Gửi **STK công ty** (`9999336666` – VP Bank Trần Hưng Đạo).
-2. Xin đầy đủ thông tin cá nhân của khách: **Họ tên, Số CCCD, Địa chỉ sau sáp nhập** (và Email nhận hóa đơn nếu có).
-3. Input thông tin lên **Web theo dõi hóa đơn** (chọn loại `Xuất hóa đơn cho cá nhân`).
-4. **Báo người phụ trách xuất hóa đơn (Bắt buộc)** để phát hành hóa đơn mẫu **TEE**.
+2. Xin thông tin cá nhân: **Họ tên, Số CCCD, Địa chỉ sau sáp nhập** (và Email nếu có).
+3. Input lên **Web theo dõi hóa đơn** (chọn loại `Xuất hóa đơn cho cá nhân`).
+4. **Báo người phụ trách xuất hóa đơn (Bắt buộc)** để xuất mẫu **TEE**.
 
-### Trường hợp D: Khách KHÔNG cần xuất hóa đơn
-1. **Nếu khách đóng 1 lần / chuyển qua STK công ty:**
-   - Gửi **STK công ty** (`9999336666` – VP Bank Trần Hưng Đạo).
-   - Input giao dịch lên **Web theo dõi hóa đơn** (chọn loại `Khách lẻ không lấy hóa đơn`).
-   - **Báo người phụ trách xuất hóa đơn (Bắt buộc)** để xuất và lưu hóa đơn mẫu **TEE** dưới dạng **bán cho người tiêu dùng**.
-2. **Nếu khách chia làm 2 lần đóng và không cần hóa đơn:**
-   - Gửi tài khoản **Momo** cá nhân để nhận thanh toán (chưa áp dụng mẫu hóa đơn TEZ/TEE trên hệ thống).
+### C. Khách không cần xuất hóa đơn nhưng chuyển vào Tài khoản công ty (Bắt buộc xuất hóa đơn — Mẫu `TEE`)
+1. Gửi **STK công ty** (`9999336666` – VP Bank Trần Hưng Đạo) — áp dụng cho các khoản từ **7 triệu trở lên** hoặc khách đóng 1 lần qua TK công ty.
+2. Input thông tin lên **Web theo dõi hóa đơn** (chọn loại `Khách lẻ không lấy hóa đơn`).
+3. **Báo người phụ trách xuất hóa đơn (Bắt buộc)** để xuất hóa đơn mẫu **TEE** dưới dạng **lưu bán cho người tiêu dùng**.
+
+### D. Khách không cần xuất hóa đơn và chia 2 lần đóng / hoặc đăng ký lẻ khóa
+- Gửi tài khoản **MoMo** cá nhân để nhận tiền.
+- Không xuất hóa đơn. *(Lưu ý: nếu khoản đóng một lần từ 7 triệu trở lên thì tự động chuyển sang quy trình TK công ty và bắt buộc xuất hóa đơn).*
 
 ---
 
-## 5. Checklist Kiểm Tra Nhanh Dành Cho Kế Toán Khi Đối Soát Xuất Hóa Đơn
+## 5. Các Trường Thông Tin Trên "Web Theo Dõi Deal & Xuất Hóa Đơn"
 
-1. **Kiểm tra dòng tiền:** Tiền đã vào **STK công ty `9999336666`** thì **100% bắt buộc phải có hóa đơn đầu ra** (`TEZ` hoặc `TEE`).
-2. **Kiểm tra đúng mẫu hóa đơn:**
-   - Có MST doanh nghiệp / xuất về công ty → Mẫu **`TEZ`**.
-   - Xuất cho cá nhân (có Tên + CCCD + Địa chỉ sau sáp nhập) → Mẫu **`TEE`**.
-   - Khách lẻ không lấy hóa đơn (qua TK công ty) → Mẫu **`TEE`** (lưu bán cho người tiêu dùng).
-3. **Kiểm tra trường hợp hoàn cọc:** Chỉ duyệt hoàn cọc theo mẫu **`BM.01-QT.KTNS.01`** trên Check lệnh **sau khi** khoản tiền thanh toán từ công ty của khách đã ghi có thực tế trên sao kê VP Bank `9999336666`.
-4. **Đối chiếu 2 hệ thống:** Đối chiếu số tiền & thông tin khách giữa **Web theo dõi deal & xuất hóa đơn** với bảng **Nhập Deal & Công nợ (`sales_deals`)** trên EzTech Dashboard.
+- **Ngày chuyển tiền *:** Phải điền theo **ngày thực tế thu tiền**.
+- **Hình thức thu tiền *:** `Tk công ty` hoặc `Momo`.
+- **Họ và tên khách * & Số điện thoại *:** Khớp thông tin học viên.
+- **Nhân viên chăm sóc *:** Chọn đúng Sale phụ trách.
+- **Loại hóa đơn *:** `Xuất hóa đơn về công ty` (TEZ) / `Xuất hóa đơn cho cá nhân` (TEE) / `Khách lẻ không lấy hóa đơn` (TEE - bán cho người tiêu dùng).
+- **Số tiền cần xuất (VNĐ)** & **Số tiền đã chuyển (VNĐ)**.
+- **Thông tin xuất hóa đơn:** Tên công ty + MST + Địa chỉ (+ Email) hoặc Họ tên + CCCD + Địa chỉ sau sáp nhập.
+- **Note sao kê chuyển khoản / lưu ý đặc biệt:** Ghi rõ nếu có hoàn cọc (`"Hoàn lại cọc 1tr"`) hoặc lưu ý chia đợt.
