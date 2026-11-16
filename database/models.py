@@ -247,3 +247,19 @@ class DealAuditLog(Base):
     action = Column(String, index=True, nullable=False)
     deal_id = Column(String, index=True, nullable=True)
     detail = Column(Text, nullable=True)
+
+
+class KnowledgeChunk(Base):
+    """Kho tri thức RAG (tài liệu khóa học, kịch bản sale, kế toán, quy trình)."""
+    __tablename__ = "knowledge_chunks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    doc_id = Column(String, index=True, nullable=False)
+    doc_name = Column(String, index=True, nullable=False)
+    category = Column(String, index=True, nullable=False, default="sale")  # sale, ke_toan, quy_trinh, chung
+    chunk_index = Column(Integer, default=0, nullable=False)
+    content = Column(Text, nullable=False)
+    embedding = Column(JSON, nullable=True)  # Vector 768 chiều từ gemini-embedding-001
+    created_by = Column(String, nullable=True)
+    created_at = Column(DateTime, default=get_vn_now, index=True)
+

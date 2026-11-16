@@ -40,6 +40,8 @@ INDEX_DDL = [
     "CREATE INDEX IF NOT EXISTS ix_sales_deals_ngay_thu ON sales_deals (ngay_thu)",
     "CREATE INDEX IF NOT EXISTS ix_sales_deals_trang_thai ON sales_deals (trang_thai)",
     "CREATE INDEX IF NOT EXISTS ix_sales_deals_deal_win_id ON sales_deals (deal_win_id)",
+    "CREATE INDEX IF NOT EXISTS ix_knowledge_chunks_doc_id ON knowledge_chunks (doc_id)",
+    "CREATE INDEX IF NOT EXISTS ix_knowledge_chunks_category ON knowledge_chunks (category)",
 ]
 
 

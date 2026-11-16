@@ -1404,3 +1404,87 @@ export const fetchAddFriendHistory = async (limit: number = 100): Promise<{ item
   });
   return res.data;
 };
+
+// ───────────────────────── AI RAG Assistant API ─────────────────────────
+
+export interface AiAssistantProfile {
+  id: 'sale' | 'ke_toan' | 'quy_trinh';
+  name: string;
+  badge: string;
+  description: string;
+  categories: string[];
+  sample_questions: string[];
+  doc_count: number;
+}
+
+export interface AiAssistantsResponse {
+  assistants: AiAssistantProfile[];
+  total_chunks: number;
+  masked_api_key: string;
+  has_api_key: boolean;
+}
+
+export interface AiDocumentItem {
+  doc_id: string;
+  doc_name: string;
+  category: string;
+  chunk_count: number;
+  preview: string;
+  has_embedding: boolean;
+  created_at: string;
+}
+
+export interface AiChatResponse {
+  assistant_id: string;
+  assistant_name: string;
+  answer: string;
+  model: string;
+  sources: { doc_name: string; category: string; score: number }[];
+  tools_used: string[];
+}
+
+export const fetchAiAssistants = async (): Promise<AiAssistantsResponse> => {
+  const res = await apiClient.get<AiAssistantsResponse>('/ai/assistants');
+  return res.data;
+};
+
+export const fetchAiDocuments = async (category?: string): Promise<{ documents: AiDocumentItem[] }> => {
+  const res = await apiClient.get<{ documents: AiDocumentItem[] }>('/ai/documents', {
+    params: category ? { category } : undefined,
+  });
+  return res.data;
+};
+
+export const ingestAiDocument = async (payload: {
+  doc_name: string;
+  category: string;
+  content: string;
+}): Promise<{ status: string; chunks_added: number; doc_name: string }> => {
+  const res = await apiClient.post('/ai/documents', payload);
+  return res.data;
+};
+
+export const deleteAiDocument = async (docId: string): Promise<{ status: string; deleted_chunks: number }> => {
+  const res = await apiClient.delete(`/ai/documents/${docId}`);
+  return res.data;
+};
+
+export const seedAiDocuments = async (): Promise<{ status: string; chunks_added: number; message: string }> => {
+  const res = await apiClient.post('/ai/seed');
+  return res.data;
+};
+
+export const updateAiApiKey = async (apiKey: string): Promise<{ status: string; masked_api_key: string }> => {
+  const res = await apiClient.post('/ai/config', { api_key: apiKey });
+  return res.data;
+};
+
+export const sendAiChatMessage = async (payload: {
+  assistant_id: string;
+  question: string;
+  history: { role: 'user' | 'assistant'; content: string }[];
+}): Promise<AiChatResponse> => {
+  const res = await apiClient.post<AiChatResponse>('/ai/chat', payload);
+  return res.data;
+};
+

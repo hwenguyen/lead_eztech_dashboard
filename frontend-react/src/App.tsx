@@ -14,6 +14,7 @@ import { AppScriptTool } from './components/AppScriptTool';
 import { FacebookDashboard } from './components/FacebookDashboard';
 import { TikTokDashboard, TikTokIcon } from './components/TikTokDashboard';
 import { WorkReportDashboard } from './components/WorkReportDashboard';
+import { AiAssistantDashboard } from './components/AiAssistantDashboard';
 import { LoginPage } from './components/LoginPage';
 import { ChangePasswordModal } from './components/ChangePasswordModal';
 import { fetchSummary, fetchTrend, fetchLeads, fetchEmployees, fetchPages, getStoredAuth, logoutApi, clearClientApiCache, type SummaryData, type TrendData, type Lead, type AuthUser } from './services/api';
@@ -41,7 +42,7 @@ function App() {
     }
   };
 
-  const [activeTab, setActiveTab] = useState<'overview' | 'facebook' | 'tiktok' | 'work_report' | 'remind' | 'deals' | 'bot' | 'add_friend' | 'gas_tool' | 'invoice'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'facebook' | 'tiktok' | 'work_report' | 'remind' | 'deals' | 'bot' | 'add_friend' | 'gas_tool' | 'invoice' | 'ai_assistant'>('overview');
   const [startDate, setStartDate] = useState(format(subDays(new Date(), 7), 'yyyy-MM-dd'));
   const [endDate, setEndDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [pageId, setPageId] = useState('');
@@ -159,6 +160,7 @@ function App() {
     { id: 'invoice' as const, label: 'Xuất hoá đơn', icon: Receipt, url: INVOICE_SCRIPT_URL },
     { id: 'bot' as const, label: 'Bot Gửi Tin', icon: Bot },
     { id: 'add_friend' as const, label: 'Kết Bạn Tự Động', icon: UserPlus },
+    { id: 'ai_assistant' as const, label: 'Trợ Lý AI (RAG)', icon: Sparkles },
   ];
 
   return (
@@ -312,6 +314,7 @@ function App() {
                   {activeTab === 'add_friend' && 'Kết Bạn Zalo Tự Động (Pancake)'}
                   {activeTab === 'gas_tool' && 'Nhập Deal & Quản lý Công Nợ'}
                   {activeTab === 'invoice' && 'Xuất Hoá Đơn Điện Tử'}
+                  {activeTab === 'ai_assistant' && 'Trợ Lý AI Nội Bộ (RAG + API)'}
                 </h2>
                 <span className="hidden md:inline-block text-xs text-slate-400 font-medium">
                   • EzTech Lead Intelligence
@@ -366,6 +369,8 @@ function App() {
             <AutoAddFriendDashboard />
           ) : activeTab === 'gas_tool' ? (
             <AppScriptTool />
+          ) : activeTab === 'ai_assistant' ? (
+            <AiAssistantDashboard />
           ) : activeTab === 'invoice' ? (
             <div className="bg-white rounded-2xl border border-slate-200/80 shadow-card p-6 sm:p-10 max-w-2xl mx-auto my-8 text-center space-y-5">
               <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-200/90 text-amber-600 flex items-center justify-center mx-auto shadow-xs">
