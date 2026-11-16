@@ -21,6 +21,11 @@ FastAPI backend (`backend/`) + React frontend (`frontend-react/`) trên Render (
 
 ## Session
 
+### 2026-11-16 — Gửi ảnh hàng loạt trong Bot Gửi Tin Nhắn Hàng Loạt
+- **Pancake Client (`etl/pancake_client.py`)**: Bổ sung `upload_content()` (`POST /pages/{page_id}/upload_contents`) kèm retry/refresh token và tách helper `_post_page_endpoint()`; sửa `send_message()` để **bỏ trường `message` khi có `content_ids`** (tuân thủ quy tắc mutually exclusive trong `PancakeAPIDoc.yaml`).
+- **Backend (`backend/broadcast.py`)**: Hỗ trợ `images: List[BroadcastImagePayload]` (tối đa 10 ảnh, ≤ 5MB/ảnh) và `send_mode` (`text_then_images`, `images_then_text`, `images_only`). Cache `content_id` theo từng `api_page_id`, tự re-upload 1 lần khi gặp `invalid_upload_fb_attachments_result`, và chia chunk theo giới hạn nền tảng (30/call cho Facebook & Zalo cá nhân, 1/call cho các kênh khác).
+- **Frontend (`BulkMessengerDashboard.tsx`, `api.ts`)**: Thêm khung chọn nhiều ảnh với preview thumbnail, chọn thứ tự gửi chữ/ảnh, mô phỏng Live Preview, và cảnh báo double-request trên Zalo cá nhân.
+
 ### 2026-11-11 — Khôi phục thanh tiến độ & nút Dừng khẩn cấp khi F5 trang (Bot Gửi Tin)
 - **Backend (`backend/broadcast.py`)**: Thêm endpoint `GET /api/broadcast/active` trả về tác vụ đang chạy trên server (`is_running = True`), đồng thời hỗ trợ `POST /api/broadcast/stop/all` (hoặc `/active`).
 - **Frontend (`BulkMessengerDashboard.tsx`, `api.ts`)**: Tự động gọi `fetchActiveBroadcast()` khi tải trang (F5) và lưu `task_id` vào `localStorage` để khôi phục ngay thanh tiến độ real-time cùng nút **Dừng khẩn cấp**.
