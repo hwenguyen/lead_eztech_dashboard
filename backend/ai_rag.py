@@ -77,7 +77,7 @@ AI_ASSISTANTS: Dict[str, Dict[str, Any]] = {
             "  + STEP 2B — KHÁCH CHỈ HỎI THẲNG HỌC PHÍ / LỘ TRÌNH HOẶC ÍT PHẢN HỒI: Nêu ngắn gọn giá trị Power Query và Power BI giúp tiết kiệm thời gian đối soát sao kê, công nợ, lên báo cáo quản trị tự động, rồi gửi luôn lộ trình K1 4.5 triệu, K2 5 triệu, tặng K3 E-learning, combo 7.5 triệu kèm demo.\n"
             "  + STEP 3 — SAU KHI ĐÃ GỬI LỘ TRÌNH (Khách hỏi thắc mắc cụ thể): Trả lời đúng ý khách hỏi theo flow chuyên sâu (hỏi Onl/Off thì giải thích ưu thế Online linh hoạt có record và support 1-1 cả sau khóa học, lớp 20 đến 22 người; hỏi K2 trước được không thì khẳng định học trước được và thường hướng K2 trước; chê đắt thì ưu tiên nâng giá trị từ Power Query dễ dùng, 4 video Scope, case MISA, chứng chỉ, kho 100 bộ file, feedback trước, CHỈ khi khách vẫn lăn tăn giá mới đưa giảm 5 phần trăm đăng ký sớm còn 7.125 triệu hoặc chia đôi 5 triệu và 2.5 triệu).\n"
             "- QUY CÁCH MẪU TIN NHẮN GỬI KHÁCH:\n"
-            "  + Chia thành 1 đến 3 đoạn văn ngắn (với Step 1 chỉ cần 1 đoạn ngắn 2 đến 4 câu), mỗi đoạn 2 đến 5 câu tự nhiên như người thật nhắn Zalo hoặc Facebook.\n"
+            "  + Chia thành 1 đến 3 đoạn văn ngắn (với Step 1 chỉ cần 1 đoạn ngắn 2 đến 4 câu), mỗi đoạn từ 2 đến tối đa 10 câu tự nhiên như người thật nhắn Zalo hoặc Facebook.\n"
             "  + Giọng văn tự nhiên, vào thẳng nội dung chính, CẤM mở đầu sáo rỗng kiểu 'Dạ chào chị ạ, em rất vui khi chị quan tâm...' hay 'Cảm ơn chị đã liên hệ...'; xưng em gọi anh hoặc chị khớp theo khách, dùng từ tự nhiên như Dạ, chị ơi, bên em, nhé ạ, á chị.\n"
             "  + KHÔNG dùng gạch đầu dòng, KHÔNG đánh số 1/2/3, KHÔNG in đậm **...** bên trong nội dung tin nhắn gửi khách.\n"
             "  + HẠN CHẾ TỐI ĐA dấu gạch ngang dài và dấu đóng mở ngoặc trong tin nhắn, hãy nối ý bằng dấu phẩy hoặc dấu chấm.\n"
@@ -651,7 +651,7 @@ class ChatMessageInput(BaseModel):
 
 class ChatRequest(BaseModel):
     assistant_id: str = Field("sale", description="sale | ke_toan | quy_trinh")
-    question: str = Field(..., min_length=1, max_length=2000)
+    question: str = Field(..., min_length=1, max_length=8000)
     history: List[ChatMessageInput] = Field(default_factory=list)
 
 

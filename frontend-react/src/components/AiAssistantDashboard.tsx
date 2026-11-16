@@ -121,6 +121,7 @@ export const AiAssistantDashboard: React.FC = () => {
   const [savingKey, setSavingKey] = useState<boolean>(false);
 
   const chatFormRef = useRef<HTMLFormElement | null>(null);
+  const chatInputRef = useRef<HTMLTextAreaElement | null>(null);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
 
   const loadMetadata = async () => {
@@ -140,6 +141,13 @@ export const AiAssistantDashboard: React.FC = () => {
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }, [chatHistories, selectedAssistantId, chatLoading]);
+
+  useEffect(() => {
+    const el = chatInputRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 260)}px`;
+  }, [question, selectedAssistantId]);
 
   const currentAssistant =
     assistants.find((a) => a.id === selectedAssistantId) || {
@@ -649,6 +657,7 @@ export const AiAssistantDashboard: React.FC = () => {
               Câu hỏi cho {currentAssistant.name} (Nhấn Enter để gửi, Shift + Enter để xuống dòng)
             </label>
             <textarea
+              ref={chatInputRef}
               id="ai-chat-input"
               name="question"
               rows={2}
@@ -657,7 +666,7 @@ export const AiAssistantDashboard: React.FC = () => {
               onChange={(e) => setQuestion(e.target.value)}
               onKeyDown={handleChatTextareaKeyDown}
               placeholder={`Nhập câu hỏi cho ${currentAssistant.name} (có thể nhập SĐT khách để tra cứu trực tiếp)...`}
-              className="w-full px-3.5 py-2 text-xs border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-eztech text-navy"
+              className="w-full min-h-[56px] max-h-[260px] overflow-y-auto px-3.5 py-2 text-xs border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-eztech text-navy"
             />
           </div>
           <button
