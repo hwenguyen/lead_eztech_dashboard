@@ -539,10 +539,10 @@ def call_gemini_generate(
 
     def _post_gemini(model_name: str, body: Dict[str, Any]) -> requests.Response:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
-        resp = requests.post(url, json=body, timeout=25)
+        resp = requests.post(url, json=body, timeout=15)
         if resp.status_code == 400 and "thinking" in resp.text.lower():
             no_think = {**body, "generationConfig": {"temperature": temperature, "maxOutputTokens": 4096}}
-            resp = requests.post(url, json=no_think, timeout=25)
+            resp = requests.post(url, json=no_think, timeout=15)
         return resp
 
     last_error = ""
@@ -800,7 +800,7 @@ def chat_with_assistant(req: ChatRequest, db: Session = Depends(get_db)):
         history=[m.model_dump() for m in req.history],
         api_key=api_key,
         temperature=0.5 if is_sale else 0.25,
-        enable_search=is_sale,
+        enable_search=False,
     )
     if searched_web:
         tools_used.append("Google Search Grounding")
