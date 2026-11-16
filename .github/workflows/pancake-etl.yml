@@ -19,6 +19,10 @@ on:
         description: 'Bật Bot tự động gửi tin nhắn phản hồi? (true/false)'
         required: false
         default: 'true'
+      auto_learn:
+        description: 'Chạy AI tự học từ hội thoại chốt mới? (auto/force/false)'
+        required: false
+        default: 'auto'
 
 concurrency:
   group: pancake-etl
@@ -71,3 +75,16 @@ jobs:
         SKIP_ENSURE_SCHEMA: 'true'   # Tiết kiệm Egress Neon
       run: |
         python -m etl.auto_reply_bot --send --days 1 --limit 100 --no-comments
+
+    - name: AI Tự Học Từ Hội Thoại Chốt Mới (Chạy đêm)
+      if: ${{ github.event.inputs.auto_learn != 'false' }}
+      continue-on-error: true
+      env:
+        DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      run: |
+        if [ "${{ github.event.inputs.auto_learn }}" = "force" ]; then
+          python -m etl.ai_autolearn --days 2 --limit 12 --force
+        else
+          python -m etl.ai_autolearn --days 2 --limit 12
+        fi
