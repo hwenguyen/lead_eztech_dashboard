@@ -97,8 +97,6 @@ export const AiAssistantDashboard: React.FC = () => {
   const [assistants, setAssistants] = useState<AiAssistantProfile[]>([]);
   const [selectedAssistantId, setSelectedAssistantId] = useState<'sale' | 'ke_toan' | 'quy_trinh'>('sale');
   const [documents, setDocuments] = useState<AiDocumentItem[]>([]);
-  const [totalChunks, setTotalChunks] = useState<number>(0);
-  const [maskedKey, setMaskedKey] = useState<string>('');
 
   const [chatHistories, setChatHistories] = useState<Record<string, ChatTurn[]>>({
     sale: [],
@@ -129,8 +127,6 @@ export const AiAssistantDashboard: React.FC = () => {
     try {
       const [astRes, docRes] = await Promise.all([fetchAiAssistants(), fetchAiDocuments()]);
       setAssistants(astRes.assistants);
-      setTotalChunks(astRes.total_chunks);
-      setMaskedKey(astRes.masked_api_key);
       setDocuments(docRes.documents);
     } catch (err: any) {
       setErrorMsg(err?.response?.data?.detail || 'Không thể tải cấu hình AI RAG.');
@@ -273,8 +269,7 @@ export const AiAssistantDashboard: React.FC = () => {
     setSavingKey(true);
     setErrorMsg('');
     try {
-      const res = await updateAiApiKey(newApiKey.trim());
-      setMaskedKey(res.masked_api_key);
+      await updateAiApiKey(newApiKey.trim());
       setNewApiKey('');
       setShowKeyForm(false);
       setStatusMsg('Đã cập nhật Gemini API Key thành công.');
@@ -287,33 +282,54 @@ export const AiAssistantDashboard: React.FC = () => {
 
   return (
     <div className="space-y-4">
-      {/* Thanh tiêu đề & chọn AI chuyên biệt */}
-      <div className="bg-white rounded-2xl border border-slate-200/80 shadow-card p-4 space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-navy text-gold-400 flex items-center justify-center shrink-0">
-              <Bot className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="text-sm font-bold text-navy">
-                Hệ Thống Trợ Lý AI Nội Bộ (Hybrid RAG + Live Data API)
-              </h3>
-              <p className="text-xs text-slate-500">
-                Kho tri thức: <strong className="text-navy">{documents.length}</strong> tài liệu (
-                {totalChunks} vector chunks) • Gemini Key:{' '}
-                <code className="text-[11px] bg-slate-100 px-1.5 py-0.5 rounded">{maskedKey}</code>
-              </p>
-            </div>
+      {/* Thanh điều hướng AI tinh gọn */}
+      <div className="bg-white rounded-2xl border border-slate-200/80 shadow-card px-4 pt-3 pb-0 space-y-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div
+            role="tablist"
+            aria-label="Chọn trợ lý AI chuyên biệt"
+            className="flex overflow-x-auto gap-2"
+          >
+            {(assistants.length > 0
+              ? assistants
+              : ([
+                  { id: 'sale', name: 'AI Sale & Khóa Học' },
+                  { id: 'ke_toan', name: 'AI Kế Toán & Công Nợ' },
+                  { id: 'quy_trinh', name: 'AI Quy Trình & SLA' },
+                ] as AiAssistantProfile[])
+            ).map((ast) => {
+              const selected = selectedAssistantId === ast.id;
+              return (
+                <button
+                  key={ast.id}
+                  id={`tab-ai-${ast.id}`}
+                  type="button"
+                  role="tab"
+                  aria-selected={selected}
+                  onClick={() => {
+                    setSelectedAssistantId(ast.id);
+                    setDocCategory(ast.id);
+                  }}
+                  className={`relative px-4 py-2 text-xs font-semibold whitespace-nowrap transition-colors cursor-pointer border-b-2 ${
+                    selected
+                      ? 'border-eztech text-eztech'
+                      : 'border-transparent text-slate-600 hover:text-navy'
+                  }`}
+                >
+                  {ast.name}
+                </button>
+              );
+            })}
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-2 pb-2">
             <button
               type="button"
               onClick={() => setShowDocManager((v) => !v)}
               className="px-3 py-1.5 rounded-xl text-xs font-semibold border border-slate-200 bg-white hover:bg-slate-50 text-navy flex items-center gap-1.5 cursor-pointer"
             >
               <BookOpen className="w-3.5 h-3.5 text-eztech" />
-              <span>{showDocManager ? 'Đóng Kho Tri Thức' : `Quản lý Tài liệu RAG (${documents.length})`}</span>
+              <span>{showDocManager ? 'Đóng Tài liệu' : 'Tài liệu RAG'}</span>
             </button>
 
             <button
@@ -322,7 +338,7 @@ export const AiAssistantDashboard: React.FC = () => {
               className="px-3 py-1.5 rounded-xl text-xs font-semibold border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 flex items-center gap-1.5 cursor-pointer"
             >
               <KeyRound className="w-3.5 h-3.5 text-amber-600" />
-              <span>Đổi API Key</span>
+              <span>API Key</span>
             </button>
           </div>
         </div>
@@ -332,7 +348,7 @@ export const AiAssistantDashboard: React.FC = () => {
           <form
             onSubmit={handleSaveApiKey}
             aria-labelledby="api-key-form-heading"
-            className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex flex-wrap items-end gap-3"
+            className="p-3 mb-2 bg-slate-50 rounded-xl border border-slate-200 flex flex-wrap items-end gap-3"
           >
             <div className="flex-1 min-w-[240px]">
               <label htmlFor="gemini-api-key-input" id="api-key-form-heading" className="block text-xs font-semibold text-navy mb-1">
@@ -364,58 +380,17 @@ export const AiAssistantDashboard: React.FC = () => {
 
         {/* Thông báo trạng thái / lỗi */}
         {statusMsg && (
-          <div role="status" className="flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs">
+          <div role="status" className="flex items-center gap-2 px-3 py-2 mb-2 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs">
             <CheckCircle2 className="w-4 h-4 shrink-0" />
             <span>{statusMsg}</span>
           </div>
         )}
         {errorMsg && (
-          <div role="alert" className="flex items-center gap-2 px-3 py-2 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs">
+          <div role="alert" className="flex items-center gap-2 px-3 py-2 mb-2 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs">
             <AlertCircle className="w-4 h-4 shrink-0" />
             <span>{errorMsg}</span>
           </div>
         )}
-
-        {/* Thanh Tab chọn 3 AI chuyên biệt */}
-        <div
-          role="tablist"
-          aria-label="Chọn trợ lý AI chuyên biệt"
-          className="flex overflow-x-auto border-b border-slate-200 gap-2 pt-1"
-        >
-          {(assistants.length > 0
-            ? assistants
-            : ([
-                { id: 'sale', name: 'AI Sale & Khóa Học', badge: 'Tư vấn & Lead', doc_count: 1 },
-                { id: 'ke_toan', name: 'AI Kế Toán & Công Nợ', badge: 'Thu chi & Deal Win', doc_count: 1 },
-                { id: 'quy_trinh', name: 'AI Quy Trình & SLA', badge: 'Vận hành & KPI', doc_count: 1 },
-              ] as AiAssistantProfile[])
-          ).map((ast) => {
-            const selected = selectedAssistantId === ast.id;
-            return (
-              <button
-                key={ast.id}
-                id={`tab-ai-${ast.id}`}
-                type="button"
-                role="tab"
-                aria-selected={selected}
-                onClick={() => {
-                  setSelectedAssistantId(ast.id);
-                  setDocCategory(ast.id);
-                }}
-                className={`relative px-4 py-2.5 text-xs font-semibold whitespace-nowrap transition-colors cursor-pointer border-b-2 ${
-                  selected
-                    ? 'border-eztech text-eztech bg-eztech-light/40'
-                    : 'border-transparent text-slate-600 hover:text-navy hover:bg-slate-50'
-                }`}
-              >
-                <span>{ast.name}</span>
-                <span className="ml-2 px-1.5 py-0.5 text-[10px] rounded bg-slate-100 text-slate-600">
-                  {ast.badge} • {ast.doc_count} tài liệu
-                </span>
-              </button>
-            );
-          })}
-        </div>
       </div>
 
       {/* Khu vực Quản lý Tài liệu RAG (Mở khi bấm nút Quản lý Tài liệu RAG) */}
