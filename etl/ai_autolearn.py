@@ -42,9 +42,10 @@ LAST_RUN_DATE_KEY = "ai_last_autolearn_date"
 MAX_STORED_CHUNKS = 60
 EMBEDDING_MODEL = "gemini-embedding-001"
 GENERATION_MODELS = [
+    "gemini-3-flash-preview",
     "gemini-3.6-flash",
-    "gemini-3.5-flash",
     "gemini-3.8-flash",
+    "gemini-3.5-flash",
     "gemini-3.1-flash-lite",
 ]
 

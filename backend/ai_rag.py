@@ -47,9 +47,11 @@ DEFAULT_GEMINI_KEY = ""
 EMBEDDING_MODEL = "gemini-embedding-001"
 EMBEDDING_DIM = 768
 GENERATION_MODELS = [
+    "gemini-3-flash-preview",
     "gemini-3.6-flash",
-    "gemini-3.5-flash",
     "gemini-3.8-flash",
+    "gemini-3.5-flash",
+    "gemini-3.7-flash",
     "gemini-3.1-flash-lite",
 ]
 
@@ -571,10 +573,10 @@ def call_gemini_generate(
 
     def _post_gemini(model_name: str, body: Dict[str, Any]) -> requests.Response:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
-        resp = requests.post(url, json=body, timeout=15)
+        resp = requests.post(url, json=body, timeout=20)
         if resp.status_code == 400 and "thinking" in resp.text.lower():
             no_think = {**body, "generationConfig": {"temperature": temperature, "maxOutputTokens": 4096}}
-            resp = requests.post(url, json=no_think, timeout=15)
+            resp = requests.post(url, json=no_think, timeout=20)
         return resp
 
     last_error = ""
@@ -606,7 +608,7 @@ def call_gemini_generate(
                         gm = candidates[0].get("groundingMetadata") or {}
                         actually_searched = used_search and bool(gm.get("webSearchQueries") or gm.get("groundingChunks"))
                         return answer, model_name, actually_searched
-            last_error = f"{model_name} HTTP {resp.status_code if resp else 'ERR'}: {(resp.text[:180] if resp else '')}"
+            last_error = f"{model_name} HTTP {resp.status_code if resp is not None else 'ERR'}: {(resp.text[:180] if resp is not None else '')}"
             logger.warning(f"Gemini model {model_name} fallback: {last_error}")
         except Exception as e:
             last_error = f"{model_name} exception: {e}"
