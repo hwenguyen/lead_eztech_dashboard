@@ -11,6 +11,7 @@ import {
   ChevronRight,
   FileSpreadsheet,
   ExternalLink,
+  Copy,
 } from 'lucide-react';
 import {
   fetchDealEntryInit,
@@ -139,6 +140,7 @@ export function AppScriptTool() {
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 25;
   const [copiedRowId, setCopiedRowId] = useState<string | null>(null);
+  const [copiedCheckLenh, setCopiedCheckLenh] = useState(false);
   const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(new Set());
   const [copyToast, setCopyToast] = useState<string | null>(null);
 
@@ -917,6 +919,27 @@ export function AppScriptTool() {
     }
   };
 
+  const handleCopyCheckLenh = async () => {
+    const student = [formSdt.trim(), formHoTen.trim()].filter(Boolean).join(' ');
+    const course = [formChuongTrinh.trim(), formLop.map((s) => s.trim()).filter(Boolean).join(', ')]
+      .filter(Boolean)
+      .join(' ');
+    const nguon = formNguon.map((s) => s.trim()).filter(Boolean).join(', ');
+    const text = [
+      `@Ann Chị ơi, chị ${student}${course ? ` đăng ký ${course}` : ''}. Chị check và lập account cho chị ấy giúp em với ạ`,
+      `Nguồn: ${nguon}`,
+    ].join('\n');
+
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedCheckLenh(true);
+      setTimeout(() => setCopiedCheckLenh(false), 2000);
+      showToast('Đã copy mẫu Check lệnh!');
+    } catch {
+      showToast('Không thể truy cập bộ nhớ tạm (Clipboard).');
+    }
+  };
+
   const toggleSelectRow = (id: string) => {
     setSelectedRowIds((prev) => {
       const next = new Set(prev);
@@ -991,7 +1014,7 @@ export function AppScriptTool() {
   return (
     <div className="space-y-4">
       {copyToast && (
-        <div className="fixed bottom-5 right-5 z-50 px-4 py-2.5 bg-slate-900 text-white text-xs font-semibold rounded-lg shadow-lg border border-slate-700">
+        <div className="fixed bottom-5 right-5 z-[60] px-4 py-2.5 bg-slate-900 text-white text-xs font-semibold rounded-lg shadow-lg border border-slate-700">
           {copyToast}
         </div>
       )}
@@ -2446,6 +2469,18 @@ export function AppScriptTool() {
                   className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl"
                 >
                   Huỷ
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCopyCheckLenh}
+                  className={`inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-xl border transition-colors cursor-pointer ${
+                    copiedCheckLenh
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                      : 'bg-slate-50 hover:bg-slate-100 text-navy border-slate-200'
+                  }`}
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>{copiedCheckLenh ? 'Đã copy Check lệnh' : 'Copy Check lệnh'}</span>
                 </button>
                 <button
                   type="submit"
