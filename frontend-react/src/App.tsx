@@ -161,7 +161,7 @@ function App() {
     { id: 'invoice' as const, label: 'Xuất hoá đơn', icon: Receipt, url: INVOICE_SCRIPT_URL },
     { id: 'bot' as const, label: 'Bot Gửi Tin', icon: Bot },
     { id: 'add_friend' as const, label: 'Kết Bạn Tự Động', icon: UserPlus },
-    { id: 'ai_assistant' as const, label: 'Trợ Lý AI (RAG)', icon: Sparkles },
+    { id: 'ai_assistant' as const, label: 'Trợ Lý AI', icon: Sparkles },
   ];
 
   return (

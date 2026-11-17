@@ -152,28 +152,121 @@ Dành cho khách hàng (Chủ doanh nghiệp, CFO, KTT) **không muốn tự h�
 - **Trên Facebook Messenger:** Dùng lý do kỹ thuật thực tế: *"Do Mess hạn chế gửi file > 25MB nên chị cho em xin SĐT để kết bạn Zalo, gửi đầy đủ lộ trình, quyền lợi và bộ demo nhé ạ"*. Nếu khách không cho số, gửi tóm tắt lộ trình K1-K2-K3 kèm link demo ngay trên Mess.
 - **Khách từ Web / Xin Tool (All-in-One, EzHoadon, EzExcel, Prompt AI):** Tặng đúng bản dùng thử/hướng dẫn (EzExcel 3 ngày, video hướng dẫn EzHoadon, 1 file trong bộ 100 AIO) → Dừng ~30 phút hoặc hỏi tiếp khó khăn xử lý dữ liệu để chuyển dần sang tư vấn khóa Data Finance / bộ B2C.
 
-### B. FLOW Chuẩn Bám Sát `Kịch bản chuyên sâu.xlsx` (Không nhảy cóc)
+### B. FLOW Chuẩn & Nguyên Văn Tin Nhắn `Kịch bản chuyên sâu.xlsx` (Không nhảy cóc, không rút gọn)
 
 - **Step 1 — Chăm sóc trước (Khách mới hỏi chung chung, chưa nói rõ công cụ đang làm):**
   - **Tuyệt đối chưa gửi lộ trình K1-K2-K3 hay báo giá 4.5tr / 7.5tr ngay ở tin đầu.**
-  - Chỉ chào nhẹ nhàng và hỏi đúng câu khai thác: *"Dạ chị cho em hỏi thêm mình một xíu là hiện tại mình chủ yếu đang xử lý dữ liệu thủ công bằng Excel hay mình dùng phần mềm kế toán là chính ạ?"* (hoặc *"Dạ chị cho em hỏi thêm một xíu hiện tại mình chủ yếu xử lý dữ liệu thủ công bằng Excel có phải không ạ?"*).
+  - Nhắn đúng câu khai thác:
+    > Dạ chị cho em hỏi thêm mình 1 xíu rằng hiện tại mình chủ yếu đang xử lý dữ liệu thủ công bằng Excel hay mình dùng phần mềm kế toán là chính ạ
+    *(hoặc: "Dạ chị cho em hỏi thêm mình 1 xíu rằng hiện tại mình chủ yếu đang xử lý dữ liệu thủ công bằng Excel có phải không ạ")*
 
-- **Step 2 — Phân nhánh sau khi khách trả lời (hoặc khách chỉ hỏi giá / không phản hồi):**
-  1. **Khách dùng Excel là chính:** Đồng cảm file nặng, link giữa các file dễ lỗi, mỗi tháng phải cập nhật lại từ đầu rất mất thời gian tổng hợp → giới thiệu Power Query (tích hợp sẵn trong Excel, kéo thả và tick chọn không phải code) và Power BI (làm một form mẫu, tháng sau import dữ liệu mới tự cập nhật) → **cuối tin xin phép gửi full lộ trình Data Finance**.
-  2. **Khách dùng phần mềm kế toán (MISA, FAST...) là chính:** Ghi nhận phần mềm hỗ trợ tốt hạch toán và lưu trữ, nhưng khi đối chiếu nhiều nguồn hoặc sếp muốn báo cáo quản trị đa chiều theo yêu cầu riêng thì bị giới hạn bởi mẫu có sẵn → nâng cấp thêm Power Query (đối chiếu sao kê, công nợ, hạch toán tự động) và Power BI → **cuối tin xin phép gửi full lộ trình Data Finance** (nhấn mạnh có case thực chiến trực tiếp trên sổ NKC kết xuất từ MISA).
-  3. **Khách ít tương tác hoặc chỉ muốn hỏi học phí và thông tin khóa học:** Gửi đoạn ngắn nêu giá trị Power Query và Power BI trong tối ưu đối soát và báo cáo quản trị rồi gửi lộ trình chuẩn.
+- **Step 2A — Khách dùng Excel là chính (nhấn mạnh sâu khó khăn & giải pháp):**
+  > Nhiều anh chị kế toán bên em cũng chia sẻ là càng làm lâu càng thấy Excel không còn ok nữa ý chị, số lượng dữ liệu nhiều khiến dữ liệu nặng, link giữa các file dễ lỗi, chưa kể mỗi tháng lại phải cập nhật lại từ đầu. Mất nhiều thời gian cho khâu tổng hợp mà không còn thời gian để phân tích hay kiểm soát số liệu sâu luôn ấy chị
+  >
+  > Nếu chị chuyển phần thu thập – xử lý – tổng hợp dữ liệu sang Power Query thì mọi thao tác thủ công gần như được loại bỏ, và mình có thể xử lý tổng hợp hàng chục file một lúc ạ. Kết hợp Power BI là 1 công cụ giúp chị làm báo cáo xịn đẹp chuyên nghiệp hơn với hình ảnh trực quan theo dõi hiệu quả theo nhiều chiều.
+  >
+  > Và quan trọng nhất là chị chỉ cần thiết kế một form báo cáo mẫu thôi là mỗi lần có thêm dữ liệu mới mình chỉ cần import vào là dữ liệu tự động sẽ cập nhật lại mới hết nhé ạ.
+  > Power Query và Power BI bản chất nó không phải là một công cụ phức tạp, thậm chí nó còn dễ dùng hơn Excel vì các thao tác được Microsoft tối ưu bằng việc tick chọn và kéo thả và nó cũng được tích hợp sẵn trong Excel luôn ạ
+  >
+  > Để em gửi chị tham khảo full lộ trình khoá Data Finance dành riêng cho ngành tài chính - kế toán của bên em nhé ạ
 
-- **Step 3 — Quy trình Gửi lộ trình mới (8 bước chuẩn):**
-  1. Danh sách K1 (Power BI quản trị TCKD - 10 buổi - 4.5tr), K2 (Power Query, Excel và AI cho TCKT - 14 buổi - 5tr), K3 (Power BI lập và phân tích BCTC E-learning - 9 buổi).
-  2. File PDF lộ trình (Finance hoặc Business).
-  3. Báo ưu đãi đăng ký 2 khóa đầu được tặng khóa 3 giảm còn 7.5tr.
-  4. Gửi 3 link Demo học viên trả bài (K1.1, K1.2 Báo cáo Lãi Lỗ, K3).
-  5. Giải thích rõ vai trò K1/K3 (tổ chức dữ liệu, trình bày báo cáo quản trị) và K2 (xử lý, đối soát, tích hợp dữ liệu nhiều nguồn, Power Query, Pivot Table, AI lên báo cáo P&L động trên Excel).
-  6. Nhấn mạnh tính cá nhân hóa: mỗi học viên có 1 bạn DA support 1-1 trong và cả sau khóa học, thực hành trên dữ liệu công ty mình.
-  7. Chạm vào insight hoặc hỏi lại lịch/băn khoăn của khách.
+- **Step 2A — Khách dùng cả phần mềm hoặc phần mềm kế toán (MISA, FAST...) là chính:**
+  > Dạ vâng em thấy ngày nay thời đại công nghệ rất phát triển nên các phần mềm kế toán cũng được tích hợp rất nhiều các chức năng hữu ích phục vụ trong các công việc hạch toán và lưu trữ dữ liệu. Nhưng nếu mình chỉ phụ thuộc vào phần mềm kế toán thì khi cần đối chiếu, tổng hợp dữ liệu từ nhiều nguồn sẽ khá mất thời gian hoặc sếp muốn những báo cáo trực quan, dễ theo dõi, có biểu đồ và phân tích chi tiết hơn, mình sẽ bị giới hạn bởi các mẫu báo cáo có sẵn của phần mềm đó ạ
+  >
+  > Thì em nghĩ mình có thể nâng cấp thêm kĩ năng xử lý dữ liệu thô như đối chiếu sao kê, đối chiếu công nợ, tổng hợp số liệu, hạch toán tự động bằng Power Query và làm báo cáo chuyên nghiệp hơn bằng Power BI thì công việc của mình sẽ tối ưu hơn rất nhiều
+  >
+  > Để em gửi chị tham khảo full lộ trình khoá Data Finance dành riêng cho ngành tài chính - kế toán của bên em nhé ạ
 
-- **Step 4 — Chăm sóc sau khi gửi lộ trình:**
-  - Chỉ giải đáp đúng vấn đề khách hỏi (Online/Offline, sĩ số 20–22 người, học K2 trước được không, giải thích công cụ, Video 4 Scope, Case MISA, Chứng chỉ Microsoft VN, Feedback, 100 bộ file, 8 quyền lợi). Chỉ khi khách thực sự quan tâm nhưng vướng tài chính mới tung phương án giảm 5% đăng ký sớm (7.125tr) hoặc chia đôi 5tr + 2.5tr.
+- **Step 2B — Lead chỉ muốn hỏi học phí và thông tin khóa học / ít tương tác / sau khi hỏi khó khăn không thấy phản hồi:**
+  > Dạ vâng với đặc thù ngành kế toán thì mình phải quản lý dữ liệu rất nhiều. Nên nếu mình xử lý thủ công công việc sẽ tốn khá nhiều thời gian. Nên với các task xử lý dữ liệu thô như đối chiếu sao kê, đối chiếu công nợ, tổng hợp dữ liệu, hạch toán tự động,... thì mình áp dụng Power Query (công cụ được tích hợp sẵn trong Excel) sẽ tối ưu cho mình rất nhiều đó ạ
+  >
+  > Sau đó, nếu mình lên được các báo cáo quản trị trực quan bằng Excel, Power BI sẽ giúp chị và BGĐ theo dõi hiệu quả theo nhiều chiều, và quan trọng nhất là chị chỉ cần thiết kế một form báo cáo mẫu thôi là mỗi lần có thêm dữ liệu mới chị chỉ cần import dữ liệu vào là báo cáo sẽ tự động cập nhật lại hết đó ạ
+  >
+  > Bên em có chương trình Data in Finance dành riêng cho dân kế toán phù hợp với mình. Chương trình này sẽ hướng dẫn mình từ khâu xử lý các dữ liệu thô, tối ưu công việc thủ công đến xây dựng báo cáo quản trị trực quan hơn, có ý nghĩa phân tích giúp các sếp dễ ra quyết định. Để em gửi mình tham khảo full lộ trình này nhé ạ
+
+- **Step 3 — Quy trình Gửi lộ trình mới (nguyên văn):**
+  > Em gửi chị chương trình Data Finance dành riêng cho các anh chị làm trong lĩnh vực tài chính, kế toán ạ, mình sẽ có 3 khoá học vs 3 modun:
+  > K1. Ứng dụng Power BI xây dựng báo cáo quản trị tài chính & kinh doanh - 10 buổi - 4.5 triệu
+  > K2. Ứng dụng Power query, excel và AI cho tài chính kế toán - 14 buổi - 5 triệu
+  > K3. Ứng dụng Power BI xây dựng báo cáo tài chính & phân tích (khóa Elearning) - 9 buổi
+  >
+  > Hiện tại bên em đang có chương trình khi mình đăng ký 2 khoá đầu sẽ được tặng khoá 3 thì giá của mình sẽ được giảm còn 7.5tr nhé ạ
+  >
+  > Đây là link Demo học viên trả bài sau khoá học, cũng là report mình sẽ xây dựng trong khoá học chị tham khảo ạ
+  > K1.1: https://app.powerbi.com/view?r=eyJrIjoiOWZhY2Q1ZmYtYTNhNy00Yzg4LWI1YjQtZmRhYTUyOWY5MWI2IiwidCI6IjkzOGJhZDgxLWU1NWItNGQ2MS04MDliLWIwZGRmMWU1NmM1ZCIsImMiOjEwfQ%3D%3D
+  > K1.2: Báo cáo Lãi Lỗ: https://app.powerbi.com/view?r=eyJrIjoiOGVkY2FjMDMtNzRkMy00NWEzLTg5MWUtOTM5YjgxZGQyYjUyIiwidCI6IjkzOGJhZDgxLWU1NWItNGQ2MS04MDliLWIwZGRmMWU1NmM1ZCIsImMiOjEwfQ%3D%3D
+  > K3: https://app.powerbi.com/view?r=eyJrIjoiMTQxNTkzNDYtYzlhNS00ZTg3LTlkMDMtYzVjN2Y1MWFkNjY3IiwidCI6IjkzOGJhZDgxLWU1NWItNGQ2MS04MDliLWIwZGRmMWU1NmM1ZCIsImMiOjEwfQ%3D%3D
+  >
+  > Trong chương trình thì K1 và K3 sẽ học về cách tổ chức dữ liệu, trình bày các báo cáo quản trị, tư duy phân tích và lập các báo cáo quản trị doanh thu, chi phí, so sánh số kế hoạch, báo cáo lãi lỗ, báo cáo bán hàng, báo cáo dòng tiền... các phương pháp phân tích để có thể đưa ra được insight cho các sếp
+  >
+  > Còn K2 tập trung vào xử lý dữ liệu tổng hợp, đối soát dữ liệu, tích hợp dữ liệu từ nhiều nguồn và tối ưu CV khi làm việc vs dữ liệu, tự động hóa các đầu việc thủ công kèm với đó là mình cũng sẽ học cách ứng dụng Power query, pivot table và AI để lên báo cáo quản trị động trực quan trên Excel và AI nữa chị ạ
+  >
+  > Ngoài ra khoá học bên em có mang tính cá nhân hoá, mỗi học viên đều có 1 bạn DA support 1-1 trong và cả sau quá trình học để đảm bảo mọi người thực hành được và áp dụng được vào công việc. Chương trình được thiết kế dựa trên các case study thực tế, mọi người cũng có thể dùng dữ liệu của công ty mình để thực hành luôn ạ
+
+- **Step 4 — Chăm sóc sau khi gửi lộ trình (nguyên văn từng tình huống):**
+  - **Hình thức học Online / Offline:**
+    > Dạ bên em có cả 2 hình thức học onl và off nhưng đa số các anh chị học viên bên em thích học onl hơn để thuận tiện cho việc đi lại kèm linh hoạt hơn trong thời gian học đó ạ. Vì sau mỗi buổi học bên em đều sẽ gửi lại mình tài liệu bài giảng kèm record để chị có thể xem lại những đoạn bị miss hay hôm đó mình bận chưa tham gia được lớp học nhé ạ
+    *(Nếu khách chỉ thích học off, ghép thêm:)*
+    > Bên em có 1 đặc quyền riêng so với bên khác là có đội ngũ support 1-1 chuyên sâu dành riêng cho mỗi học viên, các bạn sẽ có thể hỗ trợ mình trong quá trình học và cả áp dụng vào công việc thực tế nhé ạ. Sau khóa học thì bên em cũng vẫn sẽ giữ lại nhóm support 1-1 để bên em có thể hỗ trợ mình cả sau khóa học nữa ạ
+    >
+    > Thời gian kick off 1 lớp offline của bên em cần chờ thời gian khá lâu tầm 1, 2 tháng để đủ số lượng học viên đăng ký ý ạ. Thì nếu được để em hỗ trợ mình đăng ký học onl trước xong nếu mình vẫn muốn học lại off và có lớp off khai giảng em sẽ chuyển lớp miễn phí cho mình nhé ạ
+  - **1 lớp bao nhiêu học viên:**
+    > Dạ 1 lớp học bên em có giới hạn tầm 20 - 22 học viên thôi chị ạ. Vì bên em cũng muốn đảm bảo chất lượng đào tạo kèm sắp xếp đội ngũ trợ giảng, các bạn support 1-1 cho mỗi học viên trong lớp nữa ạ
+  - **Đắt, chê giá cao (nâng giá trị cốt lõi trước):**
+    > Dạ xử lý và phân tích dữ liệu là kĩ năng rất quan trọng đối với Tài chính - kế toán nên mình cần dành thời gian 2-3 tháng để học và thực hành vào công việc thành thạo ạ. Ngoài ra chương trình học bên em hướng đến cá nhân hoá từng học viên nên chi phí khá là cạnh tranh so với các bên.
+    >
+    > Bên em có 1 đặc quyền riêng so với bên khác là có đội ngũ support 1-1 chuyên sâu dành riêng cho mỗi học viên, các bạn sẽ có thể hỗ trợ mình trong quá trình học và cả áp dụng vào công việc thực tế nhé ạ. Sau khóa học thì bên em cũng vẫn sẽ giữ lại nhóm support 1-1 để bên em có thể hỗ trợ mình cả sau khóa học nữa ạ
+  - **Giảm giá linh hoạt (chỉ dùng khi khách thực sự quan tâm nhưng vẫn vướng tài chính):**
+    > Em thấy mình cũng khá quan tâm đến chương trình đào tạo của bên em nhưng còn vướng mắc 1 chút về khoản học phí thì nếu chị có thể tham gia được lớp đợt này thì em có thể xin quản lý hỗ trợ thêm cho mình 1 chút nhé ạ, em sẽ xin hỗ trợ cho chị theo 1 trong 2 phương án sau nhé ạ:
+    > 1. Em sẽ xin quản lý hỗ trợ mình giảm thêm 5% để áp dụng chương trình đăng ký sớm (bình thường học viên bên em thường đăng ký sớm trước 1 tháng để xếp lớp mới được ưu đãi này thôi ạ)
+    > 2. Em sẽ xin quản lý hỗ trợ chị chia đôi học phí tổng khoá là 7tr5 thì mình cần hoàn thành trước giúp em 5tr để em hỗ trợ chị vào lớp và mình hoàn thành nốt giúp em 2tr5 trước khi sang tháng mới nhé ạ
+  - **Học K2 trước có được không:**
+    > 2 khóa k1, k2 của bên em là 2 modun độc lập và bổ trợ lẫn nhau nên mình học khóa nào trước cũng được nhé ạ. Lộ trình học bên em thường hướng cho học viên sẽ học từ khóa k2 trước để mình tối ưu trong công việc tự động hóa các việc làm thủ công khiến mất thời gian, xử lý dữ liệu thô xong mới đến học khóa k1 là mình sẽ học làm các báo cáo, nâng cao tư duy phân tích báo cáo nhé ạ
+  - **Giải thích công cụ Power Query & Power BI:**
+    > Power Query chị có thể hiểu đơn giản là một công cụ được tích hợp sẵn trong Excel giúp kế toán xử lý dữ liệu hàng loạt và tự động hóa những công việc đang làm thủ công. Nó không phải ngôn ngữ lập trình hay công cụ của dân IT, mà được Microsoft phát triển dành cho dân nghiệp vụ như kế toán, tài chính, kiểm toán với các thao tác được tối ưu bằng việc tick chọn và kéo thả mà mình không cần phải nhớ hàm phức tạp trên Excel để xử lý ạ
+    >
+    > Còn Power BI là công cụ giúp chị biến những bảng dữ liệu Excel dài hàng nghìn dòng thành các báo cáo trực quan, chị sẽ học cách xây dựng các báo cáo quản trị trực quan và có chiều sâu để mình thấy ngay được doanh thu, lợi nhuận, chi phí,... từ tổng hợp đến chi tiết theo nhiều chiều phân tích và mình có thể dễ dàng kiểm soát và nắm bắt được số liệu.
+  - **Scope video buổi học:**
+    > Em gửi chị tham khảo thêm các Scope đào tạo cho 2 phần Power BI và Power query có trong chương trình học để chị hiểu hơn về phương pháp học nhé. Đây là những demo mà mình sẽ được học và hướng dẫn chi tiết trong khoá học luôn nhé ạ
+    > 1. Phần Power BI: xây dựng các trang báo cáo
+    > https://www.youtube.com/watch?v=i5kkS7QPRw4
+    > 2. Phần Power query, tích hợp dữ liệu và xử lý dữ liệu nhiều nguồn
+    > https://www.youtube.com/watch?v=WpW5yD0kjhM
+    > 3. Ứng dụng đối chiếu từ hàng chục File sao kê vs NKC
+    > https://youtu.be/i_FpxkzGCo8
+    > 4. Đổ bút toán tự động giúp tối ưu CV hạch toán:
+    > https://youtu.be/o50ZjLIgVnU
+    > 5. Bộ file báo cáo quản trị:
+    > https://youtu.be/i5kkS7QPRw4?si=Y37QSOaUHzsmshKi
+  - **Case thực tế & MISA:**
+    > Đây là 1 số case thực tế mình sẽ được học và áp dụng trong thực tế chị nhé. Trong phương pháp giảng dạy của anh Tuấn Anh có 1 cái đặc biệt hơn so với các bên khác là anh Tuấn Anh sẽ tập trung xây dựng mindset tư duy hệ thống dữ liệu cho học viên qua các case study thực tế từ các bài toán nghiệp vụ đơn giản cho đến nâng cao từ đó mình sẽ cải thiện được chuyên môn nghiệp vụ của mình hơn cũng như hiểu được bản chất của vấn đề mà không phải chỉ học công cụ thôi ạ
+    *(Nếu khách dùng MISA, thêm:)*
+    > Trong khóa học có rất nhiều buổi anh Tuấn Anh sẽ dạy các case thực tế ứng dụng vào phần mềm kế toán Misa như:
+    > - đối chiếu sao kê sổ phụ ngân hàng với sổ nkc từ Misa
+    > - lên báo cáo quản trị lãi lỗ từ sổ nkc Misa
+    > - làm form đổ tự động hạch toán lên phần mềm Misa đó chị ạ
+  - **Chứng chỉ:**
+    > Bên anh cũng là đơn vị đồng hành với Microsoft ở Việt Nam và cũng là đơn vị đầu tiên tập trung đào tạo dữ liệu dành riêng cho dân tài chính kế toán em nhé. Sau khóa học mình sẽ được cấp chứng chỉ luôn nha
+  - **Feedback:**
+    > Em gửi chị feedback của 1 số chị kế toán trưởng & KTTH bên em lớp vừa học xong; trong đó có 1 chị sau khi làm báo cáo cho sếp xong chị ấy xin luôn sang ban Tài chính luôn và vì đây là chương trình thiết kế riêng cho dân Tài chính - kế toán nên học xong mọi người có thể ứng dụng được luôn
+    > Có khá nhiều bạn bên em đã học ACCA, CMA và phản hồi chương trình học này gần như học xong cho mình công cụ và tư duy ứng dụng được luôn, chị tham khảo thêm nhé ạ
+    >
+    > Em gửi chị tham khảo thêm 1 số feedback của học viên bên em khóa trước để mình yên tâm hơn về chất lượng đào tạo kèm đội ngũ support 1-1 của bên em nhé ạ
+  - **100 bộ file + tool:**
+    > Đợt này thì bên em cũng phát triển rất nhiều tools hỗ trợ cho kế toán trong quá trình làm việc nữa. Và học viên sẽ được tặng miễn phí các file quản lý hoặc bộ dữ liệu mẫu trên Excel và nhiều file thực tế do EzTech xây dựng có hẳn kho bộ 100 file quản lý với từng bài toán nghiệp vụ cho từng ngành, mình có thể lấy áp dụng hoặc tùy biến theo đúng doanh nghiệp của mình thay vì phải tự thiết kế từ đầu ạ
+    > Đây cũng là đặc quyền riêng của học viên bên em thôi, những anh chị chưa là học viên sẽ mất thêm phí từ 2-5tr/ dịch vụ đó ạ
+    > - Tool hóa đơn: https://www.tiktok.com/@tuananhdata/video/7626154405628284180?is_from_webapp=1&sender_device=pc
+    > - Tool Excel: https://www.tiktok.com/@tuananhdata/video/7681529166591692039?is_from_webapp=1&sender_device=pc
+  - **Quyền lợi Combo:**
+    > Em gửi lại chị một số quyền lợi khi học viên đăng ký học đợt này và đăng ký theo combo nhé ạ:
+    > - Được cấp chứng chỉ sau chương trình học (học full khóa)
+    > - Được hỗ trợ học phí còn 7tr5 cho combo 3 khóa
+    > - Được tặng 1 tài khoản power bi pro full tính năng để HV thực hành cả trong và sau khoá học, chị có thể dùng để chia sẻ và quản lý báo cáo sau này ạ (TK này nếu mình tự mua của Microsoft phí sẽ khoảng 13USD/ user/ tháng)
+    > - Tặng TK Elearning để học viên xem lại record, học liệu và thực hành lại
+    > - Được hỗ trợ bảo lưu và học lại một lần miễn phí để học viên ôn lại và cập nhật kiến thức mới
+    > - Có nhóm support 1:1 hỗ trợ cá nhân hóa từng học viên trong và sau chương trình học để đảm bảo học viên học và ứng dụng được vào công việc
+    > - Tham gia cộng đồng học viên và sử dụng miễn phí các tools do EzTech phát triển
+    > - Tham gia các buổi đào tạo bonus miễn phí dành riêng cho học viên để trau dồi và nâng cao kỹ năng sau chương trình
 
 ### C. Bộ 8 Kịch Bản Remind Nuôi Dưỡng Lead
 1. **Remind Video 4 Scope:** Gửi 4 link YouTube thực chiến (PBI, Power Query, Sao kê vs NKC, Đổ bút toán).
