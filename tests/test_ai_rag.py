@@ -5,9 +5,10 @@ import sys
 os.environ["DATABASE_URL"] = "sqlite:///./leads_data.db"
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+from datetime import timedelta
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from database.models import Base, KnowledgeChunk, SalesDeal
+from database.models import Base, KnowledgeChunk, SalesDeal, DimLead, FactLeadActivity, get_vn_now
 from backend.ai_rag import (
     split_text_into_chunks,
     cosine_similarity,
@@ -78,6 +79,30 @@ def test_ai_rag_pipeline():
         assert "Nguyễn Văn A" in kt_ctx
         assert "2,000,000" in kt_ctx
         assert len(kt_tools) >= 1
+
+        # AI Quy trình & SLA đọc dữ liệu Dashboard Tổng quan & tồn đọng Remind
+        now_vn = get_vn_now()
+        lead1 = DimLead(customer_id="c1", name="Khách 1", phone_number="0901111222", page_id="fb_page_1", first_created_at=now_vn - timedelta(days=1))
+        lead2 = DimLead(customer_id="c2", name="Khách 2", phone_number="", page_id="fb_page_1", first_created_at=now_vn - timedelta(days=10))
+        db.add_all([lead1, lead2])
+        db.flush()
+        db.add_all([
+            FactLeadActivity(lead_id=lead1.id, conversation_id="conv_1", status_tag="Đào tạo, Remind", assigned_users="Tran Dat", contacted_at=now_vn - timedelta(days=9)),
+            FactLeadActivity(lead_id=lead2.id, conversation_id="conv_2", status_tag="Có thông tin", assigned_users="", contacted_at=now_vn - timedelta(days=1)),
+        ])
+        db.commit()
+        clear_ai_knowledge_cache()
+
+        qt_ctx, qt_tools = build_live_data_context(db, "quy_trinh", "Kiểm tra tồn đọng Remind và chỉ số 7 ngày qua")
+        assert "DỮ LIỆU DASHBOARD" in qt_ctx
+        assert ">7 ngày quá hạn=1" in qt_ctx
+        assert "Tran Dat" in qt_ctx
+        assert len(qt_tools) >= 2
+
+        # Câu hỏi thuần định nghĩa không gọi nặng dashboard
+        rule_ctx, rule_tools = build_live_data_context(db, "quy_trinh", "Cách tính Lead Mới trên Dashboard?")
+        assert rule_ctx == ""
+        assert rule_tools == []
 
     print("ALL AI RAG TESTS PASSED!")
 

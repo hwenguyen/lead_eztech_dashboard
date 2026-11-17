@@ -16,6 +16,8 @@ import uuid
 import time
 import logging
 import threading
+import unicodedata
+from collections import Counter
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional, Tuple, Set
 
@@ -37,7 +39,7 @@ from database.models import (
     get_vn_now,
 )
 from backend.lead_metrics import classify_leads, normalize_text
-from etl.utils import normalize_phone, resolve_canonical_page_name, build_pancake_url
+from etl.utils import normalize_phone, resolve_canonical_page_name, build_pancake_url, zalo_page_keys
 
 logger = logging.getLogger("AiRagService")
 
@@ -61,6 +63,8 @@ _KNOWLEDGE_CACHE: Optional[List[Dict[str, Any]]] = None
 _KNOWLEDGE_CACHE_TS: float = 0.0
 KNOWLEDGE_CACHE_TTL = 600  # 10 phút
 _API_KEY_CACHE: Optional[Tuple[float, str]] = None
+_SLA_REMIND_CACHE: Optional[Tuple[float, Dict[str, Any]]] = None
+SLA_REMIND_CACHE_TTL = 300  # 5 phút
 
 
 AI_ASSISTANTS: Dict[str, Dict[str, Any]] = {
@@ -183,23 +187,31 @@ AI_ASSISTANTS: Dict[str, Dict[str, Any]] = {
     "quy_trinh": {
         "id": "quy_trinh",
         "name": "AI Quy Trình & SLA",
-        "badge": "Vận hành & KPI",
-        "description": "Tra cứu định nghĩa chỉ số KPI, quy tắc gắn Tag Pancake, SLA phản hồi khách hàng và quy trình vận hành.",
+        "badge": "Metric & Insight SLA",
+        "description": "Đọc thông số thực tế từ các Dashboard (Tổng quan, Facebook, TikTok, Work Report, Remind SLA, Deal Win) để phân tích điểm nghẽn và đề xuất hành động, hoặc tra cứu quy trình vận hành.",
         "categories": ["quy_trinh", "chung"],
         "system_prompt": (
-            "Bạn là Trợ lý AI Quy trình & Vận hành (SLA) của EzTech. "
-            "Nhiệm vụ: Hướng dẫn nhân sự mới và đội vận hành về định nghĩa các chỉ số KPI trên Dashboard, "
-            "quy tắc gắn thẻ (Tag) trên Pancake, quy trình chăm sóc Lead qua Zalo cá nhân, và quy định Bot tự động. "
-            "Quy tắc: Trả lời chuẩn xác theo tài liệu quy trình của EzTech, trình bày từng bước rõ ràng, không cần chèn `[Nguồn: ...]` vào câu trả lời."
+            "Bạn là Trợ lý AI Quy trình, Metric Dashboard & SLA Vận hành của EzTech Việt Nam.\n"
+            "Nhiệm vụ gồm 2 chế độ:\n\n"
+            "1. PHÂN TÍCH METRIC DASHBOARD & ĐƯA RA INSIGHT SLA (khi câu hỏi hỏi về thông số, KPI thực tế, hiệu suất kênh/nhân viên, tồn đọng Remind, so sánh kỳ hoặc yêu cầu nhận định/insight và trong ngữ cảnh có `[DỮ LIỆU DASHBOARD ...]`):\n"
+            "- BẮT BUỘC dùng 100% con số thật có trong `[DỮ LIỆU DASHBOARD ...]` và đối chiếu với các ngưỡng cảnh báo SLA trong `[TÀI LIỆU NỘI BỘ (KHO TRI THỨC RAG)]`. TUYỆT ĐỐI KHÔNG tự bịa hay suy đoán số liệu không xuất hiện trong dữ liệu hệ thống.\n"
+            "- Trình bày gọn, sắc bén theo đúng khung 4 phần:\n"
+            "  1) **Bức tranh số liệu thực tế:** Nêu rõ kỳ phân tích, tóm tắt các chỉ số cốt lõi từ những Dashboard liên quan (Tổng Lead, SĐT, CR%, so sánh kỳ trước, Facebook Ads/Post/Organic, TikTok Video/Organic, Deal Win, Remind aging).\n"
+            "  2) **Điểm nghẽn & Cảnh báo SLA:** Chỉ đích danh kênh/page, nhân viên hoặc bước phễu đang vượt ngưỡng cảnh báo (ví dụ: tỷ lệ Lead `Chưa phân công` > 5% hoặc > 10%, kênh có CR < 40%, `Remind > 7 ngày` vượt > 20% hoặc > 40%, chênh lệch CR giữa các nhân viên > 20 điểm %, tỷ lệ chốt Deal/SĐT < 10%).\n"
+            "  3) **Nguyên nhân gốc rễ:** Đối chiếu trực tiếp với quy trình vận hành EzTech (bỏ sót gán Sale khiến hội thoại dừng dưới 4 tin, dồn tải vào 1 nhân viên, chưa chuyển sang Zalo / chưa đeo bám đủ vòng Remind 3 lần, hoặc lỗi gắn tag).\n"
+            "  4) **Đề xuất hành động ưu tiên:** Đưa 2 đến 4 hành động cụ thể, gắn rõ tên kênh/page/nhân sự cần xử lý và mục tiêu chỉ số cải thiện.\n\n"
+            "2. TRA CỨU QUY TRÌNH, ĐỊNH NGHĨA CHỈ SỐ & QUY TẮC TAG/BOT:\n"
+            "- Khi hỏi thuần về công thức, định nghĩa KPI, quy tắc gắn tag Pancake, chốt chặn Bot hoặc quy trình lớp học: trả lời chuẩn xác, từng bước rõ ràng theo tài liệu RAG.\n"
+            "- TUYỆT ĐỐI KHÔNG chèn `[Nguồn: ...]` ở bất kỳ đâu trong câu trả lời."
         ),
         "sample_questions": [
+            "Đọc thông số toàn bộ các Dashboard 7 ngày qua và chỉ ra điểm nghẽn SLA lớn nhất?",
+            "Phân tích hiệu quả Facebook vs TikTok 30 ngày qua (Ads, Video, Organic) và đề xuất tối ưu?",
+            "Kiểm tra tồn đọng Chăm sóc Lead (Remind > 7 ngày) và Lead chưa phân công hiện tại?",
+            "Đánh giá hiệu suất từng nhân viên Sale 7 ngày qua (Lead, SĐT, tỷ lệ chuyển đổi, Deal Win)?",
             "Cách tính Lead Mới, Lead Contact Lại và SĐT thu được trên Dashboard?",
-            "Quy tắc phân biệt tag Đào tạo và Lead Other trên Pancake?",
             "Chuỗi trạng thái gắn Tag CRM chuẩn từ Có thông tin đến Đã là học viên?",
-            "Khi nào Bot tự động dừng trả lời để nhân viên tư vấn 1-1?",
-            "Quy trình trợ giảng và support 1-1 cần làm gì trước, trong và sau mỗi buổi học?",
-            "Vì sao mặc định Dashboard không gộp tin nhắn từ các page Zalo?",
-            "Quy tắc lọc bỏ nhóm chat Zalo (pzl_g_) hoạt động như thế nào?",
+            "Khi nào Bot tự động dừng trả lời và quy trình vận hành lớp học Trước - Trong - Sau khóa?",
         ],
     },
 }
@@ -243,34 +255,38 @@ DEFAULT_SEED_DOCS: List[Dict[str, str]] = [
         ),
     },
     {
-        "doc_name": "Quy chuẩn Chỉ số KPI, Gắn Tag Pancake & Vận hành SLA",
+        "doc_name": "Quy chuẩn Chỉ số KPI, Ngưỡng SLA Dashboard & Vận hành EzTech",
         "category": "quy_trinh",
         "content": (
-            "1. Định nghĩa chuẩn các chỉ số KPI trên EzTech Dashboard:\n"
+            "1. Định nghĩa chuẩn các chỉ số KPI trên các Dashboard EzTech:\n"
             "- Lead Mới: Khách hàng có thời điểm tạo hội thoại lần đầu (first_created_at) nằm trong kỳ báo cáo.\n"
             "- Lead Contact Lại: Khách hàng tạo TRƯỚC kỳ báo cáo, nhưng có phát sinh tin nhắn (của khách hoặc nhân viên) trong kỳ.\n"
             "- Tổng Lead = Lead Mới + Lead Contact Lại (không trùng lặp).\n"
-            "- SĐT thu được: Mỗi số điện thoại chuẩn hóa chỉ tính 1 lần duy nhất vào thời điểm khách gửi số lần đầu (phone_at). Bao gồm cả khách có số điện thoại hoặc được gắn tag 'đã add'.\n"
-            "- Tỷ lệ SĐT / Tạo mới (%) = SĐT Mới / Lead Mới.\n\n"
-            "2. Quy tắc phạm vi Page và Kênh Zalo:\n"
-            "- Mặc định khi xem 'Tất cả page nguồn lead': Hệ thống tính mọi Fanpage Facebook & TikTok, TRỪ các page Zalo cá nhân (vì Zalo là kênh chăm sóc sau khi đã xin được SĐT).\n"
-            "- Các nhóm chat Zalo (có mã pzl_g_...) được hệ thống tự động lọc bỏ để không làm sai lệch số lượng Lead cá nhân.\n\n"
-            "3. Quy tắc gắn Tag trên Pancake & SLA Chăm sóc:\n"
-            "- Nhóm Đào tạo: Gắn chính xác tag 'Đào tạo' hoặc 'HV TCKT'.\n"
-            "- Nhóm Lead Other: Gắn chính xác tag 'Lead Other', 'Support Other' hoặc 'HV Khác'.\n"
-            "- Khi khách đã đăng ký học: Bắt buộc gắn tag 'Đã là học viên' để Bot Gửi Tin tự động loại trừ (không gửi tin broadcast quảng cáo làm phiền học viên).\n"
-            "- Chốt chặn Bot tự động: Bot sẽ tự động dừng trả lời nếu hội thoại có tag khóa học ('Đã là học viên', 'Đào tạo', 'HV TCKT'...) hoặc khách nhắn từ khóa hỏi về học phí, lộ trình, khai giảng để nhân viên Sale vào tư vấn 1-1."
+            "- SĐT thu được: Mỗi số điện thoại chuẩn hóa chỉ tính 1 lần duy nhất vào thời điểm khách gửi số lần đầu (phone_at). Bao gồm cả khách có số điện thoại hoặc được gắn tag 'đã add'. Tỷ lệ SĐT / Lead Mới (%) = SĐT Mới / Lead Mới.\n"
+            "- Facebook Analytics tách 3 kênh: Quảng cáo (Ads), Bài viết (Post/Comment), Tự nhiên (Organic Inbox).\n"
+            "- TikTok Analytics tách 2 kênh: Từ Video (Post) và Tự nhiên (Organic Inbox).\n\n"
+            "2. Bộ Ngưỡng Cảnh Báo SLA & Benchmark Phân Tích Insight:\n"
+            "- Lead Chưa phân công (assigned_users trống): Tốt < 5%, Cảnh báo 5-10%, Báo động đỏ > 10% (Lead chưa phân công thường có tỷ lệ ra SĐT thấp hơn ~3.5 lần so với Lead có Sale nhận).\n"
+            "- Tỷ lệ ra SĐT kênh nguồn: Mục tiêu tổng >= 50%; TikTok tốt 50-62%, Facebook tốt 40-48%; dưới 35% là cần rà soát.\n"
+            "- Tồn đọng Remind (> 7 ngày chưa tương tác lại): Tốt < 20%, Cảnh báo 20-40%, Báo động đỏ > 40%.\n"
+            "- Tỷ lệ chốt Deal Win / Tổng SĐT: Mục tiêu 15-25%; dưới 10% là nghẽn ở chặng chăm sóc Zalo.\n\n"
+            "3. Quy tắc phạm vi Page, Gắn Tag Pancake & Chốt chặn Bot:\n"
+            "- Mặc định khi xem 'Tất cả page nguồn lead': Tính mọi Fanpage Facebook & TikTok, TRỪ page Zalo cá nhân và lọc bỏ nhóm chat Zalo (pzl_g_...).\n"
+            "- Nhóm Đào tạo: 'Đào tạo' hoặc 'HV TCKT'. Nhóm Lead Other: 'Lead Other', 'Support Other' hoặc 'HV Khác'.\n"
+            "- Chuỗi Tag Zalo chuẩn: Có thông tin -> Đã gửi TT -> Remind -> Suy nghĩ (sau 3 lần remind) -> Quan tâm sâu -> Đồng ý học -> Đã là học viên (+ Còn CN nếu còn công nợ).\n"
+            "- Chốt chặn Bot tự động: Bot dừng trả lời nếu có tag học viên/khóa học hoặc khách nhắn từ khóa hỏi học phí, lộ trình, khai giảng để Sale tư vấn 1-1."
         ),
     },
 ]
 
 
 def clear_ai_knowledge_cache():
-    global _KNOWLEDGE_CACHE, _KNOWLEDGE_CACHE_TS, _API_KEY_CACHE
+    global _KNOWLEDGE_CACHE, _KNOWLEDGE_CACHE_TS, _API_KEY_CACHE, _SLA_REMIND_CACHE
     with _CACHE_LOCK:
         _KNOWLEDGE_CACHE = None
         _KNOWLEDGE_CACHE_TS = 0.0
         _API_KEY_CACHE = None
+        _SLA_REMIND_CACHE = None
 
 
 def get_gemini_api_key(db: Session) -> str:
@@ -430,12 +446,388 @@ def retrieve_relevant_chunks(
     ]
 
 
+def _strip_accents(s: str) -> str:
+    """Chuyển tiếng Việt có dấu sang không dấu lowercase để bắt từ khóa và tên nhân sự ổn định."""
+    if not s:
+        return ""
+    s_norm = unicodedata.normalize("NFD", s.strip().lower()).replace("đ", "d")
+    return "".join(ch for ch in s_norm if unicodedata.category(ch) != "Mn")
+
+
+def _resolve_quy_trinh_period(ascii_q: str, now_vn: datetime) -> Tuple[datetime, datetime, datetime, datetime, str]:
+    """Xác định kỳ hiện tại & kỳ liền trước cùng độ dài dựa trên câu hỏi."""
+    today_start = now_vn.replace(hour=0, minute=0, second=0, microsecond=0)
+    today_end = now_vn.replace(hour=23, minute=59, second=59, microsecond=999999)
+
+    if "hom qua" in ascii_q:
+        start = today_start - timedelta(days=1)
+        end = start.replace(hour=23, minute=59, second=59, microsecond=999999)
+        label = "Hôm qua"
+    elif "hom nay" in ascii_q:
+        start, end = today_start, today_end
+        label = "Hôm nay"
+    elif "thang nay" in ascii_q:
+        start = today_start.replace(day=1)
+        end = today_end
+        label = "Tháng này"
+    elif "tuan nay" in ascii_q:
+        start = today_start - timedelta(days=today_start.weekday())
+        end = today_end
+        label = "Tuần này"
+    elif "tuan truoc" in ascii_q:
+        this_mon = today_start - timedelta(days=today_start.weekday())
+        start = this_mon - timedelta(days=7)
+        end = (this_mon - timedelta(days=1)).replace(hour=23, minute=59, second=59, microsecond=999999)
+        label = "Tuần trước"
+    else:
+        m_days = re.search(r"(\d+)\s*ngay", ascii_q)
+        if m_days:
+            days = min(max(int(m_days.group(1)), 1), 90)
+        elif "30 ngay" in ascii_q or "1 thang" in ascii_q or "thang qua" in ascii_q:
+            days = 30
+        elif "14 ngay" in ascii_q or "2 tuan" in ascii_q:
+            days = 14
+        else:
+            days = 7
+        start = today_start - timedelta(days=days - 1)
+        end = today_end
+        label = f"{days} ngày gần nhất"
+
+    span = end - start
+    prev_end = (start - timedelta(seconds=1)).replace(microsecond=999999)
+    prev_start = (prev_end - span).replace(hour=0, minute=0, second=0, microsecond=0)
+    return start, end, prev_start, prev_end, label
+
+
+def _get_sla_remind_snapshot(db: Session, now_vn: datetime) -> Dict[str, Any]:
+    """Đọc snapshot tồn đọng Chăm sóc Lead (Remind aging) & tỷ lệ chưa phân công (cache RAM 5 phút, không kéo tag_timeline)."""
+    global _SLA_REMIND_CACHE
+    now_ts = time.time()
+    with _CACHE_LOCK:
+        if _SLA_REMIND_CACHE and (now_ts - _SLA_REMIND_CACHE[0] < SLA_REMIND_CACHE_TTL):
+            return _SLA_REMIND_CACHE[1]
+
+    rows = (
+        db.query(
+            FactLeadActivity.status_tag,
+            FactLeadActivity.assigned_users,
+            FactLeadActivity.contacted_at,
+            DimLead.first_created_at,
+            DimLead.page_id,
+        )
+        .join(DimLead, FactLeadActivity.lead_id == DimLead.id)
+        .filter(~FactLeadActivity.conversation_id.like("pzl_g_%"))
+        .all()
+    )
+
+    zalo_keys = zalo_page_keys()
+    crm_stages = [
+        ("Có thông tin", "co thong tin"),
+        ("Đã gửi TT", "da gui tt"),
+        ("Remind", "remind"),
+        ("Suy nghĩ", "suy nghi"),
+        ("Quan tâm sâu", "quan tam sau"),
+        ("Đồng ý học", "dong y hoc"),
+        ("Đã là học viên", "da la hoc vien"),
+    ]
+    stage_counts: Counter = Counter()
+    remind_buckets = {"under_1": 0, "d1_3": 0, "d4_7": 0, "over_7": 0}
+    remind_over7_emp: Counter = Counter()
+    total_src = unassigned_src = total_zalo = unassigned_zalo = 0
+
+    for status_tag, assigned_users, contacted_at, first_created_at, page_id in rows:
+        pg_canon = resolve_canonical_page_name(page_id, fallback=page_id or "")
+        is_zalo = page_id in zalo_keys or pg_canon in zalo_keys or "zalo" in (pg_canon or "").lower()
+        has_emp = bool(assigned_users and assigned_users.strip())
+        if is_zalo:
+            total_zalo += 1
+            if not has_emp:
+                unassigned_zalo += 1
+        else:
+            total_src += 1
+            if not has_emp:
+                unassigned_src += 1
+
+        norm_tags = _strip_accents(status_tag or "")
+        for label, key in crm_stages:
+            if key in norm_tags:
+                stage_counts[label] += 1
+
+        if "remind" in norm_tags:
+            last_dt = contacted_at or first_created_at or now_vn
+            if getattr(last_dt, "tzinfo", None) is not None:
+                last_dt = last_dt.replace(tzinfo=None)
+            days_int = int(max(0.0, (now_vn - last_dt).total_seconds()) // 86400.0)
+            if days_int == 0:
+                remind_buckets["under_1"] += 1
+            elif days_int <= 3:
+                remind_buckets["d1_3"] += 1
+            elif days_int <= 7:
+                remind_buckets["d4_7"] += 1
+            else:
+                remind_buckets["over_7"] += 1
+                if has_emp:
+                    for emp in [x.strip() for x in assigned_users.split(",") if x.strip()]:
+                        remind_over7_emp[emp] += 1
+                else:
+                    remind_over7_emp["Chưa phân công"] += 1
+
+    snap = {
+        "total_src": total_src,
+        "unassigned_src": unassigned_src,
+        "total_zalo": total_zalo,
+        "unassigned_zalo": unassigned_zalo,
+        "stage_counts": dict(stage_counts),
+        "remind_total": sum(remind_buckets.values()),
+        "remind_buckets": remind_buckets,
+        "remind_over7_top_emp": remind_over7_emp.most_common(6),
+    }
+    with _CACHE_LOCK:
+        _SLA_REMIND_CACHE = (now_ts, snap)
+    return snap
+
+
+def _build_quy_trinh_dashboard_context(
+    db: Session, question: str, ascii_q: str, now_vn: datetime
+) -> Tuple[List[str], List[str]]:
+    """Tổng hợp số liệu thực tế từ 6 Dashboard để AI Quy trình & SLA phân tích insight."""
+    blocks: List[str] = []
+    tools_used: List[str] = []
+    start_dt, end_dt, prev_start, prev_end, period_label = _resolve_quy_trinh_period(ascii_q, now_vn)
+
+    wants_fb = any(k in ascii_q for k in ("facebook", "fb", "ads", "quang cao", "bai viet"))
+    wants_tt = any(k in ascii_q for k in ("tiktok", "video"))
+    wants_remind = any(k in ascii_q for k in ("remind", "ton dong", "cham soc", "qua han", "bo quen", "sla"))
+    wants_work_or_deal = any(k in ascii_q for k in ("nhan vien", "sale", "bao cao", "work", "deal", "chot", "doanh thu", "hieu suat"))
+    wants_all = any(
+        k in ascii_q
+        for k in ("toan bo", "tong hop", "tong the", "insight", "dashboard", "diem nghen", "tinh hinh", "van hanh", "thong so", "so lieu", "kpi", "so sanh", "phan tich", "danh gia")
+    ) or not (wants_fb or wants_tt or wants_remind or wants_work_or_deal)
+
+    # 1. Tổng quan & Chỉ số (Lead, SĐT, CR%, Chưa phân công, Nhân sự, So sánh kỳ trước)
+    period_phones_total = 0
+    if wants_all or wants_work_or_deal or not (wants_fb and not wants_tt and not wants_remind):
+        try:
+            cur_leads = classify_leads(db, start_dt, end_dt)
+            prev_leads = classify_leads(db, prev_start, prev_end)
+
+            def _agg_leads(lmap: Dict[Any, Any]) -> Dict[str, Any]:
+                new_l = rec_l = new_p = rec_p = un_l = un_p = as_l = as_p = 0
+                emp_stats: Dict[str, Dict[str, int]] = {}
+                page_stats: Dict[str, Dict[str, int]] = {}
+                tag_cat = Counter({"Đào tạo": 0, "Lead Other": 0, "Other": 0})
+                for ld in lmap.values():
+                    emp = ld.primary_employee or "Chưa phân công"
+                    pg = resolve_canonical_page_name(ld.page_id, fallback=ld.page_id or "Khác")
+                    has_ph = bool(ld.has_phone and ld.phone_event_at)
+                    if ld.is_new:
+                        new_l += 1
+                        if has_ph:
+                            new_p += 1
+                    else:
+                        rec_l += 1
+                        if has_ph:
+                            rec_p += 1
+                    if emp == "Chưa phân công":
+                        un_l += 1
+                        if has_ph:
+                            un_p += 1
+                    else:
+                        as_l += 1
+                        if has_ph:
+                            as_p += 1
+                        es = emp_stats.setdefault(emp, {"total": 0, "new": 0, "phones": 0})
+                        es["total"] += 1
+                        if ld.is_new:
+                            es["new"] += 1
+                        if has_ph:
+                            es["phones"] += 1
+
+                    ps = page_stats.setdefault(pg, {"total": 0, "new": 0, "phones": 0, "unassigned": 0})
+                    ps["total"] += 1
+                    if ld.is_new:
+                        ps["new"] += 1
+                    if has_ph:
+                        ps["phones"] += 1
+                    if emp == "Chưa phân công":
+                        ps["unassigned"] += 1
+
+                    tags_norm = {_strip_accents(t) for t in ld.tags}
+                    if tags_norm & {"dao tao", "hv tckt"}:
+                        tag_cat["Đào tạo"] += 1
+                    elif tags_norm & {"lead other", "support other", "hv khac"}:
+                        tag_cat["Lead Other"] += 1
+                    else:
+                        tag_cat["Other"] += 1
+
+                tot_l = new_l + rec_l
+                tot_p = new_p + rec_p
+                return {
+                    "total": tot_l, "new": new_l, "recontact": rec_l,
+                    "phones": tot_p, "new_phones": new_p, "recontact_phones": rec_p,
+                    "cr_new": round(new_p / new_l * 100, 1) if new_l else 0.0,
+                    "cr_total": round(tot_p / tot_l * 100, 1) if tot_l else 0.0,
+                    "unassigned": un_l,
+                    "unassigned_pct": round(un_l / tot_l * 100, 1) if tot_l else 0.0,
+                    "unassigned_cr": round(un_p / un_l * 100, 1) if un_l else 0.0,
+                    "assigned_cr": round(as_p / as_l * 100, 1) if as_l else 0.0,
+                    "emp_stats": emp_stats, "page_stats": page_stats, "tag_cat": dict(tag_cat),
+                }
+
+            cur_s = _agg_leads(cur_leads)
+            prev_s = _agg_leads(prev_leads)
+            period_phones_total = cur_s["phones"]
+
+            emp_rows = sorted(cur_s["emp_stats"].items(), key=lambda x: x[1]["total"], reverse=True)
+            emp_lines = [
+                f"  + {name}: {v['total']} lead ({v['new']} mới), {v['phones']} SĐT (CR {round(v['phones']/v['total']*100, 1) if v['total'] else 0.0}%)"
+                for name, v in emp_rows[:12]
+            ]
+            page_rows = sorted(cur_s["page_stats"].items(), key=lambda x: x[1]["total"], reverse=True)
+            page_lines = [
+                f"  + {pg}: {v['total']} lead ({v['new']} mới), {v['phones']} SĐT (CR {round(v['phones']/v['total']*100, 1) if v['total'] else 0.0}%), chưa phân công {v['unassigned']}"
+                for pg, v in page_rows[:10]
+            ]
+            d_lead = cur_s["total"] - prev_s["total"]
+            d_phone = cur_s["phones"] - prev_s["phones"]
+            d_cr = round(cur_s["cr_total"] - prev_s["cr_total"], 1)
+
+            blocks.append(
+                f"[DỮ LIỆU DASHBOARD TỔNG QUAN & CHỈ SỐ ({period_label}: {start_dt.strftime('%d/%m/%Y')} - {end_dt.strftime('%d/%m/%Y')})]\n"
+                f"- Tổng Lead: {cur_s['total']} (Mới: {cur_s['new']}, Contact lại: {cur_s['recontact']}) | So kỳ trước: {d_lead:+d} lead\n"
+                f"- Tổng SĐT thu được: {cur_s['phones']} (SĐT Mới: {cur_s['new_phones']}, Contact lại: {cur_s['recontact_phones']}) | So kỳ trước: {d_phone:+d} SĐT\n"
+                f"- Tỷ lệ SĐT/Lead Mới: {cur_s['cr_new']}% | SĐT/Tổng Lead: {cur_s['cr_total']}% (So kỳ trước: {d_cr:+.1f} điểm %)\n"
+                f"- Lead Chưa phân công trong kỳ: {cur_s['unassigned']}/{cur_s['total']} ({cur_s['unassigned_pct']}%) | CR chưa phân công: {cur_s['unassigned_cr']}% vs Đã phân công: {cur_s['assigned_cr']}%\n"
+                f"- Phân loại Tag: Đào tạo={cur_s['tag_cat'].get('Đào tạo', 0)}, Lead Other={cur_s['tag_cat'].get('Lead Other', 0)}, Other={cur_s['tag_cat'].get('Other', 0)}\n"
+                f"- Theo Page nguồn:\n" + ("\n".join(page_lines) or "  + Chưa có dữ liệu") + "\n"
+                f"- Theo Nhân viên Sale:\n" + ("\n".join(emp_lines) or "  + Chưa có dữ liệu")
+            )
+            tools_used.append(f"Dashboard Tổng quan ({period_label})")
+        except Exception as e:
+            logger.warning(f"Quy trinh overview metric error: {e}")
+
+    # 2. Facebook Analytics
+    if wants_all or wants_fb:
+        try:
+            from backend.facebook_metrics import get_facebook_metrics
+
+            fb = get_facebook_metrics(start_date=start_dt, end_date=end_dt, db=db)
+            s = fb.get("summary", {})
+            ch = fb.get("channel_breakdown", {})
+            top_posts = fb.get("top_posts", [])[:3]
+            post_lines = [
+                f"  + Bài ({p.get('inserted_at', '-')}) | {p.get('lead_count', 0)} lead, {p.get('phone_count', 0)} SĐT, {p.get('deal_count', 0)} deal: {(p.get('message') or '')[:80]}"
+                for p in top_posts
+            ]
+            blocks.append(
+                f"[DỮ LIỆU DASHBOARD FACEBOOK ANALYTICS ({start_dt.strftime('%d/%m/%Y')} - {end_dt.strftime('%d/%m/%Y')})]\n"
+                f"- Bài viết: {s.get('total_posts', 0)} bài | Reactions: {s.get('total_reactions', 0)} (TB {s.get('avg_reactions_per_post', 0)}/bài) | Comments: {s.get('total_comments', 0)} (SĐT từ comment: {s.get('comment_phones', 0)})\n"
+                f"- Lead FB: {s.get('total_leads', 0)} (Mới: {s.get('new_leads', 0)}, Contact lại: {s.get('recontact_leads', 0)}) | SĐT: {s.get('phone_leads', 0)} (CR SĐT: {s.get('phone_conversion_rate', 0)}%) | Deal Win: {s.get('deal_wins', 0)} (CR Deal/SĐT: {s.get('deal_conversion_rate', 0)}%)\n"
+                f"- Kênh Ads: {ch.get('ads', {}).get('leads', 0)} lead, {ch.get('ads', {}).get('phones', 0)} SĐT (CR {ch.get('ads', {}).get('conversion_rate', 0)}%)\n"
+                f"- Kênh Bài viết (Post): {ch.get('post', {}).get('leads', 0)} lead, {ch.get('post', {}).get('phones', 0)} SĐT (CR {ch.get('post', {}).get('conversion_rate', 0)}%)\n"
+                f"- Kênh Tự nhiên (Organic Inbox): {ch.get('organic', {}).get('leads', 0)} lead, {ch.get('organic', {}).get('phones', 0)} SĐT (CR {ch.get('organic', {}).get('conversion_rate', 0)}%)\n"
+                f"- Top bài viết FB:\n" + ("\n".join(post_lines) or "  + Chưa có bài viết trong kỳ")
+            )
+            tools_used.append("Facebook Analytics")
+        except Exception as e:
+            logger.warning(f"Quy trinh FB metric error: {e}")
+
+    # 3. TikTok Analytics
+    if wants_all or wants_tt:
+        try:
+            from backend.tiktok_metrics import get_tiktok_metrics
+
+            tt = get_tiktok_metrics(start_date=start_dt, end_date=end_dt, db=db)
+            s = tt.get("summary", {})
+            ch = tt.get("channel_breakdown", {})
+            top_vids = tt.get("top_posts", [])[:3]
+            vid_lines = [
+                f"  + Video ({v.get('inserted_at', '-')}) | {v.get('lead_count', 0)} lead, {v.get('phone_count', 0)} SĐT, {v.get('deal_count', 0)} deal: {(v.get('message') or '')[:80]}"
+                for v in top_vids
+            ]
+            blocks.append(
+                f"[DỮ LIỆU DASHBOARD TIKTOK ANALYTICS ({start_dt.strftime('%d/%m/%Y')} - {end_dt.strftime('%d/%m/%Y')})]\n"
+                f"- Video: {s.get('total_posts', 0)} video | Tim: {s.get('total_reactions', 0)} | Share: {s.get('total_shares', 0)} | Comments: {s.get('total_comments', 0)} (SĐT từ comment: {s.get('comment_phones', 0)})\n"
+                f"- Lead TikTok: {s.get('total_leads', 0)} (Mới: {s.get('new_leads', 0)}, Contact lại: {s.get('recontact_leads', 0)}) | SĐT: {s.get('phone_leads', 0)} (CR SĐT: {s.get('phone_conversion_rate', 0)}%) | Deal Win: {s.get('deal_wins', 0)} (CR Deal/SĐT: {s.get('deal_conversion_rate', 0)}%)\n"
+                f"- Kênh Từ Video: {ch.get('post', {}).get('leads', 0)} lead, {ch.get('post', {}).get('phones', 0)} SĐT (CR {ch.get('post', {}).get('conversion_rate', 0)}%)\n"
+                f"- Kênh Tự nhiên (Organic Inbox): {ch.get('organic', {}).get('leads', 0)} lead, {ch.get('organic', {}).get('phones', 0)} SĐT (CR {ch.get('organic', {}).get('conversion_rate', 0)}%)\n"
+                f"- Top video TikTok:\n" + ("\n".join(vid_lines) or "  + Chưa có video trong kỳ")
+            )
+            tools_used.append("TikTok Analytics")
+        except Exception as e:
+            logger.warning(f"Quy trinh TikTok metric error: {e}")
+
+    # 4. Chăm sóc Lead / Remind & SLA Aging
+    if wants_all or wants_remind:
+        try:
+            snap = _get_sla_remind_snapshot(db, now_vn)
+            rb = snap["remind_buckets"]
+            r_tot = snap["remind_total"]
+            over7_pct = round(rb["over_7"] / r_tot * 100, 1) if r_tot else 0.0
+            src_un_pct = round(snap["unassigned_src"] / snap["total_src"] * 100, 1) if snap["total_src"] else 0.0
+            zalo_un_pct = round(snap["unassigned_zalo"] / snap["total_zalo"] * 100, 1) if snap["total_zalo"] else 0.0
+            top_over7 = ", ".join(f"{k}: {v}" for k, v in snap["remind_over7_top_emp"]) or "Không có"
+            stages_str = ", ".join(f"{k}: {v}" for k, v in snap["stage_counts"].items()) or "Chưa có"
+            blocks.append(
+                f"[DỮ LIỆU DASHBOARD CHĂM SÓC LEAD & SLA TỒN ĐỌNG (TOÀN HỆ THỐNG HIỆN TẠI)]\n"
+                f"- Hội thoại chưa phân công nhân viên: Kênh nguồn {snap['unassigned_src']}/{snap['total_src']} ({src_un_pct}%) | Kênh Zalo {snap['unassigned_zalo']}/{snap['total_zalo']} ({zalo_un_pct}%)\n"
+                f"- Phân bổ Tag CRM hiện có: {stages_str}\n"
+                f"- Tồn đọng tệp tag Remind ({r_tot} khách): <1 ngày={rb['under_1']}, 1-3 ngày={rb['d1_3']}, 4-7 ngày={rb['d4_7']}, >7 ngày quá hạn={rb['over_7']} ({over7_pct}%)\n"
+                f"- Top nhân viên có Remind > 7 ngày: {top_over7}"
+            )
+            tools_used.append("Chăm sóc Lead (Remind SLA)")
+        except Exception as e:
+            logger.warning(f"Quy trinh Remind SLA error: {e}")
+
+    # 5. Báo cáo công việc & Deal Win (kèm lọc riêng nhân viên nếu có tên trong câu hỏi)
+    if wants_all or wants_work_or_deal:
+        try:
+            from backend.work_report import get_work_report
+
+            wr_all = get_work_report(start_date=start_dt, end_date=end_dt, employee=None, db=db)
+            matched_emp = None
+            for emp_name in wr_all.get("employees_list", []):
+                if _strip_accents(emp_name) and _strip_accents(emp_name) in ascii_q:
+                    matched_emp = emp_name
+                    break
+
+            wr = get_work_report(start_date=start_dt, end_date=end_dt, employee=matched_emp, db=db) if matched_emp else wr_all
+            ls = wr.get("lead_stats", {})
+            st = wr.get("student_stats", {})
+            ins = wr.get("insights", {}).get("formatted_lines", [])
+            deal_cnt = st.get("total_deals", 0)
+            deal_cr = round(deal_cnt / period_phones_total * 100, 1) if (not matched_emp and period_phones_total > 0) else (
+                round(deal_cnt / ls.get("total", {}).get("phone_leads", 0) * 100, 1) if ls.get("total", {}).get("phone_leads", 0) > 0 else 0.0
+            )
+            closer_cnt: Counter = Counter()
+            for stu in st.get("students", []):
+                for cb in [x.strip() for x in (stu.get("care_by") or "Chưa rõ").split(",") if x.strip()]:
+                    closer_cnt[cb] += 1
+            closers_str = ", ".join(f"{k}: {v} deal" for k, v in closer_cnt.most_common(6)) or "Chưa có"
+
+            blocks.append(
+                f"[DỮ LIỆU BÁO CÁO CÔNG VIỆC & DEAL WIN ({wr.get('employee', 'Tất cả')}: {start_dt.strftime('%d/%m/%Y')} - {end_dt.strftime('%d/%m/%Y')})]\n"
+                f"- {ls.get('tiktok', {}).get('formatted_line', '')}\n"
+                f"- {ls.get('facebook', {}).get('formatted_line', '')}\n"
+                f"- Zalo chăm sóc: {ls.get('zalo', {}).get('total_contacted', 0)} hội thoại, {ls.get('zalo', {}).get('phone_leads', 0)} SĐT\n"
+                f"- Deal Win trong kỳ: {deal_cnt} học viên (Tỷ lệ Deal/SĐT: {deal_cr}%) | Thực thu: {int(st.get('total_revenue', 0)):,}đ | Tổng giá trị HĐ: {int(st.get('total_contract_value', 0)):,}đ\n"
+                f"- Top Sale chốt Deal trong kỳ: {closers_str}\n"
+                f"- Nhận định học viên: {' | '.join(ins) if ins else 'Chưa có dữ liệu học viên mới'}"
+            )
+            tools_used.append("Báo cáo công việc & Deal Win")
+        except Exception as e:
+            logger.warning(f"Quy trinh work_report error: {e}")
+
+    return blocks, tools_used
+
+
 def build_live_data_context(db: Session, assistant_id: str, question: str) -> Tuple[str, List[str]]:
-    """Trích xuất dữ liệu thực tế từ DB theo đúng trợ lý (Sale / Kế toán) mà không quét bảng thừa."""
+    """Trích xuất dữ liệu thực tế từ DB theo đúng trợ lý (Sale / Kế toán / Quy trình & SLA) mà không quét bảng thừa."""
     tools_used: List[str] = []
     context_blocks: List[str] = []
     now_vn = get_vn_now()
     norm_q = normalize_text(question)
+    ascii_q = _strip_accents(question)
 
     # Bóc số điện thoại nếu câu hỏi có chứa dãy 4-11 chữ số
     phone_matches = re.findall(r"(?:\+?84|0)?\d[\d\s\.\-]{3,11}\d", question)
@@ -451,8 +843,8 @@ def build_live_data_context(db: Session, assistant_id: str, question: str) -> Tu
 
     if assistant_id == "sale":
         wants_kpi = any(
-            kw in norm_q
-            for kw in ("lead", "sdt", "so dien thoai", "kpi", "bao nhieu", "tong", "nhan vien", "thong ke", "7 ngay", "tuan", "hom nay", "ti le")
+            kw in ascii_q
+            for kw in ("lead", "sdt", "so dien thoai", "kpi", "bao nhieu", "tong", "nhan vien", "thong ke", "7 ngay", "tuan", "hom nay", "ti le", "ty le")
         )
         if wants_kpi:
             try:
@@ -549,7 +941,7 @@ def build_live_data_context(db: Session, assistant_id: str, question: str) -> Tu
 
     elif assistant_id == "ke_toan":
         wants_finance_stats = bool(search_digits) or any(
-            kw in norm_q
+            kw in ascii_q
             for kw in ("doanh thu", "tong hop", "bao nhieu", "cong no", "con no", "da thu", "phai thu", "chua dong", "so lieu", "bao cao", "hien tai")
         )
         if wants_finance_stats:
@@ -574,7 +966,7 @@ def build_live_data_context(db: Session, assistant_id: str, question: str) -> Tu
                     )
                     tools_used.append("Tổng hợp Doanh thu & Công nợ (sales_deals)")
 
-                if "no" in norm_q or "chua dong" in norm_q or "con no" in norm_q or search_digits:
+                if "no" in ascii_q or "chua dong" in ascii_q or "con no" in ascii_q or search_digits:
                     q_deals = db.query(SalesDeal)
                     if search_digits:
                         q_deals = q_deals.filter(_phone_filter(SalesDeal.sdt, search_digits[0]))
@@ -593,6 +985,29 @@ def build_live_data_context(db: Session, assistant_id: str, question: str) -> Tu
                         tools_used.append("Chi tiết Công nợ học viên")
             except Exception as e:
                 logger.warning(f"Accounting tool error: {e}")
+
+    elif assistant_id == "quy_trinh":
+        is_pure_rule_query = any(
+            k in ascii_q for k in ("cach tinh", "dinh nghia", "quy tac", "chuoi trang thai", "khi nao bot", "vi sao mac dinh")
+        ) and not any(
+            k in ascii_q
+            for k in ("insight", "thong so", "so lieu", "thuc te", "hien tai", "ngay qua", "hom nay", "hom qua", "tuan", "thang", "ton dong", "diem nghen", "hieu suat", "danh gia", "phan tich")
+        )
+        wants_dashboard_metrics = not is_pure_rule_query and any(
+            kw in ascii_q
+            for kw in (
+                "metric", "thong so", "chi so", "so lieu", "dashboard", "insight", "sla",
+                "phan tich", "danh gia", "bao cao", "hieu suat", "nhan vien", "sale",
+                "kenh", "facebook", "fb", "tiktok", "remind", "ton dong", "chua phan cong",
+                "bo sot", "ty le", "ti le", "chuyen doi", "convert", "deal", "xu huong",
+                "so sanh", "diem nghen", "tinh hinh", "tuan", "ngay", "thang", "hom nay",
+                "hom qua", "hien tai", "thuc te", "top", "kpi", "qua han", "bo quen",
+            )
+        )
+        if wants_dashboard_metrics:
+            dash_blocks, dash_tools = _build_quy_trinh_dashboard_context(db, question, ascii_q, now_vn)
+            context_blocks.extend(dash_blocks)
+            tools_used.extend(dash_tools)
 
     return "\n\n".join(context_blocks), tools_used
 
