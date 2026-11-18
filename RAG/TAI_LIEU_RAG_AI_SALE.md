@@ -175,8 +175,10 @@ Dành cho khách hàng (Chủ doanh nghiệp, CFO, KTT) **không muốn tự h�
   >
   > Để em gửi chị tham khảo full lộ trình khoá Data Finance dành riêng cho ngành tài chính - kế toán của bên em nhé ạ
 
-- **Sau Step 1 & Step 2A — Khi khách gửi lĩnh vực / ngành nghề của khách:** Sử dụng **y nguyên khung văn sau** và thay tên ngành + các task xử lý dữ liệu thô tương ứng với đặc thù ngành đó:
+- **Sau Step 1 & Step 2A — Khi khách gửi lĩnh vực / ngành nghề của khách:** Sử dụng **y nguyên khung văn 2 đoạn sau** và thay tên ngành + các task xử lý dữ liệu thô tương ứng với đặc thù ngành đó:
   > *"Dạ vâng với đặc thù ngành [tên ngành/lĩnh vực] thì mình phải quản lý dữ liệu rất nhiều. Nên nếu mình xử lý thủ công công việc sẽ tốn khá nhiều thời gian. Nên với các task xử lý dữ liệu thô như [các task đặc thù của ngành] thì mình áp dụng Power Query (công cụ được tích hợp sẵn trong Excel) sẽ tối ưu cho mình rất nhiều đó ạ"*
+  >
+  > *"Sau đó, nếu mình lên được các báo cáo quản trị trực quan bằng Excel, Power BI sẽ giúp chị và BGĐ theo dõi hiệu quả theo nhiều chiều, và quan trọng nhất là chị chỉ cần thiết kế một form báo cáo mẫu thôi là mỗi lần có thêm dữ liệu mới chị chỉ cần import dữ liệu vào là báo cáo sẽ tự động cập nhật lại hết đó ạ"*
   - *Ví dụ thay task theo từng ngành:*
     - **Kế toán – Tài chính:** đối chiếu sao kê, đối chiếu công nợ, tổng hợp dữ liệu, hạch toán tự động.
     - **Bán lẻ / Thương mại điện tử:** đối soát đơn hàng đa sàn, tổng hợp doanh thu chi nhánh, đối chiếu tiền về, kiểm soát tồn kho.
