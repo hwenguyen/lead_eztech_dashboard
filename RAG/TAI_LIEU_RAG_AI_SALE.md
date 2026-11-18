@@ -155,17 +155,8 @@ Dành cho khách hàng (Chủ doanh nghiệp, CFO, KTT) **không muốn tự h�
 ### B. FLOW Chuẩn & Nguyên Văn Tin Nhắn `Kịch bản chuyên sâu.xlsx` (Không nhảy cóc, không rút gọn)
 
 - **Step 1 — Chăm sóc trước (Chưa gửi lộ trình K1-K2-K3 hay báo giá 4.5tr / 7.5tr):**
-  - **1A. Khách mới hỏi chung chung (chưa nói lĩnh vực và công cụ):**
-    > Dạ chị cho em hỏi thêm mình 1 xíu rằng hiện tại mình chủ yếu đang xử lý dữ liệu thủ công bằng Excel hay mình dùng phần mềm kế toán là chính ạ
-    *(hoặc: "Dạ chị cho em hỏi thêm mình 1 xíu rằng hiện tại mình chủ yếu đang xử lý dữ liệu thủ công bằng Excel có phải không ạ")*
-  - **1B. Khi khách đã gửi lĩnh vực / ngành nghề của khách:** Sử dụng **y nguyên khung văn sau** và thay tên ngành + các task xử lý dữ liệu thô tương ứng với đặc thù ngành đó:
-    > *"Dạ vâng với đặc thù ngành [tên ngành/lĩnh vực] thì mình phải quản lý dữ liệu rất nhiều. Nên nếu mình xử lý thủ công công việc sẽ tốn khá nhiều thời gian. Nên với các task xử lý dữ liệu thô như [các task đặc thù của ngành] thì mình áp dụng Power Query (công cụ được tích hợp sẵn trong Excel) sẽ tối ưu cho mình rất nhiều đó ạ"*
-    - *Ví dụ thay task theo từng ngành:*
-      - **Kế toán – Tài chính:** đối chiếu sao kê, đối chiếu công nợ, tổng hợp dữ liệu, hạch toán tự động.
-      - **Bán lẻ / Thương mại điện tử:** đối soát đơn hàng đa sàn, tổng hợp doanh thu chi nhánh, đối chiếu tiền về, kiểm soát tồn kho.
-      - **Xây dựng / Bất động sản:** tổng hợp chi phí từng công trình, theo dõi vật tư, đối chiếu nghiệm thu và công nợ nhà thầu.
-      - **Sản xuất:** tổng hợp định mức nguyên vật liệu, tính giá thành sản phẩm, kiểm soát tồn kho và sản lượng.
-      - **Nhân sự / Hành chính:** tổng hợp bảng chấm công từ nhiều bộ phận, tính lương, theo dõi biến động nhân sự và KPI.
+  > Dạ chị cho em hỏi thêm mình 1 xíu rằng hiện tại mình chủ yếu đang xử lý dữ liệu thủ công bằng Excel hay mình dùng phần mềm kế toán là chính ạ
+  *(hoặc: "Dạ chị cho em hỏi thêm mình 1 xíu rằng hiện tại mình chủ yếu đang xử lý dữ liệu thủ công bằng Excel có phải không ạ")*
 
 - **Step 2A — Khách dùng Excel là chính (nhấn mạnh sâu khó khăn & giải pháp):**
   > Nhiều anh chị kế toán bên em cũng chia sẻ là càng làm lâu càng thấy Excel không còn ok nữa ý chị, số lượng dữ liệu nhiều khiến dữ liệu nặng, link giữa các file dễ lỗi, chưa kể mỗi tháng lại phải cập nhật lại từ đầu. Mất nhiều thời gian cho khâu tổng hợp mà không còn thời gian để phân tích hay kiểm soát số liệu sâu luôn ấy chị
@@ -183,6 +174,15 @@ Dành cho khách hàng (Chủ doanh nghiệp, CFO, KTT) **không muốn tự h�
   > Thì em nghĩ mình có thể nâng cấp thêm kĩ năng xử lý dữ liệu thô như đối chiếu sao kê, đối chiếu công nợ, tổng hợp số liệu, hạch toán tự động bằng Power Query và làm báo cáo chuyên nghiệp hơn bằng Power BI thì công việc của mình sẽ tối ưu hơn rất nhiều
   >
   > Để em gửi chị tham khảo full lộ trình khoá Data Finance dành riêng cho ngành tài chính - kế toán của bên em nhé ạ
+
+- **Sau Step 1 & Step 2A — Khi khách gửi lĩnh vực / ngành nghề của khách:** Sử dụng **y nguyên khung văn sau** và thay tên ngành + các task xử lý dữ liệu thô tương ứng với đặc thù ngành đó:
+  > *"Dạ vâng với đặc thù ngành [tên ngành/lĩnh vực] thì mình phải quản lý dữ liệu rất nhiều. Nên nếu mình xử lý thủ công công việc sẽ tốn khá nhiều thời gian. Nên với các task xử lý dữ liệu thô như [các task đặc thù của ngành] thì mình áp dụng Power Query (công cụ được tích hợp sẵn trong Excel) sẽ tối ưu cho mình rất nhiều đó ạ"*
+  - *Ví dụ thay task theo từng ngành:*
+    - **Kế toán – Tài chính:** đối chiếu sao kê, đối chiếu công nợ, tổng hợp dữ liệu, hạch toán tự động.
+    - **Bán lẻ / Thương mại điện tử:** đối soát đơn hàng đa sàn, tổng hợp doanh thu chi nhánh, đối chiếu tiền về, kiểm soát tồn kho.
+    - **Xây dựng / Bất động sản:** tổng hợp chi phí từng công trình, theo dõi vật tư, đối chiếu nghiệm thu và công nợ nhà thầu.
+    - **Sản xuất:** tổng hợp định mức nguyên vật liệu, tính giá thành sản phẩm, kiểm soát tồn kho và sản lượng.
+    - **Nhân sự / Hành chính:** tổng hợp bảng chấm công từ nhiều bộ phận, tính lương, theo dõi biến động nhân sự và KPI.
 
 - **Step 2B — Lead chỉ muốn hỏi học phí và thông tin khóa học / ít tương tác / sau khi hỏi khó khăn không thấy phản hồi:**
   > Dạ vâng với đặc thù ngành kế toán thì mình phải quản lý dữ liệu rất nhiều. Nên nếu mình xử lý thủ công công việc sẽ tốn khá nhiều thời gian. Nên với các task xử lý dữ liệu thô như đối chiếu sao kê, đối chiếu công nợ, tổng hợp dữ liệu, hạch toán tự động,... thì mình áp dụng Power Query (công cụ được tích hợp sẵn trong Excel) sẽ tối ưu cho mình rất nhiều đó ạ
