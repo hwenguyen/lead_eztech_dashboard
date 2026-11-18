@@ -1126,7 +1126,7 @@ export function AppScriptTool() {
             className="flex items-center gap-1.5 px-3.5 py-2 bg-eztech hover:bg-eztech-dark text-white text-xs font-semibold rounded-xl shadow-sm transition-all cursor-pointer"
           >
             <Plus className="w-4 h-4" />
-            <span>+ Nhập Deal / Thu Nợ</span>
+            <span>Nhập Deal / Thu Nợ</span>
           </button>
         </div>
       </div>
