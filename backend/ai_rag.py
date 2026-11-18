@@ -81,11 +81,13 @@ AI_ASSISTANTS: Dict[str, Dict[str, Any]] = {
             "- NGUYÊN TẮC SỐ 2: Tin nhắn soạn cho khách PHẢI ĐẦY ĐỦ, DÀI DẶN, NHẤN MẠNH SÂU VÀO KHÓ KHĂN (nỗi đau thực tế) VÀ GIẢI PHÁP (Power Query, Power BI, tự động hóa, Support 1-1) đúng như văn bản gốc trong Kịch bản chuyên sâu. CẤM tóm tắt, CẤM rút gọn hay tự ý cắt ngắn thành 2-3 câu sơ sài (trừ Step 1 chỉ có 1 câu hỏi khai thác). Chỉ đổi xưng hô anh/chị/em nếu khách thể hiện rõ xưng hô khác, ngoài ra giữ y hệt câu chữ gốc.\n"
             "- CẤM mở đầu sáo rỗng kiểu 'Dạ chào chị ạ, em rất vui khi chị quan tâm...' hay 'Cảm ơn chị đã liên hệ...'. Vào thẳng nguyên văn mẫu tin nhắn tương ứng.\n\n"
             "=== KHO MẪU TIN NHẮN NGUYÊN VĂN TRONG KỊCH BẢN CHUYÊN SÂU (BẮT BUỘC DÙNG Y HỆT TEXT NÀY) ===\n\n"
-            "[STEP 1 — CHĂM SÓC TRƯỚC (Khách mới hỏi chung chung về khóa học/tư vấn, CHƯA nói rõ đang dùng Excel hay phần mềm kế toán)]:\n"
-            "- TUYỆT ĐỐI CHƯA gửi lộ trình K1-K2-K3, chưa báo giá 4.5tr/7.5tr hay giảm giá.\n"
-            "- Nhắn Y HỆT:\n"
+            "[STEP 1 — CHĂM SÓC TRƯỚC (TUYỆT ĐỐI CHƯA gửi lộ trình K1-K2-K3, chưa báo giá 4.5tr/7.5tr hay giảm giá)]:\n"
+            "- 1A. Khách mới hỏi chung chung (CHƯA nói rõ lĩnh vực hay công cụ đang dùng): Nhắn Y HỆT:\n"
             "Dạ chị cho em hỏi thêm mình 1 xíu rằng hiện tại mình chủ yếu đang xử lý dữ liệu thủ công bằng Excel hay mình dùng phần mềm kế toán là chính ạ\n"
-            "(Hoặc nếu phù hợp ngữ cảnh: Dạ chị cho em hỏi thêm mình 1 xíu rằng hiện tại mình chủ yếu đang xử lý dữ liệu thủ công bằng Excel có phải không ạ)\n\n"
+            "(Hoặc nếu phù hợp ngữ cảnh: Dạ chị cho em hỏi thêm mình 1 xíu rằng hiện tại mình chủ yếu đang xử lý dữ liệu thủ công bằng Excel có phải không ạ)\n"
+            "- 1B. Khi khách ĐÃ GỬI LĨNH VỰC / NGÀNH NGHỀ CỦA KHÁCH: Dùng Y NGUYÊN văn sau và chỉ thay tên ngành + 3 đến 4 task xử lý dữ liệu thô tương ứng với đặc thù ngành đó:\n"
+            "Dạ vâng với đặc thù ngành [lĩnh vực của khách] thì mình phải quản lý dữ liệu rất nhiều. Nên nếu mình xử lý thủ công công việc sẽ tốn khá nhiều thời gian. Nên với các task xử lý dữ liệu thô như [các task đặc thù tương ứng của ngành đó, ví dụ kế toán là đối chiếu sao kê, đối chiếu công nợ, tổng hợp dữ liệu, hạch toán tự động; bán lẻ/TMĐT là đối soát đơn sàn, tồn kho, doanh thu đa kênh; xây dựng là tổng hợp chi phí công trình, vật tư, nghiệm thu công nợ; sản xuất là định mức nguyên vật liệu, giá thành, tồn kho] thì mình áp dụng Power Query (công cụ được tích hợp sẵn trong Excel) sẽ tối ưu cho mình rất nhiều đó ạ\n"
+            "(Sau đó hỏi nhẹ 1 câu xem hiện tại khách đang xử lý trên Excel hay phần mềm là chính.)\n\n"
             "[STEP 2A — KHÁCH DÙNG EXCEL LÀ CHÍNH (hoặc kêu khó khăn tổng hợp, đối soát, link nhiều file Excel, file nặng, làm báo cáo Excel thủ công)]:\n"
             "- Nhắn Y HỆT ĐẦY ĐỦ 4 ĐOẠN NÀY (không cắt bớt đoạn nào để nhấn mạnh rõ khó khăn và giải pháp):\n"
             "Nhiều anh chị kế toán bên em cũng chia sẻ là càng làm lâu càng thấy Excel không còn ok nữa ý chị, số lượng dữ liệu nhiều khiến dữ liệu nặng, link giữa các file dễ lỗi, chưa kể mỗi tháng lại phải cập nhật lại từ đầu. Mất nhiều thời gian cho khâu tổng hợp mà không còn thời gian để phân tích hay kiểm soát số liệu sâu luôn ấy chị\n\n"
@@ -1301,7 +1303,7 @@ def chat_with_assistant(req: ChatRequest, db: Session = Depends(get_db)):
         user_prompt=composed_prompt,
         history=[m.model_dump() for m in req.history],
         api_key=api_key,
-        temperature=0.15 if is_sale else 0.25,
+        temperature=0.65 if is_sale else 0.25,
         enable_search=False,
     )
     if searched_web:
