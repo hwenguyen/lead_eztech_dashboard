@@ -22,6 +22,30 @@
 - **Trên kênh nguồn (TikTok / Mess FB):** Gắn thẻ tên nhân viên chăm sóc + loại khách hàng (`HV TCKT`, `HV Khác`, `HV Sinh viên`, `B2C`, `Support Other`). Khi đã xin được SĐT và kết bạn Zalo, gắn thẻ `đã add` và ghi chú theo cấu trúc: `"[Tên NV] + đã add ở + [Zalo add]"`.
 - **Trên Zalo chăm sóc:** Gắn người xử lý ở ô phân quyền, gắn tag bước quy trình + nguồn gốc (`Tiktok HV TCKT`, `Data Talk`, `Mess FB`, `Web`, `B2C`...) và note lại toàn bộ insight đã khai thác được vào phần ghi chú.
 
+### Quy trình Chẩn đoán Nỗi đau từ Tin nhắn Khách & Note của Admin trước khi Soạn tin
+1. **Nguồn dữ liệu bắt buộc phải trích xuất (Retrieve):**
+   - **Tin nhắn của khách hàng** trên tất cả các page (TikTok, Facebook Messenger, các page Zalo chăm sóc) và **Bình luận (Comment)** trên bài viết/video.
+   - **Ghi chú (Notes) của Admin/Sale** trên Pancake (`notes` / `page_customer.notes` lưu trực tiếp trên hội thoại), cộng với ghi chú/kỳ vọng trên hệ thống (`DealWin.expectation`, `SalesDeal.note`).
+   - **Lịch sử gắn Tag (`tag_timeline`) & Trạng thái hiện tại:** Để biết khách thuộc tệp nào (`HV TCKT`, `HV Sinh viên`, `B2C`...) và đang ở chặng nào của phễu.
+2. **Ma trận Chẩn đoán Vấn đề / Nỗi đau của Khách & Mapping Kịch bản Chuẩn:**
+   - **Nỗi đau 1 — Quá tải thao tác thủ công trên Excel (file nặng/đơ/treo máy, link nhiều sheet/file dễ lỗi, mỗi tháng phải làm lại từ đầu):**
+     - *Hành động:* Nếu khách mới ở Step 2A → dùng mẫu **Step 2A (Dùng Excel là chính)** nhấn mạnh việc chuyển khâu thu thập – xử lý – tổng hợp hàng chục file sang Power Query và thiết kế 1 form báo cáo mẫu tự động cập nhật. Nếu đã ở bước Remind → ưu tiên **Vòng 1 (Video 4 Scope)** hoặc **Vòng 5 (Kho 100 bộ file + Tool EzExcel/EzHoadon)** hoặc **Vòng 7 (Bộ Prompt AI & tài liệu tiết kiệm 80% thời gian)**, kèm câu dẫn chạm đúng nỗi đau làm thủ công/file nặng của khách.
+   - **Nỗi đau 2 — Đang dùng phần mềm kế toán (MISA, FAST, Bravo...) nhưng bị giới hạn mẫu báo cáo có sẵn, xuất ra Excel phải đối chiếu sao kê/công nợ/tổng hợp nhiều nguồn thủ công:**
+     - *Hành động:* Nếu khách mới ở Step 2A → dùng mẫu **Step 2A (Dùng phần mềm kế toán)**. Nếu ở Step 4 → dùng mẫu **Case thực tế & MISA** (đối chiếu sao kê sổ phụ với NKC MISA, lên BCQT lãi lỗ từ NKC MISA, làm form đổ bút toán tự động lên MISA). Nếu ở bước Remind → ưu tiên **Vòng 1 (Video Scope 3 & 4: đối chiếu sao kê vs NKC & đổ bút toán tự động)**.
+   - **Nỗi đau 3 — Đặc thù ngành nghề phải xử lý khối lượng dữ liệu thô lớn (Kế toán, Bán lẻ/TMĐT, Xây dựng/BĐS, Sản xuất, Nhân sự):**
+     - *Hành động:* Dùng đúng khung **2 đoạn Sau Step 1 & Step 2A theo ngành nghề**, điền chính xác tên ngành và các task gây đau đầu nhất mà khách/note Admin đã nêu (đối soát đơn đa sàn, tổng hợp chi phí công trình/vật tư, tính giá thành định mức NVL, đối chiếu sao kê/công nợ...).
+   - **Nỗi đau 4 — Áp lực lên Báo cáo quản trị / Dashboard trực quan đa chiều cho Sếp & BGĐ (P&L, dòng tiền, doanh thu, chi phí, so sánh kế hoạch):**
+     - *Hành động:* Nhấn mạnh **K1 & K3 (Power BI)** + gửi link Demo báo cáo học viên trả bài (Step 3), hoặc nếu Remind thì chọn **Vòng 2 (Feedback KTT/KTTH làm báo cáo cho sếp xong chuyển sang ban Tài chính)** hoặc **Vòng 3 (Layout chi tiết từng buổi học)**. Nếu khách là Chủ DN/CFO không muốn tự học → tư vấn **Bộ giải pháp đóng gói B2C**.
+   - **Nỗi đau 5 — Muốn ứng dụng AI vào kế toán & Excel để tăng tốc độ làm việc, hoặc lo ngại làm chậm/lạc hậu công nghệ:**
+     - *Hành động:* Nếu đang Remind → ưu tiên **Vòng 6 (Update K2 lên 14 buổi tích hợp AI thực chiến cho kế toán, giữ giá combo 7tr5)** hoặc **Vòng 7 (Tặng Bộ Prompt Mẫu AI)** hoặc **Vòng 8 (Workshop miễn phí cuối tuần về AI, Power Query & Power BI)**.
+   - **Nỗi đau 6 — Rào cản Học phí cao / Tài chính chưa dư dả:**
+     - *Hành động:* Dùng nguyên văn mẫu **Step 4 — Đắt, chê giá cao** (nâng giá trị cốt lõi + đặc quyền Support 1-1 trong và cả sau khóa học), nếu khách thực sự quan tâm nhưng vướng tài chính thì nối tiếp mẫu **Giảm giá linh hoạt 2 phương án** (giảm 5% đăng ký sớm hoặc chia đôi học phí 7tr5: đóng trước 5tr vào lớp, 2tr5 trước tháng mới). Nếu đang Remind → ưu tiên **Vòng 4 (8 Quyền lợi Combo)** để khách thấy tổng giá trị vượt xa học phí.
+   - **Nỗi đau 7 — Rào cản Thời gian (hay tăng ca tối, bận con nhỏ, sợ miss bài) hoặc Sợ low-tech / không biết IT / dùng MacBook / Excel cũ:**
+     - *Hành động:* Dùng đúng mẫu **Step 4 — Hình thức học Onl/Off** (có tài liệu + record sau mỗi buổi, bảo lưu/học lại 1 lần miễn phí, nhóm Support 1-1 cầm tay chỉ việc) và mẫu **Giải thích Power Query & Power BI** (không phải lập trình IT, chỉ tick chọn và kéo thả trên Excel).
+3. **Nguyên tắc Soạn tin "Chạm đúng nỗi đau nhưng Bám sát Kịch bản":**
+   - Luôn chỉ rõ chẩn đoán vấn đề/nỗi đau của khách (trích dẫn từ tin nhắn khách và note của Admin).
+   - Khi soạn tin nhắn gửi khách: **BẮT BUỘC giữ nguyên văn khung chữ, thông số, link demo và chính sách trong Kịch bản chuyên sâu / Bộ 8 vòng Remind**, đồng thời **cá nhân hóa câu dẫn kết nối hoặc mệnh đề bài toán/ngành nghề** xoay thẳng vào đúng nỗi đau vừa chẩn đoán của khách để khách thấy Sale hiểu rõ tình cảnh của mình mà vẫn chuẩn 100% kịch bản EzTech.
+
 ---
 
 ## 2. Chân Dung 4 Nhóm Học Viên & Cách Tiếp Cận Riêng

@@ -335,6 +335,7 @@ class PancakeClient:
         logger.info(f"Tổng số hội thoại: {len(all_convs)}. Dùng cache không cần tải lại: {cached_hits}, Cần tải tin nhắn mới: {len(convs_to_fetch)}.")
 
         # 2. Tải tin nhắn mới (chỉ lấy 30 tin nhắn mới nhất thay vì loop vô tận qua toàn bộ lịch sử)
+        notes_by_conv: Dict[str, list] = {}
         if convs_to_fetch:
             t_msgs = time.perf_counter()
 
@@ -349,7 +350,8 @@ class PancakeClient:
                             timeout=25
                         )
                         if resp.status_code == 200:
-                            return cid, resp.json().get('messages', [])
+                            body = resp.json()
+                            return cid, body.get('messages', []), body.get('notes', [])
                         elif resp.status_code == 429:
                             time.sleep(3.0 * attempt)
                             continue
@@ -366,7 +368,7 @@ class PancakeClient:
                     except Exception as e:
                         logger.debug(f"Lỗi khi tải messages cho conversation {cid}: {e}")
                         break
-                return cid, None  # None = tải lỗi (khác với hội thoại thật sự không có tin)
+                return cid, None, None  # None = tải lỗi (khác với hội thoại thật sự không có tin)
 
             failed = 0
             # Sử dụng 4 workers để giảm áp lực lên server Pancake (chống lỗi 500 Server internal error & Read timed out)
@@ -375,16 +377,18 @@ class PancakeClient:
                 for future in as_completed(future_to_conv):
                     cid = future_to_conv[future]
                     try:
-                        _, msgs = future.result()
+                        _, msgs, fetched_notes = future.result()
                     except Exception as e:
                         logger.error(f"Lỗi future messages cid {cid}: {e}")
-                        msgs = None
+                        msgs, fetched_notes = None, None
                     if msgs is None:
                         # Tải lỗi → giữ tin nhắn đã lưu thay vì ghi đè bằng danh sách rỗng
                         failed += 1
                         failed_msg_ids.add(cid)
                         msgs = (existing_cache.get(cid) or {}).get('messages', [])
                     messages_by_conv[cid] = msgs
+                    if fetched_notes:
+                        notes_by_conv[cid] = fetched_notes
             logger.info(
                 f"Tải tin nhắn {len(convs_to_fetch)} hội thoại trong {time.perf_counter() - t_msgs:.1f}s "
                 f"(lỗi: {failed})."
@@ -488,6 +492,31 @@ class PancakeClient:
                         "sender_name": m_from.get('name') or m_from.get('username') or m_from.get('admin_name') or "Unknown"
                     })
             
+            # Trích xuất ghi chú của Admin/Sale trên Pancake (từ page_customer.notes, conv.notes hoặc endpoint /messages)
+            raw_notes_pool = (
+                notes_by_conv.get(conv_id)
+                or ((conv.get("page_customer") or {}).get("notes") if isinstance(conv.get("page_customer"), dict) else None)
+                or conv.get("notes")
+                or []
+            )
+            formatted_notes = []
+            seen_note_msgs = set()
+            if isinstance(raw_notes_pool, list):
+                for nt in raw_notes_pool:
+                    if not isinstance(nt, dict) or nt.get("removed_at"):
+                        continue
+                    nt_msg = clean_html(str(nt.get("message") or "")).strip()
+                    if not nt_msg or nt_msg in seen_note_msgs:
+                        continue
+                    seen_note_msgs.add(nt_msg)
+                    cb = nt.get("created_by") if isinstance(nt.get("created_by"), dict) else {}
+                    author = cb.get("fb_name") or cb.get("name") or nt.get("author") or "Admin"
+                    formatted_notes.append({
+                        "message": nt_msg,
+                        "author": str(author).strip(),
+                        "created_at": nt.get("created_at"),
+                    })
+
             # Ưu tiên message_count có sẵn trong conversation
             msg_count = conv.get("message_count")
             if msg_count is None:
@@ -510,6 +539,7 @@ class PancakeClient:
                 "tag_timeline": tag_timeline,
                 "assigned_users": assigned_users,
                 "messages": formatted_msgs,
+                "notes": formatted_notes,
                 "inserted_at": conv.get("inserted_at"),
                 "updated_at": updated_at,
                 "ads": conv.get("ads"),

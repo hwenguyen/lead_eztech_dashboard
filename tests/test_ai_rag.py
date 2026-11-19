@@ -136,11 +136,42 @@ def test_ai_rag_pipeline():
             RawConversation(pancake_id="fb_conv_1", page_id="Anh Kế toán làm Data (Facebook)", payload={"messages": [
                 {"message": "<div>Chị nhắn bên FB hỏi thêm học phí</div>", "role": "customer", "inserted_at": "2026-11-09T03:00:00"},
             ]}),
-            RawConversation(pancake_id="pzl_u_1", page_id="Hiền Minh Eztech", payload={"messages": zl_msgs}),
+            RawConversation(
+                pancake_id="pzl_u_1",
+                page_id="Hiền Minh Eztech",
+                payload={
+                    "messages": zl_msgs,
+                    "notes": [
+                        {
+                            "message": "Khách làm kế toán tổng hợp đang dùng MISA, file Excel nặng, muốn đối chiếu sao kê và lên báo cáo lãi lỗ P&L cho sếp",
+                            "created_by": {"fb_name": "Hiền Minh Lý"},
+                            "removed_at": None,
+                        }
+                    ],
+                },
+            ),
             RawConversation(pancake_id="pzl_g_999", page_id="Hiền Minh Eztech", payload={"messages": [
                 {"message": "<div>NOI_DUNG_NHOM_PHAI_BI_LOC</div>", "role": "Khách hàng", "inserted_at": "2026-11-16T02:00:00"},
             ]}),
-            Comment(comment_id="cmt_1", page_id="fb_1", page_name="Anh Kế toán làm Data (Facebook)", customer_id="fb_u1", phone_number=p_test, message="Quan tâm khóa Power Query ạ", inserted_at=now_vn - timedelta(days=5)),
+            Comment(
+                comment_id="cmt_1",
+                page_id="fb_1",
+                page_name="Anh Kế toán làm Data (Facebook)",
+                customer_id="fb_u1",
+                phone_number=p_test,
+                message="Quan tâm khóa Power Query ạ",
+                inserted_at=now_vn - timedelta(days=5),
+                payload={
+                    "page_customer": {
+                        "notes": [
+                            {
+                                "message": "Trần Đạt đã add Zalo, khách hay phải tăng ca tối",
+                                "created_by": {"fb_name": "Trần Đạt"},
+                            }
+                        ]
+                    }
+                },
+            ),
         ])
         db.commit()
 
@@ -159,6 +190,16 @@ def test_ai_rag_pipeline():
         assert "Step 2A" in sale_ctx
         assert "Vòng 8: Data Talk" in sale_ctx
         assert "CẤM TUYỆT ĐỐI gửi lại Step 1, Step 2A" in sale_ctx
+        # Retrieve được Note của Admin (từ cả RawConversation.payload.notes và Comment.payload.page_customer.notes) & chẩn đoán đúng nỗi đau
+        assert "CHẨN ĐOÁN NHANH HỒ SƠ, GHI CHÚ CỦA ADMIN & NỖI ĐAU KHÁCH HÀNG" in sale_ctx
+        assert "Note của Hiền Minh Lý" in sale_ctx
+        assert "đang dùng MISA, file Excel nặng" in sale_ctx
+        assert "Note của Trần Đạt" in sale_ctx
+        assert "Quá tải thao tác thủ công trên Excel" in sale_ctx
+        assert "Đang dùng phần mềm kế toán (MISA" in sale_ctx
+        assert "Áp lực lên Báo cáo quản trị / Dashboard" in sale_ctx
+        assert any("Ghi chú của Admin/Sale" in t for t in sale_tools)
+        assert "Chẩn đoán nỗi đau khách hàng" in sale_tools
         # Không gọi thừa KPI Lead 7 ngày khi chỉ tra SĐT khách
         assert not any("KPI Lead 7 ngày" in t for t in sale_tools)
 

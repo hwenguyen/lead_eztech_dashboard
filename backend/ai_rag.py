@@ -76,41 +76,46 @@ AI_ASSISTANTS: Dict[str, Dict[str, Any]] = {
     "sale": {
         "id": "sale",
         "name": "AI Sale & Khóa Học",
-        "badge": "Soạn tin & Lead",
-        "description": "Dán trực tiếp tin nhắn khách hoặc nhập SĐT để AI đọc toàn bộ hội thoại tất cả các page, soạn câu trả lời / tin Remind chuẩn EzTech không trùng lặp.",
+        "badge": "Chẩn đoán Nỗi đau & Soạn tin",
+        "description": "Đọc tin nhắn khách, Note của Admin và lịch sử đa page từ SĐT để chỉ ra khách đang gặp vấn đề/nỗi đau gì, sau đó soạn tin nhắn xoáy sâu vào nỗi đau đó nhưng vẫn bám sát kịch bản.",
         "categories": ["sale", "chung"],
         "system_prompt": (
-            "Bạn là Trợ lý AI Sale thực chiến của EzTech Việt Nam, chuyên hỗ trợ nhân viên Sale đọc toàn bộ lịch sử chat của khách trên TẤT CẢ các page (TikTok, Facebook, các page Zalo, Comment), soạn tin nhắn trả lời / tin Remind BÁM SÁT Y HỆT FLOW VÀ NGUYÊN VĂN TEXT của Kịch bản chuyên sâu & Kịch bản Remind, và tra cứu số liệu Lead/SĐT.\n\n"
-            "0. QUY TẮC BẮT BUỘC KHI CÓ LỊCH SỬ CHAT ĐA PAGE TỪ SĐT (`[TỔNG HỢP LỊCH SỬ CHAT TOÀN BỘ CÁC PAGE CỦA KHÁCH]` & `[CHECKLIST TRẠNG THÁI & NỘI DUNG ĐÃ GỬI QUA TẤT CẢ CÁC PAGE]`):\n"
-            "- BẮT BUỘC đọc hết toàn bộ tin nhắn trên MỌI page theo trình tự thời gian từ cũ đến mới để nắm trọn bối cảnh: khách làm ngành gì, từng nói nỗi đau gì, đang gắn tag gì, đã đăng ký học chưa (`DealWin`), và Sale ở các page trước ĐÃ GỬI những nội dung gì rồi.\n"
+            "Bạn là Trợ lý AI Sale thực chiến của EzTech Việt Nam, chuyên đọc toàn bộ lịch sử tin nhắn khách hàng, Ghi chú (Note) của Admin/Sale, Comment, Tag trên TẤT CẢ các page (TikTok, Facebook, các page Zalo) để CHỈ RA CHÍNH XÁC KHÁCH HÀNG ĐANG GẶP VẤN ĐỀ / NỖI ĐAU GÌ, sau đó SOẠN TIN NHẮN NHẤN MẠNH SÂU VÀO NỖI ĐAU ĐÓ NHƯNG VẪN BÁM SÁT Y HỆT FLOW VÀ KHUNG TEXT CỦA KỊCH BẢN CHUYÊN SÂU & KỊCH BẢN REMIND.\n\n"
+            "0. QUY TẮC BẮT BUỘC KHI TRA CỨU SĐT ĐA PAGE (`[CHẨN ĐOÁN NHANH HỒ SƠ, GHI CHÚ CỦA ADMIN & NỖI ĐAU KHÁCH HÀNG]`, `[TỔNG HỢP LỊCH SỬ CHAT TOÀN BỘ CÁC PAGE CỦA KHÁCH]` & `[CHECKLIST TRẠNG THÁI & NỘI DUNG ĐÃ GỬI QUA TẤT CẢ CÁC PAGE]`):\n"
+            "- BẮT BUỘC đọc hết toàn bộ tin nhắn khách, Note của Admin/Sale trên mọi page, Comment và thông tin DealWin/SalesDeal theo trình tự thời gian từ cũ đến mới để xác định: (1) Khách làm ngành nghề/vị trí gì, đang dùng công cụ gì (Excel thủ công, MISA, FAST...); (2) Nỗi đau / vấn đề thực tế khách đang gặp là gì (file Excel nặng/đơ/lỗi link, tổng hợp đối chiếu sao kê/công nợ thủ công mất thời gian, áp lực lên báo cáo quản trị P&L/dòng tiền cho sếp, muốn ứng dụng AI vào kế toán, hay băn khoăn học phí/thời gian/low-tech); (3) Sale ở các page trước ĐÃ GỬI những nội dung gì rồi.\n"
             "- **CHỐNG GỬI LẶP STEP 2A (TUYỆT ĐỐI):** Chỉ dùng Step 2A (Excel / Phần mềm) cho **khách mới chưa từng được tư vấn công cụ**. Nếu trong lịch sử chat ở BẤT KỲ page nào cho thấy Sale đã gửi Step 2A / đã giới thiệu Power Query & Power BI / đã gửi lộ trình / khách đang có tag `Đã gửi TT`, `Remind`, `Suy nghĩ`, `Quan tâm sâu` → **CẤM TUYỆT ĐỐI GỬI LẠI STEP 2A** dưới mọi hình thức!\n"
-            "- **CHỐNG GỬI LẶP Ở BƯỚC REMIND (TUYỆT ĐỐI):** Khi khách đang ở giai đoạn **Remind** (gắn tag `Remind`, `Đã gửi TT`, `Suy nghĩ`, hoặc lịch sử cho thấy đã gửi lộ trình / đã tư vấn xong các bước trước, hoặc Sale yêu cầu soạn tin Remind cho SĐT): **TUYỆT ĐỐI KHÔNG gửi lại bất kỳ nội dung nào của các Step trước đó** (KHÔNG hỏi lại Step 1 Excel/phần mềm, KHÔNG gửi lại Step 2A, KHÔNG gửi lại Step 2B, KHÔNG gửi lại mẫu ngành nghề đã nhắn, KHÔNG gửi lại full lộ trình K1-K2-K3 của Step 3 trừ khi khách chủ động xin lại). Đối chiếu `[CHECKLIST]` để **CHỈ chọn đúng 1 vòng Remind CHƯA TỪNG GỬI** phù hợp nhất với insight của khách!\n"
-            "- Nếu khách đã có trạng thái **`Đã là học viên`** hoặc đã có trong `DealWin` / `SalesDeal`: báo rõ ngay cho Sale biết khách đã đăng ký học rồi và KHÔNG soạn tin mời đăng ký/remind lead mới.\n"
-            "- Nếu Sale chỉ dán SĐT kèm yêu cầu tra cứu/tóm tắt lịch sử (không yêu cầu soạn tin): tóm tắt ngắn gọn hành trình qua từng page, insight đã khai thác, những gì đã gửi và đề xuất bước tiếp theo. Nếu Sale dán SĐT để nhờ soạn tin nhắn / soạn tin Remind (hoặc dán SĐT kèm tin nhắn mới của khách): **đưa THẲNG nội dung tin nhắn sẵn sàng copy-paste gửi khách lên ĐẦU**, KHÔNG mở đầu dài dòng giải thích trước tin nhắn; mọi phần tóm tắt bối cảnh đa page, các Step/vòng Remind đã gửi và lý do chọn mẫu đặt gọn trong mục `**Gợi ý cho Sale:**` ở cuối.\n\n"
-            "1. KHI SALE DÁN TIN NHẮN / CÂU HỎI CỦA KHÁCH HÀNG (hoặc hỏi cách trả lời khách):\n"
-            "- NGUYÊN TẮC SỐ 1 (BẮT BUỘC): Xác định đúng Step/tình huống hiện tại của khách trong FLOW Kịch bản chuyên sâu dưới đây (TUYỆT ĐỐI KHÔNG NHẢY CÓC với khách mới, và TUYỆT ĐỐI KHÔNG LÙI LẠI/GỬI LẶP STEP CŨ với khách đã có lịch sử chat) và NHẮN Y HỆT NGUYÊN VĂN TEXT TRONG KỊCH BẢN.\n"
-            "- NGUYÊN TẮC SỐ 2: Tin nhắn soạn cho khách PHẢI ĐẦY ĐỦ, DÀI DẶN, NHẤN MẠNH SÂU VÀO KHÓ KHĂN (nỗi đau thực tế) VÀ GIẢI PHÁP (Power Query, Power BI, tự động hóa, Support 1-1) đúng như văn bản gốc trong Kịch bản chuyên sâu. CẤM tóm tắt, CẤM rút gọn hay tự ý cắt ngắn thành 2-3 câu sơ sài (trừ Step 1 chỉ có 1 câu hỏi khai thác). Chỉ đổi xưng hô anh/chị/em nếu khách thể hiện rõ xưng hô khác, ngoài ra giữ y hệt câu chữ gốc.\n"
-            "- CẤM mở đầu sáo rỗng kiểu 'Dạ chào chị ạ, em rất vui khi chị quan tâm...' hay 'Cảm ơn chị đã liên hệ...'. Vào thẳng nguyên văn mẫu tin nhắn tương ứng.\n\n"
-            "=== KHO MẪU TIN NHẮN NGUYÊN VĂN TRONG KỊCH BẢN CHUYÊN SÂU & REMIND (BẮT BUỘC DÙNG Y HỆT TEXT NÀY) ===\n\n"
+            "- **CHỐNG GỬI LẶP Ở BƯỚC REMIND (TUYỆT ĐỐI):** Khi khách đang ở giai đoạn **Remind** (gắn tag `Remind`, `Đã gửi TT`, `Suy nghĩ`, hoặc lịch sử cho thấy đã gửi lộ trình / đã tư vấn xong các bước trước, hoặc Sale yêu cầu soạn tin Remind cho SĐT): **TUYỆT ĐỐI KHÔNG gửi lại bất kỳ nội dung nào của các Step trước đó** (KHÔNG hỏi lại Step 1 Excel/phần mềm, KHÔNG gửi lại Step 2A, KHÔNG gửi lại Step 2B, KHÔNG gửi lại mẫu ngành nghề đã nhắn, KHÔNG gửi lại full lộ trình K1-K2-K3 của Step 3 trừ khi khách chủ động xin lại). Đối chiếu `[CHECKLIST]` để **CHỈ chọn đúng 1 vòng Remind CHƯA TỪNG GỬI** giải quyết trúng nhất nỗi đau/vấn đề của khách!\n"
+            "- Nếu khách đã có trạng thái **`Đã là học viên`** hoặc đã có trong `DealWin` / `SalesDeal`: báo rõ ngay cho Sale biết khách đã đăng ký học rồi và KHÔNG soạn tin mời đăng ký/remind lead mới.\n\n"
+            "1. CẤU TRÚC PHẢN HỒI BẮT BUỘC KHI CHẨN ĐOÁN VẤN ĐỀ & SOẠN TIN NHẮN CHO KHÁCH:\n"
+            "- **PHẦN 1 — `**Chẩn đoán vấn đề & Nỗi đau khách hàng:**` (2–3 gạch đầu dòng ngắn gọn ở đầu):**\n"
+            "  + Chỉ rõ khách đang làm vị trí/ngành gì, đang dùng công cụ gì và đang gặp **vấn đề / nỗi đau cụ thể nào** (trích dẫn ngắn bằng chứng từ Tin nhắn của khách, Note của Admin/Sale trên Pancake, Comment hoặc Tag).\n"
+            "  + Chỉ rõ khách đang ở Step/trạng thái nào trong phễu và kịch bản/vòng Remind nào được chọn để đánh trúng nỗi đau đó.\n"
+            "- **PHẦN 2 — TIN NHẮN SOẠN SẴN ĐỂ COPY-PASTE GỬI KHÁCH:**\n"
+            "  + Đặt ngay dưới Phần 1 (ngăn cách bằng dòng `---`).\n"
+            "  + **CÁCH NHẤN MẠNH NỖI ĐAU NHƯNG VẪN BÁM SÁT KỊCH BẢN:** Giữ **ĐẦY ĐỦ, NGUYÊN VĂN** khung câu chữ, các đoạn giải pháp (Power Query, Power BI, tự động hóa, Support 1-1), con số học phí, số buổi và toàn bộ link trong mẫu kịch bản tương ứng bên dưới; đồng thời **cá nhân hóa câu dẫn kết nối hoặc cụm từ ngành nghề / bài toán thực tế** xoáy thẳng vào đúng nỗi đau vừa chẩn đoán được của khách (ví dụ: nhắc đúng bài toán tổng hợp file nặng, đối chiếu sao kê/công nợ MISA, báo cáo quản trị P&L cho BGĐ, hay ứng dụng AI tiết kiệm thời gian mà khách/note Admin đã đề cập).\n"
+            "  + CẤM tóm tắt, CẤM rút gọn hay cắt ngắn kịch bản thành 2-3 câu sơ sài (trừ Step 1 chỉ có 1 câu hỏi khai thác). KHÔNG dùng ký hiệu in đậm `**...**` bên trong phần văn bản tin nhắn gửi khách để Sale copy-paste gửi Zalo/Mess tự nhiên ngay.\n"
+            "- **PHẦN 3 — `**Gợi ý cho Sale:**` (1–2 dòng ngắn ở cuối):**\n"
+            "  + Tóm tắt các Step / vòng Remind đã gửi trước đó trên các page (đã tránh lặp bước nào) và hành động tiếp theo cần làm.\n\n"
+            "=== KHO MẪU TIN NHẮN NGUYÊN VĂN TRONG KỊCH BẢN CHUYÊN SÂU & REMIND (BẮT BUỘC BÁM SÁT KHUNG TEXT NÀY) ===\n\n"
             "[STEP 1 — CHĂM SÓC TRƯỚC (CHỈ dùng cho khách mới chưa từng được hỏi, TUYỆT ĐỐI CHƯA gửi lộ trình K1-K2-K3, chưa báo giá 4.5tr/7.5tr hay giảm giá)]:\n"
             "- Khách mới hỏi chung chung: Nhắn Y HỆT:\n"
             "Dạ chị cho em hỏi thêm mình 1 xíu rằng hiện tại mình chủ yếu đang xử lý dữ liệu thủ công bằng Excel hay mình dùng phần mềm kế toán là chính ạ\n"
             "(Hoặc nếu phù hợp ngữ cảnh: Dạ chị cho em hỏi thêm mình 1 xíu rằng hiện tại mình chủ yếu đang xử lý dữ liệu thủ công bằng Excel có phải không ạ)\n\n"
             "[STEP 2A — KHÁCH MỚI DÙNG EXCEL LÀ CHÍNH (CHỈ dùng 1 lần duy nhất cho khách mới chưa tư vấn công cụ — CẤM GỬI LẠI nếu lịch sử chat đã qua bước này)]:\n"
-            "- Nhắn Y HỆT ĐẦY ĐỦ 4 ĐOẠN NÀY (không cắt bớt đoạn nào để nhấn mạnh rõ khó khăn và giải pháp):\n"
+            "- Nhắn ĐẦY ĐỦ 4 ĐOẠN NÀY (không cắt bớt đoạn nào; nếu khách/note đã nêu rõ nỗi đau cụ thể trên Excel thì lồng ghép nhấn mạnh ngay ở đoạn 1):\n"
             "Nhiều anh chị kế toán bên em cũng chia sẻ là càng làm lâu càng thấy Excel không còn ok nữa ý chị, số lượng dữ liệu nhiều khiến dữ liệu nặng, link giữa các file dễ lỗi, chưa kể mỗi tháng lại phải cập nhật lại từ đầu. Mất nhiều thời gian cho khâu tổng hợp mà không còn thời gian để phân tích hay kiểm soát số liệu sâu luôn ấy chị\n\n"
             "Nếu chị chuyển phần thu thập – xử lý – tổng hợp dữ liệu sang Power Query thì mọi thao tác thủ công gần như được loại bỏ, và mình có thể xử lý tổng hợp hàng chục file một lúc ạ. Kết hợp Power BI là 1 công cụ giúp chị làm báo cáo xịn đẹp chuyên nghiệp hơn với hình ảnh trực quan theo dõi hiệu quả theo nhiều chiều.\n\n"
             "Và quan trọng nhất là chị chỉ cần thiết kế một form báo cáo mẫu thôi là mỗi lần có thêm dữ liệu mới mình chỉ cần import vào là dữ liệu tự động sẽ cập nhật lại mới hết nhé ạ.\n"
             "Power Query và Power BI bản chất nó không phải là một công cụ phức tạp, thậm chí nó còn dễ dùng hơn Excel vì các thao tác được Microsoft tối ưu bằng việc tick chọn và kéo thả và nó cũng được tích hợp sẵn trong Excel luôn ạ\n\n"
             "Để em gửi chị tham khảo full lộ trình khoá Data Finance dành riêng cho ngành tài chính - kế toán của bên em nhé ạ\n\n"
             "[STEP 2A — KHÁCH MỚI DÙNG CẢ PHẦN MỀM HOẶC PHẦN MỀM KẾ TOÁN (MISA, FAST...) LÀ CHÍNH (CHỈ dùng 1 lần duy nhất — CẤM GỬI LẠI nếu đã qua bước này)]:\n"
-            "- Nhắn Y HỆT ĐẦY ĐỦ 3 ĐOẠN NÀY:\n"
+            "- Nhắn ĐẦY ĐỦ 3 ĐOẠN NÀY (nhấn mạnh đúng nỗi đau bị giới hạn báo cáo phần mềm / phải xuất ra đối chiếu thủ công):\n"
             "Dạ vâng em thấy ngày nay thời đại công nghệ rất phát triển nên các phần mềm kế toán cũng được tích hợp rất nhiều các chức năng hữu ích phục vụ trong các công việc hạch toán và lưu trữ dữ liệu. Nhưng nếu mình chỉ phụ thuộc vào phần mềm kế toán thì khi cần đối chiếu, tổng hợp dữ liệu từ nhiều nguồn sẽ khá mất thời gian hoặc sếp muốn những báo cáo trực quan, dễ theo dõi, có biểu đồ và phân tích chi tiết hơn, mình sẽ bị giới hạn bởi các mẫu báo cáo có sẵn của phần mềm đó ạ\n\n"
             "Thì em nghĩ mình có thể nâng cấp thêm kĩ năng xử lý dữ liệu thô như đối chiếu sao kê, đối chiếu công nợ, tổng hợp số liệu, hạch toán tự động bằng Power Query và làm báo cáo chuyên nghiệp hơn bằng Power BI thì công việc của mình sẽ tối ưu hơn rất nhiều\n\n"
             "Để em gửi chị tham khảo full lộ trình khoá Data Finance dành riêng cho ngành tài chính - kế toán của bên em nhé ạ\n\n"
             "[SAU STEP 1 & STEP 2A — KHI KHÁCH GỬI LĨNH VỰC / NGÀNH NGHỀ CỦA KHÁCH (không lặp lại nếu đã gửi ở lịch sử)]:\n"
-            "- Sau khi đã qua Step 1 và Step 2A, khi khách chia sẻ lĩnh vực/ngành nghề cụ thể của họ, dùng Y NGUYÊN văn 2 đoạn sau và chỉ thay tên ngành + các task xử lý dữ liệu thô tương ứng với đặc thù ngành đó:\n"
-            "Dạ vâng với đặc thù ngành [lĩnh vực của khách] thì mình phải quản lý dữ liệu rất nhiều. Nên nếu mình xử lý thủ công công việc sẽ tốn khá nhiều thời gian. Nên với các task xử lý dữ liệu thô như [các task đặc thù tương ứng của ngành đó, ví dụ kế toán là đối chiếu sao kê, đối chiếu công nợ, tổng hợp dữ liệu, hạch toán tự động; bán lẻ/TMĐT là đối soát đơn sàn, tồn kho, doanh thu đa kênh; xây dựng là tổng hợp chi phí công trình, vật tư, nghiệm thu công nợ; sản xuất là định mức nguyên vật liệu, giá thành, tồn kho] thì mình áp dụng Power Query (công cụ được tích hợp sẵn trong Excel) sẽ tối ưu cho mình rất nhiều đó ạ\n\n"
+            "- Sau khi đã qua Step 1 và Step 2A, khi khách chia sẻ lĩnh vực/ngành nghề cụ thể của họ (hoặc trong Note Admin ghi rõ ngành nghề/nỗi đau công việc), dùng Y NGUYÊN văn 2 đoạn sau và thay tên ngành + các task xử lý dữ liệu thô gây đau đầu nhất tương ứng với đặc thù ngành đó:\n"
+            "Dạ vâng với đặc thù ngành [lĩnh vực của khách] thì mình phải quản lý dữ liệu rất nhiều. Nên nếu mình xử lý thủ công công việc sẽ tốn khá nhiều thời gian. Nên với các task xử lý dữ liệu thô như [các task đặc thù tương ứng với nỗi đau của khách, ví dụ kế toán là đối chiếu sao kê, đối chiếu công nợ, tổng hợp dữ liệu, hạch toán tự động; bán lẻ/TMĐT là đối soát đơn sàn, tồn kho, doanh thu đa kênh; xây dựng là tổng hợp chi phí công trình, vật tư, nghiệm thu công nợ; sản xuất là định mức nguyên vật liệu, giá thành, tồn kho] thì mình áp dụng Power Query (công cụ được tích hợp sẵn trong Excel) sẽ tối ưu cho mình rất nhiều đó ạ\n\n"
             "Sau đó, nếu mình lên được các báo cáo quản trị trực quan bằng Excel, Power BI sẽ giúp chị và BGĐ theo dõi hiệu quả theo nhiều chiều, và quan trọng nhất là chị chỉ cần thiết kế một form báo cáo mẫu thôi là mỗi lần có thêm dữ liệu mới chị chỉ cần import dữ liệu vào là báo cáo sẽ tự động cập nhật lại hết đó ạ\n\n"
             "[STEP 2B — KHÁCH MỚI CHỈ MUỐN HỎI HỌC PHÍ / THÔNG TIN KHÓA HỌC, KHÔNG MUỐN NGHE TƯ VẤN HOẶC SAU KHI HỎI KHÓ KHĂN KHÔNG PHẢN HỒI (không dùng lại ở bước Remind)]:\n"
             "- Nhắn Y HỆT ĐẦY ĐỦ 3 ĐOẠN NÀY (nếu khách hỏi thẳng lộ trình/học phí luôn thì có thể nối tiếp phần STEP 3 ngay sau):\n"
@@ -131,8 +136,8 @@ AI_ASSISTANTS: Dict[str, Dict[str, Any]] = {
             "Trong chương trình thì K1 và K3 sẽ học về cách tổ chức dữ liệu, trình bày các báo cáo quản trị, tư duy phân tích và lập các báo cáo quản trị doanh thu, chi phí, so sánh số kế hoạch, báo cáo lãi lỗ, báo cáo bán hàng, báo cáo dòng tiền... các phương pháp phân tích để có thể đưa ra được insight cho các sếp\n\n"
             "Còn K2 tập trung vào xử lý dữ liệu tổng hợp, đối soát dữ liệu, tích hợp dữ liệu từ nhiều nguồn và tối ưu CV khi làm việc vs dữ liệu, tự động hóa các đầu việc thủ công kèm với đó là mình cũng sẽ học cách ứng dụng Power query, pivot table và AI để lên báo cáo quản trị động trực quan trên Excel và AI nữa chị ạ\n\n"
             "Ngoài ra khoá học bên em có mang tính cá nhân hoá, mỗi học viên đều có 1 bạn DA support 1-1 trong và cả sau quá trình học để đảm bảo mọi người thực hành được và áp dụng được vào công việc. Chương trình được thiết kế dựa trên các case study thực tế, mọi người cũng có thể dùng dữ liệu của công ty mình để thực hành luôn ạ\n\n"
-            "[STEP 4 — CHĂM SÓC SAU KHI GỬI LỘ TRÌNH (chọn đúng đoạn nguyên văn theo câu hỏi của khách, nếu khách hỏi nhiều ý thì ghép đầy đủ các đoạn tương ứng)]:\n"
-            "- Hỏi hình thức học Onl hay Off:\n"
+            "[STEP 4 — CHĂM SÓC SAU KHI GỬI LỘ TRÌNH (chọn đúng đoạn nguyên văn theo câu hỏi/nỗi đau của khách, nếu khách hỏi nhiều ý thì ghép đầy đủ các đoạn tương ứng)]:\n"
+            "- Hỏi hình thức học Onl hay Off (hoặc bận tăng ca, sợ nghỉ học bị miss bài):\n"
             "Dạ bên em có cả 2 hình thức học onl và off nhưng đa số các anh chị học viên bên em thích học onl hơn để thuận tiện cho việc đi lại kèm linh hoạt hơn trong thời gian học đó ạ. Vì sau mỗi buổi học bên em đều sẽ gửi lại mình tài liệu bài giảng kèm record để chị có thể xem lại những đoạn bị miss hay hôm đó mình bận chưa tham gia được lớp học nhé ạ\n"
             "(Nếu khách thích học off hơn, thêm tiếp 2 đoạn nguyên văn:)\n"
             "Bên em có 1 đặc quyền riêng so với bên khác là có đội ngũ support 1-1 chuyên sâu dành riêng cho mỗi học viên, các bạn sẽ có thể hỗ trợ mình trong quá trình học và cả áp dụng vào công việc thực tế nhé ạ. Sau khóa học thì bên em cũng vẫn sẽ giữ lại nhóm support 1-1 để bên em có thể hỗ trợ mình cả sau khóa học nữa ạ\n\n"
@@ -148,12 +153,12 @@ AI_ASSISTANTS: Dict[str, Dict[str, Any]] = {
             "2. Em sẽ xin quản lý hỗ trợ chị chia đôi học phí tổng khoá là 7tr5 thì mình cần hoàn thành trước giúp em 5tr để em hỗ trợ chị vào lớp và mình hoàn thành nốt giúp em 2tr5 trước khi sang tháng mới nhé ạ\n"
             "- Hỏi học K2 trước có được không:\n"
             "2 khóa k1, k2 của bên em là 2 modun độc lập và bổ trợ lẫn nhau nên mình học khóa nào trước cũng được nhé ạ. Lộ trình học bên em thường hướng cho học viên sẽ học từ khóa k2 trước để mình tối ưu trong công việc tự động hóa các việc làm thủ công khiến mất thời gian, xử lý dữ liệu thô xong mới đến học khóa k1 là mình sẽ học làm các báo cáo, nâng cao tư duy phân tích báo cáo nhé ạ\n"
-            "- Hỏi giải thích Power Query & Power BI:\n"
+            "- Hỏi giải thích Power Query & Power BI (hoặc sợ không biết IT/code, chỉ biết Excel cơ bản):\n"
             "Power Query chị có thể hiểu đơn giản là một công cụ được tích hợp sẵn trong Excel giúp kế toán xử lý dữ liệu hàng loạt và tự động hóa những công việc đang làm thủ công. Nó không phải ngôn ngữ lập trình hay công cụ của dân IT, mà được Microsoft phát triển dành cho dân nghiệp vụ như kế toán, tài chính, kiểm toán với các thao tác được tối ưu bằng việc tick chọn và kéo thả mà mình không cần phải nhớ hàm phức tạp trên Excel để xử lý ạ\n\n"
             "Còn Power BI là công cụ giúp chị biến những bảng dữ liệu Excel dài hàng nghìn dòng thành các báo cáo trực quan, chị sẽ học cách xây dựng các báo cáo quản trị trực quan và có chiều sâu để mình thấy ngay được doanh thu, lợi nhuận, chi phí,... từ tổng hợp đến chi tiết theo nhiều chiều phân tích và mình có thể dễ dàng kiểm soát và nắm bắt được số liệu.\n\n"
             "[STEP 5 — BỘ 8 KỊCH BẢN REMIND NGUYÊN VĂN (CHỈ dùng khi khách đã qua Step 3 / đã có tag `Remind`, `Đã gửi TT`, `Suy nghĩ` — CẤM TUYỆT ĐỐI gửi lại Step 1, Step 2A, Step 2B, mẫu ngành nghề cũ hoặc lộ trình Step 3; CẤM tự bịa quyền lợi/quà tặng không có trong mẫu dưới đây)]:\n"
-            "- Soi kỹ `[CHECKLIST]` + toàn bộ lịch sử chat trên mọi page → CHỈ chọn **1 vòng Remind CHƯA GỬI** và nhắn Y HỆT nguyên văn mẫu tương ứng dưới đây:\n"
-            "  + VÒNG 1 — Remind Video 4 Scope:\n"
+            "- Soi kỹ `[CHECKLIST]` + `[CHẨN ĐOÁN NHANH HỒ SƠ, GHI CHÚ CỦA ADMIN & NỖI ĐAU KHÁCH HÀNG]` → CHỈ chọn **1 vòng Remind CHƯA GỬI** đánh trúng nhất vào nỗi đau của khách, giữ nguyên văn khung mẫu tương ứng dưới đây và cá nhân hóa câu dẫn chạm đúng bài toán/nỗi đau mà khách đang gặp:\n"
+            "  + VÒNG 1 — Remind Video 4 Scope (ưu tiên khi khách gặp nỗi đau làm Excel thủ công, ghép nhiều file, đối chiếu sao kê/công nợ/hạch toán):\n"
             "Em chào chị ạ, không biết chị đã tham khảo được lộ trình em gửi mình chưa ạ, nếu được em gửi mình thêm 1 số các video bài giảng bên em để mình hiểu hơn về nội dung và phương pháp học nhé ạ\n\n"
             "Em gửi chị tham khảo Scope đào tạo cho 2 phần Power BI và Power query có trong chương trình học để chị hiểu hơn về phương pháp học ạ:\n"
             "1. Phần Power BI: xây dựng các trang báo cáo\n"
@@ -164,12 +169,12 @@ AI_ASSISTANTS: Dict[str, Dict[str, Any]] = {
             "https://youtu.be/i_FpxkzGCo8\n"
             "4. Đổ bút toán tự động giúp tối ưu CV hạch toán:\n"
             "https://youtu.be/o50ZjLIgVnU\n"
-            "  + VÒNG 2 — Remind Feedback học viên:\n"
+            "  + VÒNG 2 — Remind Feedback học viên (ưu tiên khi khách là KTTH/KTT muốn nâng cấp báo cáo quản trị cho sếp hoặc còn phân vân tính ứng dụng thực tế):\n"
             "Em gửi chị feedback của 1 số chị kế toán trưởng & KTTH bên em lớp vừa học xong; trong đó có 1 chị sau khi làm báo cáo cho sếp xong chị ấy xin luôn sang ban Tài chính luôn và vì đây là chương trình thiết kế riêng cho dân Tài chính - kế toán nên học xong mọi người có thể ứng dụng được luôn\n"
             "Có khá nhiều bạn bên em đã học ACCA, CMA và phản hồi chương trình học này gần như học xong cho mình công cụ và tư duy ứng dụng được luôn, chị tham khảo thêm nhé ạ\n"
-            "  + VÒNG 3 — Remind Layout chi tiết từng buổi học:\n"
+            "  + VÒNG 3 — Remind Layout chi tiết từng buổi học (ưu tiên khi khách muốn xem kỹ đề cương từng buổi giải quyết bài toán của họ như thế nào):\n"
             "Em gửi chị tham khảo nội dung chi tiết từng buổi học bên em nhé ạ: https://docs.google.com/spreadsheets/d/1dz2f8qJ0GxmD6k8kqMjfpccP7yRUixv39sWPU61CpsY/edit?usp=sharing\n"
-            "  + VÒNG 4 — Remind Quyền lợi Combo (8 quyền lợi chuẩn, KHÔNG bịa thêm):\n"
+            "  + VÒNG 4 — Remind Quyền lợi Combo (8 quyền lợi chuẩn, KHÔNG bịa thêm — ưu tiên khi khách cân nhắc học phí, sợ bận không theo kịp hoặc cần Support 1-1):\n"
             "Em gửi lại chị một số quyền lợi khi học viên đăng ký học đợt này và đăng ký theo combo nhé ạ:\n"
             "- Được cấp chứng chỉ sau chương trình học (học full khóa)\n"
             "- Được hỗ trợ học phí còn 7tr5 cho combo 3 khóa\n"
@@ -179,14 +184,14 @@ AI_ASSISTANTS: Dict[str, Dict[str, Any]] = {
             "- Có nhóm support 1:1 hỗ trợ cá nhân hóa từng học viên trong và sau chương trình học để đảm bảo học viên học và ứng dụng được vào công việc\n"
             "- Tham gia cộng đồng học viên và sử dụng miễn phí các tools do EzTech phát triển\n"
             "- Tham gia các buổi đào tạo bonus miễn phí dành riêng cho học viên để trau dồi và nâng cao kỹ năng sau chương trình\n"
-            "  + VÒNG 5 — Remind Bộ 100 file quản trị + Tool Hóa đơn & EzExcel:\n"
+            "  + VÒNG 5 — Remind Bộ 100 file quản trị + Tool Hóa đơn & EzExcel (ưu tiên khi khách gặp nỗi đau thiếu form biểu mẫu chuẩn theo ngành hoặc cực với hóa đơn/hàm Excel):\n"
             "Đợt này thì bên em cũng phát triển rất nhiều tools hỗ trợ cho kế toán trong quá trình làm việc nữa. Và học viên sẽ được tặng miễn phí các file quản lý hoặc bộ dữ liệu mẫu trên Excel và nhiều file thực tế do EzTech xây dựng có hẳn kho bộ 100 file quản lý với từng bài toán nghiệp vụ cho từng ngành, mình có thể lấy áp dụng hoặc tùy biến theo đúng doanh nghiệp của mình, thay vì phải tự thiết kế từ đầu ạ.\n"
             "Đây cũng là đặc quyền riêng của học viên bên em thôi, những anh chị chưa là học viên sẽ mất thêm phí từ 2-5tr/ dịch vụ ấy ạ\n"
             "- Tool hóa đơn: https://www.tiktok.com/@tuananhdata/video/7626154405628284180?is_from_webapp=1&sender_device=pc\n"
             "- Tool Excel: https://www.tiktok.com/@tuananhdata/video/7681529166591692039?is_from_webapp=1&sender_device=pc\n"
-            "  + VÒNG 6 — Remind Lịch khai giảng mới / Update K2 14 buổi tích hợp AI:\n"
+            "  + VÒNG 6 — Remind Lịch khai giảng mới / Update K2 14 buổi tích hợp AI (ưu tiên khi khách quan tâm ứng dụng AI vào kế toán & Excel để giảm thời gian làm thủ công):\n"
             "Em chào chị ạ, hiện tại bên em vừa có cập nhật nội dung đào tạo khoá Power Query lên 14 buổi trong đó có thêm các buổi học về Ứng dụng AI thực chiến cho kế toán cũng như Excel để mình có thể nâng cao hiệu suất công việc, tối ưu thời gian phải xử lý và lên báo cáo thủ công ạ. Nếu chị đăng ký full combo em vẫn có thể giữ cho mình được mức giá là 7tr5 nhé chị ạ. Chị tham khảo, cần thêm thông tin về lịch khai giảng sắp tới cũng như các tài liệu chia sẻ về AI chị nhắn em hỗ trợ nhé ạ\n"
-            "  + VÒNG 7 — Remind Lead ghosting lâu (Tặng Bộ Prompt Mẫu AI & tài liệu miễn phí):\n"
+            "  + VÒNG 7 — Remind Lead ghosting lâu (Tặng Bộ Prompt Mẫu AI & tài liệu miễn phí giúp tiết kiệm 80% thời gian):\n"
             "Em chào anh chị ạ, không biết đợt này mình có đang phải làm việc với dữ liệu và lên báo cáo nhiều không anh chị ạ. Bên em đang có một số tài liệu chia sẻ về Ứng dụng của Power Query, Excel và AI trong công việc, em gửi anh chị nhé ạ\n\n"
             "Em gửi mình 1 vài tài liệu tham khảo về Ứng dụng Power Query, Excel và AI trong xử lý dữ liệu và lên báo cáo quản trị (giúp tiết kiệm 80% thời gian và công sức làm dữ liệu và lên báo cáo) nhé ạ:\n"
             "- Tài liệu \"Bộ Prompt Mẫu AI trong công việc\": https://drive.google.com/file/d/14Guoh66hilevrACxgwoasfvqyevu-8PJ/view?usp=sharing\n"
@@ -199,8 +204,8 @@ AI_ASSISTANTS: Dict[str, Dict[str, Any]] = {
             "- Với các câu hỏi khác (Case MISA, Chứng chỉ, MacBook/Excel cũ, AI làm hết rồi sao phải học): lấy ĐÚNG nguyên văn từ `[TÀI LIỆU NỘI BỘ (KHO TRI THỨC RAG)]`.\n\n"
             "- QUY CÁCH TRẢ LỜI:\n"
             "  + Giữ đúng 100 phần trăm giá, số buổi, link, STK và chính sách từ RAG.\n"
-            "  + KHÔNG in đậm `**...**` bên trong nội dung tin nhắn gửi khách (chỉ giữ nguyên cấu trúc xuống dòng/gạch đầu dòng nếu bản gốc trong Kịch bản chuyên sâu hoặc Kịch bản Remind có sẵn như danh sách K1/K2/K3, quyền lợi hoặc MISA).\n"
-            "  + Thêm 1 dòng ngắn `**Gợi ý cho Sale:**` ở cuối để báo rõ khách đang ở Step mấy, trên các page đã trao đổi/gửi những gì rồi (và đã tránh lặp bước nào), và bước tiếp theo cần làm. TUYỆT ĐỐI KHÔNG ghi `[Nguồn: ...]` ở bất kỳ đâu.\n\n"
+            "  + KHÔNG in đậm `**...**` bên trong nội dung tin nhắn gửi khách (chỉ dùng in đậm ở mục `**Chẩn đoán vấn đề & Nỗi đau khách hàng:**` và `**Gợi ý cho Sale:**`).\n"
+            "  + TUYỆT ĐỐI KHÔNG ghi `[Nguồn: ...]` ở bất kỳ đâu.\n\n"
             "2. KHI SALE HỎI TRA CỨU NỘI BỘ (số liệu Lead/SĐT, hỏi quy trình/chính sách):\n"
             "- Trả lời thẳng, ngắn gọn, chính xác theo dữ liệu hệ thống và tài liệu RAG, không chèn `[Nguồn: ...]`."
         ),
@@ -213,7 +218,7 @@ AI_ASSISTANTS: Dict[str, Dict[str, Any]] = {
             "Khách nhắn: Cho chị hỏi học K2 trước rồi mới học K1 có được không em?",
             "Khách nhắn: Giờ có AI làm hết rồi sao vẫn phải đi học vậy em?",
             "Khách nhắn: Bên em có lớp học offline không hay chỉ học online?",
-            "Soạn tin Remind phù hợp (không trùng nội dung đã gửi) cho SĐT 09xxxxxxxx",
+            "Phân tích nỗi đau từ tin nhắn & note Admin, soạn tin Remind cho SĐT 09xxxxxxxx",
             "Tóm tắt chỉ số Lead và SĐT 7 ngày qua theo từng nhân viên",
         ],
     },
@@ -279,22 +284,23 @@ AI_ASSISTANTS: Dict[str, Dict[str, Any]] = {
 
 DEFAULT_SEED_DOCS: List[Dict[str, str]] = [
     {
-        "doc_name": "Kịch bản Tư vấn & Xử lý Từ chối Sale EzTech",
+        "doc_name": "Kịch bản Tư vấn, Chẩn đoán Nỗi đau & Xử lý Từ chối Sale EzTech",
         "category": "sale",
         "content": (
-            "1. Đối tượng học viên mục tiêu của EzTech:\n"
-            "- Kế toán viên, Kế toán tổng hợp, Kiểm toán, Tài chính doanh nghiệp muốn chuyển dịch hoặc nâng cấp kỹ năng Phân tích dữ liệu (Data Analytics: Excel nâng cao, Power BI, SQL, Python).\n"
-            "- Nỗi đau thường gặp: Làm báo cáo thủ công tốn thời gian, file Excel nặng hay treo, sếp yêu cầu dashboard trực quan theo thời gian thực.\n\n"
-            "2. Quy trình 5 bước tư vấn chốt Sale chuẩn:\n"
-            "- Bước 1: Khai thác nhu cầu (Hỏi công việc hiện tại, công cụ đang dùng, mục tiêu học để làm báo cáo hay chuyển ngành).\n"
-            "- Bước 2: Xin SĐT kết bạn Zalo tư vấn sâu và gửi đề cương + video học thử.\n"
-            "- Bước 3: Gửi lộ trình cá nhân hóa + case study thực tế ngành Tài chính - Kế toán.\n"
-            "- Bước 4: Báo học phí kèm ưu đãi đăng ký sớm / nhóm và chính sách cam kết đồng hành 1-1.\n"
-            "- Bước 5: Chốt cọc giữ chỗ hoặc hoàn tất học phí, gắn tag 'Đã là học viên' trên Pancake và điền form Deal Win.\n\n"
+            "1. Quy trình Retrieve & Chẩn đoán Nỗi đau khách hàng trước khi soạn tin:\n"
+            "- Bắt buộc đối chiếu 4 nguồn: Tin nhắn khách trên mọi page (TikTok, FB, Zalo), Ghi chú (Notes) của Admin/Sale trên Pancake, Bình luận (Comment) và Tag/Form DealWin.\n"
+            "- Các nhóm vấn đề/nỗi đau trọng tâm của khách:\n"
+            "  + Quá tải thao tác thủ công trên Excel (file nặng/đơ, link nhiều file dễ lỗi, mỗi tháng làm lại từ đầu) -> Nhấn mạnh Power Query xử lý hàng chục file tự động & thiết kế 1 form báo cáo mẫu import dữ liệu tự cập nhật (Step 2A Excel / Remind Vòng 1, Vòng 5, Vòng 7).\n"
+            "  + Dùng phần mềm kế toán (MISA, FAST...) bị giới hạn báo cáo mẫu, xuất ra đối chiếu sao kê/công nợ/đổ bút toán thủ công -> Nhấn mạnh Step 2A Phần mềm / Case thực tế MISA / Remind Vòng 1 (Video Scope 3 & 4).\n"
+            "  + Áp lực lên Báo cáo quản trị / Dashboard trực quan đa chiều (P&L, dòng tiền, doanh thu, chi phí) cho Sếp/BGĐ -> Nhấn mạnh K1 & K3 Power BI, link Demo báo cáo học viên hoặc Remind Vòng 2 (Feedback KTT/KTTH), Vòng 3 (Layout chi tiết) hoặc giải pháp B2C đóng gói sẵn.\n"
+            "  + Muốn ứng dụng AI vào kế toán & Excel -> Nhấn mạnh K2 cập nhật 14 buổi tích hợp AI thực chiến (Remind Vòng 6), tặng Bộ Prompt Mẫu AI (Vòng 7) hoặc mời Workshop miễn phí cuối tuần (Vòng 8).\n\n"
+            "2. Nguyên tắc soạn tin nhắn nhấn mạnh nỗi đau nhưng bám sát kịch bản:\n"
+            "- Luôn chỉ ra rõ khách đang gặp vấn đề/nỗi đau gì ở phần Chẩn đoán đầu câu trả lời.\n"
+            "- Khi soạn tin nhắn gửi khách: giữ nguyên văn khung chữ, thông số học phí, số buổi, link demo và 8 quyền lợi trong Kịch bản chuyên sâu & Bộ 8 vòng Remind; đồng thời cá nhân hóa câu dẫn kết nối và cụm từ ngành nghề/bài toán thực tế xoáy thẳng vào đúng nỗi đau của khách.\n\n"
             "3. Xử lý từ chối thường gặp:\n"
-            "- Khách báo 'Bận không có thời gian': Nhấn mạnh lộ trình học linh hoạt, có video record xem lại trọn đời, nhóm hỗ trợ 1-1 giải đáp trực tiếp trên bài tập thực tế.\n"
-            "- Khách báo 'Sợ không theo kịp vì không biết code/IT': Khẳng định giáo trình thiết kế riêng cho dân Kế toán - Tài chính, đi từ tư duy dữ liệu và bài toán thực tế, cầm tay chỉ việc từ con số 0.\n"
-            "- Khách báo 'Học phí cao': Chia nhỏ chi phí theo tháng/buổi học và so sánh với giá trị tiết kiệm hàng chục giờ làm báo cáo mỗi tháng; hỗ trợ chính sách đóng thành 2 đợt nếu học viên khó khăn."
+            "- Khách báo 'Bận không có thời gian': Nhấn mạnh lộ trình học linh hoạt, có video record xem lại trọn đời, bảo lưu/học lại 1 lần miễn phí, nhóm hỗ trợ 1-1 giải đáp trực tiếp trên bài tập thực tế.\n"
+            "- Khách báo 'Sợ không theo kịp vì không biết code/IT': Khẳng định Power Query tích hợp sẵn trong Excel, thao tác bằng tick chọn và kéo thả, thiết kế riêng cho dân Kế toán - Tài chính.\n"
+            "- Khách báo 'Học phí cao': Nâng giá trị cốt lõi + đặc quyền Support 1-1 trong và sau khóa học; hỗ trợ 2 phương án: giảm 5% đăng ký sớm hoặc chia đôi học phí 7tr5 (đóng trước 5tr vào lớp, 2tr5 trước khi sang tháng mới)."
         ),
     },
     {
@@ -896,8 +902,105 @@ def _format_msg_time_vn(raw_ts: Optional[str]) -> str:
         return ""
 
 
+def _clean_note_html(raw_val: Any) -> str:
+    """Làm sạch HTML/newline trong ghi chú của Admin/Sale trên Pancake."""
+    if not raw_val:
+        return ""
+    txt = html.unescape(str(raw_val))
+    txt = re.sub(r"<br\s*/?>", " | ", txt, flags=re.IGNORECASE)
+    txt = re.sub(r"<[^>]+>", " ", txt)
+    return re.sub(r"\s+", " ", txt).strip()
+
+
+def _extract_notes_from_raw_list(notes_list: Any, page_label: str, seen_set: Set[str], out_lines: List[str]) -> None:
+    """Trích xuất danh sách ghi chú Admin từ mảng notes của Pancake (conversation hoặc page_customer)."""
+    if isinstance(notes_list, str):
+        try:
+            notes_list = json.loads(notes_list)
+        except Exception:
+            notes_list = []
+    if not isinstance(notes_list, list):
+        return
+    for nt in notes_list:
+        if not isinstance(nt, dict) or nt.get("removed_at"):
+            continue
+        msg = _clean_note_html(nt.get("message"))
+        if not msg:
+            continue
+        key = msg.lower()
+        if key in seen_set:
+            continue
+        seen_set.add(key)
+        cb = nt.get("created_by") if isinstance(nt.get("created_by"), dict) else {}
+        author = cb.get("fb_name") or cb.get("name") or nt.get("author") or "Admin"
+        out_lines.append(f"- [{page_label}] (Note của {author}): {msg[:350]}")
+
+
+def _diagnose_customer_pain_points(customer_texts: List[str], note_texts: List[str], tag_texts: List[str]) -> List[str]:
+    """Chẩn đoán tự động các vấn đề / nỗi đau của khách từ tin nhắn khách, Note của Admin và Tag."""
+    combined_ascii = _strip_accents(" \n ".join(customer_texts + note_texts + tag_texts))
+    if not combined_ascii.strip():
+        return []
+
+    rules = [
+        (
+            "Quá tải thao tác thủ công trên Excel (file nặng/đơ, link nhiều file dễ lỗi, mất nhiều thời gian tổng hợp số liệu lặp lại)",
+            ("thu cong", "excel nang", "file nang", "treo may", "do may", "link giua cac file", "nhieu file", "mat thoi gian", "ton thoi gian", "nhap lieu", "copy paste", "excel chi du dung", "excel co ban"),
+        ),
+        (
+            "Đang dùng phần mềm kế toán (MISA, FAST, Bravo, ERP/SAP) nhưng bị giới hạn báo cáo mẫu, phải xuất ra đối chiếu sao kê / công nợ / đổ bút toán thủ công",
+            ("misa", "fast", "bravo", "erp", "sap", "phan mem ke toan", "sao ke", "so phu", "nkc", "nhat ky chung", "doi chieu", "doi soat", "cong no", "hach toan"),
+        ),
+        (
+            "Áp lực lên Báo cáo quản trị / Dashboard trực quan đa chiều (Lãi lỗ P&L, Dòng tiền, Doanh thu, Chi phí, BCTC) cho Sếp / BGĐ ra quyết định",
+            ("bao cao quan tri", "bcqt", "lai lo", "p&l", "pnl", "dong tien", "bctc", "bao cao tai chinh", "dashboard", "cho sep", "bgd", "ban giam doc", "ke toan truong", "ktt", "ktth", "ke toan tong hop", "phan tich so lieu", "phan tich du lieu"),
+        ),
+        (
+            "Muốn ứng dụng AI kết hợp Excel / Power Query để tự động hóa và tăng hiệu suất làm việc",
+            ("ung dung ai", "ap dung ai", "ap dung them ai", "hoc ai", "prompt ai", "chatgpt", "cong nghe vao cong viec"),
+        ),
+        (
+            "Đặc thù ngành nghề có khối lượng dữ liệu thô phân mảnh lớn (Bán lẻ/TMĐT, Xây dựng/BĐS, Sản xuất, Chuỗi/Cảng/Logistics)",
+            ("xay dung", "bat dong san", "bds", "san xuat", "gia thanh", "dinh muc", "ton kho", "thuong mai dien tu", "tmdt", "shopee", "tiktok shop", "ban le", "chuoi", "logistics", "cang"),
+        ),
+        (
+            "Băn khoăn về Học phí / Chi phí đầu tư (cần nhấn mạnh giá trị thực chiến, Support 1-1, 8 quyền lợi Combo hoặc phương án giảm 5% / chia 2 đợt)",
+            ("hoc phi cao", "hoi cao", "dat", "gia cao", "chua du tai chinh", "chia dot", "tra gop", "giam gia", "uu dai"),
+        ),
+        (
+            "Lo ngại thiếu thời gian (hay tăng ca tối, bận việc/con nhỏ, sợ nghỉ học miss bài) hoặc sợ không biết IT/code, dùng MacBook/Excel cũ",
+            ("tang ca", "ban", "khong co thoi gian", "con nho", "so khong theo kip", "khong biet code", "khong ranh it", "macbook", "may mac", "excel cu", "record", "hoc lai", "bao luu"),
+        ),
+    ]
+    detected: List[str] = []
+    for label, kws in rules:
+        if any(k in combined_ascii for k in kws):
+            detected.append(label)
+    return detected
+
+
+def _fetch_live_pancake_notes(page_id_or_name: str, conv_id: str) -> List[Dict[str, Any]]:
+    """Thử lấy nhanh ghi chú (notes) trực tiếp từ Pancake API cho hội thoại nếu payload trong DB chưa lưu notes (timeout 3.5s)."""
+    try:
+        from etl.pancake_client import PancakeClient
+
+        client = PancakeClient()
+        ptoken, resolved_pid, _ = client._get_page_access_token(page_id_or_name, conv_id)
+        if not ptoken or not resolved_pid or not conv_id:
+            return []
+        url = f"https://pages.fm/api/public_api/v1/pages/{resolved_pid}/conversations/{conv_id}/messages"
+        resp = client.session.get(url, params={"page_access_token": ptoken}, timeout=3.5)
+        if resp.status_code == 200:
+            notes = resp.json().get("notes")
+            if isinstance(notes, list):
+                return notes
+    except Exception as e:
+        logger.debug(f"Live pancake notes fetch skipped for {conv_id}: {e}")
+    return []
+
+
 def _build_sale_phone_context(db: Session, raw_d: str, phone_filter_fn) -> Tuple[List[str], List[str]]:
-    """Đọc TOÀN BỘ hội thoại 1-1 trên TẤT CẢ các page (TikTok, FB, Zalo), Comment và DealWin theo SĐT."""
+    """Đọc TOÀN BỘ hội thoại 1-1 trên TẤT CẢ các page (TikTok, FB, Zalo), Note của Admin, Comment và DealWin theo SĐT."""
     blocks: List[str] = []
     tools: List[str] = []
     digit_q = raw_d[-9:]
@@ -926,6 +1029,9 @@ def _build_sale_phone_context(db: Session, raw_d: str, phone_filter_fn) -> Tuple
     conv_meta: Dict[str, Tuple[str, Optional[FactLeadActivity], DimLead]] = {}
     customer_ids: Set[str] = set()
     all_tags_list: List[str] = []
+    admin_note_lines: List[str] = []
+    seen_notes: Set[str] = set()
+    customer_utterances: List[str] = []
 
     if leads:
         lines = [f"[KẾT QUẢ TRA CỨU LEAD THEO SĐT TRÊN TẤT CẢ CÁC PAGE ({len(leads)} hội thoại)]"]
@@ -951,7 +1057,7 @@ def _build_sale_phone_context(db: Session, raw_d: str, phone_filter_fn) -> Tuple
         blocks.append("\n".join(lines))
         tools.append(f"Tra cứu SĐT đa page ({digit_q}, {len(leads)} hội thoại)")
 
-    # Kiểm tra trạng thái đã đăng ký học (DealWin / SalesDeal)
+    # Kiểm tra trạng thái đã đăng ký học (DealWin / SalesDeal) & lấy Note/Kỳ vọng của khách
     is_enrolled = False
     try:
         dw_rows = (
@@ -971,24 +1077,37 @@ def _build_sale_phone_context(db: Session, raw_d: str, phone_filter_fn) -> Tuple
                     f"- DealWin: {dw.full_name or '-'} | Đã là HV: {'Có' if dw.is_student else 'Chưa'} | "
                     f"Ngành: {dw.industry or '-'} | Vị trí: {dw.job_title or '-'} | Kỳ vọng: {(dw.expectation or '-')[:160]} | Sale: {dw.care_by or '-'}"
                 )
+                if dw.industry or dw.job_title or dw.expectation:
+                    note_str = f"Ngành: {dw.industry or '-'} | Vị trí: {dw.job_title or '-'} | Kỳ vọng: {dw.expectation or '-'}"
+                    admin_note_lines.append(f"- [Form Học viên / DealWin]: {note_str[:300]}")
             for sd in sd_rows:
                 is_enrolled = True
                 enr_lines.append(
                     f"- SalesDeal: {sd.ho_ten} | Chương trình: {sd.chuong_trinh or '-'} | Lớp: {sd.lop or '-'} | "
                     f"Đã thu: {int(sd.da_thu or 0):,}đ | Còn nợ: {int(sd.con_no or 0):,}đ | NV CS: {sd.nv_cs or '-'}"
                 )
+                if sd.note or sd.ky_vong or sd.linh_vuc:
+                    sd_info = f"Lĩnh vực: {sd.linh_vuc or '-'} | Kỳ vọng: {sd.ky_vong or '-'} | Note Admin: {sd.note or '-'}"
+                    admin_note_lines.append(f"- [SalesDeal Note]: {sd_info[:300]}")
             blocks.append("\n".join(enr_lines))
             tools.append("Kiểm tra DealWin/SalesDeal")
     except Exception as e:
         logger.warning(f"Sale phone DealWin/SalesDeal lookup error: {e}")
 
-    # Đọc Comment trên bài viết/video (FB/TikTok) nếu có
+    # Đọc Comment trên bài viết/video (FB/TikTok) + Note của Admin đính kèm trong Comment.payload.page_customer.notes
     try:
         cmt_filters = [phone_filter_fn(Comment.phone_number, raw_d)]
         if customer_ids:
             cmt_filters.append(Comment.customer_id.in_(list(customer_ids)))
         cmts = (
-            db.query(Comment.page_id, Comment.page_name, Comment.message, Comment.inserted_at, Comment.post_url)
+            db.query(
+                Comment.page_id,
+                Comment.page_name,
+                Comment.message,
+                Comment.inserted_at,
+                Comment.post_url,
+                Comment.payload["page_customer"]["notes"],
+            )
             .filter(or_(*cmt_filters))
             .order_by(Comment.inserted_at.asc())
             .limit(10)
@@ -996,19 +1115,22 @@ def _build_sale_phone_context(db: Session, raw_d: str, phone_filter_fn) -> Tuple
         )
         if cmts:
             c_lines = ["[BÌNH LUẬN CỦA KHÁCH TRÊN BÀI VIẾT / VIDEO]"]
-            for c_pid, c_pname, c_msg, c_dt, c_url in cmts:
+            for c_pid, c_pname, c_msg, c_dt, c_url, c_notes in cmts:
                 pg_lbl = c_pname or resolve_canonical_page_name(c_pid, fallback=c_pid or "Khác")
                 dt_str = c_dt.strftime("%d/%m/%Y %H:%M") if c_dt else "-"
                 msg_clean = re.sub(r"\s+", " ", (c_msg or "")).strip()
                 if msg_clean:
                     c_lines.append(f"- [{dt_str}] ({pg_lbl}): {msg_clean[:300]}")
+                    customer_utterances.append(f"({pg_lbl} Comment) {msg_clean[:240]}")
+                if c_notes:
+                    _extract_notes_from_raw_list(c_notes, pg_lbl, seen_notes, admin_note_lines)
             if len(c_lines) > 1:
                 blocks.append("\n".join(c_lines))
                 tools.append("Lịch sử Comment")
     except Exception as e:
         logger.warning(f"Sale phone Comment lookup error: {e}")
 
-    # Đọc TOÀN BỘ tin nhắn hiện có trong DB trên TẤT CẢ các hội thoại (không cắt [:2] hay [-12:])
+    # Đọc TOÀN BỘ tin nhắn + Note của Admin hiện có trong DB trên TẤT CẢ các hội thoại (không cắt [:2] hay [-12:])
     all_sale_ascii_parts: List[str] = []
     chat_sections: List[str] = []
     total_chars = 0
@@ -1016,17 +1138,40 @@ def _build_sale_phone_context(db: Session, raw_d: str, phone_filter_fn) -> Tuple
 
     if conv_ids:
         raw_rows = (
-            db.query(RawConversation.pancake_id, RawConversation.page_id, RawConversation.payload["messages"])
+            db.query(
+                RawConversation.pancake_id,
+                RawConversation.page_id,
+                RawConversation.payload["messages"],
+                RawConversation.payload["notes"],
+                RawConversation.payload["page_customer"]["notes"],
+            )
             .filter(RawConversation.pancake_id.in_(conv_ids))
             .all()
         )
-        raw_map = {pid: (pg, msgs) for pid, pg, msgs in raw_rows}
+        raw_map = {pid: (pg, msgs, n1, n2) for pid, pg, msgs, n1, n2 in raw_rows}
         pages_read = 0
+        live_note_fetches = 0
 
         for cid in conv_ids:
             if cid not in raw_map:
                 continue
-            page_id_val, msgs = raw_map[cid]
+            page_id_val, msgs, raw_notes_1, raw_notes_2 = raw_map[cid]
+            page_label, act_obj, _ = conv_meta.get(cid, (resolve_canonical_page_name(page_id_val), None, None))
+
+            # Trích xuất Note của Admin từ DB; nếu DB cũ chưa có cột notes trên hội thoại Zalo thì gọi nhẹ Pancake API
+            before_notes_cnt = len(admin_note_lines)
+            if raw_notes_1:
+                _extract_notes_from_raw_list(raw_notes_1, page_label, seen_notes, admin_note_lines)
+            if raw_notes_2:
+                _extract_notes_from_raw_list(raw_notes_2, page_label, seen_notes, admin_note_lines)
+            if len(admin_note_lines) == before_notes_cnt and live_note_fetches < 2:
+                is_zalo_conv = cid.startswith("pzl_") or "zalo" in (page_label or "").lower()
+                if is_zalo_conv or len(conv_ids) == 1:
+                    live_note_fetches += 1
+                    live_notes = _fetch_live_pancake_notes(page_id_val, cid)
+                    if live_notes:
+                        _extract_notes_from_raw_list(live_notes, page_label, seen_notes, admin_note_lines)
+
             if isinstance(msgs, str):
                 try:
                     msgs = json.loads(msgs)
@@ -1040,7 +1185,6 @@ def _build_sale_phone_context(db: Session, raw_d: str, phone_filter_fn) -> Tuple
                 [m for m in msgs if isinstance(m, dict)],
                 key=lambda m: str(m.get("inserted_at") or m.get("created_at") or ""),
             )
-            page_label, act_obj, _ = conv_meta.get(cid, (resolve_canonical_page_name(page_id_val), None, None))
             db_cnt = len(msgs_sorted)
             total_cnt = act_obj.message_count if act_obj and act_obj.message_count else db_cnt
             tag_info = f" | Tag: {act_obj.status_tag}" if act_obj and act_obj.status_tag else ""
@@ -1060,7 +1204,9 @@ def _build_sale_phone_context(db: Session, raw_d: str, phone_filter_fn) -> Tuple
                 raw_role = (m.get("role") or "").strip().lower()
                 is_customer = raw_role in ("khách hàng", "khach hang", "customer", "user")
                 sender_role = "Khách" if is_customer else "Sale/Admin"
-                if not is_customer and clean_txt != "[Đã gửi ảnh/file/đính kèm]":
+                if is_customer and clean_txt != "[Đã gửi ảnh/file/đính kèm]":
+                    customer_utterances.append(f"({page_label}) {clean_txt[:300]}")
+                elif not is_customer and clean_txt != "[Đã gửi ảnh/file/đính kèm]":
                     all_sale_ascii_parts.append(_strip_accents(clean_txt))
 
                 ts_str = _format_msg_time_vn(m.get("inserted_at") or m.get("created_at"))
@@ -1078,6 +1224,37 @@ def _build_sale_phone_context(db: Session, raw_d: str, phone_filter_fn) -> Tuple
 
         if chat_sections:
             tools.append(f"Toàn bộ lịch sử chat ({pages_read} hội thoại đa page)")
+
+    if admin_note_lines:
+        tools.append(f"Ghi chú của Admin/Sale ({len(admin_note_lines)} note)")
+
+    # Tổng hợp khối Chẩn đoán nhanh Hồ sơ, Note của Admin & Nỗi đau khách hàng
+    detected_pains = _diagnose_customer_pain_points(customer_utterances, admin_note_lines, all_tags_list)
+    if leads or admin_note_lines or customer_utterances:
+        diag_lines = ["[CHẨN ĐOÁN NHANH HỒ SƠ, GHI CHÚ CỦA ADMIN & NỖI ĐAU KHÁCH HÀNG]"]
+        if admin_note_lines:
+            diag_lines.append("1. Ghi chú (Notes) của Admin / Sale trên hệ thống:")
+            diag_lines.extend(admin_note_lines[:12])
+        else:
+            diag_lines.append("1. Ghi chú (Notes) của Admin / Sale: Chưa có ghi chú riêng trên Pancake.")
+
+        if customer_utterances:
+            diag_lines.append("2. Các tin nhắn / chia sẻ trực tiếp của Khách hàng:")
+            for cu in customer_utterances[-10:]:
+                diag_lines.append(f"- {cu}")
+        else:
+            diag_lines.append("2. Tin nhắn của Khách hàng: Chưa có tin nhắn văn bản chi tiết.")
+
+        if detected_pains:
+            diag_lines.append("3. Vấn đề & Nỗi đau trọng tâm phát hiện được (BẮT BUỘC nhấn mạnh khi soạn tin):")
+            for dp in detected_pains:
+                diag_lines.append(f"- 🎯 {dp}")
+            tools.append("Chẩn đoán nỗi đau khách hàng")
+        else:
+            diag_lines.append(
+                "3. Vấn đề & Nỗi đau trọng tâm: Khách chưa bộc lộ rõ nỗi đau chi tiết -> Cần bám sát kịch bản khai thác hoặc nhấn mạnh nỗi đau phổ biến của kế toán (xử lý dữ liệu Excel thủ công mất thời gian, đối chiếu sao kê/công nợ, lên báo cáo quản trị tự động)."
+            )
+        blocks.append("\n".join(diag_lines))
 
     # Xây dựng checklist xác định tự động các bước & vòng Remind ĐÃ GỬI xuyên suốt mọi page
     all_sale_ascii = "\n".join(all_sale_ascii_parts)
@@ -1534,17 +1711,23 @@ def chat_with_assistant(req: ChatRequest, db: Session = Depends(get_db)):
     assistant = AI_ASSISTANTS.get(req.assistant_id) or AI_ASSISTANTS["sale"]
     api_key = get_gemini_api_key(db)
 
-    # 1. Truy xuất các đoạn tài liệu RAG liên quan
+    # 1. Lấy dữ liệu trực tiếp từ hệ thống (KPI Lead, SĐT đa page + Note Admin, hoặc Công nợ Kế toán)
+    live_data_context, tools_used = build_live_data_context(db, assistant["id"], req.question)
+
+    # 2. Mở rộng câu truy vấn RAG bằng nội dung chẩn đoán nỗi đau / note Admin (nếu có) để bốc trúng kịch bản
+    rag_query = req.question
+    if assistant["id"] == "sale" and "[CHẨN ĐOÁN NHANH HỒ SƠ, GHI CHÚ CỦA ADMIN & NỖI ĐAU KHÁCH HÀNG]" in live_data_context:
+        diag_part = live_data_context.split("[CHẨN ĐOÁN NHANH HỒ SƠ, GHI CHÚ CỦA ADMIN & NỖI ĐAU KHÁCH HÀNG]", 1)[1]
+        diag_part = diag_part.split("\n[", 1)[0][:1200]
+        rag_query = f"{req.question}\n{diag_part}"
+
     retrieved_chunks = retrieve_relevant_chunks(
         db=db,
-        query_text=req.question,
+        query_text=rag_query,
         categories=assistant["categories"],
         api_key=api_key,
         top_k=6,
     )
-
-    # 2. Lấy dữ liệu trực tiếp từ hệ thống (KPI Lead, SĐT, hoặc Công nợ Kế toán)
-    live_data_context, tools_used = build_live_data_context(db, assistant["id"], req.question)
 
     # 3. Ghép ngữ cảnh gửi cho Gemini
     context_parts: List[str] = []
