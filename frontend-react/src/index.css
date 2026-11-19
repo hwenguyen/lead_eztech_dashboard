@@ -673,6 +673,15 @@
   color: var(--ez-text) !important;
 }
 
+/* Remove browser default black focus rectangle when clicking Recharts SVG charts */
+.recharts-wrapper,
+.recharts-wrapper:focus,
+.recharts-wrapper *:focus,
+.recharts-surface,
+.recharts-surface:focus {
+  outline: none !important;
+}
+
 /* Standard Scrollbar Styling (never animate scrollbar-color) */
 .custom-scrollbar {
   scrollbar-color: var(--ez-scrollbar-thumb) var(--ez-scrollbar-track);

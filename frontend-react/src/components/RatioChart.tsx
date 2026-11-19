@@ -5,9 +5,9 @@ interface RatioChartProps {
   recontactLeads: number;
   totalLeads: number;
   newPhoneLeads: number;
+  selectedLeadType?: 'new' | 'recontact' | null;
+  onSelectLeadType?: (leadType: 'new' | 'recontact' | null) => void;
 }
-
-const COLORS = ['#1E5BD6', 'var(--ez-chart-navy)', '#F5B400'];
 
 const CustomLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent }: any) => {
   if (percent < 0.05) return null;
@@ -22,20 +22,74 @@ const CustomLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent }: an
   );
 };
 
-export function RatioChart({ newLeads, recontactLeads, totalLeads, newPhoneLeads }: RatioChartProps) {
+const RatioTooltip = ({ active, payload, total, selectedLeadType, clickable }: any) => {
+  if (!active || !payload || !payload.length) return null;
+  const item = payload[0]?.payload;
+  const val = Number(payload[0]?.value || 0);
+  const share = total > 0 ? ((val / total) * 100).toFixed(1) : '0.0';
+  const isSelected = Boolean(selectedLeadType && item?.key === selectedLeadType);
+
+  return (
+    <div
+      className="backdrop-blur-md border rounded-xl shadow-card-hover px-3 py-2.5 text-xs min-w-[165px]"
+      style={{
+        backgroundColor: 'var(--ez-tooltip-bg)',
+        borderColor: 'var(--ez-tooltip-border)',
+        color: 'var(--ez-text)',
+      }}
+    >
+      <div className="flex items-center justify-between gap-2 mb-1">
+        <span className="flex items-center gap-1.5 font-semibold text-navy">
+          <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: item?.color }} />
+          {item?.name}
+        </span>
+        {isSelected && (
+          <span className="px-1.5 py-0.2 rounded text-[10px] font-semibold bg-eztech-light text-eztech">
+            Đang lọc
+          </span>
+        )}
+      </div>
+      <div className="font-mono font-bold text-navy tabular-nums">
+        {val.toLocaleString()} Lead <span className="text-slate-400 font-normal">({share}%)</span>
+      </div>
+      {clickable && (
+        <div className="mt-1 pt-1 border-t border-slate-100/70 text-[10px] text-slate-400">
+          {isSelected ? 'Nhấn lại để bỏ lọc' : 'Nhấn để lọc nhóm này'}
+        </div>
+      )}
+    </div>
+  );
+};
+
+export function RatioChart({
+  newLeads,
+  recontactLeads,
+  totalLeads,
+  newPhoneLeads,
+  selectedLeadType,
+  onSelectLeadType,
+}: RatioChartProps) {
   const data = [
-    { name: 'Lead Mới', value: newLeads },
-    { name: 'Contact Lại', value: recontactLeads },
+    { key: 'new' as const, name: 'Lead Mới', value: newLeads, color: '#1E5BD6' },
+    { key: 'recontact' as const, name: 'Contact Lại', value: recontactLeads, color: 'var(--ez-chart-navy)' },
   ].filter(d => d.value > 0);
 
+  const sliceTotal = data.reduce((acc, d) => acc + d.value, 0);
   const recontactRate = totalLeads > 0 ? ((recontactLeads / totalLeads) * 100).toFixed(1) : '0';
   const phoneRate = newLeads > 0 ? ((newPhoneLeads / newLeads) * 100).toFixed(1) : '0';
+
+  const handleToggleType = (typeKey: 'new' | 'recontact') => {
+    if (!onSelectLeadType) return;
+    onSelectLeadType(selectedLeadType === typeKey ? null : typeKey);
+  };
 
   return (
     <div className="bg-white rounded-xl border border-slate-200/80 p-5 shadow-card h-full flex flex-col justify-between">
       <div className="mb-3">
         <h3 className="text-[15px] font-semibold tracking-[-0.01em] text-navy">Tỉ lệ chuyển đổi</h3>
-        <p className="text-xs text-slate-500 mt-0.5">Phân bổ Lead trong kỳ</p>
+        <p className="text-xs text-slate-500 mt-0.5">
+          Phân bổ Lead trong kỳ{onSelectLeadType ? ' • Nhấn để lọc' : ''}
+        </p>
       </div>
 
       {data.length > 0 ? (
@@ -52,34 +106,53 @@ export function RatioChart({ newLeads, recontactLeads, totalLeads, newPhoneLeads
                 dataKey="value"
                 labelLine={false}
                 label={<CustomLabel />}
+                animationDuration={250}
+                onClick={(_, index) => {
+                  const item = data[index];
+                  if (item) handleToggleType(item.key);
+                }}
               >
-                {data.map((_, index) => (
-                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} stroke="none" />
-                ))}
+                {data.map((item) => {
+                  const isActive = !selectedLeadType || selectedLeadType === item.key;
+                  return (
+                    <Cell
+                      key={item.key}
+                      fill={item.color}
+                      fillOpacity={isActive ? 1 : 0.25}
+                      stroke={selectedLeadType === item.key ? 'var(--ez-card)' : 'none'}
+                      strokeWidth={selectedLeadType === item.key ? 2 : 0}
+                      style={{ cursor: onSelectLeadType ? 'pointer' : 'default' }}
+                    />
+                  );
+                })}
               </Pie>
               <Tooltip
-                contentStyle={{
-                  borderRadius: '10px',
-                  backgroundColor: 'var(--ez-tooltip-bg)',
-                  border: '1px solid var(--ez-tooltip-border)',
-                  color: 'var(--ez-text)',
-                  fontSize: '12px',
-                  boxShadow: '0 4px 12px rgba(10,31,68,0.12)'
-                }}
-                itemStyle={{ color: 'var(--ez-text)' }}
-                formatter={(value: number) => [value.toLocaleString(), 'Lead']}
+                content={
+                  <RatioTooltip
+                    total={sliceTotal}
+                    selectedLeadType={selectedLeadType}
+                    clickable={!!onSelectLeadType}
+                  />
+                }
               />
             </PieChart>
           </ResponsiveContainer>
 
           <div className="mt-3 pt-3 border-t border-slate-100 space-y-2">
-            <div className="flex items-center justify-between text-xs">
+            <button
+              type="button"
+              onClick={() => handleToggleType('recontact')}
+              disabled={!onSelectLeadType}
+              className={`w-full flex items-center justify-between text-xs rounded-md px-1.5 py-0.5 -mx-1.5 transition-colors ${
+                onSelectLeadType ? 'cursor-pointer hover:bg-slate-50' : ''
+              } ${selectedLeadType === 'recontact' ? 'bg-eztech-light font-semibold text-eztech' : ''}`}
+            >
               <span className="flex items-center gap-2 text-slate-600">
                 <span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: 'var(--ez-chart-navy)' }} />
                 Tỉ lệ Contact Lại
               </span>
               <span className="font-mono font-semibold text-navy tabular-nums">{recontactRate}%</span>
-            </div>
+            </button>
             <div className="flex items-center justify-between text-xs">
               <span className="flex items-center gap-2 text-slate-600">
                 <span className="w-2 h-2 rounded-full bg-gold inline-block" />

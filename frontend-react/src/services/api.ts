@@ -133,6 +133,8 @@ apiClient.get = (async (url: string, config?: any): Promise<any> => {
 export interface SummaryData {
   new_leads: number;
   recontact_leads: number;
+  ratio_new_leads?: number;
+  ratio_recontact_leads?: number;
   total_leads: number;
   phone_leads: number;
   new_phone_leads: number;
@@ -177,28 +179,69 @@ export interface Lead {
   post_url?: string;
 }
 
-export const fetchSummary = async (startDate: string, endDate: string, pageId?: string, employee?: string) => {
+export interface OverviewCrossFilters {
+  selectedDate?: string | null;
+  leadType?: 'new' | 'recontact' | null;
+  tagCategory?: string | null;
+  hasPhone?: boolean | null;
+  primaryEmployee?: string | null;
+}
+
+const applyCrossFilterParams = (params: Record<string, any>, filters?: OverviewCrossFilters, includeDate: boolean = true) => {
+  if (!filters) return;
+  if (includeDate && filters.selectedDate) params.selected_date = filters.selectedDate;
+  if (filters.leadType) params.lead_type = filters.leadType;
+  if (filters.tagCategory) params.tag_category = filters.tagCategory;
+  if (filters.hasPhone === true) params.has_phone = 'true';
+  else if (filters.hasPhone === false) params.has_phone = 'false';
+  if (filters.primaryEmployee) params.primary_employee = filters.primaryEmployee;
+};
+
+export const fetchSummary = async (
+  startDate: string,
+  endDate: string,
+  pageId?: string,
+  employee?: string,
+  filters?: OverviewCrossFilters
+) => {
   const params: any = { start_date: startDate, end_date: endDate };
   if (pageId) params.page_id = pageId;
   if (employee) params.employee = employee;
+  applyCrossFilterParams(params, filters, true);
   const res = await apiClient.get<SummaryData>('/metrics/summary', { params });
   return res.data;
 };
 
-export const fetchTrend = async (startDate: string, endDate: string, pageId?: string, employee?: string) => {
+export const fetchTrend = async (
+  startDate: string,
+  endDate: string,
+  pageId?: string,
+  employee?: string,
+  filters?: OverviewCrossFilters
+) => {
   const params: any = { start_date: startDate, end_date: endDate };
   if (pageId) params.page_id = pageId;
   if (employee) params.employee = employee;
+  applyCrossFilterParams(params, filters, false);
   const res = await apiClient.get<{data: TrendData[]}>('/metrics/trend', { params });
   return res.data.data;
 };
 
-export const fetchLeads = async (pageId?: string, employee?: string, startDate?: string, endDate?: string, page: number = 1, size: number = 50) => {
+export const fetchLeads = async (
+  pageId?: string,
+  employee?: string,
+  startDate?: string,
+  endDate?: string,
+  page: number = 1,
+  size: number = 50,
+  filters?: OverviewCrossFilters
+) => {
   const params: any = { page, size };
   if (pageId) params.page_id = pageId;
   if (employee) params.employee = employee;
   if (startDate) params.start_date = startDate;
   if (endDate) params.end_date = endDate;
+  applyCrossFilterParams(params, filters, true);
   const res = await apiClient.get<{data: Lead[], total: number, page: number, size: number}>('/leads/list', { params });
   return res.data;
 };

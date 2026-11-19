@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { format, subDays } from 'date-fns';
 import { Users, UserPlus, UserCheck, PhoneCall, PhoneForwarded, Percent, Calendar, RefreshCw, LayoutDashboard, Clock, Award, Bot, LogOut, KeyRound, Lock, Menu, X, Sparkles, Facebook, FileSpreadsheet, Receipt, ExternalLink } from 'lucide-react';
 import { KpiCard } from './components/KpiCard';
@@ -18,7 +18,7 @@ import { AiAssistantDashboard } from './components/AiAssistantDashboard';
 import { LoginPage } from './components/LoginPage';
 import { ChangePasswordModal } from './components/ChangePasswordModal';
 import { ThemeToggle } from './components/ThemeToggle';
-import { fetchSummary, fetchTrend, fetchLeads, fetchEmployees, fetchPages, getStoredAuth, logoutApi, clearClientApiCache, type SummaryData, type TrendData, type Lead, type AuthUser } from './services/api';
+import { fetchSummary, fetchTrend, fetchLeads, fetchEmployees, fetchPages, getStoredAuth, logoutApi, clearClientApiCache, type SummaryData, type TrendData, type Lead, type AuthUser, type OverviewCrossFilters } from './services/api';
 
 function App() {
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(() => getStoredAuth().user);
@@ -62,6 +62,44 @@ function App() {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [phoneCategoryFilter, setPhoneCategoryFilter] = useState<'all' | 'new' | 'recontact'>('all');
 
+  // Bộ lọc chéo kiểu Power BI (click ngày / biểu đồ / KPI để lọc đồng bộ các chỉ số & danh sách)
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [selectedLeadType, setSelectedLeadType] = useState<'new' | 'recontact' | null>(null);
+  const [selectedTagCategory, setSelectedTagCategory] = useState<string | null>(null);
+  const [onlyPhone, setOnlyPhone] = useState<boolean>(false);
+  const [selectedChartEmployee, setSelectedChartEmployee] = useState<string | null>(null);
+  const summarySeqRef = useRef(0);
+  const trendSeqRef = useRef(0);
+
+  const crossFilters: OverviewCrossFilters = {
+    selectedDate,
+    leadType: selectedLeadType,
+    tagCategory: selectedTagCategory,
+    hasPhone: onlyPhone ? true : null,
+    primaryEmployee: selectedChartEmployee,
+  };
+  const hasCrossFilter = Boolean(
+    selectedDate || selectedLeadType || selectedTagCategory || onlyPhone || selectedChartEmployee
+  );
+
+  const clearCrossFilters = () => {
+    setSelectedDate(null);
+    setSelectedLeadType(null);
+    setSelectedTagCategory(null);
+    setOnlyPhone(false);
+    setSelectedChartEmployee(null);
+  };
+
+  useEffect(() => {
+    if (selectedDate && (selectedDate < startDate || selectedDate > endDate)) {
+      setSelectedDate(null);
+    }
+  }, [startDate, endDate, selectedDate]);
+
+  useEffect(() => {
+    setSelectedChartEmployee(null);
+  }, [pageId, employee]);
+
   useEffect(() => {
     const loadPages = async () => {
       try {
@@ -88,30 +126,39 @@ function App() {
     updateEmployees();
   }, [startDate, endDate, pageId]);
 
-  const handleRefresh = () => {
-    clearClientApiCache();
-    loadData();
+  const loadTrendData = async () => {
+    const seq = ++trendSeqRef.current;
+    try {
+      const trRes = await fetchTrend(startDate, endDate, pageId, employee, {
+        leadType: selectedLeadType,
+        tagCategory: selectedTagCategory,
+        hasPhone: onlyPhone ? true : null,
+        primaryEmployee: selectedChartEmployee,
+      });
+      if (seq === trendSeqRef.current && trRes) {
+        setTrend(trRes);
+      }
+    } catch (error) {
+      console.error("Trend error:", error);
+    }
   };
 
-  const loadData = async () => {
+  const loadSummaryAndLeads = async () => {
+    const seq = ++summarySeqRef.current;
     setLoading(true);
     try {
-      const sumPromise = fetchSummary(startDate, endDate, pageId, employee).catch(err => {
+      const sumPromise = fetchSummary(startDate, endDate, pageId, employee, crossFilters).catch(err => {
         console.error("Summary error:", err);
         return null;
       });
-      const trPromise = fetchTrend(startDate, endDate, pageId, employee).catch(err => {
-        console.error("Trend error:", err);
-        return [];
-      });
-      const ldPromise = fetchLeads(pageId, employee, startDate, endDate, 1, pageSize).catch(err => {
+      const ldPromise = fetchLeads(pageId, employee, startDate, endDate, 1, pageSize, crossFilters).catch(err => {
         console.error("Leads error:", err);
         return { data: [], total: 0, page: 1, size: pageSize };
       });
 
-      const [sumRes, trRes, ldRes] = await Promise.all([sumPromise, trPromise, ldPromise]);
+      const [sumRes, ldRes] = await Promise.all([sumPromise, ldPromise]);
+      if (seq !== summarySeqRef.current) return;
       if (sumRes) setSummary(sumRes);
-      if (trRes) setTrend(trRes);
       if (ldRes) {
         setLeads(ldRes.data);
         setTotalLeads(ldRes.total);
@@ -121,13 +168,21 @@ function App() {
     } catch (error) {
       console.error("Error fetching data:", error);
     } finally {
-      setLoading(false);
+      if (seq === summarySeqRef.current) {
+        setLoading(false);
+      }
     }
+  };
+
+  const handleRefresh = () => {
+    clearClientApiCache();
+    loadTrendData();
+    loadSummaryAndLeads();
   };
 
   const loadLeadsPage = async (newPage: number) => {
     try {
-      const ldRes = await fetchLeads(pageId, employee, startDate, endDate, newPage, pageSize);
+      const ldRes = await fetchLeads(pageId, employee, startDate, endDate, newPage, pageSize, crossFilters);
       setLeads(ldRes.data);
       setTotalLeads(ldRes.total);
       setPage(newPage);
@@ -137,16 +192,27 @@ function App() {
   };
 
   useEffect(() => {
-    loadData();
-  }, [startDate, endDate, pageId, employee]);
+    loadTrendData();
+  }, [startDate, endDate, pageId, employee, selectedLeadType, selectedTagCategory, onlyPhone, selectedChartEmployee]);
+
+  useEffect(() => {
+    loadSummaryAndLeads();
+  }, [startDate, endDate, pageId, employee, selectedDate, selectedLeadType, selectedTagCategory, onlyPhone, selectedChartEmployee]);
 
   const newLeadsCount = summary?.new_leads || 0;
   const recontactLeadsCount = summary?.recontact_leads || 0;
   const totalLeadsCount = summary?.total_leads || 0;
   const newPhoneCount = summary?.new_phone_leads || 0;
   const recontactPhoneCount = summary?.recontact_phone_leads || 0;
+  const ratioNewCount = summary?.ratio_new_leads ?? newLeadsCount;
+  const ratioRecontactCount = summary?.ratio_recontact_leads ?? recontactLeadsCount;
+  const ratioTotalCount = ratioNewCount + ratioRecontactCount;
 
   const pct = (part: number, whole: number) => (whole > 0 ? (part / whole) * 100 : 0).toFixed(1);
+  const fmtIsoDateVi = (iso: string) =>
+    iso.length >= 10 && iso[4] === '-' && iso[7] === '-'
+      ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`
+      : iso;
 
   const INVOICE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbywN2OeDtwsqXNW3Z-2j5KJ147auCNsZF6epEoWxzKK1QLO0JQvYYuXTiJWhXlXBm5h/exec';
 
@@ -468,7 +534,85 @@ function App() {
                 </div>
               </div>
 
-              {loading ? (
+              {(hasCrossFilter || (loading && !!summary)) && (
+                <div className="bg-white rounded-xl border border-eztech-border/80 shadow-card px-4 py-2.5 flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mr-1">
+                      Đang lọc tương tác:
+                    </span>
+                    {selectedDate && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedDate(null)}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-eztech-light text-eztech border border-eztech-border font-semibold hover:bg-eztech-border/50 transition-colors cursor-pointer"
+                      >
+                        <span>Ngày: <span className="font-mono">{fmtIsoDateVi(selectedDate)}</span></span>
+                        <X className="w-3 h-3" />
+                      </button>
+                    )}
+                    {selectedLeadType && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedLeadType(null)}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-eztech-light text-eztech border border-eztech-border font-semibold hover:bg-eztech-border/50 transition-colors cursor-pointer"
+                      >
+                        <span>Loại: {selectedLeadType === 'new' ? 'Lead Mới' : 'Contact Lại'}</span>
+                        <X className="w-3 h-3" />
+                      </button>
+                    )}
+                    {onlyPhone && (
+                      <button
+                        type="button"
+                        onClick={() => setOnlyPhone(false)}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-gold-light text-gold-dark border border-gold-border font-semibold hover:bg-gold-tint-strong transition-colors cursor-pointer"
+                      >
+                        <span>Chỉ có SĐT</span>
+                        <X className="w-3 h-3" />
+                      </button>
+                    )}
+                    {selectedChartEmployee && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedChartEmployee(null)}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-eztech-light text-eztech border border-eztech-border font-semibold hover:bg-eztech-border/50 transition-colors cursor-pointer"
+                      >
+                        <span>Nhân sự: {selectedChartEmployee}</span>
+                        <X className="w-3 h-3" />
+                      </button>
+                    )}
+                    {selectedTagCategory && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedTagCategory(null)}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-eztech-light text-eztech border border-eztech-border font-semibold hover:bg-eztech-border/50 transition-colors cursor-pointer"
+                      >
+                        <span>Phân loại: {selectedTagCategory}</span>
+                        <X className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-3 ml-auto">
+                    {loading && !!summary && (
+                      <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-slate-400">
+                        <RefreshCw className="w-3 h-3 animate-spin text-eztech" />
+                        Đang lọc...
+                      </span>
+                    )}
+                    {hasCrossFilter && (
+                      <button
+                        type="button"
+                        onClick={clearCrossFilters}
+                        className="text-xs font-semibold text-rose-600 hover:text-rose-700 hover:bg-rose-50 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
+                      >
+                        Bỏ tất cả lọc
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {loading && !summary ? (
                 <div className="flex items-center justify-center py-24">
                   <div className="flex flex-col items-center gap-3">
                     <div className="animate-spin rounded-full h-8 w-8 border-2 border-slate-200 border-t-brand-500" />
@@ -485,6 +629,11 @@ function App() {
                       subtitle="Mới + Contact lại"
                       icon={<Users className="w-4 h-4" />}
                       color="navy"
+                      onClick={() => {
+                        setSelectedLeadType(null);
+                        setOnlyPhone(false);
+                      }}
+                      tooltip="Hiển thị toàn bộ Lead Mới & Contact Lại (nhấn để bỏ lọc nhóm)"
                     />
                     <KpiCard
                       title="Lead Mới"
@@ -492,6 +641,16 @@ function App() {
                       subtitle={`${pct(newLeadsCount, totalLeadsCount)}% tổng lead`}
                       icon={<UserPlus className="w-4 h-4" />}
                       color="blue"
+                      active={selectedLeadType === 'new' && !onlyPhone}
+                      onClick={() => {
+                        if (selectedLeadType === 'new' && !onlyPhone) {
+                          setSelectedLeadType(null);
+                        } else {
+                          setSelectedLeadType('new');
+                          setOnlyPhone(false);
+                        }
+                      }}
+                      tooltip="Nhấn để lọc chỉ Lead Mới"
                     />
                     <KpiCard
                       title="Lead Contact Lại"
@@ -499,6 +658,16 @@ function App() {
                       subtitle={`${pct(recontactLeadsCount, totalLeadsCount)}% tổng lead`}
                       icon={<UserCheck className="w-4 h-4" />}
                       color="blue"
+                      active={selectedLeadType === 'recontact' && !onlyPhone}
+                      onClick={() => {
+                        if (selectedLeadType === 'recontact' && !onlyPhone) {
+                          setSelectedLeadType(null);
+                        } else {
+                          setSelectedLeadType('recontact');
+                          setOnlyPhone(false);
+                        }
+                      }}
+                      tooltip="Nhấn để lọc chỉ Lead Contact Lại"
                     />
                     <KpiCard
                       title="SĐT Mới"
@@ -506,6 +675,17 @@ function App() {
                       subtitle="Từ lead tạo trong kỳ"
                       icon={<PhoneCall className="w-4 h-4" />}
                       color="gold"
+                      active={selectedLeadType === 'new' && onlyPhone}
+                      onClick={() => {
+                        if (selectedLeadType === 'new' && onlyPhone) {
+                          setSelectedLeadType(null);
+                          setOnlyPhone(false);
+                        } else {
+                          setSelectedLeadType('new');
+                          setOnlyPhone(true);
+                        }
+                      }}
+                      tooltip="Nhấn để lọc chỉ Lead Mới có SĐT"
                     />
                     <KpiCard
                       title="SĐT Contact Lại"
@@ -513,6 +693,17 @@ function App() {
                       subtitle="Từ lead cũ tương tác"
                       icon={<PhoneForwarded className="w-4 h-4" />}
                       color="gold"
+                      active={selectedLeadType === 'recontact' && onlyPhone}
+                      onClick={() => {
+                        if (selectedLeadType === 'recontact' && onlyPhone) {
+                          setSelectedLeadType(null);
+                          setOnlyPhone(false);
+                        } else {
+                          setSelectedLeadType('recontact');
+                          setOnlyPhone(true);
+                        }
+                      }}
+                      tooltip="Nhấn để lọc chỉ Lead Contact Lại có SĐT"
                     />
                     <KpiCard
                       title="SĐT / Tạo mới"
@@ -521,20 +712,27 @@ function App() {
                       icon={<Percent className="w-4 h-4" />}
                       color="gold"
                       highlight={true}
+                      tooltip="Tỉ lệ chuyển đổi SĐT trên tổng Lead Mới trong phạm vi đang lọc"
                     />
                   </div>
 
                   {/* Charts row */}
                   <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
                     <div className="lg:col-span-3">
-                      <TrendChart data={trend} />
+                      <TrendChart
+                        data={trend}
+                        selectedDate={selectedDate}
+                        onSelectDate={setSelectedDate}
+                      />
                     </div>
                     <div className="lg:col-span-1">
                       <RatioChart
-                        newLeads={newLeadsCount}
-                        recontactLeads={recontactLeadsCount}
-                        totalLeads={totalLeadsCount}
+                        newLeads={ratioNewCount}
+                        recontactLeads={ratioRecontactCount}
+                        totalLeads={ratioTotalCount}
                         newPhoneLeads={newPhoneCount}
+                        selectedLeadType={selectedLeadType}
+                        onSelectLeadType={setSelectedLeadType}
                       />
                     </div>
                   </div>
@@ -543,8 +741,10 @@ function App() {
                   <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                     <StatsPieChart
                       title="Lead Mới / Nhân viên"
-                      subtitle="Phân bổ Lead Mới theo nhân sự"
+                      subtitle="Phân bổ Lead Mới theo nhân sự • Nhấn để lọc"
                       stats={summary?.new_leads_employee_stats}
+                      selectedKey={selectedChartEmployee}
+                      onSelectKey={setSelectedChartEmployee}
                     />
                     <StatsPieChart
                       title={
@@ -556,10 +756,10 @@ function App() {
                       }
                       subtitle={
                         phoneCategoryFilter === 'new'
-                          ? "Phân bổ SĐT từ Lead Mới"
+                          ? "Phân bổ SĐT từ Lead Mới • Nhấn để lọc"
                           : phoneCategoryFilter === 'recontact'
-                          ? "Phân bổ SĐT từ Lead Contact lại"
-                          : "Phân bổ Tổng SĐT thu được trong kỳ"
+                          ? "Phân bổ SĐT từ Lead Contact lại • Nhấn để lọc"
+                          : "Phân bổ Tổng SĐT thu được trong kỳ • Nhấn để lọc"
                       }
                       stats={
                         phoneCategoryFilter === 'new'
@@ -569,6 +769,19 @@ function App() {
                           : summary?.phone_tag_stats
                       }
                       unit="SĐT"
+                      selectedKey={onlyPhone ? selectedTagCategory : null}
+                      onSelectKey={(tag) => {
+                        if (!tag || (selectedTagCategory === tag && onlyPhone)) {
+                          setSelectedTagCategory(null);
+                          setOnlyPhone(false);
+                        } else {
+                          setSelectedTagCategory(tag);
+                          setOnlyPhone(true);
+                          if (phoneCategoryFilter !== 'all') {
+                            setSelectedLeadType(phoneCategoryFilter);
+                          }
+                        }
+                      }}
                       headerAction={
                         <select
                           value={phoneCategoryFilter}
@@ -588,8 +801,17 @@ function App() {
                     />
                     <StatsPieChart
                       title="Tổng Lead / Lead Other & Đào tạo"
-                      subtitle="Thống kê Tag phân loại (tất cả Lead)"
+                      subtitle="Thống kê Tag phân loại (tất cả Lead) • Nhấn để lọc"
                       stats={summary?.tag_stats}
+                      selectedKey={selectedTagCategory}
+                      onSelectKey={(tag) => {
+                        if (!tag || (selectedTagCategory === tag && !onlyPhone)) {
+                          setSelectedTagCategory(null);
+                        } else {
+                          setSelectedTagCategory(tag);
+                          setOnlyPhone(false);
+                        }
+                      }}
                       colorMap={{
                         'Lead Other': '#1E5BD6',
                         'Đào tạo': 'var(--ez-chart-navy)',

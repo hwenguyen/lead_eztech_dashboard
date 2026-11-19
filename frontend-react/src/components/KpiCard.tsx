@@ -13,6 +13,9 @@ interface KpiCardProps {
   color?: 'navy' | 'blue' | 'gold' | 'green' | 'amber' | 'purple' | 'indigo' | 'cyan' | 'rose' | 'teal';
   trend?: number; // percentage change
   highlight?: boolean;
+  onClick?: () => void;
+  active?: boolean;
+  tooltip?: string;
 }
 
 const colorMap = {
@@ -68,21 +71,49 @@ const colorMap = {
   },
 };
 
-export function KpiCard({ title, value, subtitle, icon, color = 'blue', trend, highlight = false }: KpiCardProps) {
+export function KpiCard({ title, value, subtitle, icon, color = 'blue', trend, highlight = false, onClick, active = false, tooltip }: KpiCardProps) {
   const c = colorMap[color] || colorMap.blue;
+  const activeRing = active
+    ? color === 'gold'
+      ? 'ring-2 ring-gold-500 border-gold-500'
+      : 'ring-2 ring-brand-500 border-brand-500'
+    : '';
   return (
     <div
+      title={tooltip}
+      role={onClick ? 'button' : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onClick={onClick}
+      onKeyDown={
+        onClick
+          ? (e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onClick();
+              }
+            }
+          : undefined
+      }
       className={cn(
         "group relative bg-white rounded-2xl border p-4 shadow-card hover:shadow-card-hover transition-all duration-200 flex flex-col justify-between gap-3",
         highlight
           ? "border-gold-400/80 bg-gradient-to-b from-white to-gold-50/40 dark:from-slate-900 dark:to-amber-950/30 shadow-xs"
-          : "border-slate-200/80 hover:border-brand-400/50"
+          : "border-slate-200/80 hover:border-brand-400/50",
+        onClick && "cursor-pointer select-none",
+        activeRing
       )}
     >
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[11px] font-semibold uppercase tracking-[0.05em] text-slate-500 truncate">
-          {title}
-        </span>
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className="text-[11px] font-semibold uppercase tracking-[0.05em] text-slate-500 truncate">
+            {title}
+          </span>
+          {active && (
+            <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-eztech-light text-eztech border border-eztech-border shrink-0">
+              Lọc
+            </span>
+          )}
+        </div>
         {icon && (
           <div className={cn("w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-transform duration-200 group-hover:scale-105", c.icon)}>
             {icon}

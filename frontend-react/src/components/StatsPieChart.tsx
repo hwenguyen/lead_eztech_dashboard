@@ -8,6 +8,8 @@ interface StatsPieChartProps {
   colorMap?: Record<string, string>;
   unit?: string;
   headerAction?: React.ReactNode;
+  selectedKey?: string | null;
+  onSelectKey?: (key: string | null) => void;
 }
 
 const COLORS = ['#1E5BD6', 'var(--ez-chart-navy)', '#F5B400', '#3B82F6', '#64748B', '#10B981', '#94A3B8', '#CBD5E1'];
@@ -25,19 +27,75 @@ const CustomLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent }: an
   );
 };
 
-export function StatsPieChart({ title, subtitle, stats, colorMap, unit = 'Lead', headerAction }: StatsPieChartProps) {
+const StatsPieTooltip = ({ active, payload, unit, total, selectedKey, clickable }: any) => {
+  if (!active || !payload || !payload.length) return null;
+  const item = payload[0]?.payload;
+  const name = String(item?.name ?? payload[0]?.name ?? '');
+  const val = Number(payload[0]?.value || 0);
+  const share = total > 0 ? ((val / total) * 100).toFixed(1) : '0.0';
+  const swatch = item?.color || payload[0]?.color || '#1E5BD6';
+  const isSelected = Boolean(selectedKey && selectedKey === name);
+
+  return (
+    <div
+      className="backdrop-blur-md border rounded-xl shadow-card-hover px-3 py-2.5 text-xs min-w-[175px] max-w-[240px]"
+      style={{
+        backgroundColor: 'var(--ez-tooltip-bg)',
+        borderColor: 'var(--ez-tooltip-border)',
+        color: 'var(--ez-text)',
+      }}
+    >
+      <div className="flex items-center justify-between gap-2 mb-1">
+        <span className="flex items-center gap-1.5 font-semibold text-navy truncate">
+          <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: swatch }} />
+          <span className="truncate">{name}</span>
+        </span>
+        {isSelected && (
+          <span className="px-1.5 py-0.2 rounded text-[10px] font-semibold bg-eztech-light text-eztech shrink-0">
+            Đang lọc
+          </span>
+        )}
+      </div>
+      <div className="font-mono font-bold text-navy tabular-nums">
+        {val.toLocaleString()} {unit} <span className="text-slate-400 font-normal">({share}%)</span>
+      </div>
+      {clickable && (
+        <div className="mt-1 pt-1 border-t border-slate-100/70 text-[10px] text-slate-400">
+          {isSelected ? 'Nhấn lại để bỏ lọc' : 'Nhấn để lọc theo mục này'}
+        </div>
+      )}
+    </div>
+  );
+};
+
+export function StatsPieChart({
+  title,
+  subtitle,
+  stats,
+  colorMap,
+  unit = 'Lead',
+  headerAction,
+  selectedKey,
+  onSelectKey,
+}: StatsPieChartProps) {
   if (!stats) return null;
-
-  const data = Object.entries(stats)
-    .filter(([_, value]) => value > 0)
-    .map(([name, value]) => ({ name, value }))
-    .sort((a, b) => b.value - a.value);
-
-  const total = data.reduce((acc, curr) => acc + curr.value, 0);
 
   const getColor = (name: string, index: number) => {
     if (colorMap && colorMap[name]) return colorMap[name];
     return COLORS[index % COLORS.length];
+  };
+
+  const data = Object.entries(stats)
+    .filter(([_, value]) => value > 0)
+    .map(([name, value]) => ({ name, value }))
+    .sort((a, b) => b.value - a.value)
+    .map((item, index) => ({ ...item, color: getColor(item.name, index) }));
+
+  const total = data.reduce((acc, curr) => acc + curr.value, 0);
+
+  const handleToggle = (name: string) => {
+    if (!onSelectKey) return;
+    onSelectKey(selectedKey === name ? null : name);
   };
 
   return (
@@ -68,44 +126,71 @@ export function StatsPieChart({ title, subtitle, stats, colorMap, unit = 'Lead',
                 dataKey="value"
                 labelLine={false}
                 label={<CustomLabel />}
+                animationDuration={250}
+                onClick={(_, index) => {
+                  const item = data[index];
+                  if (item) handleToggle(item.name);
+                }}
               >
-                {data.map((item, index) => (
-                  <Cell key={`cell-${index}`} fill={getColor(item.name, index)} stroke="none" />
-                ))}
+                {data.map((item) => {
+                  const isActive = !selectedKey || selectedKey === item.name;
+                  return (
+                    <Cell
+                      key={item.name}
+                      fill={item.color}
+                      fillOpacity={isActive ? 1 : 0.25}
+                      stroke={selectedKey === item.name ? 'var(--ez-card)' : 'none'}
+                      strokeWidth={selectedKey === item.name ? 2 : 0}
+                      style={{ cursor: onSelectKey ? 'pointer' : 'default' }}
+                    />
+                  );
+                })}
               </Pie>
               <Tooltip
-                contentStyle={{
-                  borderRadius: '10px',
-                  backgroundColor: 'var(--ez-tooltip-bg)',
-                  border: '1px solid var(--ez-tooltip-border)',
-                  color: 'var(--ez-text)',
-                  fontSize: '12px',
-                  boxShadow: '0 4px 12px rgba(10,31,68,0.12)'
-                }}
-                itemStyle={{ color: 'var(--ez-text)' }}
-                formatter={(value: number) => [value.toLocaleString(), unit]}
+                content={
+                  <StatsPieTooltip
+                    unit={unit}
+                    total={total}
+                    selectedKey={selectedKey}
+                    clickable={!!onSelectKey}
+                  />
+                }
               />
             </PieChart>
           </ResponsiveContainer>
 
-          <div className="mt-3 pt-3 border-t border-slate-100 max-h-[116px] overflow-y-auto space-y-1.5 pr-1 custom-scrollbar">
-            {data.map((item, index) => (
-              <div key={item.name} className="flex items-center justify-between text-xs py-0.5">
-                <span className="flex items-center gap-2 text-slate-600 truncate mr-2">
-                  <span
-                    className="w-2 h-2 rounded-full inline-block shrink-0"
-                    style={{ backgroundColor: getColor(item.name, index) }}
-                  />
-                  <span className="truncate">{item.name}</span>
-                </span>
-                <span className="font-mono font-semibold text-navy shrink-0 tabular-nums">
-                  {item.value.toLocaleString()}
-                  <span className="text-slate-400 font-normal ml-1">
-                    ({((item.value / total) * 100).toFixed(1)}%)
+          <div className="mt-3 pt-3 border-t border-slate-100 max-h-[116px] overflow-y-auto space-y-1 pr-1 custom-scrollbar">
+            {data.map((item) => {
+              const isSelected = selectedKey === item.name;
+              const isDimmed = Boolean(selectedKey && !isSelected);
+              return (
+                <button
+                  key={item.name}
+                  type="button"
+                  onClick={() => handleToggle(item.name)}
+                  disabled={!onSelectKey}
+                  className={`w-full flex items-center justify-between text-xs py-1 px-1.5 -mx-1.5 rounded-md transition-all text-left ${
+                    onSelectKey ? 'cursor-pointer hover:bg-slate-50' : ''
+                  } ${isSelected ? 'bg-eztech-light font-semibold text-eztech' : ''} ${
+                    isDimmed ? 'opacity-45' : ''
+                  }`}
+                >
+                  <span className="flex items-center gap-2 text-slate-600 truncate mr-2">
+                    <span
+                      className="w-2 h-2 rounded-full inline-block shrink-0"
+                      style={{ backgroundColor: item.color }}
+                    />
+                    <span className={`truncate ${isSelected ? 'text-navy font-semibold' : ''}`}>{item.name}</span>
                   </span>
-                </span>
-              </div>
-            ))}
+                  <span className="font-mono font-semibold text-navy shrink-0 tabular-nums">
+                    {item.value.toLocaleString()}
+                    <span className="text-slate-400 font-normal ml-1">
+                      ({((item.value / total) * 100).toFixed(1)}%)
+                    </span>
+                  </span>
+                </button>
+              );
+            })}
           </div>
         </>
       ) : (

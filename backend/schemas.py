@@ -5,6 +5,8 @@ from datetime import datetime
 class LeadMetricsSummary(BaseModel):
     new_leads: int
     recontact_leads: int
+    ratio_new_leads: Optional[int] = None
+    ratio_recontact_leads: Optional[int] = None
     total_leads: int
     phone_leads: int
     new_phone_leads: int = 0

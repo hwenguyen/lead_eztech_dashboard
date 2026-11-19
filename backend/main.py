@@ -342,18 +342,97 @@ TAG_TO_CATEGORY = {_tag_key(tag): label for label, tags in TAG_CATEGORIES.items(
 def _categorize_tag(tag: str) -> Optional[str]:
     return TAG_TO_CATEGORY.get(_tag_key(tag))
 
+
+def _resolve_lead_tag_category(lead) -> str:
+    cats = {_categorize_tag(t) for t in lead.tags} - {None}
+    if "Lead Other" in cats and "Đào tạo" in cats:
+        # Nếu có cả 2 nhóm tag, chọn nhóm có tag gắn gần nhất trong timeline
+        latest_cat = None
+        latest_time = None
+        for item in lead.tag_timeline:
+            cat = _categorize_tag(item.get("tag", ""))
+            if cat in ("Lead Other", "Đào tạo"):
+                t_str = item.get("tagged_at")
+                if t_str and (latest_time is None or t_str > latest_time):
+                    latest_time = t_str
+                    latest_cat = cat
+        return latest_cat or "Đào tạo"
+    if "Lead Other" in cats:
+        return "Lead Other"
+    if "Đào tạo" in cats:
+        return "Đào tạo"
+    return "Other"
+
+
+def _lead_matches_date(lead, day_str: str) -> bool:
+    if lead.is_new:
+        return bool(lead.first_created_at and lead.first_created_at.strftime("%Y-%m-%d") == day_str)
+    days = set(lead.contact_days)
+    if not days and lead.phone_event_at:
+        days.add(lead.phone_event_at.strftime("%Y-%m-%d"))
+    return day_str in days
+
+
+def _normalize_cross_filters(
+    selected_date: Optional[str] = None,
+    lead_type: Optional[str] = None,
+    tag_category: Optional[str] = None,
+    has_phone: Optional[bool] = None,
+    primary_employee: Optional[str] = None,
+) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[bool], Optional[str]]:
+    clean_date = selected_date.strip() if selected_date and selected_date.strip() else None
+    clean_type = lead_type.strip().lower() if lead_type and lead_type.strip() else None
+    if clean_type not in ("new", "recontact"):
+        clean_type = None
+    clean_tag = _tag_key(tag_category) if tag_category and tag_category.strip() else None
+    clean_emp = normalize_text(primary_employee) if primary_employee and primary_employee.strip() else None
+    return clean_date, clean_type, clean_tag, has_phone, clean_emp
+
+
+def _matches_cross_filters(
+    lead,
+    selected_date: Optional[str] = None,
+    lead_type: Optional[str] = None,
+    tag_category: Optional[str] = None,
+    has_phone: Optional[bool] = None,
+    primary_employee: Optional[str] = None,
+) -> bool:
+    if selected_date and not _lead_matches_date(lead, selected_date):
+        return False
+    if lead_type == "new" and not lead.is_new:
+        return False
+    if lead_type == "recontact" and lead.is_new:
+        return False
+    if has_phone is not None and bool(lead.has_phone) is not bool(has_phone):
+        return False
+    if primary_employee and normalize_text(lead.primary_employee or "") != primary_employee:
+        return False
+    if tag_category and _tag_key(_resolve_lead_tag_category(lead)) != tag_category:
+        return False
+    return True
+
+
 @app.get("/api/metrics/summary", response_model=LeadMetricsSummary)
 def get_summary(
     start_date: Optional[datetime] = None,
     end_date: Optional[datetime] = None,
     page_id: Optional[str] = None,
     employee: Optional[str] = None,
+    selected_date: Optional[str] = None,
+    lead_type: Optional[str] = None,
+    tag_category: Optional[str] = None,
+    has_phone: Optional[bool] = None,
+    primary_employee: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
     start, end = resolve_period(start_date, end_date)
     leads = classify_leads(db, start, end, page_id, employee)
+    clean_date, clean_type, clean_tag, clean_has_phone, clean_emp = _normalize_cross_filters(
+        selected_date, lead_type, tag_category, has_phone, primary_employee
+    )
 
     new_leads = recontact_leads = new_phone_leads = recontact_phone_leads = 0
+    ratio_new_leads = ratio_recontact_leads = 0
     new_leads_employee_stats: Counter = Counter()
     phone_leads_employee_stats: Counter = Counter()
     tag_stats: Counter = Counter({"Lead Other": 0, "Đào tạo": 0, "Other": 0})
@@ -364,40 +443,44 @@ def get_summary(
     for lead in leads.values():
         # Pie Chart: mỗi lead chỉ gán cho 1 nhân viên chính để tổng không bị lặp
         emp = lead.primary_employee
-        if lead.is_new:
-            new_leads += 1
-            new_leads_employee_stats[emp] += 1
-            if lead.has_phone:
-                new_phone_leads += 1
-        else:
-            recontact_leads += 1
-            if lead.has_phone:
-                recontact_phone_leads += 1
-        if lead.has_phone:
-            phone_leads_employee_stats[emp] += 1
+        chosen_cat = _resolve_lead_tag_category(lead)
 
-        cats = {_categorize_tag(t) for t in lead.tags} - {None}
-        if "Lead Other" in cats and "Đào tạo" in cats:
-            # Nếu có cả 2 nhóm tag, chọn nhóm có tag gắn gần nhất trong timeline
-            latest_cat = None
-            latest_time = None
-            for item in lead.tag_timeline:
-                cat = _categorize_tag(item.get("tag", ""))
-                if cat in ("Lead Other", "Đào tạo"):
-                    t_str = item.get("tagged_at")
-                    if t_str and (latest_time is None or t_str > latest_time):
-                        latest_time = t_str
-                        latest_cat = cat
-            chosen_cat = latest_cat or "Đào tạo"
-        elif "Lead Other" in cats:
-            chosen_cat = "Lead Other"
-        elif "Đào tạo" in cats:
-            chosen_cat = "Đào tạo"
-        else:
-            chosen_cat = "Other"
+        match_date = (not clean_date) or _lead_matches_date(lead, clean_date)
+        match_type = (
+            clean_type is None
+            or (clean_type == "new" and lead.is_new)
+            or (clean_type == "recontact" and not lead.is_new)
+        )
+        match_phone = (clean_has_phone is None) or (bool(lead.has_phone) is bool(clean_has_phone))
+        match_emp = (not clean_emp) or (normalize_text(emp or "") == clean_emp)
+        match_tag = (not clean_tag) or (_tag_key(chosen_cat) == clean_tag)
 
-        tag_stats[chosen_cat] += 1
-        if lead.has_phone:
+        if match_date and match_type and match_phone and match_emp and match_tag:
+            if lead.is_new:
+                new_leads += 1
+                if lead.has_phone:
+                    new_phone_leads += 1
+            else:
+                recontact_leads += 1
+                if lead.has_phone:
+                    recontact_phone_leads += 1
+
+        if match_date and match_phone and match_emp and match_tag:
+            if lead.is_new:
+                ratio_new_leads += 1
+            else:
+                ratio_recontact_leads += 1
+
+        if match_date and match_type and match_phone and match_tag:
+            if lead.is_new:
+                new_leads_employee_stats[emp] += 1
+            if lead.has_phone:
+                phone_leads_employee_stats[emp] += 1
+
+        if match_date and match_type and match_phone and match_emp:
+            tag_stats[chosen_cat] += 1
+
+        if match_date and match_type and match_emp and lead.has_phone:
             phone_tag_stats[chosen_cat] += 1
             if lead.is_new:
                 new_phone_tag_stats[chosen_cat] += 1
@@ -407,6 +490,8 @@ def get_summary(
     return LeadMetricsSummary(
         new_leads=new_leads,
         recontact_leads=recontact_leads,
+        ratio_new_leads=ratio_new_leads,
+        ratio_recontact_leads=ratio_recontact_leads,
         total_leads=new_leads + recontact_leads,
         phone_leads=new_phone_leads + recontact_phone_leads,
         new_phone_leads=new_phone_leads,
@@ -425,6 +510,10 @@ def get_trend(
     end_date: Optional[datetime] = None,
     page_id: Optional[str] = None,
     employee: Optional[str] = None,
+    lead_type: Optional[str] = None,
+    tag_category: Optional[str] = None,
+    has_phone: Optional[bool] = None,
+    primary_employee: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
     """Theo ngày. Mới/Contact Lại được phân loại theo CẢ KỲ để cộng dồn khớp KPI:
@@ -432,6 +521,9 @@ def get_trend(
     phone_leads = số Lead có SĐT thu được/tương tác trong ngày."""
     start, end = resolve_period(start_date, end_date)
     leads = classify_leads(db, start, end, page_id, employee)
+    _, clean_type, clean_tag, clean_has_phone, clean_emp = _normalize_cross_filters(
+        None, lead_type, tag_category, has_phone, primary_employee
+    )
 
     trend: Dict[str, Dict[str, int]] = {}
     day = start
@@ -440,6 +532,8 @@ def get_trend(
         day += timedelta(days=1)
 
     for lead in leads.values():
+        if not _matches_cross_filters(lead, None, clean_type, clean_tag, clean_has_phone, clean_emp):
+            continue
         if lead.is_new:
             day_str = lead.first_created_at.strftime("%Y-%m-%d") if lead.first_created_at else None
             if day_str and day_str in trend:
@@ -614,12 +708,23 @@ def list_leads(
     employee: Optional[str] = None,
     start_date: Optional[datetime] = None,
     end_date: Optional[datetime] = None,
+    selected_date: Optional[str] = None,
+    lead_type: Optional[str] = None,
+    tag_category: Optional[str] = None,
+    has_phone: Optional[bool] = None,
+    primary_employee: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
     import json
     start, end = resolve_period(start_date, end_date)
+    clean_date, clean_type, clean_tag, clean_has_phone, clean_emp = _normalize_cross_filters(
+        selected_date, lead_type, tag_category, has_phone, primary_employee
+    )
     leads = sorted(
-        classify_leads(db, start, end, page_id, employee).values(),
+        (
+            lead for lead in classify_leads(db, start, end, page_id, employee).values()
+            if _matches_cross_filters(lead, clean_date, clean_type, clean_tag, clean_has_phone, clean_emp)
+        ),
         key=lambda l: l.first_created_at or datetime.min,
         reverse=True,
     )
