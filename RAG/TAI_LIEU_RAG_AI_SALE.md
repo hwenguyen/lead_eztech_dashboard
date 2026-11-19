@@ -158,7 +158,9 @@ Dành cho khách hàng (Chủ doanh nghiệp, CFO, KTT) **không muốn tự h�
   > Dạ chị cho em hỏi thêm mình 1 xíu rằng hiện tại mình chủ yếu đang xử lý dữ liệu thủ công bằng Excel hay mình dùng phần mềm kế toán là chính ạ
   *(hoặc: "Dạ chị cho em hỏi thêm mình 1 xíu rằng hiện tại mình chủ yếu đang xử lý dữ liệu thủ công bằng Excel có phải không ạ")*
 
-- **Step 2A — Khách dùng Excel là chính (nhấn mạnh sâu khó khăn & giải pháp):**
+- **Quy tắc chống gửi lặp Step 2A (BẮT BUỘC):** Chỉ dùng Step 2A cho **khách mới chưa từng được tư vấn công cụ**. Nếu lịch sử chat trên bất kỳ page nào (TikTok, Facebook, Zalo) cho thấy Sale đã gửi Step 2A, đã giới thiệu Power Query/Power BI, đã gửi lộ trình hoặc khách đã ở bước `Đã gửi TT` / `Remind` / `Suy nghĩ` → **TUYỆT ĐỐI KHÔNG gửi lại Step 2A**.
+
+- **Step 2A — Khách dùng Excel là chính (nhấn mạnh sâu khó khăn & giải pháp — chỉ dùng 1 lần cho khách mới):**
   > Nhiều anh chị kế toán bên em cũng chia sẻ là càng làm lâu càng thấy Excel không còn ok nữa ý chị, số lượng dữ liệu nhiều khiến dữ liệu nặng, link giữa các file dễ lỗi, chưa kể mỗi tháng lại phải cập nhật lại từ đầu. Mất nhiều thời gian cho khâu tổng hợp mà không còn thời gian để phân tích hay kiểm soát số liệu sâu luôn ấy chị
   >
   > Nếu chị chuyển phần thu thập – xử lý – tổng hợp dữ liệu sang Power Query thì mọi thao tác thủ công gần như được loại bỏ, và mình có thể xử lý tổng hợp hàng chục file một lúc ạ. Kết hợp Power BI là 1 công cụ giúp chị làm báo cáo xịn đẹp chuyên nghiệp hơn với hình ảnh trực quan theo dõi hiệu quả theo nhiều chiều.
@@ -277,15 +279,64 @@ Dành cho khách hàng (Chủ doanh nghiệp, CFO, KTT) **không muốn tự h�
     > - Tham gia cộng đồng học viên và sử dụng miễn phí các tools do EzTech phát triển
     > - Tham gia các buổi đào tạo bonus miễn phí dành riêng cho học viên để trau dồi và nâng cao kỹ năng sau chương trình
 
-### C. Bộ 8 Kịch Bản Remind Nuôi Dưỡng Lead
-1. **Remind Video 4 Scope:** Gửi 4 link YouTube thực chiến (PBI, Power Query, Sao kê vs NKC, Đổ bút toán).
-2. **Remind Feedback:** Chia sẻ câu chuyện KTT/KTTH/học viên ACCA, CMA học xong lên báo cáo cho sếp và chuyển sang ban Tài chính.
-3. **Remind Layout chi tiết:** Gửi link Google Sheet nội dung chi tiết từng buổi học.
-4. **Remind Quyền lợi Combo:** Nhắc đủ 8 quyền lợi (PBI Pro, E-learning, Support 1-1, bảo lưu học lại 1 lần, Tool, Cộng đồng).
-5. **Remind Bộ 100 File + Tool:** Gửi hình ảnh kho 100 bộ file quản trị + video demo Tool Hóa Đơn & EzExcel (đặc quyền miễn phí chỉ dành cho học viên).
-6. **Remind Lịch khai giảng mới / Update AI:** Thông báo lịch lớp gần nhất (K2 hoặc K1), nhấn mạnh chương trình K2 đã nâng cấp 14 buổi bổ sung AI thực chiến mà vẫn giữ mức giá combo **7.5tr**.
-7. **Remind Lead Ghosting lâu:** Gửi bộ quà tặng báo cáo cuối năm / Bộ Prompt Mẫu AI cho kế toán (tiết kiệm 80% thời gian).
-8. **Remind Data Talk / Học thử:** Mời tham gia workshop miễn phí cuối tuần hoặc gửi record/tài liệu buổi 1 Power Query học thử.
+### C. Bộ 8 Kịch Bản Remind Nuôi Dưỡng Lead (Nguyên Văn Chuẩn — Cấm Lặp Lại Step Trước Đó)
+
+> **QUY TẮC BẮT BUỘC Ở BƯỚC REMIND:**
+> 1. **CẤM TUYỆT ĐỐI gửi lại nội dung các Step trước đó:** Không hỏi lại Step 1 (Excel hay phần mềm), không gửi lại Step 2A (nỗi đau Excel/phần mềm), không gửi lại Step 2B, không gửi lại mẫu theo ngành nghề đã nhắn, và không gửi lại full lộ trình K1–K2–K3 của Step 3 (trừ khi khách chủ động yêu cầu gửi lại lộ trình).
+> 2. **Rà soát toàn bộ lịch sử chat trên tất cả các page** (TikTok, Facebook, các page Zalo) xem Sale đã gửi những vòng Remind nào rồi → **CHỈ chọn 1 vòng Remind CHƯA TỪNG GỬI** phù hợp nhất với insight của khách.
+
+1. **Vòng 1 — Remind Video 4 Scope:**
+   > Em chào chị ạ, không biết chị đã tham khảo được lộ trình em gửi mình chưa ạ, nếu được em gửi mình thêm 1 số các video bài giảng bên em để mình hiểu hơn về nội dung và phương pháp học nhé ạ
+   >
+   > Em gửi chị tham khảo Scope đào tạo cho 2 phần Power BI và Power query có trong chương trình học để chị hiểu hơn về phương pháp học ạ:
+   > 1. Phần Power BI: xây dựng các trang báo cáo
+   > https://www.youtube.com/watch?v=i5kkS7QPRw4
+   > 2. Phần Power query, tích hợp dữ liệu và xử lý dữ liệu nhiều nguồn
+   > https://www.youtube.com/watch?v=WpW5yD0kjhM
+   > 3. Ứng dụng đối chiếu từ hàng chục File sao kê vs NKC
+   > https://youtu.be/i_FpxkzGCo8
+   > 4. Đổ bút toán tự động giúp tối ưu CV hạch toán:
+   > https://youtu.be/o50ZjLIgVnU
+
+2. **Vòng 2 — Remind Feedback Học Viên:**
+   > Em gửi chị feedback của 1 số chị kế toán trưởng & KTTH bên em lớp vừa học xong; trong đó có 1 chị sau khi làm báo cáo cho sếp xong chị ấy xin luôn sang ban Tài chính luôn và vì đây là chương trình thiết kế riêng cho dân Tài chính - kế toán nên học xong mọi người có thể ứng dụng được luôn
+   > Có khá nhiều bạn bên em đã học ACCA, CMA và phản hồi chương trình học này gần như học xong cho mình công cụ và tư duy ứng dụng được luôn, chị tham khảo thêm nhé ạ
+
+3. **Vòng 3 — Remind Layout Chi Tiết Từng Buổi Học:**
+   > Em gửi chị tham khảo nội dung chi tiết từng buổi học bên em nhé ạ: https://docs.google.com/spreadsheets/d/1dz2f8qJ0GxmD6k8kqMjfpccP7yRUixv39sWPU61CpsY/edit?usp=sharing
+
+4. **Vòng 4 — Remind Quyền Lợi Combo (8 quyền lợi):**
+   > Em gửi lại chị một số quyền lợi khi học viên đăng ký học đợt này và đăng ký theo combo nhé ạ:
+   > - Được cấp chứng chỉ sau chương trình học (học full khóa)
+   > - Được hỗ trợ học phí còn 7tr5 cho combo 3 khóa
+   > - Được tặng 1 tài khoản power bi pro full tính năng để HV thực hành cả trong và sau khoá học, chị có thể dùng để chia sẻ và quản lý báo cáo sau này ạ (TK này nếu mình tự mua của Microsoft phí sẽ khoảng 13USD/ user/ tháng)
+   > - Tặng TK Elearning để học viên xem lại record, học liệu và thực hành lại
+   > - Được hỗ trợ bảo lưu và học lại một lần miễn phí để học viên ôn lại và cập nhật kiến thức mới
+   > - Có nhóm support 1:1 hỗ trợ cá nhân hóa từng học viên trong và sau chương trình học để đảm bảo học viên học và ứng dụng được vào công việc
+   > - Tham gia cộng đồng học viên và sử dụng miễn phí các tools do EzTech phát triển
+   > - Tham gia các buổi đào tạo bonus miễn phí dành riêng cho học viên để trau dồi và nâng cao kỹ năng sau chương trình
+
+5. **Vòng 5 — Remind Bộ 100 File Quản Trị + Tool Hóa Đơn & EzExcel:**
+   > Đợt này thì bên em cũng phát triển rất nhiều tools hỗ trợ cho kế toán trong quá trình làm việc nữa. Và học viên sẽ được tặng miễn phí các file quản lý hoặc bộ dữ liệu mẫu trên Excel và nhiều file thực tế do EzTech xây dựng có hẳn kho bộ 100 file quản lý với từng bài toán nghiệp vụ cho từng ngành, mình có thể lấy áp dụng hoặc tùy biến theo đúng doanh nghiệp của mình, thay vì phải tự thiết kế từ đầu ạ.
+   > Đây cũng là đặc quyền riêng của học viên bên em thôi, những anh chị chưa là học viên sẽ mất thêm phí từ 2-5tr/ dịch vụ ấy ạ
+   > - Tool hóa đơn: https://www.tiktok.com/@tuananhdata/video/7626154405628284180?is_from_webapp=1&sender_device=pc
+   > - Tool Excel: https://www.tiktok.com/@tuananhdata/video/7681529166591692039?is_from_webapp=1&sender_device=pc
+
+6. **Vòng 6 — Remind Lịch Khai Giảng Mới / Update K2 14 Buổi Tích Hợp AI:**
+   > Em chào chị ạ, hiện tại bên em vừa có cập nhật nội dung đào tạo khoá Power Query lên 14 buổi trong đó có thêm các buổi học về Ứng dụng AI thực chiến cho kế toán cũng như Excel để mình có thể nâng cao hiệu suất công việc, tối ưu thời gian phải xử lý và lên báo cáo thủ công ạ. Nếu chị đăng ký full combo em vẫn có thể giữ cho mình được mức giá là 7tr5 nhé chị ạ. Chị tham khảo, cần thêm thông tin về lịch khai giảng sắp tới cũng như các tài liệu chia sẻ về AI chị nhắn em hỗ trợ nhé ạ
+
+7. **Vòng 7 — Remind Lead Ghosting Đã Lâu (Tặng Bộ Prompt AI & Tài Liệu Miễn Phí):**
+   > Em chào anh chị ạ, không biết đợt này mình có đang phải làm việc với dữ liệu và lên báo cáo nhiều không anh chị ạ. Bên em đang có một số tài liệu chia sẻ về Ứng dụng của Power Query, Excel và AI trong công việc, em gửi anh chị nhé ạ
+   >
+   > Em gửi mình 1 vài tài liệu tham khảo về Ứng dụng Power Query, Excel và AI trong xử lý dữ liệu và lên báo cáo quản trị (giúp tiết kiệm 80% thời gian và công sức làm dữ liệu và lên báo cáo) nhé ạ:
+   > - Tài liệu "Bộ Prompt Mẫu AI trong công việc": https://drive.google.com/file/d/14Guoh66hilevrACxgwoasfvqyevu-8PJ/view?usp=sharing
+   > - Ứng dụng đối chiếu từ hàng chục File sao kê vs NKC: https://youtu.be/i_FpxkzGCo8
+   > - Làm form đổ tự động hạch toán lên phần mềm hàng trăm chứng từ: https://youtu.be/o50ZjLIgVnU
+   > - Tài liệu tham khảo: https://drive.google.com/file/d/1t_wdFwHMs3YxaSydRdbVom3v99zRcMi3/view?usp=sharing
+   > - Link demo bộ tài liệu tài chính và quản trị doanh nghiệp: https://docs.google.com/spreadsheets/d/176d4NOAgfvJbg0gRenA9TM3b9W-PuXKEc2Sv--JzTUo/edit?gid=0#gid=0
+
+8. **Vòng 8 — Remind Data Talk / Workshop Cuối Tuần / Học Thử:**
+   > Em chào chị, cuối tuần này bên em có 1 buổi workshop miễn phí về ứng dụng AI, Power Query và Power BI trong việc tối ưu các công việc tài chính kế toán thủ công. Không biết tối chủ nhật tuần này chị có sắp xếp được thời gian tham gia không để em hỗ trợ mình đăng ký nhận link Zoom nhé ạ
 
 ---
 
