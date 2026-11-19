@@ -263,3 +263,16 @@ class KnowledgeChunk(Base):
     created_by = Column(String, nullable=True)
     created_at = Column(DateTime, default=get_vn_now, index=True)
 
+
+class BtvnAnswerFile(Base):
+    """File đáp án chuẩn Power Query / Power BI cho tính năng Chấm BTVN."""
+    __tablename__ = "btvn_answer_files"
+
+    id = Column(Integer, primary_key=True, index=True)
+    course = Column(String, nullable=False)  # "Power Query" or "Power BI"
+    session_number = Column(Integer, nullable=False)
+    file_path = Column(String, nullable=False)
+    queries_json = Column(JSON, nullable=True)  # Lưu trực tiếp dict {table_name: m_code} trong DB để không mất khi restart server
+    created_at = Column(DateTime, default=get_vn_now)
+
+

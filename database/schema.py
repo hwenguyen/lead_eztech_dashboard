@@ -122,6 +122,17 @@ def _add_missing_columns():
             if col_name not in existing_sd:
                 ddl_statements.append(f"ALTER TABLE sales_deals ADD COLUMN {if_not_exists}{col_name} {col_type}")
 
+    if "btvn_answer_files" in table_names:
+        existing_btvn_ans = {col["name"] for col in inspector.get_columns("btvn_answer_files")}
+        if "queries_json" not in existing_btvn_ans:
+            col_type = "JSONB" if engine.dialect.name == "postgresql" else "JSON"
+            ddl_statements.append(f"ALTER TABLE btvn_answer_files ADD COLUMN {if_not_exists}queries_json {col_type}")
+
+    if "btvn_students" in table_names:
+        ddl_statements.append("DROP TABLE IF EXISTS btvn_students")
+    if "btvn_classes" in table_names:
+        ddl_statements.append("DROP TABLE IF EXISTS btvn_classes")
+
     if ddl_statements:
         _run_ddl(ddl_statements)
         logger.info("Đã cập nhật các cột mới vào database schema.")
