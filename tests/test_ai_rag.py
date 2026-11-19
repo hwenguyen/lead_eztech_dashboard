@@ -15,6 +15,8 @@ from backend.ai_rag import (
     retrieve_relevant_chunks,
     build_live_data_context,
     clear_ai_knowledge_cache,
+    _parse_daily_review_json,
+    _collect_recent_customer_messages_sample,
 )
 
 
@@ -159,6 +161,18 @@ def test_ai_rag_pipeline():
         assert "CẤM TUYỆT ĐỐI gửi lại Step 1, Step 2A" in sale_ctx
         # Không gọi thừa KPI Lead 7 ngày khi chỉ tra SĐT khách
         assert not any("KPI Lead 7 ngày" in t for t in sale_tools)
+
+        # Kiểm thử parse JSON & ẩn SĐT khi tạo AI Đánh giá hằng ngày
+        parsed = _parse_daily_review_json(
+            '```json\n{"summary_status":"critical","headline":"Test","overview":["A"],"customer_insight":["B"],"process_sla":["C"],"actions":["D"]}\n```'
+        )
+        assert parsed["summary_status"] == "critical"
+        assert parsed["overview"] == ["A"]
+        assert parsed["actions"] == ["D"]
+
+        msg_sample = _collect_recent_customer_messages_sample(db, now_vn, limit_convs=10)
+        assert "Chị nhắn bên FB hỏi thêm học phí" in msg_sample
+        assert p_test not in msg_sample  # không lộ SĐT trong mẫu insight
 
     print("ALL AI RAG TESTS PASSED!")
 

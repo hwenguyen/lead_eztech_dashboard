@@ -15,6 +15,7 @@ import { FacebookDashboard } from './components/FacebookDashboard';
 import { TikTokDashboard, TikTokIcon } from './components/TikTokDashboard';
 import { WorkReportDashboard } from './components/WorkReportDashboard';
 import { AiAssistantDashboard } from './components/AiAssistantDashboard';
+import { AiDailyReviewCard } from './components/AiDailyReviewCard';
 import { BtvnGraderDashboard } from './components/BtvnGraderDashboard';
 import { DataExportDashboard } from './components/DataExportDashboard';
 import { LoginPage } from './components/LoginPage';
@@ -737,6 +738,9 @@ function App() {
                       tooltip="Tỉ lệ chuyển đổi SĐT trên tổng Lead Mới trong phạm vi đang lọc"
                     />
                   </div>
+
+                  {/* AI Đánh giá Hiệu suất & Insight hằng ngày */}
+                  <AiDailyReviewCard />
 
                   {/* Charts row */}
                   <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">

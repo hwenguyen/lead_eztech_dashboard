@@ -27,7 +27,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session, defer
 from sqlalchemy import func, or_, desc
 
-from database.db import get_db
+from database.db import get_db, SessionLocal
 from database.models import (
     KnowledgeChunk,
     AppConfig,
@@ -66,6 +66,10 @@ KNOWLEDGE_CACHE_TTL = 600  # 10 phút
 _API_KEY_CACHE: Optional[Tuple[float, str]] = None
 _SLA_REMIND_CACHE: Optional[Tuple[float, Dict[str, Any]]] = None
 SLA_REMIND_CACHE_TTL = 300  # 5 phút
+DAILY_REVIEW_CONFIG_KEY = "AI_DAILY_REVIEW_JSON"
+_DAILY_REVIEW_CACHE: Optional[Tuple[float, Dict[str, Any]]] = None
+_DAILY_REVIEW_CACHE_TTL = 300  # 5 phút
+_DAILY_REVIEW_GENERATING = False
 
 
 AI_ASSISTANTS: Dict[str, Dict[str, Any]] = {
@@ -337,12 +341,13 @@ DEFAULT_SEED_DOCS: List[Dict[str, str]] = [
 
 
 def clear_ai_knowledge_cache():
-    global _KNOWLEDGE_CACHE, _KNOWLEDGE_CACHE_TS, _API_KEY_CACHE, _SLA_REMIND_CACHE
+    global _KNOWLEDGE_CACHE, _KNOWLEDGE_CACHE_TS, _API_KEY_CACHE, _SLA_REMIND_CACHE, _DAILY_REVIEW_CACHE
     with _CACHE_LOCK:
         _KNOWLEDGE_CACHE = None
         _KNOWLEDGE_CACHE_TS = 0.0
         _API_KEY_CACHE = None
         _SLA_REMIND_CACHE = None
+        _DAILY_REVIEW_CACHE = None
 
 
 def get_gemini_api_key(db: Session) -> str:
@@ -1582,3 +1587,315 @@ def chat_with_assistant(req: ChatRequest, db: Session = Depends(get_db)):
         ],
         "tools_used": tools_used,
     }
+
+
+# ───────────────────────── Daily AI Performance Review ─────────────────────────
+
+
+def _collect_recent_customer_messages_sample(db: Session, now_vn: datetime, limit_convs: int = 20) -> str:
+    """Lấy mẫu ngắn tin nhắn & bình luận khách hàng gần nhất (7 ngày, ẩn SĐT) để rút insight nhu cầu/nỗi đau."""
+    since_dt = (now_vn - timedelta(days=7)).replace(hour=0, minute=0, second=0, microsecond=0)
+    samples: List[str] = []
+    seen_norm: Set[str] = set()
+
+    def _mask_phone(t: str) -> str:
+        return re.sub(r"(?:\+?84|0)\d[\d\s\.\-]{7,11}\d", "[SĐT]", t)
+
+    try:
+        recent_acts = (
+            db.query(FactLeadActivity.conversation_id, DimLead.page_id)
+            .join(DimLead, FactLeadActivity.lead_id == DimLead.id)
+            .filter(
+                FactLeadActivity.contacted_at >= since_dt,
+                ~FactLeadActivity.conversation_id.like("pzl_g_%"),
+            )
+            .order_by(desc(FactLeadActivity.contacted_at))
+            .limit(limit_convs)
+            .all()
+        )
+        cids = [cid for cid, _ in recent_acts if cid]
+        if cids:
+            raw_rows = (
+                db.query(RawConversation.page_id, RawConversation.payload["messages"])
+                .filter(RawConversation.pancake_id.in_(cids))
+                .all()
+            )
+            for pg_id, msgs in raw_rows:
+                if isinstance(msgs, str):
+                    try:
+                        msgs = json.loads(msgs)
+                    except Exception:
+                        msgs = []
+                if not isinstance(msgs, list):
+                    continue
+                pg_lbl = resolve_canonical_page_name(pg_id, fallback=pg_id or "Khác")
+                picked = 0
+                for m in msgs:
+                    if not isinstance(m, dict):
+                        continue
+                    role = (m.get("role") or "").strip().lower()
+                    if role not in ("khách hàng", "khach hang", "customer", "user"):
+                        continue
+                    raw_txt = html.unescape(str(m.get("message") or m.get("original_message") or ""))
+                    clean = re.sub(r"<[^>]+>", " ", raw_txt)
+                    clean = _mask_phone(re.sub(r"\s+", " ", clean).strip())
+                    if len(clean) < 12:
+                        continue
+                    key = clean[:60].lower()
+                    if key in seen_norm:
+                        continue
+                    seen_norm.add(key)
+                    samples.append(f"- ({pg_lbl}) {clean[:180]}")
+                    picked += 1
+                    if picked >= 2 or len(samples) >= 24:
+                        break
+                if len(samples) >= 24:
+                    break
+    except Exception as e:
+        logger.warning(f"Daily review customer message sample error: {e}")
+
+    try:
+        cmts = (
+            db.query(Comment.page_name, Comment.message)
+            .filter(Comment.inserted_at >= since_dt, Comment.message.isnot(None))
+            .order_by(desc(Comment.inserted_at))
+            .limit(12)
+            .all()
+        )
+        for pg_name, msg in cmts:
+            clean = _mask_phone(re.sub(r"\s+", " ", (msg or "")).strip())
+            if len(clean) < 10:
+                continue
+            key = clean[:60].lower()
+            if key in seen_norm:
+                continue
+            seen_norm.add(key)
+            samples.append(f"- [Comment {pg_name or 'MXH'}] {clean[:160]}")
+            if len(samples) >= 32:
+                break
+    except Exception as e:
+        logger.warning(f"Daily review comment sample error: {e}")
+
+    if not samples:
+        return ""
+    return "[MẪU TIN NHẮN & BÌNH LUẬN KHÁCH HÀNG GẦN ĐÂY (7 NGÀY)]\n" + "\n".join(samples)
+
+
+def _parse_daily_review_json(raw_text: str) -> Dict[str, Any]:
+    """Tách và chuẩn hoá JSON đánh giá từ phản hồi Gemini, luôn trả về đúng schema 4 phần."""
+    cleaned = (raw_text or "").strip()
+    fence = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", cleaned, flags=re.DOTALL)
+    candidate = fence.group(1) if fence else cleaned
+    if not fence:
+        s_idx = candidate.find("{")
+        e_idx = candidate.rfind("}")
+        if s_idx != -1 and e_idx > s_idx:
+            candidate = candidate[s_idx : e_idx + 1]
+
+    def _as_list(val: Any) -> List[str]:
+        if isinstance(val, list):
+            return [str(x).strip() for x in val if str(x).strip()]
+        if isinstance(val, str) and val.strip():
+            return [ln.lstrip("-•*0123456789. ").strip() for ln in val.splitlines() if ln.strip()]
+        return []
+
+    try:
+        parsed = json.loads(candidate)
+        if isinstance(parsed, dict):
+            status = str(parsed.get("summary_status") or "warning").strip().lower()
+            if status not in ("good", "warning", "critical"):
+                status = "warning"
+            return {
+                "summary_status": status,
+                "headline": str(parsed.get("headline") or "").strip(),
+                "overview": _as_list(parsed.get("overview")),
+                "customer_insight": _as_list(parsed.get("customer_insight")),
+                "process_sla": _as_list(parsed.get("process_sla")),
+                "actions": _as_list(parsed.get("actions")),
+            }
+    except Exception:
+        pass
+
+    lines = [ln.lstrip("-•* ").strip() for ln in cleaned.splitlines() if ln.strip()]
+    return {
+        "summary_status": "warning",
+        "headline": lines[0][:220] if lines else "Đã hoàn tất phân tích tổng quan hệ thống.",
+        "overview": lines[1:5] if len(lines) > 1 else [cleaned[:500]],
+        "customer_insight": [],
+        "process_sla": [],
+        "actions": [],
+    }
+
+
+def _load_saved_daily_review(db: Session) -> Optional[Dict[str, Any]]:
+    global _DAILY_REVIEW_CACHE
+    now_ts = time.time()
+    with _CACHE_LOCK:
+        if _DAILY_REVIEW_CACHE and (now_ts - _DAILY_REVIEW_CACHE[0] < _DAILY_REVIEW_CACHE_TTL):
+            return _DAILY_REVIEW_CACHE[1]
+
+    cfg = db.query(AppConfig).filter(AppConfig.config_key == DAILY_REVIEW_CONFIG_KEY).first()
+    if not cfg or not cfg.config_value:
+        return None
+    try:
+        data = json.loads(cfg.config_value)
+        if isinstance(data, dict):
+            with _CACHE_LOCK:
+                _DAILY_REVIEW_CACHE = (now_ts, data)
+            return data
+    except Exception:
+        return None
+    return None
+
+
+def generate_daily_review(db: Session) -> Dict[str, Any]:
+    """Tổng hợp thông số từ toàn bộ Dashboard + mẫu tin nhắn khách, gọi Gemini đánh giá và lưu DB."""
+    global _DAILY_REVIEW_CACHE
+    now_vn = get_vn_now()
+    api_key = get_gemini_api_key(db)
+    if not api_key:
+        raise HTTPException(status_code=400, detail="Chưa cấu hình GEMINI_API_KEY để tạo AI Đánh giá hằng ngày.")
+
+    dash_blocks, dash_tools = _build_quy_trinh_dashboard_context(
+        db,
+        "Phân tích toàn bộ thông số Dashboard 7 ngày qua",
+        "phan tich toan bo thong so dashboard 7 ngay qua",
+        now_vn,
+    )
+    msg_sample = _collect_recent_customer_messages_sample(db, now_vn)
+    if msg_sample:
+        dash_blocks.append(msg_sample)
+        dash_tools.append("Tin nhắn & bình luận khách (7 ngày)")
+
+    sla_chunks = retrieve_relevant_chunks(
+        db=db,
+        query_text="Ngưỡng cảnh báo SLA chưa phân công tỷ lệ ra SĐT tồn đọng Remind Deal Win",
+        categories=["quy_trinh", "chung"],
+        api_key=api_key,
+        top_k=4,
+    )
+    rag_rules = "\n\n".join(c["content"] for c in sla_chunks)
+
+    system_prompt = (
+        "Bạn là Giám đốc Vận hành & Phân tích Dữ liệu (BI/CRM Operations Director) của EzTech Việt Nam.\n"
+        "Nhiệm vụ: Đọc toàn bộ thông số thực tế từ các Dashboard và mẫu tin nhắn khách hàng 7 ngày gần nhất, "
+        "đối chiếu đúng bộ ngưỡng SLA của EzTech để xuất báo cáo đánh giá hiệu suất hằng ngày giúp cải thiện performance.\n\n"
+        "QUY TẮC BẮT BUỘC:\n"
+        "- Dùng 100% số liệu thật trong dữ liệu đầu vào, TUYỆT ĐỐI KHÔNG tự bịa số liệu hay tên nhân viên.\n"
+        "- Viết cực kỳ súc tích, thực chiến, định lượng rõ con số (%, +/-, tên kênh, tên nhân viên), KHÔNG rào đón, KHÔNG ghi `[Nguồn: ...]`.\n"
+        "- Đánh giá `summary_status`: `critical` nếu có chỉ số vượt ngưỡng báo động đỏ (như Chưa phân công >10% hoặc Remind >7 ngày >40% hoặc Deal/SĐT <10%), `warning` nếu có cảnh báo vàng, `good` nếu mọi chỉ số đều đạt chuẩn.\n"
+        "- BẮT BUỘC trả về DUY NHẤT 1 JSON hợp lệ (không thêm chữ ngoài JSON) theo đúng cấu trúc:\n"
+        "{\n"
+        '  "summary_status": "good | warning | critical",\n'
+        '  "headline": "1 câu tóm tắt ngắn gọn tình trạng performance hôm nay kèm 2 con số nổi bật nhất",\n'
+        '  "overview": ["3-4 ý ngắn về Tổng Lead, SĐT, CR% so kỳ trước, TikTok vs Facebook (Ads/Video/Organic), Deal Win & Thực thu"],\n'
+        '  "customer_insight": ["3-4 ý ngắn về Insight khách hàng: ngành nghề/vị trí nổi bật, nhu cầu & nỗi đau khách đang hỏi nhiều nhất từ tin nhắn/comment, chủ đề hút khách"],\n'
+        '  "process_sla": ["3-4 ý ngắn về Quy trình & Điểm nghẽn SLA: tỷ lệ Lead chưa phân công + page bỏ sót, tồn đọng Remind >7 ngày + nhân sự tồn cao, chênh lệch hiệu suất Sale, đứt gãy chặng Zalo"],\n'
+        '  "actions": ["3-5 hành động cụ thể ưu tiên triển khai ngay hôm nay để tăng performance (nêu rõ giao ai/kênh nào và mục tiêu)"]\n'
+        "}"
+    )
+
+    user_prompt = (
+        "=== DỮ LIỆU THỰC TẾ CÁC DASHBOARD HÔM NAY ===\n"
+        + "\n\n".join(dash_blocks)
+        + ("\n\n=== NGƯỠNG SLA & QUY CHUẨN NỘI BỘ ===\n" + rag_rules if rag_rules else "")
+        + "\n\nHãy xuất JSON báo cáo đánh giá tổng quan, insight khách hàng, quy trình SLA và đề xuất cải thiện performance."
+    )
+
+    raw_answer, model_used, _ = call_gemini_generate(
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        history=[],
+        api_key=api_key,
+        temperature=0.2,
+        enable_search=False,
+    )
+    sections = _parse_daily_review_json(raw_answer)
+
+    start_7d = (now_vn - timedelta(days=6)).strftime("%d/%m/%Y")
+    end_today = now_vn.strftime("%d/%m/%Y")
+    review_payload: Dict[str, Any] = {
+        "date": now_vn.strftime("%Y-%m-%d"),
+        "generated_at": now_vn.strftime("%d/%m/%Y %H:%M"),
+        "period_label": f"7 ngày gần nhất ({start_7d} – {end_today})",
+        "model": model_used,
+        "sources": dash_tools,
+        **sections,
+    }
+
+    encoded = json.dumps(review_payload, ensure_ascii=False)
+    cfg = db.query(AppConfig).filter(AppConfig.config_key == DAILY_REVIEW_CONFIG_KEY).first()
+    if cfg:
+        cfg.config_value = encoded
+    else:
+        db.add(AppConfig(config_key=DAILY_REVIEW_CONFIG_KEY, config_value=encoded))
+    db.commit()
+
+    with _CACHE_LOCK:
+        _DAILY_REVIEW_CACHE = (time.time(), review_payload)
+    return review_payload
+
+
+def _trigger_daily_review_bg() -> bool:
+    """Kích hoạt tạo báo cáo AI hằng ngày ở luồng nền (single-flight: tránh gọi đúp khi nhiều người mở cùng lúc)."""
+    global _DAILY_REVIEW_GENERATING
+    with _CACHE_LOCK:
+        if _DAILY_REVIEW_GENERATING:
+            return False
+        _DAILY_REVIEW_GENERATING = True
+
+    def _worker():
+        global _DAILY_REVIEW_GENERATING
+        try:
+            with SessionLocal() as bg_db:
+                generate_daily_review(bg_db)
+        except Exception as e:
+            logger.warning(f"Background daily review generation error: {e}")
+        finally:
+            with _CACHE_LOCK:
+                _DAILY_REVIEW_GENERATING = False
+
+    threading.Thread(target=_worker, daemon=True, name="ai-daily-review").start()
+    return True
+
+
+@router.get("/daily-review")
+def get_daily_review(db: Session = Depends(get_db)):
+    """Trả về bản AI Đánh giá hiệu suất hằng ngày mới nhất; tự động kích hoạt tạo mới 1 lần/ngày khi sang ngày mới."""
+    now_vn = get_vn_now()
+    today_str = now_vn.strftime("%Y-%m-%d")
+    saved = _load_saved_daily_review(db)
+    is_today = bool(saved and saved.get("date") == today_str)
+    has_key = bool(get_gemini_api_key(db))
+
+    if not is_today and has_key:
+        _trigger_daily_review_bg()
+
+    with _CACHE_LOCK:
+        generating = _DAILY_REVIEW_GENERATING
+
+    return {
+        "review": saved,
+        "is_today": is_today,
+        "generating": generating,
+        "has_api_key": has_key,
+    }
+
+
+@router.post("/daily-review/refresh")
+def refresh_daily_review(db: Session = Depends(get_db)):
+    """Ép AI đọc lại toàn bộ thông số Dashboard và cập nhật bản đánh giá mới ngay lập tức (dùng cho nút bấm hoặc cron API)."""
+    global _DAILY_REVIEW_GENERATING
+    with _CACHE_LOCK:
+        _DAILY_REVIEW_GENERATING = True
+    try:
+        review = generate_daily_review(db)
+        return {
+            "review": review,
+            "is_today": True,
+            "generating": False,
+            "has_api_key": True,
+        }
+    finally:
+        with _CACHE_LOCK:
+            _DAILY_REVIEW_GENERATING = False

@@ -1532,6 +1532,39 @@ export const sendAiChatMessage = async (payload: {
   return res.data;
 };
 
+export interface AiDailyReviewData {
+  date: string;
+  generated_at: string;
+  period_label: string;
+  model: string;
+  sources: string[];
+  summary_status: 'good' | 'warning' | 'critical';
+  headline: string;
+  overview: string[];
+  customer_insight: string[];
+  process_sla: string[];
+  actions: string[];
+}
+
+export interface AiDailyReviewResponse {
+  review: AiDailyReviewData | null;
+  is_today: boolean;
+  generating: boolean;
+  has_api_key: boolean;
+}
+
+export const fetchAiDailyReview = async (): Promise<AiDailyReviewResponse> => {
+  const res = await apiClient.get<AiDailyReviewResponse>('/ai/daily-review');
+  return res.data;
+};
+
+export const refreshAiDailyReview = async (): Promise<AiDailyReviewResponse> => {
+  const res = await apiClient.post<AiDailyReviewResponse>('/ai/daily-review/refresh', undefined, {
+    timeout: 60000,
+  });
+  return res.data;
+};
+
 // ==============================================================================
 // QUERY & KẾT XUẤT DỮ LIỆU EXCEL (PROTECTED + EGRESS OPTIMIZED)
 // ==============================================================================
