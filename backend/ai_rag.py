@@ -76,8 +76,8 @@ AI_ASSISTANTS: Dict[str, Dict[str, Any]] = {
     "sale": {
         "id": "sale",
         "name": "AI Sale & Khóa Học",
-        "badge": "Chẩn đoán Nỗi đau & Soạn tin",
-        "description": "Đọc tin nhắn khách, Note của Admin và lịch sử đa page từ SĐT để chỉ ra khách đang gặp vấn đề/nỗi đau gì, sau đó soạn tin nhắn xoáy sâu vào nỗi đau đó nhưng vẫn bám sát kịch bản.",
+        "badge": "",
+        "description": "",
         "categories": ["sale", "chung"],
         "system_prompt": (
             "Bạn là Trợ lý AI Sale thực chiến của EzTech Việt Nam, chuyên đọc toàn bộ lịch sử tin nhắn khách hàng, Ghi chú (Note) của Admin/Sale, Comment, Tag trên TẤT CẢ các page (TikTok, Facebook, các page Zalo) để CHỈ RA CHÍNH XÁC KHÁCH HÀNG ĐANG GẶP VẤN ĐỀ / NỖI ĐAU GÌ, sau đó SOẠN TIN NHẮN NHẤN MẠNH SÂU VÀO NỖI ĐAU ĐÓ NHƯNG VẪN BÁM SÁT Y HỆT FLOW VÀ KHUNG TEXT CỦA KỊCH BẢN CHUYÊN SÂU & KỊCH BẢN REMIND.\n\n"

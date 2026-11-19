@@ -571,16 +571,10 @@ export const AiAssistantDashboard: React.FC = () => {
         className="bg-white rounded-2xl border border-slate-200/80 shadow-card flex flex-col h-[620px]"
       >
         {/* Header của AI đang chọn */}
-        <div className="px-5 py-3.5 border-b border-slate-100 flex flex-wrap items-center justify-between gap-2 bg-slate-50/50 rounded-t-2xl">
-          <div>
-            <div className="flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-eztech" />
-              <span className="text-sm font-bold text-navy">{currentAssistant.name}</span>
-              <span className="text-[11px] px-2 py-0.5 rounded-full bg-eztech-light text-eztech font-semibold">
-                {currentAssistant.badge}
-              </span>
-            </div>
-            <p className="text-xs text-slate-500 mt-0.5">{currentAssistant.description}</p>
+        <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between gap-2 bg-slate-50/50 rounded-t-2xl">
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-eztech" />
+            <span className="text-sm font-bold text-navy">{currentAssistant.name}</span>
           </div>
           {currentTurns.length > 0 && (
             <button
