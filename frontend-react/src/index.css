@@ -382,6 +382,7 @@
   background-color: var(--ez-muted);
 }
 
+:where(html) .hover\:bg-white:hover,
 :where(html) .focus\:bg-white:focus {
   background-color: var(--ez-card);
 }
@@ -706,5 +707,138 @@
   }
   .custom-scrollbar::-webkit-scrollbar-thumb:hover {
     background: var(--ez-scrollbar-thumb-hover);
+  }
+}
+
+/* ============================================================================
+ * AI Workspace Motion & Theme-Aware Surface Utilities
+ * ============================================================================ */
+@keyframes ai-fade-up {
+  0% {
+    opacity: 0;
+    transform: translateY(10px) scale(0.99);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes ai-panel-in {
+  0% {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.99);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes ai-float {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
+}
+
+@keyframes ai-pulse-ring {
+  0% {
+    transform: scale(0.92);
+    opacity: 0.55;
+  }
+  70% {
+    transform: scale(1.28);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1.28);
+    opacity: 0;
+  }
+}
+
+@keyframes ai-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+@keyframes ai-dot-wave {
+  0%, 60%, 100% {
+    transform: translateY(0);
+    opacity: 0.45;
+  }
+  30% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
+}
+
+.ai-animate-fade-up {
+  animation: ai-fade-up 0.36s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.ai-animate-panel {
+  animation: ai-panel-in 0.26s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.ai-animate-float {
+  animation: ai-float 4.6s ease-in-out infinite;
+}
+
+.ai-animate-pulse-ring {
+  animation: ai-pulse-ring 3s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+.ai-shimmer-bar {
+  background: linear-gradient(90deg, transparent 0%, #1E5BD6 35%, #FFC107 52%, #1E5BD6 70%, transparent 100%);
+  background-size: 200% 100%;
+  animation: ai-shimmer 1.5s linear infinite;
+}
+
+.ai-dot {
+  animation: ai-dot-wave 1.15s ease-in-out infinite;
+}
+
+.ai-welcome-glow {
+  background: radial-gradient(
+    circle at 50% 42%,
+    var(--ez-brand-tint-strong) 0%,
+    var(--ez-gold-tint) 38%,
+    transparent 72%
+  );
+}
+
+.ai-composer {
+  background-color: var(--ez-elevated);
+  border-color: var(--ez-border);
+  transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.ai-composer:focus-within {
+  background-color: var(--ez-card);
+  border-color: var(--ez-accent);
+  box-shadow: 0 0 0 4px rgba(30, 91, 214, 0.12);
+}
+
+:root:has(> head > meta[name="color-scheme"][content="dark"]) .ai-composer:focus-within,
+:root.dark .ai-composer:focus-within {
+  box-shadow: 0 0 0 4px rgba(96, 165, 250, 0.16);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-animate-fade-up,
+  .ai-animate-panel,
+  .ai-animate-float,
+  .ai-animate-pulse-ring,
+  .ai-shimmer-bar,
+  .ai-dot {
+    animation: none !important;
+    transition: none !important;
   }
 }
