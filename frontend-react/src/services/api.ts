@@ -48,7 +48,8 @@ apiClient.interceptors.request.use((config) => {
 apiClient.interceptors.response.use(
   (response) => {
     const method = response.config.method?.toLowerCase();
-    if (method && ['post', 'put', 'delete', 'patch'].includes(method)) {
+    const reqUrl = response.config.url || '';
+    if (method && ['post', 'put', 'delete', 'patch'].includes(method) && !reqUrl.includes('/data-export/')) {
       clearClientApiCache();
     }
     return response;
@@ -1530,4 +1531,100 @@ export const sendAiChatMessage = async (payload: {
   const res = await apiClient.post<AiChatResponse>('/ai/chat', payload);
   return res.data;
 };
+
+// ==============================================================================
+// QUERY & KẾT XUẤT DỮ LIỆU EXCEL (PROTECTED + EGRESS OPTIMIZED)
+// ==============================================================================
+
+export interface DataExportColumnMeta {
+  key: string;
+  label: string;
+  default: boolean;
+  db_field_count: number;
+}
+
+export interface DataExportOptions {
+  columns: DataExportColumnMeta[];
+  pages: string[];
+  zalo_pages: string[];
+  source_pages: string[];
+  employees: string[];
+  tags: string[];
+  max_export_rows: number;
+}
+
+export interface DataExportFilterPayload {
+  columns: string[];
+  channel_group: 'all' | 'zalo' | 'source';
+  pages: string[];
+  employees: string[];
+  employee_match_mode: 'any' | 'exact';
+  student_filter: 'all' | 'non_student' | 'student';
+  tags: string[];
+  phone_filter: 'all' | 'has_phone' | 'no_phone';
+  date_field: 'contacted_at' | 'first_created_at';
+  date_from?: string | null;
+  date_to?: string | null;
+  search?: string | null;
+  exclude_zalo_groups: boolean;
+  dedupe_phone: boolean;
+  sort_by: 'contacted_at' | 'first_created_at' | 'message_count' | 'name';
+  sort_dir: 'desc' | 'asc';
+}
+
+export interface DataExportPreviewPayload extends DataExportFilterPayload {
+  page: number;
+  page_size: number;
+}
+
+export interface DataExportPreviewResponse {
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+  columns: { key: string; label: string }[];
+  projected_db_fields: string[];
+  rows: Record<string, string | number>[];
+  query_ms: number;
+  cached: boolean;
+}
+
+export const fetchDataExportOptions = async (): Promise<DataExportOptions> => {
+  const res = await apiClient.get<DataExportOptions>('/data-export/options');
+  return res.data;
+};
+
+export const previewDataExport = async (payload: DataExportPreviewPayload): Promise<DataExportPreviewResponse> => {
+  const res = await apiClient.post<DataExportPreviewResponse>('/data-export/preview', payload);
+  return res.data;
+};
+
+export const downloadDataExportExcel = async (
+  payload: DataExportFilterPayload & { max_rows?: number; filename?: string }
+): Promise<{ filename: string; rowCount: number; projectedDbCols: number }> => {
+  const res = await apiClient.post('/data-export/export', payload, {
+    responseType: 'blob',
+  });
+
+  const contentDisposition = String(res.headers['content-disposition'] || '');
+  const match = contentDisposition.match(/filename="?([^"]+)"?/i);
+  const filename = match?.[1] || `EzTech_Query_Export_${new Date().toISOString().slice(0, 10)}.xlsx`;
+  const rowCount = Number(res.headers['x-export-row-count'] || 0);
+  const projectedDbCols = Number(res.headers['x-projected-db-columns'] || 0);
+
+  const blob = new Blob([res.data], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+
+  return { filename, rowCount, projectedDbCols };
+};
+
 

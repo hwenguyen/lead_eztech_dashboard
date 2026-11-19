@@ -56,6 +56,7 @@ from backend.tiktok_metrics import router as tiktok_router, clear_tiktok_cache
 from backend.work_report import router as work_report_router, clear_work_report_cache
 from backend.add_friend import router as add_friend_router, clear_add_friend_cache
 from backend.ai_rag import router as ai_rag_router, clear_ai_knowledge_cache
+from backend.data_export import router as data_export_router, clear_data_export_cache
 
 app = FastAPI(title="Pancake Lead Reporting API")
 app.include_router(auth_router)
@@ -66,6 +67,7 @@ app.include_router(facebook_router)
 app.include_router(tiktok_router)
 app.include_router(work_report_router)
 app.include_router(ai_rag_router)
+app.include_router(data_export_router)
 
 # Cấu hình CORS: Ưu tiên danh sách ALLOWED_ORIGINS từ biến môi trường
 allowed_origins_env = os.getenv("ALLOWED_ORIGINS", "").strip()
@@ -652,6 +654,7 @@ def clear_cache():
     clear_tiktok_cache()
     clear_work_report_cache()
     clear_add_friend_cache()
+    clear_data_export_cache()
     with _PAGES_LOCK:
         _PAGES_CACHE.clear()
     with _REMIND_LOCK:

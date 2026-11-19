@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { format, subDays } from 'date-fns';
-import { Users, UserPlus, UserCheck, PhoneCall, PhoneForwarded, Percent, Calendar, RefreshCw, LayoutDashboard, Clock, Award, Bot, LogOut, KeyRound, Lock, Menu, X, Sparkles, Facebook, FileSpreadsheet, Receipt, ExternalLink } from 'lucide-react';
+import { Users, UserPlus, UserCheck, PhoneCall, PhoneForwarded, Percent, Calendar, RefreshCw, LayoutDashboard, Clock, Award, Bot, LogOut, KeyRound, Lock, Menu, X, Sparkles, Facebook, FileSpreadsheet, Receipt, ExternalLink, Database } from 'lucide-react';
 import { KpiCard } from './components/KpiCard';
 import { TrendChart } from './components/TrendChart';
 import { LeadTable } from './components/LeadTable';
@@ -15,6 +15,7 @@ import { FacebookDashboard } from './components/FacebookDashboard';
 import { TikTokDashboard, TikTokIcon } from './components/TikTokDashboard';
 import { WorkReportDashboard } from './components/WorkReportDashboard';
 import { AiAssistantDashboard } from './components/AiAssistantDashboard';
+import { DataExportDashboard } from './components/DataExportDashboard';
 import { LoginPage } from './components/LoginPage';
 import { ChangePasswordModal } from './components/ChangePasswordModal';
 import { ThemeToggle } from './components/ThemeToggle';
@@ -43,7 +44,7 @@ function App() {
     }
   };
 
-  const [activeTab, setActiveTab] = useState<'overview' | 'facebook' | 'tiktok' | 'work_report' | 'remind' | 'deals' | 'bot' | 'add_friend' | 'gas_tool' | 'invoice' | 'ai_assistant'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'facebook' | 'tiktok' | 'work_report' | 'remind' | 'deals' | 'bot' | 'add_friend' | 'gas_tool' | 'invoice' | 'ai_assistant' | 'data_export'>('overview');
   const [startDate, setStartDate] = useState(format(subDays(new Date(), 7), 'yyyy-MM-dd'));
   const [endDate, setEndDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [pageId, setPageId] = useState('');
@@ -226,6 +227,7 @@ function App() {
     { id: 'gas_tool' as const, label: 'Nhập Deal & Công Nợ', icon: Sparkles },
     { id: 'invoice' as const, label: 'Xuất hoá đơn', icon: Receipt, url: INVOICE_SCRIPT_URL },
     { id: 'bot' as const, label: 'Bot Gửi Tin', icon: Bot },
+    { id: 'data_export' as const, label: 'Query & Xuất Excel', icon: Database },
     { id: 'add_friend' as const, label: 'Kết Bạn Tự Động', icon: UserPlus },
     { id: 'ai_assistant' as const, label: 'Trợ Lý AI', icon: Sparkles },
   ];
@@ -378,6 +380,7 @@ function App() {
                   {activeTab === 'remind' && 'Chăm sóc Lead (Remind)'}
                   {activeTab === 'deals' && 'Học viên Chốt (Deal Win)'}
                   {activeTab === 'bot' && 'Bot Gửi Tin Nhắn Tự Động'}
+                  {activeTab === 'data_export' && 'Query & Kết Xuất Dữ Liệu Excel'}
                   {activeTab === 'add_friend' && 'Kết Bạn Zalo Tự Động (Pancake)'}
                   {activeTab === 'gas_tool' && 'Nhập Deal & Quản lý Công Nợ'}
                   {activeTab === 'invoice' && 'Xuất Hoá Đơn Điện Tử'}
@@ -432,6 +435,20 @@ function App() {
               />
             ) : (
               <BulkMessengerDashboard />
+            )
+          ) : activeTab === 'data_export' ? (
+            !isAuthenticated ? (
+              <LoginPage
+                embedded={true}
+                title="Xác Thực Quyền Truy Xuất Dữ Liệu"
+                subtitle="Tính năng Query & Kết xuất Excel từ Database yêu cầu đăng nhập tài khoản quản trị để bảo mật dữ liệu khách hàng."
+                onLoginSuccess={(user) => {
+                  setCurrentUser(user);
+                  setIsAuthenticated(true);
+                }}
+              />
+            ) : (
+              <DataExportDashboard />
             )
           ) : activeTab === 'add_friend' ? (
             <AutoAddFriendDashboard />

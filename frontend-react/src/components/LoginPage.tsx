@@ -14,9 +14,11 @@ import { ThemeToggle } from './ThemeToggle';
 interface LoginPageProps {
   onLoginSuccess: (user: AuthUser) => void;
   embedded?: boolean;
+  title?: string;
+  subtitle?: string;
 }
 
-export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, embedded = false }) => {
+export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, embedded = false, title, subtitle }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(true);
@@ -78,12 +80,12 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, embedded =
               )}
             </div>
             <h1 className="text-2xl font-extrabold text-navy tracking-tight">
-              {embedded ? "Xác Thực Quyền Quản Trị Bot" : "EzTech Lead Dashboard"}
+              {title || (embedded ? "Xác Thực Quyền Quản Trị Bot" : "EzTech Lead Dashboard")}
             </h1>
             <p className="text-xs text-gray-500 max-w-xs mx-auto">
-              {embedded
+              {subtitle || (embedded
                 ? "Tính năng gửi tin hàng loạt Pancake API yêu cầu đăng nhập tài khoản quản trị để đảm bảo an toàn."
-                : "Hệ thống Báo cáo & Tự động hóa Pancake"}
+                : "Hệ thống Báo cáo & Tự động hóa Pancake")}
             </p>
           </div>
 
