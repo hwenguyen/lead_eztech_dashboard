@@ -1550,6 +1550,7 @@ export interface DataExportOptions {
   source_pages: string[];
   employees: string[];
   tags: string[];
+  tags_by_page?: Record<string, string[]>;
   max_export_rows: number;
 }
 

@@ -612,21 +612,47 @@ def get_data_export_options(db: Session = Depends(get_db)):
                 emp_set.add(u_clean)
     employees = ["Chưa phân công"] + sorted(emp_set)
 
-    # 3. Tags (DISTINCT không kéo conversation_id → chỉ vài KB egress)
+    # 3. Tags (DISTINCT theo page_id, không kéo conversation_id → chỉ vài KB egress)
     tag_rows = (
-        db.query(FactLeadActivity.status_tag)
+        db.query(DimLead.page_id, FactLeadActivity.status_tag)
+        .join(FactLeadActivity, DimLead.id == FactLeadActivity.lead_id)
         .filter(FactLeadActivity.status_tag.isnot(None), FactLeadActivity.status_tag != "")
         .distinct()
         .all()
     )
+    priority_tags = ["Remind", "Đào tạo", "Lead Other", "Đã add", "Đã là học viên", "Có thông tin", "Quan tâm sâu"]
+
+    def _sort_tags(t_set: Set[str]) -> List[str]:
+        return [pt for pt in priority_tags if pt in t_set] + sorted(t for t in t_set if t not in priority_tags)
+
     tag_set: Set[str] = set()
-    for (t_str,) in tag_rows:
+    zalo_tag_set: Set[str] = set()
+    source_tag_set: Set[str] = set()
+    tags_map: Dict[str, Set[str]] = defaultdict(set)
+
+    for raw_pg, t_str in tag_rows:
+        c_page = resolve_canonical_page_name(raw_pg, fallback=str(raw_pg or "").strip())
+        is_zalo = is_zalo_channel(raw_pg)
         for t in str(t_str or "").split(","):
             t_clean = t.strip()
-            if t_clean:
-                tag_set.add(t_clean)
-    priority_tags = ["Remind", "Đào tạo", "Lead Other", "Đã add", "Đã là học viên", "Có thông tin", "Quan tâm sâu"]
-    ordered_tags = [pt for pt in priority_tags if pt in tag_set] + sorted(t for t in tag_set if t not in priority_tags)
+            if not t_clean:
+                continue
+            tag_set.add(t_clean)
+            if is_zalo:
+                zalo_tag_set.add(t_clean)
+            else:
+                source_tag_set.add(t_clean)
+            if c_page:
+                tags_map[c_page].add(t_clean)
+
+    ordered_tags = _sort_tags(tag_set)
+    tags_by_page: Dict[str, List[str]] = {
+        "all": ordered_tags,
+        "all_zalo": _sort_tags(zalo_tag_set),
+        "all_source": _sort_tags(source_tag_set),
+    }
+    for pg in sorted_pages:
+        tags_by_page[pg] = _sort_tags(tags_map.get(pg, set()))
 
     result = {
         "columns": [
@@ -643,6 +669,7 @@ def get_data_export_options(db: Session = Depends(get_db)):
         "source_pages": source_pages,
         "employees": employees,
         "tags": ordered_tags,
+        "tags_by_page": tags_by_page,
         "max_export_rows": MAX_EXPORT_ROWS,
     }
 

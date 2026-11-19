@@ -238,8 +238,32 @@ export const DataExportDashboard: React.FC = () => {
 
   const tagOptions = useMemo(() => {
     const base = [{ value: 'no_tag', label: 'Chưa gắn tag' }];
-    return base.concat((options?.tags || []).map((t) => ({ value: t, label: t })));
-  }, [options]);
+    if (!options) return base;
+    const byPage = options.tags_by_page || {};
+    let list: string[];
+    if (selectedPages.length > 0) {
+      const union = new Set<string>();
+      selectedPages.forEach((pg) => {
+        (byPage[pg] || []).forEach((t) => union.add(t));
+      });
+      list = (options.tags || []).filter((t) => union.has(t));
+    } else if (channelGroup === 'zalo') {
+      list = byPage['all_zalo'] || options.tags || [];
+    } else if (channelGroup === 'source') {
+      list = byPage['all_source'] || options.tags || [];
+    } else {
+      list = options.tags || [];
+    }
+    return base.concat(list.map((t) => ({ value: t, label: t })));
+  }, [options, selectedPages, channelGroup]);
+
+  useEffect(() => {
+    const allowed = new Set(tagOptions.map((o) => o.value));
+    setSelectedTags((prev) => {
+      const next = prev.filter((t) => allowed.has(t));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [tagOptions]);
 
   const buildFilterPayload = (): DataExportFilterPayload => ({
     columns: selectedColumns,
