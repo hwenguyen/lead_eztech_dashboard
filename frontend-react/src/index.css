@@ -75,6 +75,12 @@
   --ez-scrollbar-thumb: #CBD5E1;
   --ez-scrollbar-thumb-hover: #94A3B8;
 
+  /* Unified Motion Tokens */
+  --ez-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ez-dur-fast: 180ms;
+  --ez-dur-base: 260ms;
+  --ez-dur-enter: 360ms;
+
   scrollbar-color: var(--ez-scrollbar-thumb) var(--ez-scrollbar-track);
 }
 
@@ -780,11 +786,11 @@
 }
 
 .ai-animate-fade-up {
-  animation: ai-fade-up 0.36s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: ai-fade-up var(--ez-dur-enter) var(--ez-ease-out) both;
 }
 
 .ai-animate-panel {
-  animation: ai-panel-in 0.26s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: ai-panel-in var(--ez-dur-base) var(--ez-ease-out) both;
 }
 
 .ai-animate-float {
@@ -831,14 +837,210 @@
   box-shadow: 0 0 0 4px rgba(96, 165, 250, 0.16);
 }
 
+/* ============================================================================
+ * EzTech Global System Motion Language (Page, Section, KPI, Modal & Toast)
+ * Uses animation-fill-mode: backwards so resting transform is always `none`
+ * (preserves position: fixed modals and position: sticky headers cleanly).
+ * ============================================================================ */
+@keyframes ez-page-fade {
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes ez-section-in {
+  0% {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes ez-title-in {
+  0% {
+    opacity: 0;
+    transform: translateX(-8px);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes ez-card-in {
+  0% {
+    opacity: 0;
+    transform: translateY(8px) scale(0.985);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes ez-panel-in {
+  0% {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes ez-backdrop-in {
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes ez-modal-in {
+  0% {
+    opacity: 0;
+    transform: translateY(12px) scale(0.97);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes ez-toast-in {
+  0% {
+    opacity: 0;
+    transform: translateY(12px) scale(0.96);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes ez-dot-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Page wrapper: smooth fade + automatic staggered entrance for top-level page blocks */
+.ez-page-stage {
+  animation: ez-page-fade 220ms ease-out backwards;
+}
+
+.ez-page-stage > :not(.fixed):not([class*="space-y-"]):not(.ez-kpi-grid),
+.ez-page-stage > [class*="space-y-"] > :not(.fixed):not(.ez-kpi-grid) {
+  animation: ez-section-in var(--ez-dur-enter) var(--ez-ease-out) backwards;
+}
+
+.ez-page-stage > :not(.fixed):nth-child(1),
+.ez-page-stage > [class*="space-y-"] > :not(.fixed):nth-child(1) {
+  animation-delay: 0ms;
+}
+.ez-page-stage > :not(.fixed):nth-child(2),
+.ez-page-stage > [class*="space-y-"] > :not(.fixed):nth-child(2) {
+  animation-delay: 45ms;
+}
+.ez-page-stage > :not(.fixed):nth-child(3),
+.ez-page-stage > [class*="space-y-"] > :not(.fixed):nth-child(3) {
+  animation-delay: 90ms;
+}
+.ez-page-stage > :not(.fixed):nth-child(4),
+.ez-page-stage > [class*="space-y-"] > :not(.fixed):nth-child(4) {
+  animation-delay: 135ms;
+}
+.ez-page-stage > :not(.fixed):nth-child(5),
+.ez-page-stage > [class*="space-y-"] > :not(.fixed):nth-child(5) {
+  animation-delay: 180ms;
+}
+.ez-page-stage > :not(.fixed):nth-child(n+6),
+.ez-page-stage > [class*="space-y-"] > :not(.fixed):nth-child(n+6) {
+  animation-delay: 220ms;
+}
+
+/* Header title, sub-tabs, active sidebar indicator, toast */
+.ez-title-in {
+  animation: ez-title-in 240ms var(--ez-ease-out) backwards;
+}
+
+.ez-tab-panel {
+  animation: ez-panel-in var(--ez-dur-base) var(--ez-ease-out) backwards !important;
+  animation-delay: 0ms !important;
+}
+
+.ez-nav-dot {
+  animation: ez-dot-pop 240ms var(--ez-ease-out) backwards;
+}
+
+.ez-toast-in {
+  animation: ez-toast-in 240ms var(--ez-ease-out) backwards;
+}
+
+/* KPI grids: cascading card entrance + subtle hover elevation */
+.ez-kpi-grid > * {
+  animation: ez-card-in 320ms var(--ez-ease-out) backwards;
+  transition: translate var(--ez-dur-fast) var(--ez-ease-out),
+              transform var(--ez-dur-fast) var(--ez-ease-out),
+              box-shadow var(--ez-dur-fast) ease,
+              border-color var(--ez-dur-fast) ease;
+}
+:where(.ez-kpi-grid > *):hover {
+  translate: 0 -2px;
+}
+.ez-kpi-grid > *:nth-child(1) { animation-delay: 20ms; }
+.ez-kpi-grid > *:nth-child(2) { animation-delay: 55ms; }
+.ez-kpi-grid > *:nth-child(3) { animation-delay: 90ms; }
+.ez-kpi-grid > *:nth-child(4) { animation-delay: 125ms; }
+.ez-kpi-grid > *:nth-child(5) { animation-delay: 160ms; }
+.ez-kpi-grid > *:nth-child(6) { animation-delay: 195ms; }
+.ez-kpi-grid > *:nth-child(n+7) { animation-delay: 220ms; }
+
+/* Unified Modal & Overlay transitions across all pages */
+.fixed.inset-0.z-50,
+.fixed.inset-0.z-30 {
+  animation: ez-backdrop-in var(--ez-dur-fast) ease-out backwards;
+}
+.fixed.inset-0.z-50 > div {
+  animation: ez-modal-in var(--ez-dur-base) var(--ez-ease-out) backwards;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .ai-animate-fade-up,
   .ai-animate-panel,
   .ai-animate-float,
   .ai-animate-pulse-ring,
   .ai-shimmer-bar,
-  .ai-dot {
+  .ai-dot,
+  .ez-page-stage,
+  .ez-page-stage > *,
+  .ez-page-stage > [class*="space-y-"] > *,
+  .ez-title-in,
+  .ez-tab-panel,
+  .ez-nav-dot,
+  .ez-toast-in,
+  .ez-kpi-grid > *,
+  .fixed.inset-0.z-50,
+  .fixed.inset-0.z-30,
+  .fixed.inset-0.z-50 > div {
     animation: none !important;
     transition: none !important;
+  }
+  :where(.ez-kpi-grid > *):hover {
+    translate: none !important;
+    transform: none !important;
   }
 }

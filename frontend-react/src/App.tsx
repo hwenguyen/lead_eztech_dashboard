@@ -287,7 +287,7 @@ function App() {
                   setActiveTab(item.id);
                   setIsSidebarOpen(false);
                 }}
-                className={`group relative w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs transition-all cursor-pointer ${
+                className={`group relative w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs transition-all duration-200 cursor-pointer active:scale-[0.985] ${
                   isActive
                     ? 'gradient-brand text-white font-semibold shadow-md shadow-brand-500/20'
                     : 'text-slate-600 font-medium hover:text-navy hover:bg-brand-50'
@@ -295,7 +295,7 @@ function App() {
               >
                 <div className="flex items-center gap-2.5">
                   <Icon
-                    className={`w-4 h-4 transition-colors ${
+                    className={`w-4 h-4 transition-all duration-200 group-hover:scale-105 ${
                       isActive ? 'text-gold-400' : 'text-slate-400 group-hover:text-brand-600'
                     }`}
                   />
@@ -304,7 +304,7 @@ function App() {
                 {'url' in item && item.url ? (
                   <ExternalLink className={`w-3.5 h-3.5 transition-colors ${isActive ? 'text-gold-400' : 'text-slate-400 group-hover:text-brand-600'}`} />
                 ) : (
-                  isActive && <div className="w-1.5 h-1.5 rounded-full bg-gold-400 shrink-0" />
+                  isActive && <div className="ez-nav-dot w-1.5 h-1.5 rounded-full bg-gold-400 shrink-0" />
                 )}
               </button>
             );
@@ -375,7 +375,7 @@ function App() {
                 <Menu className="w-5 h-5" />
               </button>
               <div className="flex items-baseline gap-2.5">
-                <h2 className="text-base sm:text-lg font-bold text-navy tracking-tight">
+                <h2 key={activeTab} className="ez-title-in text-base sm:text-lg font-bold text-navy tracking-tight">
                   {activeTab === 'overview' && 'Tổng quan & Chỉ số'}
                   {activeTab === 'facebook' && 'Facebook Analytics'}
                   {activeTab === 'tiktok' && 'TikTok Analytics'}
@@ -407,7 +407,7 @@ function App() {
               <button
                 onClick={handleRefresh}
                 disabled={loading}
-                className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold bg-white hover:bg-brand-50 rounded-xl transition-all border border-slate-200/90 hover:border-brand-300 text-navy hover:text-brand-600 shadow-xs disabled:opacity-50 cursor-pointer"
+                className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold bg-white hover:bg-brand-50 rounded-xl transition-all border border-slate-200/90 hover:border-brand-300 text-navy hover:text-brand-600 shadow-xs disabled:opacity-50 cursor-pointer active:scale-[0.97]"
               >
                 <RefreshCw className={`w-3.5 h-3.5 text-brand-500 ${loading ? 'animate-spin' : ''}`} />
                 <span>Làm mới</span>
@@ -417,7 +417,8 @@ function App() {
         </header>
 
         {/* Content Body */}
-        <main className="flex-1 px-4 sm:px-6 lg:px-8 py-5 space-y-4 max-w-[1440px] w-full mx-auto">
+        <main className="flex-1 px-4 sm:px-6 lg:px-8 py-5 max-w-[1440px] w-full mx-auto">
+          <div key={activeTab} className="ez-page-stage space-y-4">
           {activeTab === 'facebook' ? (
             <FacebookDashboard />
           ) : activeTab === 'tiktok' ? (
@@ -558,7 +559,7 @@ function App() {
               </div>
 
               {(hasCrossFilter || (loading && !!summary)) && (
-                <div className="bg-white rounded-xl border border-eztech-border/80 shadow-card px-4 py-2.5 flex flex-wrap items-center justify-between gap-2">
+                <div className="ez-tab-panel bg-white rounded-xl border border-eztech-border/80 shadow-card px-4 py-2.5 flex flex-wrap items-center justify-between gap-2">
                   <div className="flex flex-wrap items-center gap-2 text-xs">
                     <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mr-1">
                       Đang lọc tương tác:
@@ -645,7 +646,7 @@ function App() {
               ) : (
                 <>
                   {/* KPIs - 6 cards: Unified EzTech Navy/Blue for Leads & EzTech Gold for Phone Conversions */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3.5">
+                  <div className="ez-kpi-grid grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3.5">
                     <KpiCard
                       title="Tổng Lead"
                       value={totalLeadsCount.toLocaleString()}
@@ -858,6 +859,7 @@ function App() {
               )}
             </>
           )}
+          </div>
         </main>
       </div>
 

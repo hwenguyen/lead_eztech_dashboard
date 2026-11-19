@@ -133,7 +133,7 @@ export function RemindLeadTable({ pagesList, zaloPages }: RemindLeadTableProps) 
   return (
     <div className="space-y-4">
       {/* Cards thống kê nhanh Remind */}
-      <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
+      <div className="ez-kpi-grid grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
         <div
           onClick={() => handleFilterChange(setDaysBucket, 'all')}
           className={`cursor-pointer bg-white p-4 rounded-xl border transition-all shadow-card hover:shadow-card-hover ${

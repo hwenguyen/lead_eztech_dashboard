@@ -854,7 +854,7 @@ export const BulkMessengerDashboard: React.FC = () => {
       {/* SUB-TAB 1: THIẾT LẬP SETTINGS, BỘ LỌC & SOẠN TIN NHẮN */}
       {/* ========================================================================= */}
       {subTab === 'compose' && (
-        <div className="space-y-6">
+        <div className="ez-tab-panel space-y-6">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
             {/* CỘT TRÁI: BỘ LỌC CHI TIẾT & CHỐNG RATE LIMIT ZALO (7 Cột) */}
             <div className="lg:col-span-7 space-y-5">
@@ -2001,7 +2001,7 @@ export const BulkMessengerDashboard: React.FC = () => {
       {/* SUB-TAB 2: LỊCH SỬ TỪNG LẦN CHẠY BOT */}
       {/* ========================================================================= */}
       {subTab === 'history' && (
-        <div className="space-y-6">
+        <div className="ez-tab-panel space-y-6">
           {/* BẢNG 1: TỔNG HỢP CÁC CHIẾN DỊCH ĐÃ CHẠY */}
           <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 shadow-sm space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">

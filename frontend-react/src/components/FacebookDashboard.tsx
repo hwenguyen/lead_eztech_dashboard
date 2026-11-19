@@ -241,7 +241,7 @@ export function FacebookDashboard() {
   const organicPhonePct = totalChannelPhones > 0 ? Math.max(0, 100 - adsPhonePct - postPhonePct) : 0;
 
   return (
-    <div className="space-y-5 animate-in fade-in duration-300">
+    <div className="space-y-5">
       {/* 1. Header & Bộ lọc thiết kế chuẩn mực */}
       <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs overflow-hidden">
         {/* Top Header: Tiêu đề & Thời gian cập nhật */}
@@ -385,7 +385,7 @@ export function FacebookDashboard() {
       )}
 
       {/* 2. Hàng 5 Thẻ KPI Tóm tắt Toàn kênh */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3.5">
+      <div className="ez-kpi-grid grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3.5">
         {/* Card 1: Bài viết xuất bản */}
         <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-card hover:shadow-card-hover transition-all">
           <div className="flex items-center justify-between text-slate-500 mb-2">

@@ -1014,7 +1014,7 @@ export function AppScriptTool() {
   return (
     <div className="space-y-4">
       {copyToast && (
-        <div className="fixed bottom-5 right-5 z-[60] px-4 py-2.5 bg-slate-900 text-white text-xs font-semibold rounded-lg shadow-lg border border-slate-700">
+        <div className="ez-toast-in fixed bottom-5 right-5 z-[60] px-4 py-2.5 bg-slate-900 text-white text-xs font-semibold rounded-lg shadow-lg border border-slate-700">
           {copyToast}
         </div>
       )}
@@ -1132,7 +1132,7 @@ export function AppScriptTool() {
       </div>
 
       {/* 2. KPI Summary Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+      <div className="ez-kpi-grid grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
         <div className="bg-white rounded-xl border border-slate-200/80 shadow-card p-3.5">
           <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Tổng Doanh Thu</p>
           <p className="text-lg font-bold font-mono text-navy mt-1 tabular-nums">
@@ -1176,7 +1176,7 @@ export function AppScriptTool() {
 
       {/* 3. Nội dung từng Sub-tab */}
       {subTab === 'deals' && (
-        <div className="space-y-3">
+        <div className="ez-tab-panel space-y-3">
           {/* Thanh lọc nhanh trạng thái điền thông tin */}
           <div className="bg-white rounded-xl border border-slate-200/80 shadow-card p-3 space-y-2.5">
             <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-slate-100">
@@ -1678,7 +1678,7 @@ export function AppScriptTool() {
 
       {/* TAB 2: SỔ CÔNG NỢ (CongNo) */}
       {subTab === 'debts' && (
-        <div className="bg-white rounded-xl border border-slate-200/80 shadow-card overflow-hidden">
+        <div className="ez-tab-panel bg-white rounded-xl border border-slate-200/80 shadow-card overflow-hidden">
           <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
             <div>
               <h3 className="text-xs font-bold text-navy uppercase tracking-wider">
@@ -1770,7 +1770,7 @@ export function AppScriptTool() {
 
       {/* TAB 3: QUẢN LÝ DANH MỤC (DanhMuc) */}
       {subTab === 'lists' && (
-        <div className="space-y-4">
+        <div className="ez-tab-panel space-y-4">
           <div className="bg-white rounded-xl border border-slate-200/80 shadow-card p-4 flex items-center justify-between">
             <div>
               <h3 className="text-xs font-bold text-navy uppercase tracking-wider">
@@ -1873,7 +1873,7 @@ export function AppScriptTool() {
 
       {/* TAB 4: NHẬT KÝ HỆ THỐNG (Log) */}
       {subTab === 'logs' && (
-        <div className="bg-white rounded-xl border border-slate-200/80 shadow-card overflow-hidden">
+        <div className="ez-tab-panel bg-white rounded-xl border border-slate-200/80 shadow-card overflow-hidden">
           <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
             <h3 className="text-xs font-bold text-navy uppercase tracking-wider">
               Nhật Ký Thao Tác Hệ Thống (50 hoạt động gần nhất)

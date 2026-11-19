@@ -99,7 +99,7 @@ export function KpiCard({ title, value, subtitle, icon, color = 'blue', trend, h
         highlight
           ? "border-gold-400/80 bg-gradient-to-b from-white to-gold-50/40 dark:from-slate-900 dark:to-amber-950/30 shadow-xs"
           : "border-slate-200/80 hover:border-brand-400/50",
-        onClick && "cursor-pointer select-none",
+        onClick && "cursor-pointer select-none active:scale-[0.985]",
         activeRing
       )}
     >
