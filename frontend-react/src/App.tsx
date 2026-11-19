@@ -739,9 +739,6 @@ function App() {
                     />
                   </div>
 
-                  {/* AI Đánh giá Hiệu suất & Insight hằng ngày */}
-                  <AiDailyReviewCard />
-
                   {/* Charts row */}
                   <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
                     <div className="lg:col-span-3">
@@ -845,6 +842,9 @@ function App() {
                       }}
                     />
                   </div>
+
+                  {/* AI Đánh giá Hiệu suất & Insight hằng ngày */}
+                  <AiDailyReviewCard />
 
                   {/* Table */}
                   <LeadTable
