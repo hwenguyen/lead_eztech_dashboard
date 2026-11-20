@@ -14,3 +14,10 @@ venv/
 node_modules/
 dist/
 .neon
+
+# Sensitive & Session Data
+pancake_state.json
+
+# Temporary export files
+*.xlsx
+*.csv
