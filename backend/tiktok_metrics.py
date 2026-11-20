@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any, Set
 from collections import Counter
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.orm import Session, defer
 from sqlalchemy import or_, desc, func
 
@@ -19,6 +19,7 @@ from database.db import get_db
 from database.models import Post, Comment, DealWin, FactLeadActivity
 from backend.lead_metrics import classify_leads, resolve_period
 from etl.utils import (
+    VN_TZ,
     resolve_canonical_page_name,
     build_post_url,
     normalize_phone,
@@ -56,22 +57,12 @@ def get_tiktok_pages(db: Session = Depends(get_db)):
     return {"pages": TIKTOK_KNOWN_PAGES}
 
 
-@router.get("/metrics")
-def get_tiktok_metrics(
-    start_date: Optional[datetime] = None,
-    end_date: Optional[datetime] = None,
-    page_id: Optional[str] = None,
-    db: Session = Depends(get_db),
+def _compute_tiktok_metrics(
+    start_date: Optional[datetime],
+    end_date: Optional[datetime],
+    page_id: Optional[str],
+    db: Session,
 ):
-    """
-    API tổng hợp toàn diện chỉ số TikTok:
-    - Video đăng tải, lượt tim, lượt chia sẻ
-    - Bình luận (Comments) & SĐT thu được từ bình luận
-    - Lead TikTok (Lead Mới vs Lead Contact Lại, SĐT thu được)
-    - Học viên chốt (Deal Win từ TikTok)
-    - Phân tích Nguồn Lead: Video (Post) vs Tự nhiên (Organic Inbox)
-    - Danh sách Top Video TikTok hiệu quả nhất
-    """
     start, end = resolve_period(start_date, end_date)
     start_str = start.strftime("%Y-%m-%d %H:%M:%S")
     end_str = end.strftime("%Y-%m-%d %H:%M:%S")
@@ -469,3 +460,32 @@ def get_tiktok_metrics(
         _TT_CACHE[cache_key] = (now_ts, result)
 
     return result
+
+
+@router.get("/metrics")
+def get_tiktok_metrics(
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None,
+    page_id: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    """
+    API tổng hợp toàn diện chỉ số TikTok:
+    - Video đăng tải, lượt tim, lượt chia sẻ
+    - Bình luận (Comments) & SĐT thu được từ bình luận
+    - Lead TikTok (Lead Mới vs Lead Contact Lại, SĐT thu được)
+    - Học viên chốt (Deal Win từ TikTok)
+    - Phân tích Nguồn Lead: Video (Post) vs Tự nhiên (Organic Inbox)
+    - Danh sách Top Video TikTok hiệu quả nhất
+    """
+    try:
+        return _compute_tiktok_metrics(start_date, end_date, page_id, db)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error in get_tiktok_metrics: %s", e)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Lỗi khi xử lý dữ liệu TikTok: {type(e).__name__}: {str(e)}",
+        )
+
