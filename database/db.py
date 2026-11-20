@@ -22,8 +22,8 @@ engine = create_engine(
     DATABASE_URL,
     connect_args=connect_args,
     pool_pre_ping=True,   # Kiểm tra kết nối trước khi dùng
-    pool_recycle=1800,    # Tái tạo kết nối sau 30 phút (tránh TLS handshake & setup egress liên tục)
-    pool_size=5,
+    pool_recycle=300,     # Tái tạo kết nối sau 5 phút (cho phép Neon scale-to-zero khi không dùng)
+    pool_size=2,          # Giữ tối đa 2 kết nối thường trực để Neon dễ dàng ngủ
     max_overflow=10,
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

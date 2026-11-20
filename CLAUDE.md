@@ -21,6 +21,11 @@ FastAPI backend (`backend/`) + React frontend (`frontend-react/`) trên Render (
 
 ## Session
 
+### 2026-11-20 — Tối ưu Compute Unit Neon (Hạn mức 100 CU-hours)
+- Khóa cứng trần `autoscaling_limit_max_cu` ở mức `0.25 CU` trên Neon compute endpoint `ep-bold-lab-a17hdday` (project `muddy-term-83260316`).
+- Cấu hình `database/db.py`: hạ `pool_size=2` và `pool_recycle=300` để FastAPI giải phóng kết nối ngầm sau 5 phút không có request, cho phép Neon tự động ngủ (Scale-to-zero).
+- Đã test thực tế: Cold wake up chỉ mất 1.46s, sau đó truy vấn mượt mà ~0.77s.
+
 ### 2026-11-16 — Gửi ảnh hàng loạt trong Bot Gửi Tin Nhắn Hàng Loạt
 - **Pancake Client (`etl/pancake_client.py`)**: Bổ sung `upload_content()` (`POST /pages/{page_id}/upload_contents`) kèm retry/refresh token và tách helper `_post_page_endpoint()`; sửa `send_message()` để **bỏ trường `message` khi có `content_ids`** (tuân thủ quy tắc mutually exclusive trong `PancakeAPIDoc.yaml`).
 - **Backend (`backend/broadcast.py`)**: Hỗ trợ `images: List[BroadcastImagePayload]` (tối đa 10 ảnh, ≤ 5MB/ảnh) và `send_mode` (`text_then_images`, `images_then_text`, `images_only`). Cache `content_id` theo từng `api_page_id`, tự re-upload 1 lần khi gặp `invalid_upload_fb_attachments_result`, và chia chunk theo giới hạn nền tảng (30/call cho Facebook & Zalo cá nhân, 1/call cho các kênh khác).
