@@ -958,6 +958,10 @@ export interface FacebookSummaryData {
 
 export interface FacebookAdItem {
   ad_id: string;
+  ad_name?: string;
+  campaign_id?: string;
+  campaign_name?: string;
+  image_url?: string;
   post_id?: string | null;
   post_url?: string | null;
   post_message?: string;

@@ -17,7 +17,7 @@ from database.db import SessionLocal
 from database.models import RawConversation, FactLeadActivity, DimLead, Post
 from database.schema import ensure_schema
 from etl.pancake_client import PancakeClient
-from etl.utils import resolve_canonical_page_name, build_post_url
+from etl.utils import resolve_canonical_page_name, build_post_url, extract_ad_info
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
@@ -63,19 +63,7 @@ def sync_ads_for_page(client: PancakeClient, page_id: str, max_convs: int = 2000
                 c_ads = c.get("ads") or []
                 c_ad_ids = c.get("ad_ids") or []
                 if c_ads or c_ad_ids:
-                    # Lấy ad_id và post_id
-                    ad_id = None
-                    ad_post_id = None
-                    for ad in c_ads:
-                        if isinstance(ad, dict):
-                            if ad.get("ad_id"):
-                                ad_id = str(ad["ad_id"]).strip()
-                            if ad.get("post_id"):
-                                ad_post_id = str(ad["post_id"]).strip()
-                            if ad_id:
-                                break
-                    if not ad_id and c_ad_ids:
-                        ad_id = str(c_ad_ids[0]).strip()
+                    ad_id, ad_post_id = extract_ad_info(c)
                     
                     all_ads_convs.append({
                         "id": str(c.get("id")),

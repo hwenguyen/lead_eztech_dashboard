@@ -279,9 +279,14 @@ def classify_leads(
                     continue
 
             agg = leads.get(lid)
-            p_id = dim_post_id or fact_post_id
-            p_url = dim_post_url or fact_post_url
-            c_ad_id = dim_ad_id or fact_ad_id
+            p_id = fact_post_id or dim_post_id
+            p_url = fact_post_url or dim_post_url
+            merged_aids = []
+            for raw_aid in (fact_ad_id, dim_ad_id):
+                for a in split_csv(raw_aid):
+                    if a not in merged_aids:
+                        merged_aids.append(a)
+            c_ad_id = ", ".join(merged_aids) if merged_aids else None
             if agg is None:
                 created_at = _strip_tz(first_created_at)
                 canonical_pg = resolve_canonical_page_name(pg_id, fallback=pg_id)
@@ -304,8 +309,12 @@ def classify_leads(
                     agg.post_id = p_id
                 if p_url and not agg.post_url:
                     agg.post_url = p_url
-                if c_ad_id and not agg.ad_id:
-                    agg.ad_id = c_ad_id
+                if c_ad_id:
+                    cur_aids = split_csv(agg.ad_id)
+                    for a in split_csv(c_ad_id):
+                        if a not in cur_aids:
+                            cur_aids.append(a)
+                    agg.ad_id = ", ".join(cur_aids) if cur_aids else None
 
             agg.conversation_ids.append(conversation_id)
             agg.employees.update(emps)

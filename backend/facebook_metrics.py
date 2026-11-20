@@ -4,6 +4,7 @@ Tổng hợp dữ liệu từ Bài viết (posts), Bình luận (comments), Khá
 Hành vi liên hệ (fact_lead_activities) và Học viên chốt (deal_wins) thuộc các kênh Facebook.
 """
 
+import json
 import time
 import threading
 import logging
@@ -17,8 +18,8 @@ from sqlalchemy.orm import Session, defer
 from sqlalchemy import func, or_, desc
 
 from database.db import get_db
-from database.models import Post, Comment, DimLead, FactLeadActivity, DealWin
-from backend.lead_metrics import classify_leads, resolve_period, normalize_text
+from database.models import Post, Comment, DimLead, FactLeadActivity, DealWin, AppConfig
+from backend.lead_metrics import classify_leads, resolve_period, normalize_text, split_csv
 from etl.utils import (
     VN_TZ,
     KNOWN_PAGE_NAMES,
@@ -36,7 +37,73 @@ router = APIRouter(prefix="/api/facebook", tags=["Facebook Analytics"])
 _FB_CACHE_LOCK = threading.RLock()
 _FB_CACHE: Dict[Tuple[str, str, Optional[str]], Tuple[float, Dict[str, Any]]] = {}
 _FB_PAGES_CACHE: Tuple[float, Any] = (0.0, None)
+_ADS_META_CACHE: Dict[str, Dict[str, str]] = {}
 FB_CACHE_TTL = 1800
+
+
+def _resolve_ads_metadata(db: Session, ad_ids: Set[str]) -> Dict[str, Dict[str, str]]:
+    """Tra cứu tên Chiến dịch (campaign_name) và tên Mẫu Ads (name) từ AppConfig hoặc Pancake API."""
+    global _ADS_META_CACHE
+    if not ad_ids:
+        return {}
+
+    with _FB_CACHE_LOCK:
+        if not _ADS_META_CACHE:
+            try:
+                cfg = db.query(AppConfig).filter_by(config_key="FACEBOOK_ADS_METADATA").first()
+                if cfg and cfg.config_value:
+                    loaded = json.loads(cfg.config_value)
+                    if isinstance(loaded, dict):
+                        _ADS_META_CACHE.update(loaded)
+            except Exception as e:
+                logger.warning("Không thể đọc FACEBOOK_ADS_METADATA từ DB: %s", e)
+
+        missing = [aid for aid in ad_ids if aid and aid not in _ADS_META_CACHE]
+
+    if missing:
+        try:
+            from etl.pancake_client import PancakeClient
+            client = PancakeClient()
+            ptoken, pid, _ = client._get_page_access_token("514400205095512")
+            if ptoken and pid:
+                newly_fetched = {}
+                for i in range(0, len(missing), 20):
+                    chunk = missing[i:i + 20]
+                    url = f"https://pages.fm/api/public_api/v1/pages/{pid}/ads"
+                    resp = client.session.get(
+                        url,
+                        params={"page_access_token": ptoken, "ad_ids": ",".join(chunk)},
+                        timeout=6,
+                    )
+                    if resp.status_code == 200:
+                        for item in resp.json().get("data", []):
+                            if isinstance(item, dict) and item.get("id"):
+                                k = str(item["id"]).strip()
+                                newly_fetched[k] = {
+                                    "ad_id": k,
+                                    "name": item.get("name") or "",
+                                    "campaign_id": str(item.get("campaign_id") or ""),
+                                    "campaign_name": item.get("campaign_name") or "",
+                                    "image_url": item.get("image_url") or "",
+                                }
+                with _FB_CACHE_LOCK:
+                    for k in missing:
+                        _ADS_META_CACHE[k] = newly_fetched.get(k, {"ad_id": k, "name": "", "campaign_id": "", "campaign_name": ""})
+                    if newly_fetched:
+                        try:
+                            cfg = db.query(AppConfig).filter_by(config_key="FACEBOOK_ADS_METADATA").first()
+                            if cfg:
+                                cfg.config_value = json.dumps(_ADS_META_CACHE, ensure_ascii=False)
+                            else:
+                                db.add(AppConfig(config_key="FACEBOOK_ADS_METADATA", config_value=json.dumps(_ADS_META_CACHE, ensure_ascii=False)))
+                            db.commit()
+                        except Exception:
+                            db.rollback()
+        except Exception as e:
+            logger.warning("Không thể đồng bộ thêm metadata Ads từ Pancake API: %s", e)
+
+    with _FB_CACHE_LOCK:
+        return {aid: _ADS_META_CACHE.get(aid, {}) for aid in ad_ids}
 
 
 def clear_facebook_cache():
@@ -353,32 +420,54 @@ def get_facebook_metrics(
     for cset in post_leads_set.values():
         post_lead_ids.update(cset)
 
-    # Nhóm theo Ads
+    # Nhóm theo Ads (Khách bấm nhiều Ads thì tính đầy đủ cho từng mẫu Ads)
     ad_leads_map: Dict[str, Set[str]] = {}
     ad_phones_map: Dict[str, Set[str]] = {}
-    ad_post_map: Dict[str, str] = {}
+    ad_all_phones_map: Dict[str, Set[str]] = {}
+    ad_post_counter: Dict[str, Counter] = {}
 
     for l_id, l in leads.items():
         if l.ad_id:
-            aid = str(l.ad_id).strip()
-            if aid not in ad_leads_map:
-                ad_leads_map[aid] = set()
-                ad_phones_map[aid] = set()
-            ad_leads_map[aid].add(str(l_id))
-            if l.has_phone and l.phone_event_at and l.phone_number:
-                p_norm = normalize_phone(l.phone_number) or l.phone_number.strip()
-                ad_phones_map[aid].add(p_norm)
-            if l.post_id and aid not in ad_post_map:
-                ad_post_map[aid] = str(l.post_id).strip()
+            p_norm = (normalize_phone(l.phone_number) or l.phone_number.strip()) if l.phone_number else None
+            has_period_phone = bool(l.has_phone and l.phone_event_at and p_norm)
+            for aid in split_csv(l.ad_id):
+                if aid not in ad_leads_map:
+                    ad_leads_map[aid] = set()
+                    ad_phones_map[aid] = set()
+                    ad_all_phones_map[aid] = set()
+                    ad_post_counter[aid] = Counter()
+                ad_leads_map[aid].add(str(l_id))
+                if p_norm:
+                    ad_all_phones_map[aid].add(p_norm)
+                if has_period_phone and p_norm:
+                    ad_phones_map[aid].add(p_norm)
+                if l.post_id:
+                    ad_post_counter[aid][str(l.post_id).strip()] += 1
 
-    # Khớp Deal Win cho từng Ad
+    # Khớp Deal Win cho từng Ad (bao gồm cả khách cho SĐT ở kỳ trước và chốt trong kỳ này)
+    deal_norm_list = []
+    for (d_phone,) in deals:
+        if d_phone:
+            dp = normalize_phone(d_phone) or d_phone.strip()
+            if dp:
+                deal_norm_list.append(dp)
+
+    if deal_norm_list and ad_all_phones_map:
+        unique_deal_phones = list(set(deal_norm_list))
+        for row_ph, row_ad in db.query(DimLead.phone_number, DimLead.ad_id).filter(
+            DimLead.phone_number.in_(unique_deal_phones),
+            DimLead.ad_id.isnot(None),
+        ).all():
+            p_clean = normalize_phone(row_ph) or row_ph.strip()
+            for aid in split_csv(row_ad):
+                if aid in ad_all_phones_map:
+                    ad_all_phones_map[aid].add(p_clean)
+
     ad_deals_map: Dict[str, int] = Counter()
-    for d in deals:
-        if d.phone_number:
-            dp = normalize_phone(d.phone_number) or d.phone_number.strip()
-            for aid, pset in ad_phones_map.items():
-                if dp in pset:
-                    ad_deals_map[aid] += 1
+    for dp in deal_norm_list:
+        for aid, pset in ad_all_phones_map.items():
+            if dp in pset:
+                ad_deals_map[aid] += 1
 
     # Tính tổng số liệu 3 nguồn
     all_ads_lead_ids = set()
@@ -519,8 +608,32 @@ def get_facebook_metrics(
             "deal_count": deals_c,
         })
 
-    # 8.2 Danh sách Top Mẫu Ads hiệu quả
+    # 8.2 Danh sách Top Mẫu Ads hiệu quả (Lấy bài viết từ toàn bộ DB và đồng bộ Tên Chiến dịch từ Pancake)
     post_by_id_map = {p.post_id: p for p in posts}
+    all_candidate_pids = set()
+    for cnt in ad_post_counter.values():
+        all_candidate_pids.update(cnt.keys())
+    missing_pids = [pid for pid in all_candidate_pids if pid and pid not in post_by_id_map]
+    if missing_pids:
+        extra_posts = db.query(Post).options(defer(Post.payload)).filter(Post.post_id.in_(missing_pids)).all()
+        for ep in extra_posts:
+            post_by_id_map[ep.post_id] = ep
+
+    ad_post_map: Dict[str, str] = {}
+    for aid, cnt in ad_post_counter.items():
+        if not cnt:
+            continue
+        best_pid = max(
+            cnt.keys(),
+            key=lambda k: (
+                1 if (post_by_id_map.get(k) and (post_by_id_map[k].message or "").strip()) else 0,
+                cnt[k],
+            ),
+        )
+        ad_post_map[aid] = best_pid
+
+    ads_meta = _resolve_ads_metadata(db, set(ad_leads_map.keys()))
+
     top_ads_data = []
     for aid, lset in ad_leads_map.items():
         c_leads = len(lset)
@@ -531,8 +644,13 @@ def get_facebook_metrics(
         post_obj = post_by_id_map.get(pid) if pid else None
         p_msg = post_obj.message if post_obj and post_obj.message else ""
         p_url = post_obj.post_url if post_obj and post_obj.post_url else (build_post_url(pid, target_page_id) if pid else None)
+        meta = ads_meta.get(aid, {})
         top_ads_data.append({
             "ad_id": aid,
+            "ad_name": meta.get("name") or "",
+            "campaign_id": meta.get("campaign_id") or "",
+            "campaign_name": meta.get("campaign_name") or "",
+            "image_url": meta.get("image_url") or "",
             "post_id": pid,
             "post_url": p_url,
             "post_message": p_msg,

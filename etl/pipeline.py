@@ -153,13 +153,17 @@ def upsert_lead_data(db: Session, raw_data: dict, page_id: str, commit: bool = T
             # Lead Mới tính theo hội thoại SỚM NHẤT của khách
             if conv_inserted and (not lead.first_created_at or conv_inserted < lead.first_created_at):
                 lead.first_created_at = conv_inserted
-            # Cập nhật post_id / post_url nếu lead chưa có
-            if post_id and not lead.post_id:
+            # Cập nhật post_id / post_url và gộp danh sách ad_id nếu khách bấm thêm mẫu Ads mới
+            if post_id and (not lead.post_id or ad_post_id):
                 lead.post_id = post_id
-            if post_url and not lead.post_url:
+            if post_url and (not lead.post_url or ad_post_id):
                 lead.post_url = post_url
-            if ad_id and not lead.ad_id:
-                lead.ad_id = ad_id
+            if ad_id:
+                existing_aids = [x.strip() for x in (lead.ad_id or "").split(",") if x.strip()]
+                for new_a in [x.strip() for x in ad_id.split(",") if x.strip()]:
+                    if new_a not in existing_aids:
+                        existing_aids.append(new_a)
+                lead.ad_id = ", ".join(existing_aids)
             if prefetched is None:
                 db.flush()
 
@@ -222,19 +226,21 @@ def upsert_lead_data(db: Session, raw_data: dict, page_id: str, commit: bool = T
             activity.status_tag = status_tag
             activity.assigned_users = assigned_users
             activity.message_count = msg_count
-            if post_id and not activity.post_id:
+            if post_id and (not activity.post_id or ad_post_id):
                 activity.post_id = post_id
                 activity.post_url = post_url
-            if ad_id and not activity.ad_id:
-                activity.ad_id = ad_id
+            if ad_id:
+                existing_act_aids = [x.strip() for x in (activity.ad_id or "").split(",") if x.strip()]
+                for new_a in [x.strip() for x in ad_id.split(",") if x.strip()]:
+                    if new_a not in existing_act_aids:
+                        existing_act_aids.append(new_a)
+                activity.ad_id = ", ".join(existing_act_aids)
             activity.is_contacted = is_contacted
             activity.contacted_dates = contacted_dates_str
             if tag_timeline:
                 activity.tag_timeline = tag_timeline
             if contacted_at:
                 activity.contacted_at = contacted_at
-            if post_id and not activity.post_id:
-                activity.post_id = post_id
             if post_url and not activity.post_url:
                 activity.post_url = post_url
 

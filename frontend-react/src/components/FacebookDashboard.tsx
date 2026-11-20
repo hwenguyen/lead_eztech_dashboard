@@ -180,6 +180,8 @@ export function FacebookDashboard() {
       const q = searchAd.toLowerCase().trim();
       list = list.filter(a =>
         a.ad_id.toLowerCase().includes(q) ||
+        (a.campaign_name && a.campaign_name.toLowerCase().includes(q)) ||
+        (a.ad_name && a.ad_name.toLowerCase().includes(q)) ||
         (a.post_id && a.post_id.toLowerCase().includes(q)) ||
         (a.post_message && a.post_message.toLowerCase().includes(q))
       );
@@ -987,7 +989,7 @@ export function FacebookDashboard() {
               <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
               <input
                 type="text"
-                placeholder="Tìm mã Ad ID / bài viết..."
+                placeholder="Tìm chiến dịch / Ad ID / bài viết..."
                 value={searchAd}
                 onChange={e => setSearchAd(e.target.value)}
                 className="pl-8 pr-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs text-navy placeholder:text-slate-400 focus:outline-hidden focus:ring-1 focus:ring-purple-500 w-52 sm:w-64"
@@ -1000,7 +1002,7 @@ export function FacebookDashboard() {
           <table className="w-full text-xs text-left">
             <thead>
               <tr className="bg-slate-50/70 border-b border-slate-100 text-slate-500 font-semibold text-[11px] uppercase tracking-wider">
-                <th className="py-3 px-4">Mã Quảng cáo (Ad ID)</th>
+                <th className="py-3 px-4">Chiến dịch / Mã Quảng cáo (Ad ID)</th>
                 <th className="py-3 px-4">Bài viết / Creative đính kèm</th>
                 <th className="py-3 px-4 text-right">Lead từ Ads</th>
                 <th className="py-3 px-4 text-right">SĐT thu được</th>
@@ -1019,11 +1021,23 @@ export function FacebookDashboard() {
               ) : (
                 filteredAds.slice(0, adLimit).map(ad => (
                   <tr key={ad.ad_id} className="hover:bg-purple-50/30 transition-colors">
-                    <td className="py-3 px-4 font-mono font-semibold text-purple-700">
-                      <div className="flex items-center gap-1.5">
-                        <span className="bg-purple-50 border border-purple-200 px-2 py-0.5 rounded text-[11px]">
-                          {ad.ad_id}
-                        </span>
+                    <td className="py-3 px-4 max-w-[260px]">
+                      <div className="flex flex-col gap-1">
+                        {ad.campaign_name && (
+                          <span className="font-semibold text-navy text-xs truncate" title={ad.campaign_name}>
+                            {ad.campaign_name}
+                          </span>
+                        )}
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="font-mono font-semibold text-purple-700 bg-purple-50 border border-purple-200 px-2 py-0.5 rounded text-[11px]">
+                            {ad.ad_id}
+                          </span>
+                          {ad.ad_name && ad.ad_name !== 'Quảng cáo Lượt tương tác mới' && ad.ad_name !== ad.campaign_name && (
+                            <span className="text-[11px] text-slate-500 truncate max-w-[140px]" title={ad.ad_name}>
+                              • {ad.ad_name}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </td>
                     <td className="py-3 px-4 max-w-[320px]">

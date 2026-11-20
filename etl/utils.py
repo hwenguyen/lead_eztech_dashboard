@@ -377,11 +377,11 @@ def extract_post_info(raw_data: dict, page_id: Optional[str] = None) -> Tuple[Op
             if post_url:
                 post_url = str(post_url).strip()
 
-    # 3. Kiểm tra thông tin quảng cáo (ads, ad_ids) nếu hội thoại sinh ra từ Facebook Ads
+    # 3. Kiểm tra thông tin quảng cáo (ads, ad_ids) nếu hội thoại sinh ra từ Facebook Ads (ưu tiên ad click mới nhất)
     if not post_id:
         ads = raw_data.get("ads")
         if isinstance(ads, list) and ads:
-            for ad in ads:
+            for ad in reversed(ads):
                 if isinstance(ad, dict):
                     cand_id = ad.get("post_id") or ad.get("ad_id") or ad.get("id")
                     if cand_id:
@@ -395,7 +395,7 @@ def extract_post_info(raw_data: dict, page_id: Optional[str] = None) -> Tuple[Op
     if not post_id:
         ad_ids = raw_data.get("ad_ids")
         if isinstance(ad_ids, list) and ad_ids:
-            post_id = str(ad_ids[0]).strip()
+            post_id = str(ad_ids[-1]).strip()
         elif isinstance(ad_ids, str) and ad_ids.strip():
             post_id = ad_ids.strip()
 
@@ -417,13 +417,13 @@ def extract_post_info(raw_data: dict, page_id: Optional[str] = None) -> Tuple[Op
 
 def extract_ad_info(raw_data: dict) -> Tuple[Optional[str], Optional[str]]:
     """
-    Trích xuất ad_id và post_id đính kèm của chiến dịch Facebook Ads từ dữ liệu hội thoại Pancake.
+    Trích xuất toàn bộ ad_id (nối bằng dấu phẩy nếu khách bấm nhiều Ads) và post_id của Ad mới nhất.
     Trả về (ad_id, post_id).
     """
     if not isinstance(raw_data, dict):
         return None, None
 
-    ad_id: Optional[str] = None
+    ordered_aids: List[str] = []
     ad_post_id: Optional[str] = None
 
     ads = raw_data.get('ads')
@@ -431,20 +431,26 @@ def extract_ad_info(raw_data: dict) -> Tuple[Optional[str], Optional[str]]:
         for ad in ads:
             if isinstance(ad, dict):
                 if ad.get('ad_id'):
-                    ad_id = str(ad['ad_id']).strip()
+                    aid = str(ad['ad_id']).strip()
+                    if aid and aid not in ordered_aids:
+                        ordered_aids.append(aid)
                 if ad.get('post_id'):
                     ad_post_id = str(ad['post_id']).strip()
-                if ad_id:
-                    break
 
-    if not ad_id:
-        ad_ids = raw_data.get('ad_ids')
-        if isinstance(ad_ids, list) and ad_ids:
-            ad_id = str(ad_ids[0]).strip()
-        elif isinstance(ad_ids, str) and ad_ids.strip():
-            ad_id = ad_ids.strip()
+    ad_ids = raw_data.get('ad_ids')
+    if isinstance(ad_ids, list) and ad_ids:
+        for item in ad_ids:
+            aid = str(item or '').strip()
+            if aid and aid not in ordered_aids:
+                ordered_aids.append(aid)
+    elif isinstance(ad_ids, str) and ad_ids.strip():
+        for part in ad_ids.split(','):
+            aid = part.strip()
+            if aid and aid not in ordered_aids:
+                ordered_aids.append(aid)
 
-    return (ad_id or None), (ad_post_id or None)
+    ad_id_str = ", ".join(ordered_aids) if ordered_aids else None
+    return ad_id_str, (ad_post_id or None)
 
 
 # Page Zalo cá nhân (ID prefix pzl_) là kênh chăm sóc sau khi đã có SĐT → không cộng vào "Tất cả Page".
