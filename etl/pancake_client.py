@@ -1,5 +1,7 @@
 import os
 import re
+import json
+import base64
 import logging
 import requests
 import time
@@ -26,10 +28,12 @@ from etl.utils import (
 
 _TOKEN_CACHE_LOCK = threading.Lock()
 _PAGE_TOKEN_CACHE: Dict[str, tuple] = {}  # key -> (timestamp, ptoken, resolved_page_id, resolved_page_name)
+_USER_PAGES_CACHE: Dict[str, tuple] = {}  # user_token_key -> (timestamp, pages_list)
 _PAGE_TOKEN_TTL = 1800.0
 
 
 logger = logging.getLogger(__name__)
+
 
 def create_http_session() -> requests.Session:
     """Tạo requests.Session có connection pooling và keep-alive để tái sử dụng TLS connection."""
@@ -39,8 +43,9 @@ def create_http_session() -> requests.Session:
         pool_maxsize=25,
         max_retries=Retry(
             total=3,
-            backoff_factor=1.0,
-            status_forcelist=[500, 502, 503, 504],
+            backoff_factor=1.5,
+            status_forcelist=[429, 500, 502, 503, 504],
+            respect_retry_after_header=True,
             raise_on_status=False
         )
     )
@@ -48,7 +53,32 @@ def create_http_session() -> requests.Session:
     session.mount("http://", adapter)
     return session
 
-DEFAULT_FALLBACK_PANCAKE_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJuYW1lIjoiSGnhu4FuIE1pbmggTMO9IiwiZXhwIjoxNzk4MzYyMjQ5LCJhcHBsaWNhdGlvbiI6MSwidWlkIjoiOTg1NWYzNTQtN2E0Ni00OTUyLTlhNGEtYzk0YWVhZGYzOGQ2Iiwic2Vzc2lvbl9pZCI6ImU4YWQ1YmRhLTE5OGYtNDU0OC04OTczLWJiNGZmOGU4MTQ1OSIsImlhdCI6MTc5MDU4NjI0OSwicGFuY2FrZV9pZCI6IjUzYjAwNWNiLWY1YTYtNDhkNy1iNjk0LWM3YTg3MGE4MjgzOCIsImZiX2lkIjoiMTkwMDQyNDQ4MzUxODE0MCIsImxvZ2luX3Nlc3Npb24iOm51bGwsImZiX25hbWUiOiJIaeG7gW4gTWluaCBMw70ifQ.I9OOB--1yBKq8dD-r8wICGukgJAFJjUIXr3bH7KjfaU"
+
+DEFAULT_FALLBACK_PANCAKE_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJuYW1lIjoiSGnhu4FuIE1pbmggTMO9IiwiZXhwIjoxODAyMjQ3MjQ1LCJhcHBsaWNhdGlvbiI6MSwidWlkIjoiOTg1NWYzNTQtN2E0Ni00OTUyLTlhNGEtYzk0YWVhZGYzOGQ2Iiwic2Vzc2lvbl9pZCI6IjY1ZTFmNzFjLTI4NTgtNGNjYi1hYzQyLWY2MDQzOTU4NzYxOCIsImlhdCI6MTc5NDQ3MTI0NSwicGFuY2FrZV9pZCI6IjUzYjAwNWNiLWY1YTYtNDhkNy1iNjk0LWM3YTg3MGE4MjgzOCIsImZiX2lkIjoiMTkwMDQyNDQ4MzUxODE0MCIsImxvZ2luX3Nlc3Npb24iOm51bGwsImZiX25hbWUiOiJIaeG7gW4gTWluaCBMw70ifQ.o-MmULfSo154E_VRW6D6kB-Nk7FfSW24XtZEp8pmhDc"
+
+
+def _is_user_jwt(token: Optional[str]) -> bool:
+    """Nhận diện JWT cấp User (chứa uid / pancake_id / session_id) để tránh gọi thừa /v1/pages bằng Page Token."""
+    if not token or token.count(".") != 2:
+        return False
+    try:
+        payload_b64 = token.split(".")[1]
+        payload_b64 += "=" * (-len(payload_b64) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(payload_b64).decode("utf-8"))
+        return isinstance(payload, dict) and any(k in payload for k in ("uid", "pancake_id", "session_id"))
+    except Exception:
+        return False
+
+
+def _is_token_error(data: Any) -> bool:
+    """Kiểm tra phản hồi lỗi token từ Pancake API (102: Invalid, 105: Renewed, 190: Expired)."""
+    if not isinstance(data, dict) or data.get("success") is not False:
+        return False
+    err_code = data.get("error_code")
+    if err_code in (102, 105, 190, "102", "105", "190"):
+        return True
+    msg = str(data.get("message") or "").lower()
+    return any(k in msg for k in ("invalid access_token", "access_token renewed", "access_token expired", "invalid token"))
 
 
 class PancakeClient:
@@ -57,6 +87,52 @@ class PancakeClient:
         self.limit = int(os.getenv("CRAWL_LIMIT", "300")) 
         self.base_url = "https://pages.fm/api/v1"
         self.session = create_http_session()
+
+    def _fetch_pages_cached(self, user_token: str, force_refresh: bool = False) -> List[Dict[str, Any]]:
+        """Lấy danh sách pages từ /api/v1/pages kèm cache dùng chung giữa các client để tránh 429."""
+        if not user_token or not _is_user_jwt(user_token):
+            return []
+        u_key = user_token[:24]
+        now_ts = time.time()
+        with _TOKEN_CACHE_LOCK:
+            if not force_refresh and u_key in _USER_PAGES_CACHE:
+                ts, cached_pages = _USER_PAGES_CACHE[u_key]
+                if now_ts - ts < _PAGE_TOKEN_TTL and cached_pages:
+                    return cached_pages
+            elif force_refresh:
+                _USER_PAGES_CACHE.pop(u_key, None)
+
+        headers = {
+            "Authorization": f"Bearer {user_token}",
+            "User-Agent": "Pancake-Python-Client/1.0",
+            "Accept": "application/json",
+        }
+        for attempt in range(2):
+            try:
+                res = self.session.get(
+                    f"{self.base_url}/pages",
+                    params={"access_token": user_token},
+                    headers=headers,
+                    timeout=15,
+                )
+                if res.status_code == 200:
+                    data = res.json()
+                    pages = data.get("data", [])
+                    if not pages and "categorized" in data:
+                        pages = data["categorized"].get("activated", [])
+                    if isinstance(pages, list) and pages:
+                        with _TOKEN_CACHE_LOCK:
+                            _USER_PAGES_CACHE[u_key] = (time.time(), pages)
+                        return pages
+                    return []
+                if res.status_code == 429 and attempt == 0:
+                    time.sleep(2.5)
+                    continue
+                break
+            except Exception as e:
+                logger.debug(f"Không thể tra cứu danh sách page qua /pages: {e}")
+                break
+        return []
 
     def _get_page_access_token(self, page_id_or_name: str, conversation_id: Optional[str] = None, force_refresh: bool = False) -> tuple:
         """
@@ -70,7 +146,17 @@ class PancakeClient:
         if resolved_page_name == resolved_page_id and is_page_id(resolved_page_id):
             resolved_page_name = None
 
-        master_user_token = os.getenv("PANCAKE_API_TOKEN") or DEFAULT_FALLBACK_PANCAKE_TOKEN
+        master_user_token = (os.getenv("PANCAKE_API_TOKEN") or "").strip()
+        if not master_user_token:
+            try:
+                from etl.pipeline import load_tokens_from_db
+                _, db_default_tok = load_tokens_from_db()
+                if db_default_tok and _is_user_jwt(db_default_tok):
+                    master_user_token = db_default_tok
+            except Exception:
+                pass
+        if not master_user_token:
+            master_user_token = DEFAULT_FALLBACK_PANCAKE_TOKEN
 
         # Nếu self.api_token chưa được truyền lúc khởi tạo, tự động tra cứu từ cấu hình hệ thống / DB theo từng Page
         active_token = self.api_token
@@ -95,53 +181,44 @@ class PancakeClient:
                 ts, cached_ptoken, cached_pid, cached_pname = _PAGE_TOKEN_CACHE[cache_key]
                 if now_ts - ts < _PAGE_TOKEN_TTL and cached_ptoken:
                     return cached_ptoken, cached_pid, cached_pname
-            elif force_refresh and cache_key in _PAGE_TOKEN_CACHE:
+            elif force_refresh:
                 _PAGE_TOKEN_CACHE.pop(cache_key, None)
 
-        headers = {
-            "Authorization": f"Bearer {active_token}",
-            "User-Agent": "Pancake-Python-Client/1.0",
-            "Accept": "application/json"
-        }
+        # Khi force_refresh (token cũ báo lỗi 102/105), ưu tiên master_user_token để làm mới
+        user_tokens_order: List[str] = []
+        if force_refresh:
+            for cand_u in (master_user_token, DEFAULT_FALLBACK_PANCAKE_TOKEN, active_token):
+                if cand_u and _is_user_jwt(cand_u) and cand_u not in user_tokens_order:
+                    user_tokens_order.append(cand_u)
+        else:
+            for cand_u in (active_token, master_user_token, DEFAULT_FALLBACK_PANCAKE_TOKEN):
+                if cand_u and _is_user_jwt(cand_u) and cand_u not in user_tokens_order:
+                    user_tokens_order.append(cand_u)
 
-        # 2. Thử tra cứu qua /pages nếu active_token là User Access Token
-        try:
-            res = self.session.get(
-                f"{self.base_url}/pages",
-                params={"access_token": active_token},
-                headers=headers,
-                timeout=15
-            )
-            if res.status_code == 200:
-                data = res.json()
-                pages = data.get("data", [])
-                if not pages and "categorized" in data:
-                    pages = data["categorized"].get("activated", [])
-                target = resolved_page_id
-                target_num = re.sub(r"^(pzl_|tt_|fb_)", "", target)
-                for p in pages:
-                    p_id = str(p.get("id"))
-                    p_name = p.get("name")
-                    if p_id in (target, target_num) or (p_name and p_name in (str(page_id_or_name).strip(), resolved_page_name)):
-                        resolved_page_id = p_id
-                        resolved_page_name = p_name or resolved_page_name
-                        # Nếu trong danh sách /pages trả về sẵn page_access_token hoặc settings.page_access_token
-                        direct_ptoken = p.get("page_access_token") or (p.get("settings") or {}).get("page_access_token")
-                        if direct_ptoken:
-                            with _TOKEN_CACHE_LOCK:
-                                _PAGE_TOKEN_CACHE[cache_key] = (now_ts, direct_ptoken, resolved_page_id, resolved_page_name)
-                            return direct_ptoken, resolved_page_id, resolved_page_name
-                        break
-        except Exception as e:
-            logger.debug(f"Không thể tra cứu danh sách page qua /pages: {e}")
+        # 2. Tra cứu page_access_token sẵn có từ /pages (cache chung)
+        target = resolved_page_id
+        target_num = re.sub(r"^(pzl_|tt_|fb_)", "", target)
+        # Chỉ tra qua /pages khi active_token là User JWT HOẶC đang force_refresh do Page Token cũ bị hết hạn
+        pages_lookup_tokens = user_tokens_order if (_is_user_jwt(active_token) or force_refresh) else []
+        for idx_u, u_tok in enumerate(pages_lookup_tokens):
+            pages = self._fetch_pages_cached(u_tok, force_refresh=(force_refresh and idx_u == 0))
+            for p in pages:
+                p_id = str(p.get("id"))
+                p_name = p.get("name")
+                if p_id in (target, target_num) or (p_name and p_name in (str(page_id_or_name).strip(), resolved_page_name)):
+                    resolved_page_id = p_id
+                    resolved_page_name = p_name or resolved_page_name
+                    direct_ptoken = p.get("page_access_token") or (p.get("settings") or {}).get("page_access_token")
+                    if direct_ptoken:
+                        with _TOKEN_CACHE_LOCK:
+                            _PAGE_TOKEN_CACHE[cache_key] = (now_ts, direct_ptoken, resolved_page_id, resolved_page_name)
+                        return direct_ptoken, resolved_page_id, resolved_page_name
+                    break
 
-        # 3. Thử tạo page_access_token qua User Access Token với các biến thể ID (có prefix và không prefix)
+        # 3. Tạo page_access_token mới qua /generate_page_access_token nếu chưa có trong /pages hoặc đang refresh
         candidate_ids = get_candidate_api_page_ids(resolved_page_id, conversation_id) or [resolved_page_id]
-        tokens_to_try = [active_token]
-        if master_user_token and master_user_token != active_token:
-            tokens_to_try.append(master_user_token)
-
-        for u_tok in tokens_to_try:
+        tokens_to_generate = user_tokens_order if (_is_user_jwt(active_token) or force_refresh) else [active_token] + [t for t in user_tokens_order if t != active_token]
+        for u_tok in tokens_to_generate:
             for cand_id in candidate_ids:
                 try:
                     res_token = self.session.post(
@@ -212,6 +289,9 @@ class PancakeClient:
         retry_count = 0
         max_retries = 3
 
+        raw_page_id = page_id
+        token_refreshed = False
+
         while len(all_convs) < self.limit:
             params = {
                 "page_access_token": ptoken,
@@ -238,6 +318,16 @@ class PancakeClient:
                 if isinstance(data, dict) and data.get("success") is False:
                     err_msg = data.get("message", "Không rõ nguyên nhân")
                     err_code = data.get("error_code", "N/A")
+                    if not token_refreshed and _is_token_error(data):
+                        logger.warning(f"Token Pancake Page '{page_id}' hết hạn/lỗi ({err_code}: {err_msg}), đang tự làm mới...")
+                        fresh_ptok, fresh_pid, _ = self._get_page_access_token(raw_page_id, force_refresh=True)
+                        token_refreshed = True
+                        if fresh_ptok and fresh_ptok != ptoken:
+                            ptoken = fresh_ptok
+                            if fresh_pid:
+                                page_id = fresh_pid
+                                url_convs = f"https://pages.fm/api/public_api/v2/pages/{page_id}/conversations"
+                            continue
                     logger.error(
                         f"❌ Pancake API từ chối Page '{page_id}': {err_msg} (error_code: {err_code}). "
                         f"Vui lòng kiểm tra hoặc tạo lại Page Access Token mới trên Pancake!"
@@ -566,6 +656,7 @@ class PancakeClient:
         if not ptoken:
             return []
 
+        raw_page_id = page_id
         page_id = resolved_page_id
         url_convs = f"https://pages.fm/api/public_api/v2/pages/{page_id}/conversations"
 
@@ -586,6 +677,7 @@ class PancakeClient:
         use_type_param = True
         api_page_count = 0
         max_api_pages = max(100, int(max_limit / 10))
+        token_refreshed = False
 
         while len(all_comments) < max_limit and api_page_count < max_api_pages:
             api_page_count += 1
@@ -614,6 +706,17 @@ class PancakeClient:
             if resp.status_code == 200:
                 data = resp.json()
                 if isinstance(data, dict) and data.get("success") is False:
+                    if not token_refreshed and _is_token_error(data):
+                        logger.warning(f"Token comment Page '{page_id}' lỗi ({data.get('message')}), đang làm mới...")
+                        fresh_ptok, fresh_pid, _ = self._get_page_access_token(raw_page_id, force_refresh=True)
+                        token_refreshed = True
+                        if fresh_ptok and fresh_ptok != ptoken:
+                            ptoken = fresh_ptok
+                            if fresh_pid:
+                                page_id = fresh_pid
+                                url_convs = f"https://pages.fm/api/public_api/v2/pages/{page_id}/conversations"
+                            api_page_count -= 1
+                            continue
                     logger.warning(f"Pancake API từ chối cào comment cho Page '{page_id}': {data.get('message')}")
                     break
 
@@ -852,6 +955,7 @@ class PancakeClient:
 
         logger.info(f"--- BẮT ĐẦU CÀO POSTS QUA API CHO PAGE: {page_id} (Giới hạn: {max_limit}, Ngày quét: {days_back or '365 ngày'}) ---")
         t_start = time.perf_counter()
+        token_refreshed = False
 
         while len(all_posts) < max_limit:
             params = {
@@ -883,6 +987,15 @@ class PancakeClient:
                     data = {}
 
                 if isinstance(data, dict) and data.get("success") is False:
+                    if not token_refreshed and _is_token_error(data):
+                        logger.warning(f"Token posts Page '{page_id}' lỗi ({data.get('message')}), đang làm mới...")
+                        fresh_ptok, fresh_pid, _ = self._get_page_access_token(page_id, force_refresh=True)
+                        token_refreshed = True
+                        if fresh_ptok and fresh_ptok != ptoken:
+                            ptoken = fresh_ptok
+                            if fresh_pid:
+                                url = f"https://pages.fm/api/public_api/v1/pages/{fresh_pid}/posts"
+                            continue
                     logger.warning(f"Pancake API từ chối lấy posts cho Page '{page_id}': {data.get('message')}")
                     break
 
@@ -1042,8 +1155,9 @@ class PancakeClient:
                         last_error = err_str
                         last_resp_data = data
 
-                        if attempt < max_retries and any(
-                            k in err_str.lower() for k in ("invalid access_token", "access_token renewed", "102", "190")
+                        if attempt < max_retries and (
+                            _is_token_error(data)
+                            or any(k in err_str.lower() for k in ("invalid access_token", "access_token renewed", "102", "105", "190"))
                         ):
                             logger.info(f"[PANCAKE API] Token không hợp lệ ({err_str}). Đang tự động làm mới token cho Page '{cand_pid}'...")
                             fresh_ptoken, _, _ = self._get_page_access_token(cand_pid, conversation_id=conversation_id, force_refresh=True)
@@ -1166,6 +1280,7 @@ class PancakeClient:
                 {"action": "reply_comment", "message": message, "message_id": str(target_msg_id)},
                 {"action": "reply_comment", "message": message, "message_id": str(target_msg_id), "content_ids": []},
             ]
+            token_refreshed = False
 
             for idx, tk_payload in enumerate(tiktok_payloads, 1):
                 logger.info(f"[PANCAKE API][TIKTOK] Thử payload #{idx}: {tk_payload}")
@@ -1180,6 +1295,19 @@ class PancakeClient:
                             data["success"] = True if data.get("id") else False
                         if data.get("success"):
                             return data
+                        if not token_refreshed and _is_token_error(data):
+                            fresh_ptoken, fresh_pid, _ = self._get_page_access_token(page_id, conversation_id=conversation_id, force_refresh=True)
+                            token_refreshed = True
+                            if fresh_ptoken and fresh_ptoken != params.get("page_access_token"):
+                                params["page_access_token"] = fresh_ptoken
+                                if fresh_pid:
+                                    resolved_page_id = resolve_api_page_id(fresh_pid, conversation_id) or fresh_pid
+                                    url = f"https://pages.fm/api/public_api/v1/pages/{resolved_page_id}/conversations/{conversation_id}/messages"
+                                resp = self.session.post(url, params=params, json=tk_payload, timeout=30)
+                                if resp.status_code in (200, 201):
+                                    retry_data = resp.json()
+                                    if retry_data.get("success"):
+                                        return retry_data
                         err_msg = data.get("message") or data.get("description") or str(data)
                         if idx < len(tiktok_payloads):
                             time.sleep(1.5)

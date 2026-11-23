@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session, defer
 from database.db import SessionLocal
 from database.models import RawConversation, DimLead, FactLeadActivity, Comment, Post
 from database.schema import ensure_schema
-from etl.pancake_client import PancakeClient
+from etl.pancake_client import PancakeClient, DEFAULT_FALLBACK_PANCAKE_TOKEN
 from etl.utils import parse_pancake_date, resolve_phone, normalize_phone, is_page_id, resolve_canonical_page_name, is_source_page, clean_html, extract_phone_number, build_post_url, extract_post_info, extract_ad_info
 import re
 
@@ -537,7 +537,7 @@ def load_tokens_from_db() -> tuple:
 
 
 def load_pancake_pages_config(sync_db: bool = True) -> List[Dict[str, Any]]:
-    """Nạp danh sách Fanpage và token từ biến môi trường (hoặc fallback từ Neon DB app_configs)."""
+    """Nạp danh sách Fanpage và token từ biến môi trường -> Neon DB app_configs -> Fallback mặc định."""
     pages_to_process: List[Dict[str, Any]] = []
 
     # 1. Hỗ trợ cấu hình dạng JSON / Dict qua secret PANCAKE_PAGES_JSON, PANCAKE_CONFIG hoặc PANCAKE_API_TOKENS
@@ -557,23 +557,19 @@ def load_pancake_pages_config(sync_db: bool = True) -> List[Dict[str, Any]]:
     single_token = os.getenv("PANCAKE_API_TOKEN", "").strip()
     tokens_env = os.getenv("PANCAKE_API_TOKENS", "").strip()
     tokens = [t.strip() for t in tokens_env.split(",") if t.strip()] if (tokens_env and not tokens_env.startswith(("{", "["))) else []
-    default_token = single_token or (tokens[0] if tokens else None)
-    if not default_token and pages_to_process:
-        for p in pages_to_process:
-            if p.get("token"):
-                default_token = p.get("token")
-                break
-    if not default_token:
-        default_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJuYW1lIjoiSGnhu4FuIE1pbmggTMO9IiwiZXhwIjoxNzk4MzYyMjQ5LCJhcHBsaWNhdGlvbiI6MSwidWlkIjoiOTg1NWYzNTQtN2E0Ni00OTUyLTlhNGEtYzk0YWVhZGYzOGQ2Iiwic2Vzc2lvbl9pZCI6ImU4YWQ1YmRhLTE5OGYtNDU0OC04OTczLWJiNGZmOGU4MTQ1OSIsImlhdCI6MTc5MDU4NjI0OSwicGFuY2FrZV9pZCI6IjUzYjAwNWNiLWY1YTYtNDhkNy1iNjk0LWM3YTg3MGE4MjgzOCIsImZiX2lkIjoiMTkwMDQyNDQ4MzUxODE0MCIsImxvZ2luX3Nlc3Npb24iOm51bGwsImZiX25hbWUiOiJIaeG7gW4gTWluaCBMw70ifQ.I9OOB--1yBKq8dD-r8wICGukgJAFJjUIXr3bH7KjfaU"
+    env_default_token = single_token or (tokens[0] if tokens else None)
+
+    has_env_config = bool(pages_to_process or env_default_token or page_ids)
 
     if page_ids:
+        fallback_for_env = env_default_token or DEFAULT_FALLBACK_PANCAKE_TOKEN
         existing_pids = {str(p.get("page_id", "")).strip() for p in pages_to_process}
         existing_pids |= {re.sub(r"^(pzl_|tt_|fb_)", "", pid) for pid in existing_pids}
 
         for i, page_id in enumerate(page_ids):
             clean_pid = re.sub(r"^(pzl_|tt_|fb_)", "", page_id)
             if page_id not in existing_pids and clean_pid not in existing_pids:
-                token = tokens[i] if i < len(tokens) and tokens[i] else default_token
+                token = tokens[i] if i < len(tokens) and tokens[i] else fallback_for_env
                 pages_to_process.append({
                     "page_id": page_id,
                     "page_name": None,
@@ -581,22 +577,26 @@ def load_pancake_pages_config(sync_db: bool = True) -> List[Dict[str, Any]]:
                 })
                 logger.info(f"Bổ sung Page ID '{page_id}' từ PAGE_IDS vào danh sách cào.")
 
-    # 3. Đồng bộ chiều đi (từ Env -> DB) nếu có token trong Env, hoặc chiều về (từ DB -> RAM) nếu Env trên Render trống
-    if pages_to_process or default_token:
+    # 3. Đồng bộ Env -> DB khi có biến môi trường; ngược lại đọc cấu hình đã lưu trong Neon DB trước khi fallback
+    default_token = env_default_token
+    if not default_token and pages_to_process:
+        for p in pages_to_process:
+            if p.get("token"):
+                default_token = p.get("token")
+                break
+
+    if has_env_config:
         if sync_db:
             sync_tokens_to_db(pages_to_process, default_token)
     else:
         db_pages, db_default_tok = load_tokens_from_db()
         if db_pages:
             pages_to_process = db_pages
-        elif db_default_tok:
-            from etl.utils import PAGE_NAME_TO_API_ID
-            for api_pid in sorted(set(PAGE_NAME_TO_API_ID.values())):
-                pages_to_process.append({
-                    "page_id": api_pid,
-                    "page_name": resolve_canonical_page_name(api_pid),
-                    "token": db_default_tok
-                })
+        if not default_token and db_default_tok:
+            default_token = db_default_tok
+
+    if not default_token:
+        default_token = DEFAULT_FALLBACK_PANCAKE_TOKEN
 
     if not pages_to_process and default_token:
         from etl.utils import PAGE_NAME_TO_API_ID
@@ -630,7 +630,7 @@ def get_token_for_page(page_id_or_name: Optional[str] = None, conversation_id: O
         if canonical_name and (pname == canonical_name or resolve_canonical_page_name(pid, fallback="") == canonical_name):
             return tok
 
-    # Fallback: lấy token mặc định từ biến môi trường hoặc DB
+    # Fallback: lấy token mặc định từ biến môi trường, DB hoặc fallback chuẩn
     env_tok = os.getenv("PANCAKE_API_TOKEN", "").strip()
     if env_tok:
         return env_tok
@@ -640,7 +640,7 @@ def get_token_for_page(page_id_or_name: Optional[str] = None, conversation_id: O
     for p in pages_cfg:
         if p.get("token"):
             return p.get("token")
-    return None
+    return DEFAULT_FALLBACK_PANCAKE_TOKEN
 
 
 def run_etl_pipeline():
