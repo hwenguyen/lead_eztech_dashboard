@@ -91,7 +91,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, embedded =
 
           {/* Error Banner */}
           {errorMsg && (
-            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-xs flex items-start gap-2.5 shadow-sm animate-shake">
+            <div role="alert" className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-xs flex items-start gap-2.5 shadow-sm animate-shake">
               <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
               <div className="flex-1 font-medium leading-relaxed">
                 {errorMsg}
@@ -103,7 +103,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, embedded =
           <form onSubmit={handleSubmit} className="space-y-4">
             {/* Username Input */}
             <div className="space-y-1.5">
-              <label className="block text-xs font-bold text-gray-700">
+              <label htmlFor="login-username" className="block text-xs font-bold text-gray-700">
                 Tên đăng nhập
               </label>
               <div className="relative">
@@ -111,7 +111,13 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, embedded =
                   <User className="w-4 h-4" />
                 </div>
                 <input
+                  id="login-username"
+                  name="username"
                   type="text"
+                  autoComplete="username"
+                  autoCorrect="off"
+                  autoCapitalize="none"
+                  spellCheck={false}
                   required
                   autoFocus
                   value={username}
@@ -124,7 +130,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, embedded =
 
             {/* Password Input */}
             <div className="space-y-1.5">
-              <label className="block text-xs font-bold text-gray-700">
+              <label htmlFor="login-password" className="block text-xs font-bold text-gray-700">
                 Mật khẩu
               </label>
               <div className="relative">
@@ -132,7 +138,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, embedded =
                   <Lock className="w-4 h-4" />
                 </div>
                 <input
+                  id="login-password"
+                  name="password"
                   type={showPassword ? 'text' : 'password'}
+                  autoComplete="current-password"
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
@@ -142,8 +151,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, embedded =
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
+                  aria-label={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                  aria-pressed={showPassword}
                   className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-gray-400 hover:text-gray-600 transition-colors"
-                  tabIndex={-1}
                 >
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
@@ -155,6 +165,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, embedded =
               <label className="flex items-center gap-2 cursor-pointer select-none">
                 <input
                   type="checkbox"
+                  name="rememberMe"
                   checked={rememberMe}
                   onChange={(e) => setRememberMe(e.target.checked)}
                   className="rounded border-gray-300 text-brand-500 focus:ring-indigo-500 w-3.5 h-3.5"
@@ -183,7 +194,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, embedded =
           {/* Security Badges Footer */}
           <div className="pt-2 border-t border-gray-100 flex items-center justify-center gap-2 text-[11px] text-gray-400">
             <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
-            <span>Mã hóa PBKDF2-HMAC-SHA256 & JWT Token HS256</span>
+            <span>Kết nối được bảo vệ bằng xác thực phiên đăng nhập</span>
           </div>
         </div>
       </div>

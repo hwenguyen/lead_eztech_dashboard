@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { format, subDays, startOfMonth } from 'date-fns';
 import {
   MessageSquare,
@@ -33,10 +33,14 @@ import {
   fetchTikTokMetrics,
   clearClientApiCache,
   fetchTikTokPages,
+  isAbortError,
   type FacebookMetricsResponse,
   type TikTokPageItem,
 } from '../services/api';
+import { safeParseDate, toSafeHttpUrl } from '../utils/format';
+import { ErrorBanner } from './ErrorBanner';
 
+const FALLBACK_PALETTE = ['#1E5BD6', '#00B4D8', '#F5B400', '#10B981', '#8B5CF6', '#EC4899', '#F97316'];
 const CHANNEL_COLORS: Record<string, string> = {
   'Anh Kế toán làm Data (TikTok)': '#1E5BD6',
   'Hành trang cho kế toán': '#00B4D8',
@@ -47,7 +51,7 @@ const CHANNEL_COLORS: Record<string, string> = {
 // SVG Icon TikTok chuẩn
 export function TikTokIcon({ className = 'w-5 h-5' }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
       <path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-5.2 1.74 2.89 2.89 0 0 1 2.31-4.64c.298-.002.595.042.88.13V9.4a6.33 6.33 0 0 0-1-.08A6.34 6.34 0 0 0 3 15.66a6.34 6.34 0 0 0 10.82 4.46 6.3 6.3 0 0 0 1.86-4.46V8.7a8.18 8.18 0 0 0 4.91 1.63V6.88a4.85 4.85 0 0 1-1-.19z" />
     </svg>
   );
@@ -71,33 +75,55 @@ export function TikTokDashboard() {
   const [searchPost, setSearchPost] = useState('');
   const [sortBy, setSortBy] = useState<'leads' | 'phones' | 'deals' | 'comments' | 'reactions' | 'date'>('leads');
   const [postLimit, setPostLimit] = useState(15);
+  const abortRef = useRef<AbortController | null>(null);
 
   // Load danh sách Kênh TikTok
   useEffect(() => {
+    let cancelled = false;
     fetchTikTokPages()
-      .then(pages => setPagesList(pages))
-      .catch(err => console.error('Error fetching TikTok pages:', err));
+      .then((pages) => { if (!cancelled) setPagesList(pages); })
+      .catch((err) => console.error('Error fetching TikTok pages:', err));
+    return () => { cancelled = true; };
   }, []);
 
-  // Load dữ liệu metrics
-  const loadMetrics = async () => {
+  // Load dữ liệu metrics với AbortController tránh race condition
+  const loadMetrics = useCallback(async (skipCache: boolean = false) => {
+    if (startDate && endDate && startDate > endDate) {
+      setError('Ngày bắt đầu không được lớn hơn ngày kết thúc.');
+      return;
+    }
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     setLoading(true);
     setError(null);
     try {
-      const res = await fetchTikTokMetrics(startDate, endDate, pageId || undefined);
+      const res = await fetchTikTokMetrics(startDate, endDate, pageId || undefined, {
+        signal: controller.signal,
+        skipCache,
+      });
+      if (controller.signal.aborted) return;
       setData(res);
       setLastRefreshed(new Date());
     } catch (err: any) {
+      if (isAbortError(err)) return;
       console.error('Lỗi khi tải dữ liệu TikTok metrics:', err);
       setError(err?.response?.data?.detail || err?.message || 'Có lỗi xảy ra khi tải dữ liệu TikTok');
     } finally {
-      setLoading(false);
+      if (abortRef.current === controller) {
+        setLoading(false);
+      }
     }
-  };
+  }, [startDate, endDate, pageId]);
 
   useEffect(() => {
-    loadMetrics();
-  }, [startDate, endDate, pageId]);
+    loadMetrics(false);
+    return () => { abortRef.current?.abort(); };
+  }, [loadMetrics]);
+
+  // Reset postLimit khi thay đổi bộ lọc
+  useEffect(() => { setPostLimit(15); }, [startDate, endDate, pageId, searchPost, sortBy]);
 
   // Bộ chọn ngày nhanh
   const handlePreset = (preset: 7 | 14 | 30 | 'month') => {
@@ -119,22 +145,27 @@ export function TikTokDashboard() {
       const cName = p.page_name || 'Khác';
       countByChannel[cName] = (countByChannel[cName] || 0) + 1;
     }
-    return Object.entries(countByChannel).map(([name, count]) => ({
+    return Object.entries(countByChannel).map(([name, count], idx) => ({
       name,
       value: count,
-      color: CHANNEL_COLORS[name] || '#1E5BD6',
+      color: CHANNEL_COLORS[name] || FALLBACK_PALETTE[idx % FALLBACK_PALETTE.length],
     }));
   }, [data?.top_posts]);
 
-  // Chuẩn bị dữ liệu cơ cấu nguồn Lead (Video vs Organic)
+  // Tính chuẩn video có nhiều bình luận nhất (backend sort theo ngày đăng mới nhất)
+  const maxCommentsCount = useMemo(() => {
+    if (!data?.top_posts?.length) return 0;
+    return data.top_posts.reduce((max, p) => Math.max(max, p.comment_count || 0), 0);
+  }, [data?.top_posts]);
+
+  // Chuẩn bị dữ liệu cơ cấu nguồn Lead (Video vs Organic), lọc bỏ giá trị 0
   const channelLeadData = useMemo(() => {
     const postLeads = data?.summary.post_leads || 0;
     const organicLeads = data?.summary.organic_leads || 0;
-    if (postLeads + organicLeads === 0) return [];
     return [
-      { name: 'Từ Video (TikTok)', value: postLeads, color: '#1E5BD6' },   // EzTech Blue
-      { name: 'Tự nhiên (Organic)', value: organicLeads, color: '#F5B400' }, // EzTech Gold
-    ];
+      { name: 'Từ Video (TikTok)', value: postLeads, color: '#1E5BD6' },
+      { name: 'Tự nhiên (Organic)', value: organicLeads, color: '#F5B400' },
+    ].filter((d) => d.value > 0);
   }, [data?.summary.post_leads, data?.summary.organic_leads]);
 
   // Lọc và sắp xếp bảng Top video
@@ -146,28 +177,17 @@ export function TikTokDashboard() {
       const q = searchPost.toLowerCase().trim();
       list = list.filter(p =>
         (p.message && p.message.toLowerCase().includes(q)) ||
-        p.post_id.includes(q)
+        p.post_id.toLowerCase().includes(q)
       );
     }
 
     list.sort((a, b) => {
-      if (sortBy === 'leads') {
-        return (b.lead_count || 0) - (a.lead_count || 0);
-      }
-      if (sortBy === 'phones') {
-        return (b.phone_count || 0) - (a.phone_count || 0);
-      }
-      if (sortBy === 'deals') {
-        return (b.deal_count || 0) - (a.deal_count || 0);
-      }
-      if (sortBy === 'comments') {
-        return (b.comment_count || 0) - (a.comment_count || 0);
-      }
-      if (sortBy === 'reactions') {
-        return (b.reactions_total || 0) - (a.reactions_total || 0);
-      }
-      // date
-      return new Date(b.inserted_at || 0).getTime() - new Date(a.inserted_at || 0).getTime();
+      if (sortBy === 'leads') return (b.lead_count || 0) - (a.lead_count || 0);
+      if (sortBy === 'phones') return (b.phone_count || 0) - (a.phone_count || 0);
+      if (sortBy === 'deals') return (b.deal_count || 0) - (a.deal_count || 0);
+      if (sortBy === 'comments') return (b.comment_count || 0) - (a.comment_count || 0);
+      if (sortBy === 'reactions') return (b.reactions_total || 0) - (a.reactions_total || 0);
+      return (safeParseDate(b.inserted_at)?.getTime() || 0) - (safeParseDate(a.inserted_at)?.getTime() || 0);
     });
 
     return list;
@@ -187,11 +207,11 @@ export function TikTokDashboard() {
   return (
     <div className="space-y-5">
       {/* 1. Header & Bộ lọc thiết kế chuẩn mực */}
-      <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs overflow-hidden">
-        {/* Top Header: Tiêu đề & Thời gian cập nhật */}
-        <div className="px-5 py-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3 border-b border-slate-100 bg-linear-to-r from-slate-900/5 via-white to-blue-50/20">
+      <div className="bg-white rounded-2xl border border-slate-200/90 shadow-sm overflow-hidden">
+        {/* Top Header */}
+        <div className="px-5 py-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3 border-b border-slate-100 bg-gradient-to-r from-slate-900/5 via-white to-blue-50/20 dark:from-slate-800/50 dark:via-slate-900 dark:to-blue-950/30">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center shadow-md shadow-slate-900/20 shrink-0">
+            <div className="w-10 h-10 rounded-xl bg-slate-900 dark:bg-slate-800 dark:border dark:border-slate-700 text-white flex items-center justify-center shadow-md shadow-slate-900/20 shrink-0">
               <TikTokIcon className="w-5 h-5" />
             </div>
             <div>
@@ -214,97 +234,76 @@ export function TikTokDashboard() {
               </span>
             )}
             <button
-              onClick={() => { clearClientApiCache(); loadMetrics(); }}
+              type="button"
+              onClick={() => { clearClientApiCache('/tiktok/'); loadMetrics(true); }}
               disabled={loading}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-navy text-xs font-semibold shadow-2xs hover:border-slate-300 disabled:opacity-50 transition-all cursor-pointer"
-              title="Làm mới dữ liệu"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-navy text-xs font-semibold shadow-sm hover:border-slate-300 disabled:opacity-50 transition-all cursor-pointer"
+              title="Làm mới dữ liệu TikTok"
             >
-              <RefreshCw className={`w-3.5 h-3.5 text-eztech ${loading ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`w-3.5 h-3.5 text-eztech ${loading ? 'animate-spin' : ''}`} aria-hidden="true" />
               <span>Làm mới</span>
             </button>
           </div>
         </div>
 
-        {/* Filter Toolbar: Phân bổ hợp lý, rõ ràng */}
+        {/* Filter Toolbar */}
         <div className="px-5 py-3.5 bg-slate-50/50 flex flex-wrap items-center justify-between gap-3">
-          {/* Nhóm bộ lọc thời gian */}
           <div className="flex flex-wrap items-center gap-2.5">
-            {/* Segmented Preset Buttons */}
-            <div className="inline-flex rounded-lg border border-slate-200/90 bg-white p-0.5 text-xs shadow-2xs">
-              <button
-                onClick={() => handlePreset(7)}
-                className={`px-3 py-1.5 rounded-md font-medium transition-all cursor-pointer ${
-                  activePreset === 7
-                    ? 'bg-navy text-white shadow-xs font-semibold'
-                    : 'text-slate-600 hover:text-navy hover:bg-slate-100/70'
-                }`}
-              >
-                7 ngày
-              </button>
-              <button
-                onClick={() => handlePreset(14)}
-                className={`px-3 py-1.5 rounded-md font-medium transition-all cursor-pointer ${
-                  activePreset === 14
-                    ? 'bg-navy text-white shadow-xs font-semibold'
-                    : 'text-slate-600 hover:text-navy hover:bg-slate-100/70'
-                }`}
-              >
-                14 ngày
-              </button>
-              <button
-                onClick={() => handlePreset(30)}
-                className={`px-3 py-1.5 rounded-md font-medium transition-all cursor-pointer ${
-                  activePreset === 30
-                    ? 'bg-navy text-white shadow-xs font-semibold'
-                    : 'text-slate-600 hover:text-navy hover:bg-slate-100/70'
-                }`}
-              >
-                30 ngày
-              </button>
-              <button
-                onClick={() => handlePreset('month')}
-                className={`px-3 py-1.5 rounded-md font-medium transition-all cursor-pointer ${
-                  activePreset === 'month'
-                    ? 'bg-navy text-white shadow-xs font-semibold'
-                    : 'text-slate-600 hover:text-navy hover:bg-slate-100/70'
-                }`}
-              >
-                Tháng này
-              </button>
+            <div role="group" aria-label="Chọn khoảng thời gian nhanh" className="inline-flex rounded-lg border border-slate-200/90 bg-white p-0.5 text-xs shadow-sm">
+              {([7, 14, 30, 'month'] as const).map((p) => (
+                <button
+                  key={String(p)}
+                  type="button"
+                  aria-pressed={activePreset === p}
+                  onClick={() => handlePreset(p)}
+                  className={`px-3 py-1.5 rounded-md font-medium transition-all cursor-pointer ${
+                    activePreset === p
+                      ? 'bg-navy text-white shadow-sm font-semibold'
+                      : 'text-slate-600 hover:text-navy hover:bg-slate-100/70'
+                  }`}
+                >
+                  {p === 'month' ? 'Tháng này' : `${p} ngày`}
+                </button>
+              ))}
             </div>
 
-            {/* Custom Date Inputs */}
-            <div className="inline-flex items-center gap-1.5 bg-white border border-slate-200/90 px-3 py-1.5 rounded-lg text-xs shadow-2xs">
-              <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+            <div className="inline-flex items-center gap-1.5 bg-white border border-slate-200/90 px-3 py-1.5 rounded-lg text-xs shadow-sm">
+              <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" aria-hidden="true" />
               <input
                 type="date"
+                aria-label="Từ ngày"
                 value={startDate}
+                max={endDate}
                 onChange={e => {
                   setStartDate(e.target.value);
                   setActivePreset('custom');
                 }}
-                className="border-none bg-transparent text-navy text-xs focus:outline-hidden font-medium cursor-pointer"
+                className="border-none bg-transparent text-navy text-xs focus:outline-none font-medium cursor-pointer"
               />
-              <span className="text-slate-400 font-medium">→</span>
+              <span className="text-slate-400 font-medium" aria-hidden="true">→</span>
               <input
                 type="date"
+                aria-label="Đến ngày"
                 value={endDate}
+                min={startDate}
                 onChange={e => {
                   setEndDate(e.target.value);
                   setActivePreset('custom');
                 }}
-                className="border-none bg-transparent text-navy text-xs focus:outline-hidden font-medium cursor-pointer"
+                className="border-none bg-transparent text-navy text-xs focus:outline-none font-medium cursor-pointer"
               />
             </div>
           </div>
 
-          {/* Chọn Kênh TikTok với độ rộng thoải mái */}
           <div className="flex items-center gap-2">
-            <span className="text-xs font-medium text-slate-500 whitespace-nowrap hidden sm:inline">Kênh:</span>
+            <label htmlFor="tt-page-select" className="text-xs font-medium text-slate-500 whitespace-nowrap hidden sm:inline">
+              Kênh:
+            </label>
             <select
+              id="tt-page-select"
               value={pageId}
               onChange={e => setPageId(e.target.value)}
-              className="bg-white border border-slate-200/90 text-xs rounded-lg px-3 py-1.5 text-navy font-semibold focus:ring-1 focus:ring-eztech focus:outline-hidden shadow-2xs min-w-[220px] max-w-[320px] cursor-pointer"
+              className="bg-white border border-slate-200/90 text-xs rounded-lg px-3 py-1.5 text-navy font-semibold focus:ring-1 focus:ring-eztech focus:outline-none shadow-sm min-w-[220px] max-w-[320px] cursor-pointer"
             >
               <option value="">Tất cả Kênh TikTok</option>
               {pagesList.map(p => (
@@ -318,20 +317,7 @@ export function TikTokDashboard() {
       </div>
 
       {/* Thông báo lỗi nếu API gặp sự cố */}
-      {error && (
-        <div className="bg-rose-50 border border-rose-200 text-rose-700 px-4 py-3 rounded-xl text-xs flex items-center justify-between shadow-2xs">
-          <div className="flex items-center gap-2">
-            <span className="font-bold">Lỗi tải dữ liệu:</span>
-            <span>{error}</span>
-          </div>
-          <button
-            onClick={loadMetrics}
-            className="px-3 py-1 bg-white hover:bg-rose-100 text-rose-700 font-semibold rounded-md border border-rose-300 transition-colors cursor-pointer"
-          >
-            Thử lại
-          </button>
-        </div>
-      )}
+      <ErrorBanner message={error} onRetry={() => loadMetrics(true)} />
 
       {/* 2. Hàng 5 Thẻ KPI Tóm tắt Toàn kênh */}
       <div className="ez-kpi-grid grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3.5">
@@ -413,7 +399,7 @@ export function TikTokDashboard() {
         </div>
 
         {/* Card 5: Học viên chốt (Deal Win) */}
-        <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-card hover:shadow-card-hover transition-all col-span-2 sm:col-span-1">
+        <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-card hover:shadow-card-hover transition-all col-span-2 md:col-span-1">
           <div className="flex items-center justify-between text-slate-500 mb-2">
             <span className="text-xs font-medium">Học viên chốt (Deal Win)</span>
             <div className="w-7 h-7 rounded-lg bg-gold-light text-gold-dark flex items-center justify-center">
@@ -426,7 +412,7 @@ export function TikTokDashboard() {
           <div className="mt-2 pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
             <span>Tỷ lệ chốt/SĐT:</span>
             <span className="font-mono font-bold text-gold-dark">
-              {summary?.deal_conversion_rate || 0}%
+              {loading ? '...' : `${summary?.deal_conversion_rate || 0}%`}
             </span>
           </div>
         </div>
@@ -443,7 +429,7 @@ export function TikTokDashboard() {
             </div>
             <div className="flex items-center gap-3 text-[11px] font-medium text-slate-500">
               <span className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-full bg-navy" />
+                <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: 'var(--ez-chart-navy)' }} />
                 Bình luận
               </span>
               <span className="flex items-center gap-1.5">
@@ -458,8 +444,9 @@ export function TikTokDashboard() {
           </div>
 
           <div className="h-[280px] w-full">
+            {(data?.trend?.length || 0) > 0 ? (
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={data?.trend || []} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+              <AreaChart data={data?.trend || []} margin={{ top: 10, right: 10, left: -12, bottom: 0 }}>
                 <defs>
                   <linearGradient id="ttCommentGrad" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="var(--ez-chart-navy)" stopOpacity={0.25} />
@@ -542,6 +529,11 @@ export function TikTokDashboard() {
                 />
               </AreaChart>
             </ResponsiveContainer>
+            ) : (
+              <div className="h-full flex items-center justify-center text-xs text-slate-400">
+                {loading ? 'Đang tải biểu đồ xu hướng...' : 'Chưa có dữ liệu xu hướng trong khoảng thời gian này'}
+              </div>
+            )}
           </div>
         </div>
 
@@ -554,6 +546,7 @@ export function TikTokDashboard() {
 
           <div className="my-4 flex flex-col items-center">
             <div className="h-40 w-full">
+              {channelPieData.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
@@ -569,9 +562,12 @@ export function TikTokDashboard() {
                       <Cell key={entry.name} fill={entry.color} />
                     ))}
                   </Pie>
-                  <Tooltip />
+                  <Tooltip formatter={(value: number) => [value.toLocaleString(), 'Video']} />
                 </PieChart>
               </ResponsiveContainer>
+              ) : (
+                <div className="h-full flex items-center justify-center text-xs text-slate-400">Chưa có video</div>
+              )}
             </div>
             <div className="flex flex-wrap justify-center gap-2 mt-2 text-[10px] text-slate-500">
               {channelPieData.map(c => (
@@ -585,8 +581,8 @@ export function TikTokDashboard() {
 
           <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
             <span>Video nhiều bình luận nhất:</span>
-            <span className="font-semibold text-navy font-mono">
-              {data?.top_posts?.[0]?.comment_count || 0} bình luận
+            <span className="font-semibold text-navy font-mono tabular-nums">
+              {loading ? '...' : `${maxCommentsCount.toLocaleString()} bình luận`}
             </span>
           </div>
         </div>
@@ -707,7 +703,7 @@ export function TikTokDashboard() {
                         <Cell key={entry.name} fill={entry.color} />
                       ))}
                     </Pie>
-                    <Tooltip />
+                    <Tooltip formatter={(value: number) => [value.toLocaleString(), 'Lead']} />
                   </PieChart>
                 </ResponsiveContainer>
               </div>
@@ -755,11 +751,11 @@ export function TikTokDashboard() {
                 <h4 className="text-sm font-bold text-navy">Xu hướng Lead theo ngày</h4>
                 <div className="flex items-center gap-3 text-[11px] font-medium text-slate-500">
                   <span className="flex items-center gap-1.5">
-                    <span className="w-2.5 h-2.5 rounded-xs bg-gold" />
+                    <span className="w-2.5 h-2.5 rounded-sm bg-gold" />
                     Organic Inbox
                   </span>
                   <span className="flex items-center gap-1.5">
-                    <span className="w-2.5 h-2.5 rounded-xs bg-eztech" />
+                    <span className="w-2.5 h-2.5 rounded-sm bg-eztech" />
                     Lead từ Video
                   </span>
                 </div>
@@ -767,7 +763,7 @@ export function TikTokDashboard() {
 
               <div className="h-[220px] w-full">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={data?.trend || []} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                  <BarChart data={data?.trend || []} margin={{ top: 10, right: 10, left: -12, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--ez-chart-grid)" vertical={false} />
                     <XAxis
                       dataKey="date"
@@ -858,21 +854,23 @@ export function TikTokDashboard() {
           <div className="flex flex-wrap items-center gap-2.5">
             {/* Search Input */}
             <div className="relative">
-              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" aria-hidden="true" />
               <input
-                type="text"
+                type="search"
+                aria-label="Tìm nội dung hoặc ID video TikTok"
                 placeholder="Tìm nội dung / ID..."
                 value={searchPost}
                 onChange={e => setSearchPost(e.target.value)}
-                className="pl-8 pr-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs text-navy placeholder:text-slate-400 focus:outline-hidden focus:ring-1 focus:ring-eztech w-44 sm:w-52"
+                className="pl-8 pr-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs text-navy placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-eztech w-44 sm:w-52"
               />
             </div>
 
-            {/* Sort Dropdown hỗ trợ sắp xếp theo Leads, SĐT, Deal Win, Comments */}
+            {/* Sort Dropdown */}
             <select
+              aria-label="Sắp xếp danh sách video TikTok"
               value={sortBy}
-              onChange={e => setSortBy(e.target.value as any)}
-              className="bg-white border border-slate-200 rounded-lg text-xs px-2.5 py-1.5 text-navy font-medium focus:outline-hidden cursor-pointer"
+              onChange={e => setSortBy(e.target.value as 'leads' | 'phones' | 'deals' | 'comments' | 'reactions' | 'date')}
+              className="bg-white border border-slate-200 rounded-lg text-xs px-2.5 py-1.5 text-navy font-medium focus:outline-none cursor-pointer"
             >
               <option value="leads">Xếp theo: Lead thu về (Nhiều nhất)</option>
               <option value="phones">Xếp theo: SĐT thu được (Nhiều nhất)</option>
@@ -984,21 +982,24 @@ export function TikTokDashboard() {
 
                     {/* Cột Link TikTok */}
                     <td className="px-5 py-3.5 text-center whitespace-nowrap">
-                      {post.post_url ? (
-                        <a
-                          href={post.post_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-800 hover:text-black bg-slate-100 hover:bg-slate-200 px-2 py-1 rounded-md border border-slate-300 transition-colors"
-                          title={`Xem video: ${post.post_id}`}
-                        >
-                          <TikTokIcon className="w-3 h-3" />
-                          <span>Xem Video</span>
-                          <ExternalLink className="w-2.5 h-2.5" />
-                        </a>
-                      ) : (
-                        <span className="text-slate-300 text-xs">—</span>
-                      )}
+                      {(() => {
+                        const safePostUrl = toSafeHttpUrl(post.post_url);
+                        return safePostUrl ? (
+                          <a
+                            href={safePostUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-800 hover:text-navy bg-slate-100 hover:bg-slate-200 px-2 py-1 rounded-md border border-slate-300 transition-colors"
+                            title={`Xem video: ${post.post_id}`}
+                          >
+                            <TikTokIcon className="w-3 h-3" />
+                            <span>Xem Video</span>
+                            <ExternalLink className="w-2.5 h-2.5" aria-hidden="true" />
+                          </a>
+                        ) : (
+                          <span className="text-slate-400 text-xs">—</span>
+                        );
+                      })()}
                     </td>
                   </tr>
                 );
@@ -1007,7 +1008,9 @@ export function TikTokDashboard() {
               {filteredPosts.length === 0 && (
                 <tr>
                   <td colSpan={8} className="px-6 py-12 text-center text-slate-400 text-xs">
-                    Không tìm thấy video TikTok nào phù hợp trong khoảng thời gian này
+                    {loading
+                      ? 'Đang tải danh sách video...'
+                      : 'Không tìm thấy video TikTok nào phù hợp trong khoảng thời gian này'}
                   </td>
                 </tr>
               )}
@@ -1019,8 +1022,9 @@ export function TikTokDashboard() {
         {filteredPosts.length > postLimit && (
           <div className="p-3 bg-slate-50/60 border-t border-slate-100 text-center">
             <button
+              type="button"
               onClick={() => setPostLimit(prev => prev + 20)}
-              className="px-4 py-1.5 rounded-lg text-xs font-semibold text-navy bg-white hover:bg-slate-50 border border-slate-200 shadow-xs transition-colors cursor-pointer"
+              className="px-4 py-1.5 rounded-lg text-xs font-semibold text-navy bg-white hover:bg-slate-50 border border-slate-200 shadow-sm transition-colors cursor-pointer"
             >
               Xem thêm video ({filteredPosts.length - postLimit} video còn lại)
             </button>

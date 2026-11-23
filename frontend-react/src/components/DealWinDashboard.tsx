@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { format, subDays, startOfMonth } from 'date-fns';
 import {
   Award,
@@ -38,15 +38,20 @@ import {
   clearClientApiCache,
   fetchDealWinDetail,
   syncDealsWithLeads,
+  isAbortError,
   type DealWinItem,
   type DealWinSummary,
   type DealWinOptions
 } from '../services/api';
+import { safeFormatDate } from '../utils/format';
+import { showAppToast } from '../utils/toast';
+import { ErrorBanner } from './ErrorBanner';
+import { AccessibleModal } from './AccessibleModal';
 
 export function DealWinDashboard() {
   // Preset dates: default to 30 days
-  const [startDate, setStartDate] = useState(format(subDays(new Date(), 30), 'yyyy-MM-dd'));
-  const [endDate, setEndDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [startDate, setStartDate] = useState(() => format(subDays(new Date(), 30), 'yyyy-MM-dd'));
+  const [endDate, setEndDate] = useState(() => format(new Date(), 'yyyy-MM-dd'));
   const [datePreset, setDatePreset] = useState<'7d' | '30d' | 'month' | 'all' | 'custom'>('30d');
 
   // Filters
@@ -60,15 +65,16 @@ export function DealWinDashboard() {
   // Dropdown options
   const [options, setOptions] = useState<DealWinOptions>({ sales_persons: [], pages: [], sources: [] });
 
-  // Distinct single sales persons list (tách tên đơn lẻ, không để các cụm ghép phẩy)
+  // Distinct single sales persons list (giữ tên chứa 'data' như 'Tuấn Anh data', chỉ loại tag rác)
   const salesPersonsList = React.useMemo(() => {
     const set = new Set<string>();
-    const junk = ['chưa phân công', 'bỏ qua', 'chưa đóng tiền', 'không học', 'học t7', 'đóng trc', 'data'];
+    const junk = ['chưa phân công', 'bỏ qua', 'chưa đóng tiền', 'không học', 'học t7', 'đóng trc'];
     (options.sales_persons || []).forEach(sp => {
       if (sp) {
         sp.split(',').forEach(name => {
           const trimmed = name.trim();
-          if (trimmed && !junk.some(j => trimmed.toLowerCase().includes(j))) {
+          const low = trimmed.toLowerCase();
+          if (trimmed && low !== 'data' && !junk.some(j => low.includes(j))) {
             set.add(trimmed);
           }
         });
@@ -85,9 +91,10 @@ export function DealWinDashboard() {
   const [totalPages, setTotalPages] = useState(1);
   const pageSize = 20;
 
-  // Loading & status
+  // Loading, error & status
   const [loadingSummary, setLoadingSummary] = useState(false);
   const [loadingList, setLoadingList] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [syncingPancake, setSyncingPancake] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
@@ -95,11 +102,24 @@ export function DealWinDashboard() {
   const [detailModal, setDetailModal] = useState<DealWinItem | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
 
-  // Load dropdown options when onlyStudent changes
+  const summaryAbortRef = useRef<AbortController | null>(null);
+  const listAbortRef = useRef<AbortController | null>(null);
+  const detailReqIdRef = useRef<number | null>(null);
+
+  // Load dropdown options when onlyStudent changes & reset stale selections
   useEffect(() => {
-    fetchDealWinOptions(onlyStudent)
-      .then(res => setOptions(res))
-      .catch(err => console.error('Error fetching deal options:', err));
+    const controller = new AbortController();
+    fetchDealWinOptions(onlyStudent, { signal: controller.signal })
+      .then((res) => {
+        if (controller.signal.aborted) return;
+        setOptions(res);
+        if (selectedPage && res.pages && !res.pages.includes(selectedPage)) setSelectedPage('');
+        if (selectedSource && res.sources && !res.sources.includes(selectedSource)) setSelectedSource('');
+      })
+      .catch((err) => {
+        if (!isAbortError(err)) console.error('Error fetching deal options:', err);
+      });
+    return () => controller.abort();
   }, [onlyStudent]);
 
   // Quick date presets
@@ -116,77 +136,110 @@ export function DealWinDashboard() {
       setStartDate(format(startOfMonth(today), 'yyyy-MM-dd'));
       setEndDate(format(today, 'yyyy-MM-dd'));
     } else if (preset === 'all') {
-      setStartDate('2025-01-01');
+      setStartDate('');
       setEndDate(format(today, 'yyyy-MM-dd'));
     }
   };
 
-  // Fetch summary & aggregations (called only when date or sale changes)
-  const loadSummaryData = async () => {
+  // Fetch summary & aggregations (KHÔNG phụ thuộc activeSearch để tránh flash KPI khi tìm kiếm)
+  const loadSummaryData = useCallback(async (skipCache: boolean = false) => {
+    if (startDate && endDate && startDate > endDate) {
+      setErrorMsg('Ngày bắt đầu không được lớn hơn ngày kết thúc.');
+      return;
+    }
+    summaryAbortRef.current?.abort();
+    const controller = new AbortController();
+    summaryAbortRef.current = controller;
+
     setLoadingSummary(true);
+    setErrorMsg(null);
     try {
       const res = await fetchDealWinSummary(
-        startDate,
-        endDate,
+        startDate || undefined,
+        endDate || undefined,
         selectedSale || undefined,
         onlyStudent,
         selectedPage || undefined,
-        selectedSource || undefined
+        selectedSource || undefined,
+        { signal: controller.signal, skipCache }
       );
+      if (controller.signal.aborted) return;
       setSummary(res);
       setLastUpdated(new Date());
     } catch (err) {
+      if (isAbortError(err)) return;
       console.error('Error fetching deal summary:', err);
+      setErrorMsg('Không thể tải thống kê Deal Win. Vui lòng thử lại.');
     } finally {
-      setLoadingSummary(false);
+      if (summaryAbortRef.current === controller) {
+        setLoadingSummary(false);
+      }
     }
-  };
+  }, [startDate, endDate, selectedSale, onlyStudent, selectedPage, selectedSource]);
 
-  // Fetch paginated table rows (called on page change or filter/search change)
-  const loadListData = async (targetPage: number = 1) => {
+  // Fetch paginated table rows
+  const loadListData = useCallback(async (targetPage: number = 1, skipCache: boolean = false) => {
+    if (startDate && endDate && startDate > endDate) return;
+    listAbortRef.current?.abort();
+    const controller = new AbortController();
+    listAbortRef.current = controller;
+
     setLoadingList(true);
     try {
       const res = await fetchDealWinList(
         targetPage,
         pageSize,
-        startDate,
-        endDate,
+        startDate || undefined,
+        endDate || undefined,
         selectedSale || undefined,
         activeSearch || undefined,
         onlyStudent,
         selectedPage || undefined,
-        selectedSource || undefined
+        selectedSource || undefined,
+        { signal: controller.signal, skipCache }
       );
+      if (controller.signal.aborted) return;
       setDeals(res.data);
       setTotalDeals(res.total);
-      setTotalPages(res.total_pages);
+      setTotalPages(Math.max(1, res.total_pages));
       setPage(res.page);
     } catch (err) {
+      if (isAbortError(err)) return;
       console.error('Error fetching deal list:', err);
+      setErrorMsg('Không thể tải danh sách học viên Deal Win. Vui lòng thử lại.');
     } finally {
-      setLoadingList(false);
+      if (listAbortRef.current === controller) {
+        setLoadingList(false);
+      }
     }
-  };
+  }, [startDate, endDate, selectedSale, activeSearch, onlyStudent, selectedPage, selectedSource]);
 
-  // Reload when main filters change
+  // Tách 2 effect: Summary chỉ reload khi bộ lọc chính đổi; List reload thêm khi activeSearch đổi
   useEffect(() => {
-    loadSummaryData();
-    loadListData(1);
-  }, [startDate, endDate, selectedSale, selectedPage, selectedSource, activeSearch, onlyStudent]);
+    loadSummaryData(false);
+    return () => { summaryAbortRef.current?.abort(); };
+  }, [loadSummaryData]);
+
+  useEffect(() => {
+    loadListData(1, false);
+    return () => { listAbortRef.current?.abort(); };
+  }, [loadListData]);
 
   const handleSyncPancake = async () => {
     setSyncingPancake(true);
     try {
       const res = await syncDealsWithLeads();
-      alert(res.message);
-      fetchDealWinOptions(onlyStudent)
-        .then(opt => setOptions(opt))
-        .catch(() => {});
-      loadSummaryData();
-      loadListData(page);
+      showAppToast(res.message || 'Đồng bộ Pancake thành công!', 'success');
+      clearClientApiCache('/deals/');
+      const [opt] = await Promise.all([
+        fetchDealWinOptions(onlyStudent, { skipCache: true }).catch(() => null),
+        loadSummaryData(true),
+        loadListData(1, true),
+      ]);
+      if (opt) setOptions(opt);
     } catch (err) {
       console.error('Error syncing with Pancake:', err);
-      alert('Lỗi đồng bộ với Pancake!');
+      showAppToast('Lỗi đồng bộ với Pancake! Vui lòng thử lại.', 'error');
     } finally {
       setSyncingPancake(false);
     }
@@ -198,31 +251,57 @@ export function DealWinDashboard() {
   };
 
   const handleOpenDetail = async (deal: DealWinItem) => {
+    detailReqIdRef.current = deal.id;
     setDetailModal(deal);
     setLoadingDetail(true);
     try {
       const full = await fetchDealWinDetail(deal.id);
-      setDetailModal(full);
+      if (detailReqIdRef.current === deal.id) {
+        setDetailModal(full);
+      }
     } catch (err) {
       console.error('Error fetching deal detail:', err);
+      if (detailReqIdRef.current === deal.id) {
+        showAppToast('Không thể tải thêm thông tin chi tiết học viên.', 'error');
+      }
     } finally {
-      setLoadingDetail(false);
+      if (detailReqIdRef.current === deal.id) {
+        setLoadingDetail(false);
+      }
     }
   };
 
+  const closeDetailModal = () => {
+    detailReqIdRef.current = null;
+    setDetailModal(null);
+    setLoadingDetail(false);
+  };
+
   const handleRefresh = () => {
-    clearClientApiCache();
-    loadSummaryData();
-    loadListData(page);
+    clearClientApiCache('/deals/');
+    loadSummaryData(true);
+    loadListData(page, true);
   };
 
   const total = summary?.total_deals || 0;
 
-  // Format Top Sales for Bar Chart
-  const topSalesData = Object.entries(summary?.sales_person_stats || {})
-    .map(([name, count]) => ({ name, count }))
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 8);
+  // Format Top Sales for Bar Chart (memoized so typing in search doesn't re-sort)
+  const topSalesData = React.useMemo(
+    () =>
+      Object.entries(summary?.sales_person_stats || {})
+        .map(([name, count]) => ({ name, count }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 8),
+    [summary?.sales_person_stats]
+  );
+
+  const topSalesCount = React.useMemo(() => {
+    if (summary?.top_sales_person && summary?.sales_person_stats) {
+      const direct = summary.sales_person_stats[summary.top_sales_person];
+      if (typeof direct === 'number') return direct;
+    }
+    return topSalesData[0]?.count ?? 0;
+  }, [summary?.top_sales_person, summary?.sales_person_stats, topSalesData]);
 
   const BAR_COLORS = ['#1E5BD6', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899', '#06B6D4', '#64748B', '#3B82F6'];
 
@@ -362,29 +441,43 @@ export function DealWinDashboard() {
           </div>
 
           {/* Search Bar */}
-          <form onSubmit={handleSearchSubmit} className="flex flex-col gap-1 flex-1 min-w-[220px]">
-            <label className="text-xs font-medium text-[#4B5563]">Tìm kiếm nhanh</label>
-            <div className="relative">
-              <input
-                type="text"
-                placeholder="Tên, SĐT, Email, Note..."
-                value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-9 py-2 border border-[#E5E7EB] rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#1E5BD6]/20 focus:border-[#1E5BD6] transition-all text-[#111827]"
-              />
-              <Search className="w-4 h-4 text-gray-400 absolute left-3 top-2.5" />
-              {searchQuery && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSearchQuery('');
-                    setActiveSearch('');
+          <form onSubmit={handleSearchSubmit} className="flex flex-col gap-1 flex-1 min-w-[240px]">
+            <label htmlFor="dealwin-search" className="text-xs font-medium text-[#4B5563]">Tìm kiếm nhanh</label>
+            <div className="flex items-center gap-1.5">
+              <div className="relative flex-1">
+                <input
+                  id="dealwin-search"
+                  type="search"
+                  placeholder="Tên, SĐT, Email, Note... (Enter để tìm)"
+                  value={searchQuery}
+                  onChange={e => {
+                    const v = e.target.value;
+                    setSearchQuery(v);
+                    if (!v.trim() && activeSearch) setActiveSearch('');
                   }}
-                  className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              )}
+                  className="w-full pl-9 pr-8 py-2 border border-[#E5E7EB] rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#1E5BD6]/20 focus:border-[#1E5BD6] transition-all text-[#111827]"
+                />
+                <Search className="w-4 h-4 text-gray-400 absolute left-3 top-2.5" aria-hidden="true" />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    aria-label="Xóa từ khóa tìm kiếm"
+                    onClick={() => {
+                      setSearchQuery('');
+                      setActiveSearch('');
+                    }}
+                    className="absolute right-2.5 top-2.5 text-gray-400 hover:text-gray-600 cursor-pointer"
+                  >
+                    <X className="w-4 h-4" aria-hidden="true" />
+                  </button>
+                )}
+              </div>
+              <button
+                type="submit"
+                className="px-3 py-2 rounded-xl text-xs font-semibold bg-eztech hover:bg-eztech-hover text-white transition-colors cursor-pointer shrink-0"
+              >
+                Tìm
+              </button>
             </div>
           </form>
 
@@ -396,25 +489,29 @@ export function DealWinDashboard() {
               </span>
             )}
             <button
+              type="button"
               onClick={handleSyncPancake}
               disabled={syncingPancake || loadingSummary || loadingList}
-              className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-xl transition-colors disabled:opacity-50 border border-emerald-200"
+              className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-xl transition-colors disabled:opacity-50 border border-emerald-200 cursor-pointer"
               title="Đồng bộ tag 'Đã là học viên' và nhân viên chăm sóc từ Pancake"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${syncingPancake ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`w-3.5 h-3.5 ${syncingPancake ? 'animate-spin' : ''}`} aria-hidden="true" />
               <span>{syncingPancake ? 'Đang đồng bộ...' : 'Đồng bộ Pancake'}</span>
             </button>
             <button
+              type="button"
               onClick={handleRefresh}
               disabled={loadingSummary || loadingList}
-              className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-brand-600 bg-brand-50 hover:bg-brand-100 border border-brand-200/80 rounded-xl transition-colors disabled:opacity-50"
+              className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-brand-600 bg-brand-50 hover:bg-brand-100 border border-brand-200/80 rounded-xl transition-colors disabled:opacity-50 cursor-pointer"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${loadingSummary || loadingList ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`w-3.5 h-3.5 ${loadingSummary || loadingList ? 'animate-spin' : ''}`} aria-hidden="true" />
               <span>Làm mới</span>
             </button>
           </div>
         </div>
       </div>
+
+      <ErrorBanner message={errorMsg} onRetry={handleRefresh} />
 
       {/* KPI METRICS ROW */}
       <div className="ez-kpi-grid grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
@@ -423,7 +520,7 @@ export function DealWinDashboard() {
           <div className="flex items-center justify-between">
             <span className="text-xs font-medium text-[#4B5563]">Tổng Học Viên Chốt</span>
             <div className="w-10 h-10 rounded-xl bg-brand-100 text-brand-600 flex items-center justify-center">
-              <Award className="w-5 h-5" />
+              <Award className="w-5 h-5" aria-hidden="true" />
             </div>
           </div>
           <div className="mt-4">
@@ -436,11 +533,11 @@ export function DealWinDashboard() {
 
         {/* Card 2: Conversion Rate (Tỷ lệ Convert: Deal Win / SĐT) */}
         <div className="bg-white rounded-2xl border border-emerald-200/90 p-5 shadow-sm hover:shadow-md transition-all flex flex-col justify-between relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-50 rounded-bl-full -z-0 pointer-events-none" />
+          <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-50 rounded-bl-full z-0 pointer-events-none" />
           <div className="relative z-10 flex items-center justify-between">
             <span className="text-xs font-bold text-emerald-800">Tỷ Lệ Convert (Chốt / SĐT)</span>
-            <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shadow-xs">
-              <TrendingUp className="w-5 h-5" />
+            <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shadow-sm">
+              <TrendingUp className="w-5 h-5" aria-hidden="true" />
             </div>
           </div>
           <div className="mt-4 relative z-10">
@@ -458,7 +555,7 @@ export function DealWinDashboard() {
           <div className="flex items-center justify-between">
             <span className="text-xs font-medium text-[#4B5563]">SĐT Thu Về Trong Kỳ</span>
             <div className="w-10 h-10 rounded-xl bg-purple-100 text-purple-600 flex items-center justify-center">
-              <PhoneCall className="w-5 h-5" />
+              <PhoneCall className="w-5 h-5" aria-hidden="true" />
             </div>
           </div>
           <div className="mt-4">
@@ -474,7 +571,7 @@ export function DealWinDashboard() {
           <div className="flex items-center justify-between">
             <span className="text-xs font-medium text-[#4B5563]">Top Nhân Viên Chốt</span>
             <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-600 flex items-center justify-center">
-              <Users className="w-5 h-5" />
+              <Users className="w-5 h-5" aria-hidden="true" />
             </div>
           </div>
           <div className="mt-4">
@@ -482,7 +579,7 @@ export function DealWinDashboard() {
               {loadingSummary ? '...' : (summary?.top_sales_person || 'Chưa có')}
             </div>
             <p className="text-xs font-medium text-amber-600 mt-1">
-              {topSalesData.length > 0 ? `${topSalesData[0].count} deal chốt thành công` : 'Đóng góp nhiều Deal Win nhất'}
+              {topSalesCount > 0 ? `${topSalesCount} deal chốt thành công` : 'Đóng góp nhiều Deal Win nhất'}
             </p>
           </div>
         </div>
@@ -681,10 +778,10 @@ export function DealWinDashboard() {
                         {deal.timestamp ? (
                           <>
                             <div className="font-medium text-gray-800">
-                              {format(new Date(deal.timestamp), 'dd/MM/yyyy')}
+                              {safeFormatDate(deal.timestamp, 'dd/MM/yyyy')}
                             </div>
                             <div className="text-[11px] text-gray-400">
-                              {format(new Date(deal.timestamp), 'HH:mm')}
+                              {safeFormatDate(deal.timestamp, 'HH:mm', '')}
                             </div>
                           </>
                         ) : (
@@ -828,8 +925,13 @@ export function DealWinDashboard() {
       </div>
 
       {/* DETAIL MODAL */}
-      {detailModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs">
+      <AccessibleModal
+        isOpen={Boolean(detailModal)}
+        onClose={closeDetailModal}
+        labelledBy="deal-detail-modal-title"
+        overlayClassName="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+      >
+        {detailModal && (
           <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl border border-gray-100 flex flex-col">
             {/* Modal Header */}
             <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white z-10">
@@ -838,15 +940,19 @@ export function DealWinDashboard() {
                   {(detailModal.full_name || 'H').charAt(0).toUpperCase()}
                 </div>
                 <div>
-                  <h3 className="text-base font-bold text-navy">{detailModal.full_name || 'Học viên'}</h3>
+                  <h3 id="deal-detail-modal-title" className="text-base font-bold text-navy">
+                    {detailModal.full_name || 'Học viên'}
+                  </h3>
                   <p className="text-xs text-gray-500">Mã dòng: {detailModal.sheet_row_id || 'N/A'}</p>
                 </div>
               </div>
               <button
-                onClick={() => setDetailModal(null)}
-                className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+                type="button"
+                aria-label="Đóng chi tiết học viên"
+                onClick={closeDetailModal}
+                className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors cursor-pointer"
               >
-                <X className="w-5 h-5" />
+                <X className="w-5 h-5" aria-hidden="true" />
               </button>
             </div>
 
@@ -958,15 +1064,16 @@ export function DealWinDashboard() {
             {/* Modal Footer */}
             <div className="px-6 py-3 border-t border-gray-100 flex justify-end bg-gray-50 rounded-b-2xl">
               <button
-                onClick={() => setDetailModal(null)}
-                className="px-4 py-2 text-xs font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-100 transition-colors"
+                type="button"
+                onClick={closeDetailModal}
+                className="px-4 py-2 text-xs font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-100 transition-colors cursor-pointer"
               >
                 Đóng
               </button>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </AccessibleModal>
     </div>
   );
 }

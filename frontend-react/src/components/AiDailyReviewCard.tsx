@@ -173,7 +173,7 @@ export const AiDailyReviewCard: React.FC = () => {
             type="button"
             onClick={handleManualRefresh}
             disabled={isBusy}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-white hover:bg-brand-50 text-navy hover:text-brand-600 border border-slate-200/90 hover:border-brand-300 shadow-xs transition-all disabled:opacity-50 cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-white hover:bg-brand-50 text-navy hover:text-brand-600 border border-slate-200/90 hover:border-brand-300 shadow-sm transition-all disabled:opacity-50 cursor-pointer"
             title="Gửi toàn bộ thông số Dashboard qua Gemini AI đánh giá lại ngay"
           >
             <RefreshCw className={`w-3.5 h-3.5 text-brand-500 ${isBusy ? 'animate-spin' : ''}`} />

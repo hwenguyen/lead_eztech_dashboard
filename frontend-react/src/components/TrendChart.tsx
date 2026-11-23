@@ -1,3 +1,4 @@
+import React, { useId } from 'react';
 import {
   AreaChart, Area, BarChart, Bar, Cell, ReferenceLine,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
@@ -123,7 +124,12 @@ const CustomTooltip = ({ active, payload, label, selectedDate, clickable }: any)
   );
 };
 
-export function TrendChart({ data, selectedDate, onSelectDate }: TrendChartProps) {
+export const TrendChart = React.memo(function TrendChart({ data, selectedDate, onSelectDate }: TrendChartProps) {
+  const uid = useId().replace(/:/g, '');
+  const gradNew = `colorNew-${uid}`;
+  const gradContact = `colorContact-${uid}`;
+  const gradPhone = `colorPhone-${uid}`;
+
   const handleChartClick = (state: any) => {
     if (!onSelectDate) return;
     const clicked = state?.activePayload?.[0]?.payload?.date || state?.activeLabel;
@@ -172,116 +178,140 @@ export function TrendChart({ data, selectedDate, onSelectDate }: TrendChartProps
             </span>
           </div>
         </div>
-        <ResponsiveContainer width="100%" height={245}>
-          <AreaChart
-            data={data}
-            margin={{ top: 5, right: 5, left: -24, bottom: 0 }}
-            onClick={handleChartClick}
-            style={{ cursor: onSelectDate ? 'pointer' : 'default' }}
-          >
-            <defs>
-              <linearGradient id="colorNew" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#1E5BD6" stopOpacity={0.16}/>
-                <stop offset="95%" stopColor="#1E5BD6" stopOpacity={0}/>
-              </linearGradient>
-              <linearGradient id="colorContact" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="var(--ez-chart-navy)" stopOpacity={0.14}/>
-                <stop offset="95%" stopColor="var(--ez-chart-navy)" stopOpacity={0}/>
-              </linearGradient>
-              <linearGradient id="colorPhone" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#F5B400" stopOpacity={0.18}/>
-                <stop offset="95%" stopColor="#F5B400" stopOpacity={0}/>
-              </linearGradient>
-            </defs>
-            <XAxis dataKey="date" tickFormatter={formatAxisDate} stroke="var(--ez-chart-axis)" fontSize={11} tickLine={false} axisLine={false} />
-            <YAxis stroke="var(--ez-chart-axis)" fontSize={11} tickLine={false} axisLine={false} />
-            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--ez-chart-grid)" />
-            {selectedDate && (
-              <ReferenceLine x={selectedDate} stroke="#1E5BD6" strokeDasharray="3 3" strokeWidth={1.5} />
-            )}
-            <Tooltip content={<CustomTooltip selectedDate={selectedDate} clickable={!!onSelectDate} />} />
-            <Area
-              type="monotone"
-              name="Lead Mới"
-              dataKey="new_leads"
-              stroke="#1E5BD6"
-              strokeWidth={2}
-              fillOpacity={1}
-              fill="url(#colorNew)"
-              dot={renderSeriesDot('#1E5BD6', selectedDate, data.length)}
-              activeDot={{ r: 5, strokeWidth: 2, cursor: 'pointer' }}
-              animationDuration={250}
-            />
-            <Area
-              type="monotone"
-              name="Lead Contact Lại"
-              dataKey="recontact_leads"
-              stroke="var(--ez-chart-navy)"
-              strokeWidth={1.75}
-              fillOpacity={1}
-              fill="url(#colorContact)"
-              dot={renderSeriesDot('var(--ez-chart-navy)', selectedDate, data.length)}
-              activeDot={{ r: 5, strokeWidth: 2, cursor: 'pointer' }}
-              animationDuration={250}
-            />
-            <Area
-              type="monotone"
-              name="SĐT thu được"
-              dataKey="phone_leads"
-              stroke="#F5B400"
-              strokeWidth={2}
-              fillOpacity={1}
-              fill="url(#colorPhone)"
-              dot={renderSeriesDot('#F5B400', selectedDate, data.length)}
-              activeDot={{ r: 5, strokeWidth: 2, cursor: 'pointer' }}
-              animationDuration={250}
-            />
-          </AreaChart>
-        </ResponsiveContainer>
+        {data.length > 0 ? (
+          <ResponsiveContainer width="100%" height={245}>
+            <AreaChart
+              data={data}
+              margin={{ top: 5, right: 8, left: -12, bottom: 0 }}
+              onClick={handleChartClick}
+              style={{ cursor: onSelectDate ? 'pointer' : 'default' }}
+            >
+              <defs>
+                <linearGradient id={gradNew} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#1E5BD6" stopOpacity={0.16} />
+                  <stop offset="95%" stopColor="#1E5BD6" stopOpacity={0} />
+                </linearGradient>
+                <linearGradient id={gradContact} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="var(--ez-chart-navy)" stopOpacity={0.14} />
+                  <stop offset="95%" stopColor="var(--ez-chart-navy)" stopOpacity={0} />
+                </linearGradient>
+                <linearGradient id={gradPhone} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#F5B400" stopOpacity={0.18} />
+                  <stop offset="95%" stopColor="#F5B400" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <XAxis dataKey="date" tickFormatter={formatAxisDate} stroke="var(--ez-chart-axis)" fontSize={11} tickLine={false} axisLine={false} />
+              <YAxis allowDecimals={false} stroke="var(--ez-chart-axis)" fontSize={11} tickLine={false} axisLine={false} />
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--ez-chart-grid)" />
+              {selectedDate && (
+                <ReferenceLine x={selectedDate} stroke="#1E5BD6" strokeDasharray="3 3" strokeWidth={1.5} />
+              )}
+              <Tooltip content={<CustomTooltip selectedDate={selectedDate} clickable={!!onSelectDate} />} />
+              <Area
+                type="monotone"
+                name="Lead Mới"
+                dataKey="new_leads"
+                stroke="#1E5BD6"
+                strokeWidth={2}
+                fillOpacity={1}
+                fill={`url(#${gradNew})`}
+                dot={renderSeriesDot('#1E5BD6', selectedDate, data.length)}
+                activeDot={{ r: 5, strokeWidth: 2, cursor: 'pointer' }}
+                animationDuration={250}
+              />
+              <Area
+                type="monotone"
+                name="Lead Contact Lại"
+                dataKey="recontact_leads"
+                stroke="var(--ez-chart-navy)"
+                strokeWidth={1.75}
+                fillOpacity={1}
+                fill={`url(#${gradContact})`}
+                dot={renderSeriesDot('var(--ez-chart-navy)', selectedDate, data.length)}
+                activeDot={{ r: 5, strokeWidth: 2, cursor: 'pointer' }}
+                animationDuration={250}
+              />
+              <Area
+                type="monotone"
+                name="SĐT thu được"
+                dataKey="phone_leads"
+                stroke="#F5B400"
+                strokeWidth={2}
+                fillOpacity={1}
+                fill={`url(#${gradPhone})`}
+                dot={renderSeriesDot('#F5B400', selectedDate, data.length)}
+                activeDot={{ r: 5, strokeWidth: 2, cursor: 'pointer' }}
+                animationDuration={250}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        ) : (
+          <div className="flex items-center justify-center h-[245px] text-slate-400 text-xs">
+            Chưa có dữ liệu xu hướng trong kỳ này
+          </div>
+        )}
       </div>
 
       {/* Bar Chart - chiếm 1/3 */}
       <div className="bg-white rounded-xl border border-slate-200/80 p-5 shadow-card">
-        <div className="mb-5">
-          <h3 className="text-[15px] font-semibold tracking-[-0.01em] text-navy">So sánh theo ngày</h3>
-          <p className="text-xs text-slate-500 mt-0.5">Lead Mới vs Contact Lại</p>
+        <div className="flex flex-wrap items-start justify-between gap-2 mb-5">
+          <div>
+            <h3 className="text-[15px] font-semibold tracking-[-0.01em] text-navy">So sánh theo ngày</h3>
+            <p className="text-xs text-slate-500 mt-0.5">Lead Mới vs Contact Lại</p>
+          </div>
+          <div className="flex items-center gap-2.5 text-[10px] font-medium text-slate-500">
+            <span className="flex items-center gap-1">
+              <span className="w-2 h-2 rounded-full bg-eztech inline-block" />
+              Mới
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: 'var(--ez-chart-navy)' }} />
+              Lại
+            </span>
+          </div>
         </div>
-        <ResponsiveContainer width="100%" height={245}>
-          <BarChart
-            data={data}
-            margin={{ top: 5, right: 5, left: -24, bottom: 0 }}
-            barSize={8}
-            onClick={handleChartClick}
-            style={{ cursor: onSelectDate ? 'pointer' : 'default' }}
-          >
-            <XAxis dataKey="date" tickFormatter={formatAxisDate} stroke="var(--ez-chart-axis)" fontSize={10} tickLine={false} axisLine={false} />
-            <YAxis stroke="var(--ez-chart-axis)" fontSize={10} tickLine={false} axisLine={false} />
-            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--ez-chart-grid)" />
-            <Tooltip
-              content={<CustomTooltip selectedDate={selectedDate} clickable={!!onSelectDate} />}
-              cursor={{ fill: 'var(--ez-brand-tint)', opacity: 0.45 }}
-            />
-            <Bar name="Lead Mới" dataKey="new_leads" fill="#1E5BD6" radius={[3, 3, 0, 0]} animationDuration={250}>
-              {data.map((entry) => (
-                <Cell
-                  key={`bar-new-${entry.date}`}
-                  fill="#1E5BD6"
-                  fillOpacity={!selectedDate || entry.date === selectedDate ? 1 : 0.25}
-                />
-              ))}
-            </Bar>
-            <Bar name="Contact Lại" dataKey="recontact_leads" fill="var(--ez-chart-navy)" radius={[3, 3, 0, 0]} animationDuration={250}>
-              {data.map((entry) => (
-                <Cell
-                  key={`bar-re-${entry.date}`}
-                  fill="var(--ez-chart-navy)"
-                  fillOpacity={!selectedDate || entry.date === selectedDate ? 1 : 0.25}
-                />
-              ))}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
+        {data.length > 0 ? (
+          <ResponsiveContainer width="100%" height={245}>
+            <BarChart
+              data={data}
+              margin={{ top: 5, right: 6, left: -14, bottom: 0 }}
+              barSize={8}
+              onClick={handleChartClick}
+              style={{ cursor: onSelectDate ? 'pointer' : 'default' }}
+            >
+              <XAxis dataKey="date" tickFormatter={formatAxisDate} stroke="var(--ez-chart-axis)" fontSize={10} tickLine={false} axisLine={false} />
+              <YAxis allowDecimals={false} stroke="var(--ez-chart-axis)" fontSize={10} tickLine={false} axisLine={false} />
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--ez-chart-grid)" />
+              <Tooltip
+                content={<CustomTooltip selectedDate={selectedDate} clickable={!!onSelectDate} />}
+                cursor={{ fill: 'var(--ez-brand-tint)', opacity: 0.45 }}
+              />
+              <Bar name="Lead Mới" dataKey="new_leads" fill="#1E5BD6" radius={[3, 3, 0, 0]} animationDuration={250}>
+                {data.map((entry) => (
+                  <Cell
+                    key={`bar-new-${entry.date}`}
+                    fill="#1E5BD6"
+                    fillOpacity={!selectedDate || entry.date === selectedDate ? 1 : 0.25}
+                  />
+                ))}
+              </Bar>
+              <Bar name="Contact Lại" dataKey="recontact_leads" fill="var(--ez-chart-navy)" radius={[3, 3, 0, 0]} animationDuration={250}>
+                {data.map((entry) => (
+                  <Cell
+                    key={`bar-re-${entry.date}`}
+                    fill="var(--ez-chart-navy)"
+                    fillOpacity={!selectedDate || entry.date === selectedDate ? 1 : 0.25}
+                  />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        ) : (
+          <div className="flex items-center justify-center h-[245px] text-slate-400 text-xs">
+            Chưa có dữ liệu so sánh
+          </div>
+        )}
       </div>
     </div>
   );
-}
+});

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
 
 interface StatsPieChartProps {
@@ -13,15 +13,34 @@ interface StatsPieChartProps {
 }
 
 const COLORS = ['#1E5BD6', 'var(--ez-chart-navy)', '#F5B400', '#3B82F6', '#64748B', '#10B981', '#94A3B8', '#CBD5E1'];
+// Light-luminance slices need dark ink to satisfy WCAG AA contrast
+const LIGHT_SLICE_COLORS = new Set(['#F5B400', '#FFC107', '#CBD5E1', '#94A3B8']);
 
-const CustomLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent }: any) => {
-  if (percent < 0.06) return null;
+const CustomLabel = ({
+  cx,
+  cy,
+  midAngle,
+  innerRadius,
+  outerRadius,
+  percent,
+  fill,
+}: {
+  cx?: number;
+  cy?: number;
+  midAngle?: number;
+  innerRadius?: number;
+  outerRadius?: number;
+  percent?: number;
+  fill?: string;
+}) => {
+  if (!percent || percent < 0.06 || cx === undefined || cy === undefined || midAngle === undefined || innerRadius === undefined || outerRadius === undefined) return null;
   const RADIAN = Math.PI / 180;
   const radius = innerRadius + (outerRadius - innerRadius) * 0.5;
   const x = cx + radius * Math.cos(-midAngle * RADIAN);
   const y = cy + radius * Math.sin(-midAngle * RADIAN);
+  const textFill = fill && LIGHT_SLICE_COLORS.has(fill.toUpperCase()) ? '#0A1F44' : '#FFFFFF';
   return (
-    <text x={x} y={y} fill="white" textAnchor="middle" dominantBaseline="central" fontSize={11} fontWeight={600}>
+    <text x={x} y={y} fill={textFill} textAnchor="middle" dominantBaseline="central" fontSize={11} fontWeight={700}>
       {`${(percent * 100).toFixed(0)}%`}
     </text>
   );
@@ -51,7 +70,7 @@ const StatsPieTooltip = ({ active, payload, unit, total, selectedKey, clickable 
           <span className="truncate">{name}</span>
         </span>
         {isSelected && (
-          <span className="px-1.5 py-0.2 rounded text-[10px] font-semibold bg-eztech-light text-eztech shrink-0">
+          <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-eztech-light text-eztech shrink-0">
             Đang lọc
           </span>
         )}
@@ -68,7 +87,7 @@ const StatsPieTooltip = ({ active, payload, unit, total, selectedKey, clickable 
   );
 };
 
-export function StatsPieChart({
+export const StatsPieChart = React.memo(function StatsPieChart({
   title,
   subtitle,
   stats,
@@ -78,20 +97,19 @@ export function StatsPieChart({
   selectedKey,
   onSelectKey,
 }: StatsPieChartProps) {
-  if (!stats) return null;
-
-  const getColor = (name: string, index: number) => {
-    if (colorMap && colorMap[name]) return colorMap[name];
-    return COLORS[index % COLORS.length];
-  };
-
-  const data = Object.entries(stats)
-    .filter(([_, value]) => value > 0)
-    .map(([name, value]) => ({ name, value }))
-    .sort((a, b) => b.value - a.value)
-    .map((item, index) => ({ ...item, color: getColor(item.name, index) }));
-
-  const total = data.reduce((acc, curr) => acc + curr.value, 0);
+  const { data, total } = useMemo(() => {
+    if (!stats) return { data: [], total: 0 };
+    const entries = Object.entries(stats)
+      .filter(([, value]) => value > 0)
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value)
+      .map((item, index) => ({
+        ...item,
+        color: colorMap && colorMap[item.name] ? colorMap[item.name] : COLORS[index % COLORS.length],
+      }));
+    const sum = entries.reduce((acc, curr) => acc + curr.value, 0);
+    return { data: entries, total: sum };
+  }, [stats, colorMap]);
 
   const handleToggle = (name: string) => {
     if (!onSelectKey) return;
@@ -125,7 +143,9 @@ export function StatsPieChart({
                 paddingAngle={2}
                 dataKey="value"
                 labelLine={false}
-                label={<CustomLabel />}
+                label={(props) => (
+                  <CustomLabel {...props} fill={data[props.index]?.color} />
+                )}
                 animationDuration={250}
                 onClick={(_, index) => {
                   const item = data[index];
@@ -169,13 +189,14 @@ export function StatsPieChart({
                   type="button"
                   onClick={() => handleToggle(item.name)}
                   disabled={!onSelectKey}
+                  aria-pressed={onSelectKey ? isSelected : undefined}
                   className={`w-full flex items-center justify-between text-xs py-1 px-1.5 -mx-1.5 rounded-md transition-all text-left ${
                     onSelectKey ? 'cursor-pointer hover:bg-slate-50' : ''
                   } ${isSelected ? 'bg-eztech-light font-semibold text-eztech' : ''} ${
                     isDimmed ? 'opacity-45' : ''
                   }`}
                 >
-                  <span className="flex items-center gap-2 text-slate-600 truncate mr-2">
+                  <span title={item.name} className="flex items-center gap-2 text-slate-600 truncate mr-2">
                     <span
                       className="w-2 h-2 rounded-full inline-block shrink-0"
                       style={{ backgroundColor: item.color }}
@@ -185,7 +206,7 @@ export function StatsPieChart({
                   <span className="font-mono font-semibold text-navy shrink-0 tabular-nums">
                     {item.value.toLocaleString()}
                     <span className="text-slate-400 font-normal ml-1">
-                      ({((item.value / total) * 100).toFixed(1)}%)
+                      ({total > 0 ? ((item.value / total) * 100).toFixed(1) : '0.0'}%)
                     </span>
                   </span>
                 </button>
@@ -194,10 +215,10 @@ export function StatsPieChart({
           </div>
         </>
       ) : (
-        <div className="flex items-center justify-center h-[200px] text-slate-300 text-xs">
+        <div className="flex items-center justify-center h-[200px] text-slate-400 text-xs">
           Không có dữ liệu
         </div>
       )}
     </div>
   );
-}
+});

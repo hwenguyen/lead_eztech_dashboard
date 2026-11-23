@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { format, subDays, startOfWeek, endOfWeek, subWeeks, startOfMonth } from 'date-fns';
 import {
   Copy,
@@ -14,7 +14,14 @@ import {
   FileSpreadsheet,
   RotateCcw,
 } from 'lucide-react';
-import { fetchWorkReport, type WorkReportResponse } from '../services/api';
+import {
+  fetchWorkReport,
+  clearClientApiCache,
+  isAbortError,
+  type WorkReportResponse,
+} from '../services/api';
+import { copyToClipboard } from '../utils/format';
+import { ErrorBanner } from './ErrorBanner';
 
 export interface SheetSubRow {
   id: string;
@@ -35,6 +42,45 @@ export interface SheetSection {
 
 const STORAGE_KEY_PREFIX = 'eztech_work_report_v1_';
 
+function safeStorageGet(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function safeStorageSet(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // ignore storage quota / private mode error
+  }
+}
+
+function parseSavedSections(raw: string | null): SheetSection[] | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (
+      Array.isArray(parsed) &&
+      parsed.length > 0 &&
+      parsed.every(
+        (s) =>
+          s &&
+          typeof s === 'object' &&
+          typeof s.sectionNumber === 'number' &&
+          Array.isArray(s.rows)
+      )
+    ) {
+      return parsed as SheetSection[];
+    }
+  } catch {
+    // malformed JSON
+  }
+  return null;
+}
+
 function createDefaultSections(report?: WorkReportResponse | null): SheetSection[] {
   const ttLine = report?.lead_stats?.tiktok?.formatted_line || 'Tiktok: Tạo mới: 0, Contact trong tuần: 0, SĐT 0.';
   const fbLine = report?.lead_stats?.facebook?.formatted_line || 'FB: Tạo mới: 0, Contact: 0, SĐT: 0';
@@ -42,7 +88,7 @@ function createDefaultSections(report?: WorkReportResponse | null): SheetSection
   const insightLines = report?.insights?.formatted_lines || [];
   const classesStr = report?.student_stats?.classes?.length
     ? report.student_stats.classes.join(', ')
-    : 'PBIK59';
+    : '';
 
   const section1Rows: SheetSubRow[] = [
     {
@@ -152,8 +198,8 @@ function createDefaultSections(report?: WorkReportResponse | null): SheetSection
       feedback: '',
       rows: [
         { id: 's5_r1', task: '', completed: '', nextPlan: '', feedback: '' },
-        { id: 's5_r2', task: '', nextPlan: '', completed: '', feedback: '' },
-        { id: 's5_r3', task: '', nextPlan: '', completed: '', feedback: '' },
+        { id: 's5_r2', task: '', completed: '', nextPlan: '', feedback: '' },
+        { id: 's5_r3', task: '', completed: '', nextPlan: '', feedback: '' },
       ],
     },
     {
@@ -197,15 +243,38 @@ export function WorkReportDashboard() {
   const [endDate, setEndDate] = useState(() => format(new Date(), 'yyyy-MM-dd'));
   const [activePreset, setActivePreset] = useState<'this_week' | '7d' | 'last_week' | 'month' | 'custom'>('this_week');
   const [selectedEmployee, setSelectedEmployee] = useState<string>(() => {
-    return localStorage.getItem('eztech_work_report_selected_emp') || 'Nguyen Gia Huy';
+    const saved = safeStorageGet('eztech_work_report_selected_emp');
+    return saved !== null ? saved : 'Nguyen Gia Huy';
   });
 
   const [reportData, setReportData] = useState<WorkReportResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [sections, setSections] = useState<SheetSection[]>(() => createDefaultSections(null));
+  const [loadedStorageKey, setLoadedStorageKey] = useState<string | null>(null);
   const [copiedMode, setCopiedMode] = useState<'all' | 'body' | string | null>(null);
 
-  const storageKey = `${STORAGE_KEY_PREFIX}${selectedEmployee || 'ALL'}`;
+  const copyTimerRef = useRef<number | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
+  // Scoped theo nhân sự + khoảng ngày để mỗi tuần/kỳ giữ bản nháp độc lập, không ghi đè nhau
+  const storageKey = `${STORAGE_KEY_PREFIX}${selectedEmployee || 'ALL'}_${startDate}_${endDate}`;
+
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current) window.clearTimeout(copyTimerRef.current);
+      abortRef.current?.abort();
+    };
+  }, []);
+
+  // Debounced auto-save bản nháp vào localStorage (chỉ lưu khi sections thuộc đúng storageKey hiện tại)
+  useEffect(() => {
+    if (loadedStorageKey !== storageKey) return;
+    const timer = window.setTimeout(() => {
+      safeStorageSet(storageKey, JSON.stringify(sections));
+    }, 400);
+    return () => window.clearTimeout(timer);
+  }, [sections, storageKey, loadedStorageKey]);
 
   // Đồng bộ dữ liệu từ API và tự động điền vào Mục 1 (Chăm sóc khách hàng)
   const applyDataToSections = useCallback((data: WorkReportResponse, currentSections: SheetSection[], forceReset = false) => {
@@ -266,9 +335,11 @@ export function WorkReportDashboard() {
           feedback: existingInsight?.feedback || '',
         });
 
-        // Giữ lại các dòng tự thêm khác của người dùng trong mục 1 (nếu có)
+        // Giữ lại các dòng tự thêm khác của người dùng trong mục 1 (kể cả dòng chỉ có feedback)
         const extraRows = sec.rows.slice(2).filter(
-          (r) => !['Chăm sóc Zalo', 'Học viên chốt', 'Insight tuần'].includes(r.task) && (r.task || r.completed || r.nextPlan)
+          (r) =>
+            !['Chăm sóc Zalo', 'Học viên chốt', 'Insight tuần'].includes(r.task) &&
+            (r.task || r.completed || r.nextPlan || r.feedback)
         );
 
         return {
@@ -290,42 +361,58 @@ export function WorkReportDashboard() {
     });
   }, []);
 
-  const loadReport = useCallback(async (forceReset = false) => {
+  const loadReport = useCallback(async (forceReset = false, skipCache = false) => {
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     setLoading(true);
+    setErrorMsg(null);
     try {
-      const res = await fetchWorkReport(startDate, endDate, selectedEmployee);
+      if (skipCache) {
+        clearClientApiCache('/work-report');
+      }
+      const res = await fetchWorkReport(startDate, endDate, selectedEmployee, {
+        signal: controller.signal,
+        skipCache,
+      });
+      if (controller.signal.aborted) return;
       setReportData(res);
 
-      // Kiểm tra bản nháp đã lưu của nhân viên này
-      const savedJson = localStorage.getItem(storageKey);
-      let baseSections: SheetSection[];
-      if (savedJson && !forceReset) {
-        try {
-          baseSections = JSON.parse(savedJson);
-        } catch {
-          baseSections = createDefaultSections(res);
-        }
-      } else {
-        baseSections = createDefaultSections(res);
-      }
+      // Kiểm tra bản nháp đã lưu của nhân viên + kỳ báo cáo này
+      const parsedDraft = !forceReset ? parseSavedSections(safeStorageGet(storageKey)) : null;
+      const baseSections = parsedDraft ?? createDefaultSections(res);
 
       const merged = applyDataToSections(res, baseSections, forceReset);
       setSections(merged);
-      localStorage.setItem(storageKey, JSON.stringify(merged));
+      setLoadedStorageKey(storageKey);
+      safeStorageSet(storageKey, JSON.stringify(merged));
     } catch (err) {
+      if (isAbortError(err) || controller.signal.aborted) return;
       console.error('Lỗi tải báo cáo công việc:', err);
+      setErrorMsg('Không thể tải dữ liệu báo cáo công việc. Vui lòng thử lại.');
     } finally {
-      setLoading(false);
+      if (!controller.signal.aborted) {
+        setLoading(false);
+      }
     }
   }, [startDate, endDate, selectedEmployee, storageKey, applyDataToSections]);
 
   useEffect(() => {
-    loadReport(false);
+    loadReport(false, false);
   }, [loadReport]);
+
+  const handleResetReport = () => {
+    const ok = window.confirm(
+      'Khôi phục và điền lại số liệu mới nhất từ hệ thống? Các chỉnh sửa thủ công trong bảng của kỳ này sẽ bị đặt lại.'
+    );
+    if (!ok) return;
+    loadReport(true, true);
+  };
 
   const handleEmployeeChange = (emp: string) => {
     setSelectedEmployee(emp);
-    localStorage.setItem('eztech_work_report_selected_emp', emp);
+    safeStorageSet('eztech_work_report_selected_emp', emp);
   };
 
   const applyDatePreset = (preset: 'this_week' | '7d' | 'last_week' | 'month') => {
@@ -347,37 +434,33 @@ export function WorkReportDashboard() {
     }
   };
 
-  // Cập nhật ô trong bảng và lưu tự động vào localStorage
-  const updateSubRow = (secIndex: number, rowIndex: number, field: keyof SheetSubRow, value: string) => {
-    setSections((prev) => {
-      const next = prev.map((sec, sIdx) => {
+  // Cập nhật ô trong bảng (auto-save bằng debounced useEffect ở trên, không side-effect trong state updater)
+  const updateSubRow = useCallback((secIndex: number, rowIndex: number, field: keyof SheetSubRow, value: string) => {
+    setSections((prev) =>
+      prev.map((sec, sIdx) => {
         if (sIdx !== secIndex) return sec;
         const newRows = sec.rows.map((r, rIdx) => (rIdx === rowIndex ? { ...r, [field]: value } : r));
         return { ...sec, rows: newRows };
-      });
-      localStorage.setItem(storageKey, JSON.stringify(next));
-      return next;
-    });
-  };
+      })
+    );
+  }, []);
 
-  const updateSectionHeader = (secIndex: number, field: 'title' | 'completed' | 'nextPlan' | 'feedback', value: string) => {
-    setSections((prev) => {
-      const next = prev.map((sec, sIdx) => (sIdx === secIndex ? { ...sec, [field]: value } : sec));
-      localStorage.setItem(storageKey, JSON.stringify(next));
-      return next;
-    });
-  };
+  const updateSectionHeader = useCallback((secIndex: number, field: 'title' | 'completed' | 'nextPlan' | 'feedback', value: string) => {
+    setSections((prev) =>
+      prev.map((sec, sIdx) => (sIdx === secIndex ? { ...sec, [field]: value } : sec))
+    );
+  }, []);
 
-  const addSubRow = (secIndex: number) => {
-    setSections((prev) => {
-      const next = prev.map((sec, sIdx) => {
+  const addSubRow = useCallback((secIndex: number) => {
+    setSections((prev) =>
+      prev.map((sec, sIdx) => {
         if (sIdx !== secIndex) return sec;
         return {
           ...sec,
           rows: [
             ...sec.rows,
             {
-              id: `s${sec.sectionNumber}_${Date.now()}`,
+              id: `s${sec.sectionNumber}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
               task: '',
               completed: '',
               nextPlan: '',
@@ -385,25 +468,27 @@ export function WorkReportDashboard() {
             },
           ],
         };
-      });
-      localStorage.setItem(storageKey, JSON.stringify(next));
-      return next;
-    });
-  };
+      })
+    );
+  }, []);
 
-  const removeSubRow = (secIndex: number, rowIndex: number) => {
-    setSections((prev) => {
-      const next = prev.map((sec, sIdx) => {
+  const removeSubRow = useCallback((secIndex: number, rowIndex: number) => {
+    setSections((prev) =>
+      prev.map((sec, sIdx) => {
         if (sIdx !== secIndex || sec.rows.length <= 1) return sec;
         return {
           ...sec,
           rows: sec.rows.filter((_, idx) => idx !== rowIndex),
         };
-      });
-      localStorage.setItem(storageKey, JSON.stringify(next));
-      return next;
-    });
-  };
+      })
+    );
+  }, []);
+
+  const setCopiedWithTimer = useCallback((mode: string, ms: number) => {
+    setCopiedMode(mode);
+    if (copyTimerRef.current) window.clearTimeout(copyTimerRef.current);
+    copyTimerRef.current = window.setTimeout(() => setCopiedMode(null), ms);
+  }, []);
 
   // Xây dựng dữ liệu TSV & HTML chuẩn Google Sheets để Paste 1 chạm khớp 100% cột A -> E
   const handleCopySheet = async (includeHeader: boolean) => {
@@ -475,29 +560,53 @@ export function WorkReportDashboard() {
     const htmlString = `<table style="border-collapse:collapse;"><tbody>${htmlRows.join('')}</tbody></table>`;
 
     try {
-      if (navigator.clipboard && window.ClipboardItem) {
+      if (navigator.clipboard && typeof window.ClipboardItem !== 'undefined') {
         const item = new ClipboardItem({
           'text/plain': new Blob([tsvString], { type: 'text/plain' }),
           'text/html': new Blob([htmlString], { type: 'text/html' }),
         });
         await navigator.clipboard.write([item]);
-      } else {
-        await navigator.clipboard.writeText(tsvString);
+        setCopiedWithTimer(includeHeader ? 'all' : 'body', 2500);
+        return;
       }
-      setCopiedMode(includeHeader ? 'all' : 'body');
-      setTimeout(() => setCopiedMode(null), 2500);
     } catch {
-      await navigator.clipboard.writeText(tsvString);
-      setCopiedMode(includeHeader ? 'all' : 'body');
-      setTimeout(() => setCopiedMode(null), 2500);
+      // fallback to plain TSV copy below
+    }
+
+    const ok = await copyToClipboard(tsvString);
+    if (ok) {
+      setCopiedWithTimer(includeHeader ? 'all' : 'body', 2500);
     }
   };
 
   const handleCopyText = async (text: string, id: string) => {
-    await navigator.clipboard.writeText(text);
-    setCopiedMode(id);
-    setTimeout(() => setCopiedMode(null), 2000);
+    const ok = await copyToClipboard(text);
+    if (ok) {
+      setCopiedWithTimer(id, 2000);
+    }
   };
+
+  // Tính sẵn số dòng Spreadsheet (thuần khiết, không mutate biến trong quá trình render)
+  const sectionRowMeta = useMemo(() => {
+    let rowNum = 1; // Dòng 1 là hàng tiêu đề cột
+    return sections.map((sec) => {
+      rowNum += 1;
+      const headerRowNum = rowNum;
+      const subRowNums = sec.rows.map(() => {
+        rowNum += 1;
+        return rowNum;
+      });
+      return { headerRowNum, subRowNums };
+    });
+  }, [sections]);
+
+  const employeeOptions = useMemo(() => {
+    const list = reportData?.employees_list || [];
+    if (selectedEmployee && !list.includes(selectedEmployee)) {
+      return [selectedEmployee, ...list];
+    }
+    return list;
+  }, [reportData?.employees_list, selectedEmployee]);
 
   const ttStat = reportData?.lead_stats.tiktok;
   const fbStat = reportData?.lead_stats.facebook;
@@ -506,20 +615,23 @@ export function WorkReportDashboard() {
 
   return (
     <div className="space-y-4">
+      {errorMsg && <ErrorBanner message={errorMsg} onRetry={() => loadReport(false, true)} />}
+
       {/* 1. Thanh công cụ lọc Nhân viên, Tuần báo cáo & Nút Copy Sheet */}
       <div className="bg-white rounded-xl border border-slate-200/80 shadow-card p-4 flex flex-col xl:flex-row xl:items-center justify-between gap-4">
         <div className="flex flex-wrap items-center gap-3">
           {/* Chọn Nhân viên */}
           <div className="flex items-center gap-2 bg-eztech-light/60 border border-eztech-border rounded-lg px-3 py-1.5">
             <UserCheck className="w-4 h-4 text-eztech shrink-0" />
-            <span className="text-[11px] font-bold uppercase tracking-wider text-navy shrink-0">Nhân sự:</span>
+            <label htmlFor="work-report-emp" className="text-[11px] font-bold uppercase tracking-wider text-navy shrink-0">Nhân sự:</label>
             <select
+              id="work-report-emp"
               value={selectedEmployee}
               onChange={(e) => handleEmployeeChange(e.target.value)}
               className="bg-transparent text-xs font-bold text-eztech focus:outline-none cursor-pointer pr-2"
             >
               <option value="">Tất cả nhân viên</option>
-              {(reportData?.employees_list || []).map((emp) => (
+              {employeeOptions.map((emp) => (
                 <option key={emp} value={emp}>
                   {emp}
                 </option>
@@ -538,10 +650,11 @@ export function WorkReportDashboard() {
               <button
                 key={p.id}
                 type="button"
+                aria-pressed={activePreset === p.id}
                 onClick={() => applyDatePreset(p.id)}
                 className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${
                   activePreset === p.id
-                    ? 'bg-white text-eztech shadow-2xs'
+                    ? 'bg-white text-eztech shadow-sm'
                     : 'text-slate-600 hover:text-navy'
                 }`}
               >
@@ -555,6 +668,8 @@ export function WorkReportDashboard() {
             <Calendar className="w-3.5 h-3.5 text-eztech" />
             <input
               type="date"
+              aria-label="Từ ngày"
+              max={endDate || undefined}
               value={startDate}
               onChange={(e) => {
                 setStartDate(e.target.value);
@@ -565,6 +680,8 @@ export function WorkReportDashboard() {
             <span className="text-slate-300 text-xs">→</span>
             <input
               type="date"
+              aria-label="Đến ngày"
+              min={startDate || undefined}
               value={endDate}
               onChange={(e) => {
                 setEndDate(e.target.value);
@@ -579,10 +696,10 @@ export function WorkReportDashboard() {
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
-            onClick={() => loadReport(true)}
+            onClick={handleResetReport}
             disabled={loading}
             title="Khôi phục & tự động điền lại số liệu mới nhất từ hệ thống"
-            className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-white hover:bg-slate-50 text-slate-700 border border-slate-200/90 flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer"
+            className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-white hover:bg-slate-50 text-slate-700 border border-slate-200/90 flex items-center gap-1.5 transition-all shadow-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <RotateCcw className={`w-3.5 h-3.5 text-eztech ${loading ? 'animate-spin' : ''}`} />
             <span>Tự điền lại số liệu</span>
@@ -719,7 +836,7 @@ export function WorkReportDashboard() {
             <div className="flex items-center justify-between text-slate-600">
               <span>Mã lớp phụ trách:</span>
               <span className="font-bold text-eztech">
-                {studentStat?.classes?.length ? studentStat.classes.join(', ') : 'PBIK59'}
+                {studentStat?.classes?.length ? studentStat.classes.join(', ') : 'Chưa có lớp mới'}
               </span>
             </div>
           </div>
@@ -772,7 +889,7 @@ export function WorkReportDashboard() {
         {/* Thanh tiêu đề kiểu Google Sheet */}
         <div className="bg-[#f8f9fa] border-b border-slate-300 px-4 py-2.5 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded bg-emerald-600 text-white flex items-center justify-center font-bold text-xs shadow-2xs">
+            <div className="w-6 h-6 rounded bg-emerald-600 text-white flex items-center justify-center font-bold text-xs shadow-sm">
               <FileSpreadsheet className="w-3.5 h-3.5" />
             </div>
             <div>
@@ -787,9 +904,15 @@ export function WorkReportDashboard() {
           </div>
 
           <div className="flex items-center gap-2 text-[11px] text-slate-500">
+            {loading && (
+              <span className="inline-flex items-center gap-1.5 bg-eztech-light text-eztech px-2.5 py-1 rounded border border-eztech-border font-medium">
+                <span className="w-2.5 h-2.5 rounded-full border-2 border-eztech/30 border-t-eztech animate-spin" />
+                Đang đồng bộ số liệu...
+              </span>
+            )}
             <span className="inline-flex items-center gap-1 bg-white px-2.5 py-1 rounded border border-slate-200 font-medium">
               <Sparkles className="w-3 h-3 text-amber-500" />
-              Tự động lưu nháp trên trình duyệt
+              Tự động lưu nháp theo kỳ
             </span>
           </div>
         </div>
@@ -821,30 +944,19 @@ export function WorkReportDashboard() {
             </thead>
 
             <tbody>
-              {(() => {
-                let sheetRowNumber = 1;
-                return sections.map((sec, secIdx) => {
-                  sheetRowNumber += 1;
-                  const headerRowNum = sheetRowNumber;
-
-                  return (
-                    <FragmentSection
-                      key={sec.sectionNumber}
-                      sec={sec}
-                      secIdx={secIdx}
-                      headerRowNum={headerRowNum}
-                      getNextRowNum={() => {
-                        sheetRowNumber += 1;
-                        return sheetRowNumber;
-                      }}
-                      onUpdateHeader={updateSectionHeader}
-                      onUpdateSubRow={updateSubRow}
-                      onAddSubRow={addSubRow}
-                      onRemoveSubRow={removeSubRow}
-                    />
-                  );
-                });
-              })()}
+              {sections.map((sec, secIdx) => (
+                <FragmentSection
+                  key={sec.sectionNumber}
+                  sec={sec}
+                  secIdx={secIdx}
+                  headerRowNum={sectionRowMeta[secIdx]?.headerRowNum ?? secIdx + 2}
+                  subRowNums={sectionRowMeta[secIdx]?.subRowNums ?? []}
+                  onUpdateHeader={updateSectionHeader}
+                  onUpdateSubRow={updateSubRow}
+                  onAddSubRow={addSubRow}
+                  onRemoveSubRow={removeSubRow}
+                />
+              ))}
             </tbody>
           </table>
         </div>
@@ -878,22 +990,31 @@ export function WorkReportDashboard() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {(reportData?.lead_stats.by_page || []).map((pg) => (
-                  <tr key={pg.page_name} className="hover:bg-slate-50/80">
-                    <td className="py-2 font-medium text-navy flex items-center gap-1.5">
-                      <span
-                        className={`w-2 h-2 rounded-full shrink-0 ${
-                          pg.platform === 'tiktok' ? 'bg-eztech' : 'bg-amber-500'
-                        }`}
-                      />
-                      <span className="truncate max-w-[220px]">{pg.page_name}</span>
-                    </td>
-                    <td className="py-2 text-right font-mono tabular-nums text-slate-700">{pg.new_leads}</td>
-                    <td className="py-2 text-right font-mono tabular-nums text-slate-500">{pg.recontact_leads}</td>
-                    <td className="py-2 text-right font-mono font-bold tabular-nums text-eztech">{pg.total_contacted}</td>
-                    <td className="py-2 text-right font-mono font-bold tabular-nums text-emerald-600">{pg.phone_leads}</td>
-                  </tr>
-                ))}
+                {(reportData?.lead_stats.by_page || []).map((pg) => {
+                  const isZalo =
+                    (pg.platform as string) === 'zalo' ||
+                    (pg.page_name || '').toLowerCase().includes('zalo');
+                  return (
+                    <tr key={pg.page_name} className="hover:bg-slate-50/80">
+                      <td className="py-2 font-medium text-navy flex items-center gap-1.5">
+                        <span
+                          className={`w-2 h-2 rounded-full shrink-0 ${
+                            pg.platform === 'tiktok'
+                              ? 'bg-eztech'
+                              : isZalo
+                              ? 'bg-sky-500'
+                              : 'bg-amber-500'
+                          }`}
+                        />
+                        <span className="truncate max-w-[220px]">{pg.page_name}</span>
+                      </td>
+                      <td className="py-2 text-right font-mono tabular-nums text-slate-700">{pg.new_leads}</td>
+                      <td className="py-2 text-right font-mono tabular-nums text-slate-500">{pg.recontact_leads}</td>
+                      <td className="py-2 text-right font-mono font-bold tabular-nums text-eztech">{pg.total_contacted}</td>
+                      <td className="py-2 text-right font-mono font-bold tabular-nums text-emerald-600">{pg.phone_leads}</td>
+                    </tr>
+                  );
+                })}
                 {(!reportData?.lead_stats.by_page || reportData.lead_stats.by_page.length === 0) && (
                   <tr>
                     <td colSpan={5} className="py-6 text-center text-slate-400">
@@ -966,7 +1087,7 @@ interface FragmentSectionProps {
   sec: SheetSection;
   secIdx: number;
   headerRowNum: number;
-  getNextRowNum: () => number;
+  subRowNums: number[];
   onUpdateHeader: (secIndex: number, field: 'title' | 'completed' | 'nextPlan' | 'feedback', value: string) => void;
   onUpdateSubRow: (secIndex: number, rowIndex: number, field: keyof SheetSubRow, value: string) => void;
   onAddSubRow: (secIndex: number) => void;
@@ -977,7 +1098,7 @@ function FragmentSection({
   sec,
   secIdx,
   headerRowNum,
-  getNextRowNum,
+  subRowNums,
   onUpdateHeader,
   onUpdateSubRow,
   onAddSubRow,
@@ -997,6 +1118,7 @@ function FragmentSection({
           <div className="flex items-center justify-between gap-1">
             <input
               type="text"
+              aria-label={`Tiêu đề mục ${sec.sectionNumber}`}
               value={sec.title}
               onChange={(e) => onUpdateHeader(secIdx, 'title', e.target.value)}
               className="w-full bg-transparent font-bold text-navy focus:outline-none focus:bg-white focus:ring-1 focus:ring-eztech rounded px-1 py-0.5"
@@ -1005,6 +1127,7 @@ function FragmentSection({
               type="button"
               onClick={() => onAddSubRow(secIdx)}
               title="Thêm dòng công việc vào mục này"
+              aria-label={`Thêm dòng vào mục ${sec.sectionNumber}`}
               className="p-1 text-slate-400 hover:text-eztech hover:bg-eztech-light rounded transition-colors shrink-0 cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" />
@@ -1014,6 +1137,7 @@ function FragmentSection({
         <td className="border-b border-dotted border-slate-300 border-r border-r-slate-400 px-2.5 py-1">
           <input
             type="text"
+            aria-label={`Đã hoàn thành mục ${sec.sectionNumber}`}
             value={sec.completed}
             onChange={(e) => onUpdateHeader(secIdx, 'completed', e.target.value)}
             className="w-full bg-transparent font-semibold text-navy focus:outline-none focus:bg-white focus:ring-1 focus:ring-eztech rounded px-1 py-0.5"
@@ -1022,6 +1146,7 @@ function FragmentSection({
         <td className="border-b border-dotted border-slate-300 border-r border-r-slate-400 px-2.5 py-1">
           <input
             type="text"
+            aria-label={`Kế hoạch mục ${sec.sectionNumber}`}
             value={sec.nextPlan}
             onChange={(e) => onUpdateHeader(secIdx, 'nextPlan', e.target.value)}
             className="w-full bg-transparent font-semibold text-navy focus:outline-none focus:bg-white focus:ring-1 focus:ring-eztech rounded px-1 py-0.5"
@@ -1030,6 +1155,7 @@ function FragmentSection({
         <td className="border-b border-dotted border-slate-300 px-2.5 py-1">
           <input
             type="text"
+            aria-label={`Feedback mục ${sec.sectionNumber}`}
             value={sec.feedback}
             onChange={(e) => onUpdateHeader(secIdx, 'feedback', e.target.value)}
             className="w-full bg-transparent font-semibold text-navy focus:outline-none focus:bg-white focus:ring-1 focus:ring-eztech rounded px-1 py-0.5"
@@ -1039,13 +1165,14 @@ function FragmentSection({
 
       {/* Các dòng con thuộc Mục */}
       {sec.rows.map((row, rIdx) => {
-        const rowNum = getNextRowNum();
+        const rowNum = subRowNums[rIdx] ?? headerRowNum + rIdx + 1;
         const isLast = rIdx === sec.rows.length - 1;
         const borderBottomClass = isLast ? 'border-b border-slate-400' : 'border-b border-dotted border-slate-300';
         const lineCount = Math.max(
           1,
           (row.completed || '').split('\n').length,
-          (row.nextPlan || '').split('\n').length
+          (row.nextPlan || '').split('\n').length,
+          (row.feedback || '').split('\n').length
         );
 
         return (
@@ -1059,7 +1186,8 @@ function FragmentSection({
                   type="button"
                   onClick={() => onRemoveSubRow(secIdx, rIdx)}
                   title="Xoá dòng này"
-                  className="opacity-0 group-hover:opacity-100 p-0.5 text-slate-300 hover:text-rose-600 transition-opacity cursor-pointer"
+                  aria-label={`Xoá dòng ${rowNum}`}
+                  className="opacity-60 sm:opacity-0 sm:group-hover:opacity-100 focus:opacity-100 p-0.5 text-slate-400 hover:text-rose-600 transition-opacity cursor-pointer"
                 >
                   <Trash2 className="w-3 h-3" />
                 </button>
@@ -1068,6 +1196,7 @@ function FragmentSection({
             <td className={`${borderBottomClass} border-r border-r-slate-400 px-2.5 py-1 align-top`}>
               <input
                 type="text"
+                aria-label={`Công việc dòng ${rowNum}`}
                 value={row.task}
                 placeholder="..."
                 onChange={(e) => onUpdateSubRow(secIdx, rIdx, 'task', e.target.value)}
@@ -1076,6 +1205,7 @@ function FragmentSection({
             </td>
             <td className={`${borderBottomClass} border-r border-r-slate-400 px-2.5 py-1 align-top`}>
               <textarea
+                aria-label={`Đã hoàn thành dòng ${rowNum}`}
                 rows={lineCount}
                 value={row.completed}
                 placeholder="Nhập kết quả hoàn thành..."
@@ -1085,6 +1215,7 @@ function FragmentSection({
             </td>
             <td className={`${borderBottomClass} border-r border-r-slate-400 px-2.5 py-1 align-top`}>
               <textarea
+                aria-label={`Kế hoạch dòng ${rowNum}`}
                 rows={lineCount}
                 value={row.nextPlan}
                 placeholder="Nhập kế hoạch tuần tới..."
@@ -1094,6 +1225,7 @@ function FragmentSection({
             </td>
             <td className={`${borderBottomClass} px-2.5 py-1 align-top`}>
               <textarea
+                aria-label={`Feedback dòng ${rowNum}`}
                 rows={lineCount}
                 value={row.feedback}
                 placeholder="..."

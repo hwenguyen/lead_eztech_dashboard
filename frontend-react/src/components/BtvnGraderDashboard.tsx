@@ -21,6 +21,7 @@ import {
   Layers,
   List,
 } from 'lucide-react';
+import { showAppToast } from '../utils/toast';
 
 interface GradeRecord {
   id: string;
@@ -248,7 +249,7 @@ export const BtvnGraderDashboard: React.FC = () => {
       setNewAnswerFiles([]);
       await fetchAnswerFiles();
     } catch (err: any) {
-      alert(err.message || 'Lỗi upload đáp án');
+      showAppToast(err.message || 'Lỗi upload đáp án', 'error');
     } finally {
       setIsUploadingAnswer(false);
     }

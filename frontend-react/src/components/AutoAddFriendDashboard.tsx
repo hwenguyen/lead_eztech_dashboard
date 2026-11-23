@@ -36,8 +36,45 @@ import {
   type AddFriendTaskStatus,
   type AddFriendHistoryItem
 } from '../services/api';
+import { getVnTodayStr, copyToClipboard } from '../utils/format';
+import { showAppToast } from '../utils/toast';
+import { AccessibleModal } from './AccessibleModal';
+import { ErrorBanner } from './ErrorBanner';
 
 const ACTIVE_TASK_STORAGE_KEY = 'addfriend_active_task_id';
+
+function safeGetStorage(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function safeSetStorage(key: string, val: string): void {
+  try {
+    localStorage.setItem(key, val);
+  } catch {
+    // ignore storage errors
+  }
+}
+
+function safeRemoveStorage(key: string): void {
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    // ignore storage errors
+  }
+}
+
+function expandWorstCaseSpintax(template: string, pageName: string): string {
+  const withPage = template.replace(/\{page\}/g, pageName);
+  // Mở rộng spintax {A|B|C} bằng nhánh dài nhất để đếm ký tự không bị vượt 150 ký tự của Zalo
+  return withPage.replace(/\{([^{}|]+\|[^{}]+)\}/g, (_, group: string) => {
+    const options = group.split('|');
+    return options.reduce((longest, cur) => (cur.length > longest.length ? cur : longest), '');
+  });
+}
 
 const DEFAULT_PAGES = [
   'Eztech Consultant',
@@ -148,11 +185,23 @@ export const AutoAddFriendDashboard: React.FC = () => {
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
   const [taskStatus, setTaskStatus] = useState<AddFriendTaskStatus | null>(null);
   const [starting, setStarting] = useState(false);
+  const [stopping, setStopping] = useState(false);
   const [banner, setBanner] = useState<{ type: 'error' | 'success' | 'info'; text: string } | null>(null);
 
   // Lịch sử
   const [historyItems, setHistoryItems] = useState<AddFriendHistoryItem[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+
+  const copyTimerRef = useRef<number | null>(null);
+  const closeModalTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current) window.clearTimeout(copyTimerRef.current);
+      if (closeModalTimerRef.current) window.clearTimeout(closeModalTimerRef.current);
+    };
+  }, []);
 
   // Phân tích SĐT tức thì
   const parsedList = useMemo(() => parsePhonesClient(rawPhoneText), [rawPhoneText]);
@@ -164,67 +213,119 @@ export const AutoAddFriendDashboard: React.FC = () => {
   const invalidCount = useMemo(() => parsedList.filter((p) => !p.valid).length, [parsedList]);
 
   useEffect(() => {
+    let mounted = true;
     fetchAddFriendConfig()
-      .then((data) => setConfig(data))
-      .catch(() => {});
+      .then((data) => {
+        if (mounted) setConfig(data);
+      })
+      .catch(() => {
+        if (mounted) {
+          setBanner({ type: 'error', text: 'Không thể tải cấu hình Auto Kết Bạn từ máy chủ.' });
+        }
+      });
 
     fetchActiveAddFriendTask()
       .then((res) => {
+        if (!mounted) return;
         if (res.active) {
           setTaskStatus(res.active);
           if (res.active.is_running) {
             setActiveTaskId(res.active.task_id);
-            localStorage.setItem(ACTIVE_TASK_STORAGE_KEY, res.active.task_id);
+            safeSetStorage(ACTIVE_TASK_STORAGE_KEY, res.active.task_id);
           } else {
-            localStorage.removeItem(ACTIVE_TASK_STORAGE_KEY);
+            safeRemoveStorage(ACTIVE_TASK_STORAGE_KEY);
           }
           return;
         }
-        const savedId = localStorage.getItem(ACTIVE_TASK_STORAGE_KEY);
+        const savedId = safeGetStorage(ACTIVE_TASK_STORAGE_KEY);
         if (savedId) setActiveTaskId(savedId);
       })
       .catch(() => {
-        const savedId = localStorage.getItem(ACTIVE_TASK_STORAGE_KEY);
+        if (!mounted) return;
+        const savedId = safeGetStorage(ACTIVE_TASK_STORAGE_KEY);
         if (savedId) setActiveTaskId(savedId);
       });
+
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   useEffect(() => {
     if (!activeTaskId) return;
     let cancelled = false;
-    let timer: ReturnType<typeof setInterval> | null = null;
+    let inFlight = false;
+    let consecutiveErrors = 0;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const scheduleNext = (delayMs: number) => {
+      if (cancelled) return;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        if (document.visibilityState === 'hidden') return;
+        void poll();
+      }, delayMs);
+    };
+
     const poll = async () => {
+      if (cancelled || inFlight) return;
+      inFlight = true;
       try {
         const st = await fetchAddFriendStatus(activeTaskId);
         if (cancelled) return;
+        consecutiveErrors = 0;
         setTaskStatus(st);
         if (!st.is_running) {
-          if (timer) clearInterval(timer);
-          localStorage.removeItem(ACTIVE_TASK_STORAGE_KEY);
+          safeRemoveStorage(ACTIVE_TASK_STORAGE_KEY);
           setActiveTaskId(null);
+          return;
         }
+        scheduleNext(1500);
       } catch (err: any) {
         if (cancelled) return;
         if (err?.response?.status === 404) {
-          if (timer) clearInterval(timer);
-          localStorage.removeItem(ACTIVE_TASK_STORAGE_KEY);
+          safeRemoveStorage(ACTIVE_TASK_STORAGE_KEY);
           setActiveTaskId(null);
+          return;
         }
+        consecutiveErrors += 1;
+        if (consecutiveErrors >= 3) {
+          setBanner({
+            type: 'error',
+            text: 'Mất kết nối tạm thời khi theo dõi tiến trình kết bạn. Hệ thống sẽ tự động thử lại...'
+          });
+        }
+        scheduleNext(Math.min(5000, 1500 * Math.pow(1.5, consecutiveErrors)));
+      } finally {
+        inFlight = false;
       }
     };
-    poll();
-    timer = setInterval(poll, 1500);
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && !cancelled) {
+        void poll();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    void poll();
+
     return () => {
       cancelled = true;
-      if (timer) clearInterval(timer);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      if (timer) clearTimeout(timer);
     };
   }, [activeTaskId]);
 
   const loadHistory = async () => {
     setLoadingHistory(true);
+    setHistoryError(null);
     try {
       const res = await fetchAddFriendHistory(100);
       setHistoryItems(res.items || []);
+    } catch (err: any) {
+      console.error('Lỗi tải lịch sử kết bạn:', err);
+      setHistoryError(err?.response?.data?.detail || 'Không thể tải lịch sử kết bạn.');
     } finally {
       setLoadingHistory(false);
     }
@@ -250,14 +351,24 @@ export const AutoAddFriendDashboard: React.FC = () => {
     const reader = new FileReader();
     reader.onload = (ev) => {
       const text = String(ev.target?.result || '');
-      // Chỉ giữ cột đầu tiên nếu là file CSV nhiều cột
-      const onlyPhones = text
+      // Quét tìm cột chứa SĐT Việt Nam trên từng dòng CSV/TXT; fallback về cột đầu nếu file chỉ 1 cột
+      const extracted = text
         .split(/\r?\n/)
-        .map((line) => line.split(/[\t,;]/)[0]?.trim())
+        .map((line) => {
+          const cells = line.split(/[\t,;]/).map((c) => c.trim().replace(/^["']|["']$/g, ''));
+          const phoneCell = cells.find((c) => {
+            const digits = c.replace(/\D/g, '');
+            return /^(?:84|0)?[35789]\d{8}$/.test(digits);
+          });
+          return phoneCell || (cells.length === 1 ? cells[0] : '');
+        })
         .filter(Boolean)
         .join('\n');
-      setRawPhoneText(onlyPhones);
+      setRawPhoneText(extracted);
       setPhoneError(null);
+    };
+    reader.onerror = () => {
+      setPhoneError('Không thể đọc tệp đã chọn. Vui lòng kiểm tra định dạng UTF-8.');
     };
     reader.readAsText(file, 'utf-8');
     e.target.value = '';
@@ -357,7 +468,8 @@ export const AutoAddFriendDashboard: React.FC = () => {
       const res = await savePancakeStateJson(stateJsonInput);
       setConfig((prev) => (prev ? { ...prev, state_info: res.state_info } : prev));
       setStateFeedback({ type: 'success', text: res.message });
-      setTimeout(() => {
+      if (closeModalTimerRef.current) window.clearTimeout(closeModalTimerRef.current);
+      closeModalTimerRef.current = window.setTimeout(() => {
         setShowStateModal(false);
         setStateFeedback(null);
       }, 900);
@@ -374,13 +486,35 @@ export const AutoAddFriendDashboard: React.FC = () => {
   const handleDeletePancakeState = async () => {
     if (!window.confirm('Xóa phiên đăng nhập Pancake khỏi Database?')) return;
     setSavingState(true);
+    setStateFeedback(null);
     try {
       const res = await deletePancakeState();
       setConfig((prev) => (prev ? { ...prev, state_info: res.state_info } : prev));
       setStateJsonInput('');
       setStateFeedback({ type: 'success', text: res.message });
+    } catch (err: any) {
+      setStateFeedback({
+        type: 'error',
+        text: err?.response?.data?.detail || 'Không thể xóa phiên Pancake. Vui lòng thử lại.'
+      });
     } finally {
       setSavingState(false);
+    }
+  };
+
+  const handleStopCampaign = async () => {
+    if (!activeTaskId || stopping) return;
+    if (!window.confirm('Bạn có chắc muốn dừng chiến dịch kết bạn đang chạy?')) return;
+    setStopping(true);
+    try {
+      await stopAddFriendCampaign(activeTaskId);
+      showAppToast('Đã gửi lệnh dừng chiến dịch kết bạn.', 'info');
+    } catch (err: any) {
+      const msg = err?.response?.data?.detail || 'Không thể dừng chiến dịch. Vui lòng thử lại.';
+      setBanner({ type: 'error', text: msg });
+      showAppToast(msg, 'error');
+    } finally {
+      setStopping(false);
     }
   };
 
@@ -410,11 +544,21 @@ export const AutoAddFriendDashboard: React.FC = () => {
       setCustomTagInput('');
     }
 
+    const safeMin = Math.max(1, rateLimit.delay_min || 1);
+    const safeMax = Math.max(safeMin, rateLimit.delay_max || safeMin);
+    const safeRateLimit: RateLimitSettings = {
+      ...rateLimit,
+      delay_min: safeMin,
+      delay_max: safeMax,
+      batch_size: Math.max(1, rateLimit.batch_size || 10),
+      daily_limit: Math.min(500, Math.max(1, rateLimit.daily_limit || 50))
+    };
+
     setStarting(true);
     setTaskStatus(null);
     try {
       const res = await startAddFriendCampaign({
-        campaign_name: `ketban_${new Date().toISOString().slice(0, 10).replace(/-/g, '')}`,
+        campaign_name: `ketban_${getVnTodayStr().replace(/-/g, '')}`,
         page_name: selectedPage,
         items: validPhones.map((phone) => {
           const meta = leadMetaMap[phone];
@@ -432,10 +576,10 @@ export const AutoAddFriendDashboard: React.FC = () => {
         add_note: false,
         note_template: '',
         tags: tagsToSend,
-        rate_limit: rateLimit,
+        rate_limit: safeRateLimit,
         dry_run: dryRun
       });
-      localStorage.setItem(ACTIVE_TASK_STORAGE_KEY, res.task_id);
+      safeSetStorage(ACTIVE_TASK_STORAGE_KEY, res.task_id);
       setActiveTaskId(res.task_id);
     } catch (err: any) {
       setBanner({
@@ -473,12 +617,18 @@ export const AutoAddFriendDashboard: React.FC = () => {
   }, [config, selectedPage, customTagsByPage]);
 
   const pagesList = config?.pages?.map((p) => p.name) || DEFAULT_PAGES;
-  const renderedPreview = messageTemplate.replace(/\{page\}/g, selectedPage);
+  const renderedPreview = useMemo(
+    () => expandWorstCaseSpintax(messageTemplate, selectedPage),
+    [messageTemplate, selectedPage]
+  );
+  const progressPercent = taskStatus && taskStatus.total > 0
+    ? Math.min(100, Math.round((taskStatus.processed / taskStatus.total) * 100))
+    : 0;
 
   return (
     <div className="space-y-5 max-w-6xl mx-auto">
       {/* HEADER GỌN GÀNG */}
-      <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs px-5 py-4 flex flex-wrap items-center justify-between gap-3">
+      <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm px-5 py-4 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0">
             <UserPlus className="w-5 h-5" />
@@ -489,7 +639,7 @@ export const AutoAddFriendDashboard: React.FC = () => {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             onClick={handleOpenStateModal}
@@ -506,18 +656,20 @@ export const AutoAddFriendDashboard: React.FC = () => {
           <div className="inline-flex rounded-xl bg-slate-100 p-1 border border-slate-200">
             <button
               type="button"
+              aria-pressed={subTab === 'workspace'}
               onClick={() => setSubTab('workspace')}
               className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                subTab === 'workspace' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                subTab === 'workspace' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'
               }`}
             >
               Kết Bạn
             </button>
             <button
               type="button"
+              aria-pressed={subTab === 'history'}
               onClick={() => setSubTab('history')}
               className={`inline-flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                subTab === 'history' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                subTab === 'history' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'
               }`}
             >
               <History className="w-3.5 h-3.5" />
@@ -529,6 +681,7 @@ export const AutoAddFriendDashboard: React.FC = () => {
 
       {banner && (
         <div
+          role={banner.type === 'error' ? 'alert' : 'status'}
           className={`flex items-center justify-between px-4 py-2.5 rounded-xl border text-xs font-medium ${
             banner.type === 'error'
               ? 'bg-rose-50 border-rose-200 text-rose-800'
@@ -548,13 +701,13 @@ export const AutoAddFriendDashboard: React.FC = () => {
         <>
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
             {/* CỘT TRÁI (5 cols): NHẬP SỐ ĐIỆN THOẠI (CHỈ SĐT) */}
-            <div className="lg:col-span-5 bg-white rounded-2xl border border-slate-200/80 shadow-xs p-5 flex flex-col justify-between space-y-4">
+            <div className="lg:col-span-5 bg-white rounded-2xl border border-slate-200/80 shadow-sm p-5 flex flex-col justify-between space-y-4">
               <div className="space-y-3">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <label htmlFor="phone-list-input" className="text-sm font-bold text-slate-900">
                     1. Danh Sách Số Điện Thoại
                   </label>
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex flex-wrap items-center gap-1.5">
                     <input
                       ref={fileInputRef}
                       type="file"
@@ -757,7 +910,7 @@ export const AutoAddFriendDashboard: React.FC = () => {
             {/* CỘT PHẢI (7 cols): PAGE + TIN NHẮN + TAG + CHỐNG CHẶN */}
             <div className="lg:col-span-7 space-y-5">
               {/* BƯỚC 2: CHỌN PAGE & TIN NHẮN CHÀO */}
-              <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs p-5 space-y-4">
+              <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-5 space-y-4">
                 <div>
                   <span className="block text-sm font-bold text-slate-900 mb-2.5">
                     2. Chọn Page Zalo
@@ -769,10 +922,11 @@ export const AutoAddFriendDashboard: React.FC = () => {
                         <button
                           key={pg}
                           type="button"
+                          aria-pressed={active}
                           onClick={() => handleSelectPage(pg)}
                           className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
                             active
-                              ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                              ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
                               : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
                           }`}
                         >
@@ -786,7 +940,7 @@ export const AutoAddFriendDashboard: React.FC = () => {
 
                 {/* Tin nhắn chào */}
                 <div className="space-y-2 pt-2 border-t border-slate-100">
-                  <div className="flex items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
                     <label htmlFor="greeting-msg" className="text-sm font-bold text-slate-900">
                       3. Lời Chào Kết Bạn
                     </label>
@@ -817,10 +971,10 @@ export const AutoAddFriendDashboard: React.FC = () => {
                     rows={2}
                     value={messageTemplate}
                     onChange={(e) => setMessageTemplate(e.target.value)}
-                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs text-slate-800 focus:border-emerald-500 outline-none"
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 focus:border-emerald-500 outline-none"
                   />
 
-                  <div className="flex items-center justify-between text-[11px] text-slate-500">
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500">
                     <label className="inline-flex items-center gap-1.5 cursor-pointer text-slate-700 font-medium">
                       <input
                         type="checkbox"
@@ -838,7 +992,7 @@ export const AutoAddFriendDashboard: React.FC = () => {
 
                 {/* Gắn Tag */}
                 <div className="space-y-2 pt-2 border-t border-slate-100">
-                  <div className="flex items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
                     <span className="text-sm font-bold text-slate-900">
                       4. Gắn Tag{' '}
                       <span className="text-xs font-medium text-indigo-600">({selectedPage})</span>
@@ -859,7 +1013,7 @@ export const AutoAddFriendDashboard: React.FC = () => {
                           }
                         }}
                         placeholder="Thêm tag..."
-                        className="w-28 rounded-lg border border-slate-200 px-2.5 py-1 text-xs outline-none focus:border-indigo-500"
+                        className="w-28 rounded-lg border border-slate-200 bg-white text-slate-900 px-2.5 py-1 text-xs outline-none focus:border-indigo-500"
                       />
                       <button
                         type="button"
@@ -880,6 +1034,7 @@ export const AutoAddFriendDashboard: React.FC = () => {
                           <button
                             key={tag}
                             type="button"
+                            aria-pressed={active}
                             onClick={() => handleToggleTag(tag)}
                             className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
                               active
@@ -902,8 +1057,8 @@ export const AutoAddFriendDashboard: React.FC = () => {
               </div>
 
               {/* BƯỚC 5: CHỐNG CHẶN RATE LIMIT & NÚT CHẠY */}
-              <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs p-5 space-y-4">
-                <div className="flex items-center justify-between">
+              <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-5 space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
                     <ShieldCheck className="w-4 h-4 text-emerald-600" />
                     5. Tốc Độ & Chống Chặn Rate Limit
@@ -917,9 +1072,10 @@ export const AutoAddFriendDashboard: React.FC = () => {
                       <button
                         key={p.id}
                         type="button"
+                        aria-pressed={rateLimit.preset === p.id}
                         onClick={() => handleApplyPreset(p.id)}
                         className={`px-2.5 py-1 rounded-md font-semibold transition-all cursor-pointer ${
-                          rateLimit.preset === p.id ? 'bg-white text-emerald-700 shadow-xs' : 'text-slate-600'
+                          rateLimit.preset === p.id ? 'bg-white text-emerald-700 shadow-sm' : 'text-slate-600'
                         }`}
                       >
                         {p.label}
@@ -928,7 +1084,7 @@ export const AutoAddFriendDashboard: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
                     <label htmlFor="rl-min" className="block text-[11px] font-medium text-slate-500 mb-1">
                       Nghỉ mỗi số (giây)
@@ -939,11 +1095,18 @@ export const AutoAddFriendDashboard: React.FC = () => {
                         type="number"
                         inputMode="numeric"
                         min={1}
+                        max={300}
                         value={rateLimit.delay_min}
-                        onChange={(e) =>
-                          setRateLimit((p) => ({ ...p, preset: 'custom', delay_min: Math.max(1, Number(e.target.value) || 1) }))
-                        }
-                        className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs font-bold text-center tabular-nums"
+                        onChange={(e) => {
+                          const nextMin = Math.min(300, Math.max(1, Number(e.target.value) || 1));
+                          setRateLimit((p) => ({
+                            ...p,
+                            preset: 'custom',
+                            delay_min: nextMin,
+                            delay_max: Math.max(nextMin, p.delay_max)
+                          }));
+                        }}
+                        className="w-full rounded-lg border border-slate-300 bg-white text-slate-900 px-2.5 py-1.5 text-xs font-bold text-center tabular-nums"
                       />
                       <span className="text-slate-400">–</span>
                       <input
@@ -951,16 +1114,17 @@ export const AutoAddFriendDashboard: React.FC = () => {
                         aria-label="Nghỉ tối đa giữa 2 số"
                         type="number"
                         inputMode="numeric"
-                        min={2}
+                        min={rateLimit.delay_min}
+                        max={300}
                         value={rateLimit.delay_max}
                         onChange={(e) =>
                           setRateLimit((p) => ({
                             ...p,
                             preset: 'custom',
-                            delay_max: Math.max(p.delay_min, Number(e.target.value) || 10)
+                            delay_max: Math.min(300, Math.max(p.delay_min, Number(e.target.value) || p.delay_min))
                           }))
                         }
-                        className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs font-bold text-center tabular-nums"
+                        className="w-full rounded-lg border border-slate-300 bg-white text-slate-900 px-2.5 py-1.5 text-xs font-bold text-center tabular-nums"
                       />
                     </div>
                   </div>
@@ -974,11 +1138,16 @@ export const AutoAddFriendDashboard: React.FC = () => {
                       type="number"
                       inputMode="numeric"
                       min={1}
+                      max={200}
                       value={rateLimit.batch_size}
                       onChange={(e) =>
-                        setRateLimit((p) => ({ ...p, preset: 'custom', batch_size: Math.max(1, Number(e.target.value) || 10) }))
+                        setRateLimit((p) => ({
+                          ...p,
+                          preset: 'custom',
+                          batch_size: Math.min(200, Math.max(1, Number(e.target.value) || 10))
+                        }))
                       }
-                      className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs font-bold text-center tabular-nums"
+                      className="w-full rounded-lg border border-slate-300 bg-white text-slate-900 px-2.5 py-1.5 text-xs font-bold text-center tabular-nums"
                     />
                   </div>
 
@@ -994,15 +1163,18 @@ export const AutoAddFriendDashboard: React.FC = () => {
                       max={500}
                       value={rateLimit.daily_limit}
                       onChange={(e) =>
-                        setRateLimit((p) => ({ ...p, daily_limit: Math.max(1, Number(e.target.value) || 50) }))
+                        setRateLimit((p) => ({
+                          ...p,
+                          daily_limit: Math.min(500, Math.max(1, Number(e.target.value) || 50))
+                        }))
                       }
-                      className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs font-bold text-center tabular-nums"
+                      className="w-full rounded-lg border border-slate-300 bg-white text-slate-900 px-2.5 py-1.5 text-xs font-bold text-center tabular-nums"
                     />
                   </div>
                 </div>
 
                 {/* Chạy thử + Nút Bắt Đầu */}
-                <div className="flex items-center justify-between gap-3 pt-2 border-t border-slate-100">
+                <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-100">
                   <label className="inline-flex items-center gap-2 text-xs font-medium text-slate-700 cursor-pointer shrink-0">
                     <input
                       type="checkbox"
@@ -1017,7 +1189,7 @@ export const AutoAddFriendDashboard: React.FC = () => {
                     type="button"
                     disabled={starting || Boolean(taskStatus?.is_running) || validPhones.length === 0}
                     onClick={handleStart}
-                    className={`flex-1 py-2.5 px-4 rounded-xl text-xs font-bold text-white shadow-sm flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50 ${
+                    className={`flex-1 min-w-[200px] py-2.5 px-4 rounded-xl text-xs font-bold text-white shadow-sm flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50 ${
                       dryRun ? 'bg-amber-600 hover:bg-amber-700' : 'bg-emerald-600 hover:bg-emerald-700'
                     }`}
                   >
@@ -1035,7 +1207,7 @@ export const AutoAddFriendDashboard: React.FC = () => {
 
           {/* TIẾN TRÌNH ĐANG CHẠY */}
           {taskStatus && (
-            <div className="bg-white rounded-2xl border border-emerald-200 shadow-xs p-5 space-y-4">
+            <div className="bg-white rounded-2xl border border-emerald-200 shadow-sm p-5 space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-2.5">
                   <span
@@ -1065,24 +1237,28 @@ export const AutoAddFriendDashboard: React.FC = () => {
                   {taskStatus.is_running && (
                     <button
                       type="button"
-                      onClick={() => activeTaskId && stopAddFriendCampaign(activeTaskId)}
-                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold cursor-pointer"
+                      disabled={stopping}
+                      onClick={handleStopCampaign}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold cursor-pointer disabled:opacity-50"
                     >
                       <Square className="w-3.5 h-3.5" />
-                      Dừng
+                      {stopping ? 'Đang dừng...' : 'Dừng'}
                     </button>
                   )}
                 </div>
               </div>
 
-              <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+              <div
+                role="progressbar"
+                aria-label="Tiến độ kết bạn"
+                aria-valuenow={progressPercent}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                className="w-full h-2 bg-slate-100 rounded-full overflow-hidden"
+              >
                 <div
                   className="h-full bg-emerald-600 transition-all duration-300"
-                  style={{
-                    width: `${
-                      taskStatus.total > 0 ? Math.min(100, Math.round((taskStatus.processed / taskStatus.total) * 100)) : 0
-                    }%`
-                  }}
+                  style={{ width: `${progressPercent}%` }}
                 />
               </div>
 
@@ -1181,7 +1357,7 @@ export const AutoAddFriendDashboard: React.FC = () => {
         </>
       ) : (
         /* TAB LỊCH SỬ GỌN GÀNG */
-        <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs p-5 space-y-4">
+        <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-5 space-y-4">
           <div className="flex items-center justify-between">
             <h3 id="history-heading" className="text-sm font-bold text-slate-900">
               Lịch Sử Kết Bạn
@@ -1190,12 +1366,14 @@ export const AutoAddFriendDashboard: React.FC = () => {
               type="button"
               onClick={loadHistory}
               disabled={loadingHistory}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold cursor-pointer disabled:opacity-50"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${loadingHistory ? 'animate-spin' : ''}`} />
               Làm mới
             </button>
           </div>
+
+          {historyError && <ErrorBanner message={historyError} onRetry={loadHistory} />}
 
           <div
             className="overflow-x-auto max-h-[500px] border border-slate-200 rounded-xl"
@@ -1250,126 +1428,133 @@ export const AutoAddFriendDashboard: React.FC = () => {
       )}
 
       {/* MODAL PHIÊN PANCAKE GỌN */}
-      {showStateModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-5 shadow-xl border border-slate-200 space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                <Database className="w-4 h-4 text-emerald-600" />
-                Phiên Đăng Nhập Pancake (pancake_state.json)
-              </h3>
+      <AccessibleModal
+        isOpen={showStateModal}
+        onClose={() => setShowStateModal(false)}
+        labelledBy="pancake-state-modal-title"
+        contentClassName="bg-white rounded-2xl max-w-lg w-full p-5 shadow-xl border border-slate-200 space-y-4"
+      >
+        <div className="flex items-center justify-between">
+          <h3 id="pancake-state-modal-title" className="text-sm font-bold text-slate-900 flex items-center gap-2">
+            <Database className="w-4 h-4 text-emerald-600" />
+            Phiên Đăng Nhập Pancake (pancake_state.json)
+          </h3>
+          <button
+            type="button"
+            onClick={() => setShowStateModal(false)}
+            className="text-slate-400 hover:text-slate-700"
+            aria-label="Đóng"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {config?.state_info?.has_state ? (
+          <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-xs flex items-center justify-between gap-2">
+            <div className="text-emerald-900 font-medium">
+              Đã lưu trong DB ({config.state_info.cookies_count} cookies)
+            </div>
+            <div className="flex items-center gap-1.5">
               <button
                 type="button"
-                onClick={() => setShowStateModal(false)}
-                className="text-slate-400 hover:text-slate-700"
-                aria-label="Đóng"
+                onClick={async () => {
+                  if (!stateJsonInput.trim()) return;
+                  const ok = await copyToClipboard(stateJsonInput);
+                  if (!ok) return;
+                  setCopiedState(true);
+                  if (copyTimerRef.current) window.clearTimeout(copyTimerRef.current);
+                  copyTimerRef.current = window.setTimeout(() => setCopiedState(false), 1500);
+                }}
+                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-white border border-emerald-300 text-emerald-800 text-[11px] font-semibold cursor-pointer"
               >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {config?.state_info?.has_state ? (
-              <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-xs flex items-center justify-between gap-2">
-                <div className="text-emerald-900 font-medium">
-                  Đã lưu trong DB ({config.state_info.cookies_count} cookies)
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      if (!stateJsonInput.trim()) return;
-                      await navigator.clipboard.writeText(stateJsonInput);
-                      setCopiedState(true);
-                      setTimeout(() => setCopiedState(false), 1500);
-                    }}
-                    className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-white border border-emerald-300 text-emerald-800 text-[11px] font-semibold cursor-pointer"
-                  >
-                    <Copy className="w-3 h-3" />
-                    {copiedState ? 'Đã chép' : 'Chép'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleDeletePancakeState}
-                    className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-[11px] font-semibold cursor-pointer"
-                  >
-                    <Trash2 className="w-3 h-3" />
-                    Xóa
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-800 flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 shrink-0 text-amber-600" />
-                <span>Chưa có phiên đăng nhập. Hãy dán JSON hoặc chọn file bên dưới.</span>
-              </div>
-            )}
-
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label htmlFor="state-json-box" className="text-xs font-semibold text-slate-700">
-                  Nội dung JSON
-                </label>
-                <label className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold cursor-pointer">
-                  <Upload className="w-3.5 h-3.5" />
-                  Chọn file .json
-                  <input
-                    type="file"
-                    accept=".json"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (!file) return;
-                      const reader = new FileReader();
-                      reader.onload = (ev) => setStateJsonInput(String(ev.target?.result || ''));
-                      reader.readAsText(file, 'utf-8');
-                      e.target.value = '';
-                    }}
-                    className="hidden"
-                  />
-                </label>
-              </div>
-              <textarea
-                id="state-json-box"
-                rows={6}
-                value={stateJsonInput}
-                spellCheck={false}
-                autoCorrect="off"
-                onChange={(e) => setStateJsonInput(e.target.value)}
-                placeholder='{"cookies": [...], "origins": [...]}'
-                className="w-full rounded-xl border border-slate-300 bg-slate-50 p-3 text-xs font-mono text-slate-800 outline-none focus:bg-white focus:border-emerald-500"
-              />
-              {loadingRawState && <p className="text-[11px] text-slate-400 mt-1">Đang tải...</p>}
-            </div>
-
-            {stateFeedback && (
-              <div
-                className={`p-2.5 rounded-xl text-xs font-medium ${
-                  stateFeedback.type === 'success' ? 'bg-emerald-50 text-emerald-800' : 'bg-rose-50 text-rose-800'
-                }`}
-              >
-                {stateFeedback.text}
-              </div>
-            )}
-
-            <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setShowStateModal(false)}
-                className="px-3.5 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-600 cursor-pointer"
-              >
-                Đóng
+                <Copy className="w-3 h-3" />
+                {copiedState ? 'Đã chép' : 'Chép'}
               </button>
               <button
                 type="button"
                 disabled={savingState}
-                onClick={handleSavePancakeState}
-                className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer disabled:opacity-50"
+                onClick={handleDeletePancakeState}
+                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-[11px] font-semibold cursor-pointer disabled:opacity-50"
               >
-                {savingState ? 'Đang lưu...' : 'Lưu vào Database'}
+                <Trash2 className="w-3 h-3" />
+                Xóa
               </button>
             </div>
           </div>
+        ) : (
+          <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-800 flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 shrink-0 text-amber-600" />
+            <span>Chưa có phiên đăng nhập. Hãy dán JSON hoặc chọn file bên dưới.</span>
+          </div>
+        )}
+
+        <div>
+          <div className="flex items-center justify-between mb-1.5">
+            <label htmlFor="state-json-box" className="text-xs font-semibold text-slate-700">
+              Nội dung JSON
+            </label>
+            <label className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold cursor-pointer">
+              <Upload className="w-3.5 h-3.5" />
+              Chọn file .json
+              <input
+                type="file"
+                accept=".json"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  const reader = new FileReader();
+                  reader.onload = (ev) => setStateJsonInput(String(ev.target?.result || ''));
+                  reader.onerror = () =>
+                    setStateFeedback({ type: 'error', text: 'Không thể đọc file JSON đã chọn.' });
+                  reader.readAsText(file, 'utf-8');
+                  e.target.value = '';
+                }}
+                className="hidden"
+              />
+            </label>
+          </div>
+          <textarea
+            id="state-json-box"
+            rows={6}
+            value={stateJsonInput}
+            spellCheck={false}
+            autoCorrect="off"
+            onChange={(e) => setStateJsonInput(e.target.value)}
+            placeholder='{"cookies": [...], "origins": [...]}'
+            className="w-full rounded-xl border border-slate-300 bg-slate-50 p-3 text-xs font-mono text-slate-800 outline-none focus:bg-white focus:border-emerald-500"
+          />
+          {loadingRawState && <p className="text-[11px] text-slate-400 mt-1">Đang tải...</p>}
         </div>
-      )}
+
+        {stateFeedback && (
+          <div
+            role={stateFeedback.type === 'error' ? 'alert' : 'status'}
+            className={`p-2.5 rounded-xl text-xs font-medium ${
+              stateFeedback.type === 'success' ? 'bg-emerald-50 text-emerald-800' : 'bg-rose-50 text-rose-800'
+            }`}
+          >
+            {stateFeedback.text}
+          </div>
+        )}
+
+        <div className="flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={() => setShowStateModal(false)}
+            className="px-3.5 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-600 cursor-pointer"
+          >
+            Đóng
+          </button>
+          <button
+            type="button"
+            disabled={savingState}
+            onClick={handleSavePancakeState}
+            className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer disabled:opacity-50"
+          >
+            {savingState ? 'Đang lưu...' : 'Lưu vào Database'}
+          </button>
+        </div>
+      </AccessibleModal>
     </div>
   );
 };

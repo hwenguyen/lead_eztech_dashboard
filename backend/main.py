@@ -104,6 +104,8 @@ async def add_cache_headers(request: Request, call_next):
             for skip in (
                 "/auth/me",
                 "/broadcast/status",
+                "/broadcast/active",
+                "/admin/backfill/status",
                 "/add-friend/status",
                 "/add-friend/active",
                 "/add-friend/state",

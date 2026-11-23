@@ -6,17 +6,23 @@ export type ResolvedTheme = 'light' | 'dark';
 const STORAGE_KEY = 'color-scheme';
 const THEME_EVENT = 'eztech-theme-change';
 
+// In-memory fallback when localStorage is blocked (private mode / site data disabled)
+let _memoryOverride: StoredColorScheme = null;
+let _storageBlocked = false;
+
 function getSystemDark(): boolean {
   if (typeof window === 'undefined' || !window.matchMedia) return false;
   return window.matchMedia('(prefers-color-scheme: dark)').matches;
 }
 
 export function getStoredScheme(): StoredColorScheme {
+  if (_storageBlocked) return _memoryOverride;
   try {
     const val = localStorage.getItem(STORAGE_KEY);
     return val === 'light' || val === 'dark' ? val : null;
   } catch {
-    return null;
+    _storageBlocked = true;
+    return _memoryOverride;
   }
 }
 
@@ -38,22 +44,18 @@ export function applyThemeToDom(stored: StoredColorScheme): ResolvedTheme {
 /** Chuyển trực tiếp sang 'light' hoặc 'dark'; nếu trùng OS sẽ gỡ override để theo hệ thống. */
 export function setColorScheme(target: ResolvedTheme): ResolvedTheme {
   const systemDark = getSystemDark();
-  let nextStored: StoredColorScheme;
+  const nextStored: StoredColorScheme = (target === 'dark') !== systemDark ? target : null;
+  _memoryOverride = nextStored;
 
-  if ((target === 'dark') !== systemDark) {
-    nextStored = target;
-    try {
-      localStorage.setItem(STORAGE_KEY, target);
-    } catch {
-      // Bỏ qua nếu bị chặn storage, vẫn áp dụng phiên hiện tại
-    }
-  } else {
-    nextStored = null;
-    try {
+  try {
+    if (nextStored) {
+      localStorage.setItem(STORAGE_KEY, nextStored);
+    } else {
       localStorage.removeItem(STORAGE_KEY);
-    } catch {
-      // Ignore
     }
+    _storageBlocked = false;
+  } catch {
+    _storageBlocked = true;
   }
 
   const meta = document.querySelector<HTMLMetaElement>('meta[name="color-scheme"]');
@@ -82,18 +84,23 @@ export function useTheme() {
 
   useEffect(() => {
     sync();
-    const mql = window.matchMedia('(prefers-color-scheme: dark)');
+    const mql = typeof window !== 'undefined' && window.matchMedia
+      ? window.matchMedia('(prefers-color-scheme: dark)')
+      : null;
     const onMediaChange = () => sync();
     const onStorage = (e: StorageEvent) => {
-      if (e.key === null || e.key === STORAGE_KEY) sync();
+      if (e.key === null || e.key === STORAGE_KEY) {
+        _storageBlocked = false;
+        sync();
+      }
     };
 
-    mql.addEventListener('change', onMediaChange);
+    mql?.addEventListener('change', onMediaChange);
     window.addEventListener('storage', onStorage);
     window.addEventListener(THEME_EVENT, sync);
 
     return () => {
-      mql.removeEventListener('change', onMediaChange);
+      mql?.removeEventListener('change', onMediaChange);
       window.removeEventListener('storage', onStorage);
       window.removeEventListener(THEME_EVENT, sync);
     };

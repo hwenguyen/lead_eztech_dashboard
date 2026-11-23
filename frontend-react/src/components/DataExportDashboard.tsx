@@ -420,7 +420,7 @@ export const DataExportDashboard: React.FC = () => {
                 onClick={() => toggleColumn(col.key)}
                 className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border transition-all cursor-pointer ${
                   checked
-                    ? 'bg-navy text-white border-navy shadow-xs'
+                    ? 'bg-navy text-white border-navy shadow-sm'
                     : 'bg-slate-50 text-slate-600 border-slate-200 hover:border-brand-300 hover:text-navy'
                 }`}
               >

@@ -32,8 +32,10 @@ import {
   type AiAssistantProfile,
   type AiDocumentItem,
 } from '../services/api';
+import { copyToClipboard, toSafeHttpUrl } from '../utils/format';
 
 interface ChatTurn {
+  id: string;
   role: 'user' | 'assistant';
   content: string;
   model?: string;
@@ -56,6 +58,8 @@ const DEFAULT_ASSISTANTS: { id: AssistantId; name: string }[] = [
   { id: 'quy_trinh', name: 'AI Quy Trình & SLA' },
 ];
 
+const MAX_UPLOAD_BYTES = 2 * 1024 * 1024; // 2MB
+
 const getAssistantIcon = (id: string, className = 'w-4 h-4') => {
   if (id === 'ke_toan') return <Wallet className={className} />;
   if (id === 'quy_trinh') return <ShieldCheck className={className} />;
@@ -74,7 +78,7 @@ const extractScriptSection = (content: string): string | null => {
 };
 
 const renderInlineMarkdown = (text: string): React.ReactNode[] => {
-  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`|https?:\/\/[^\s)]+)/g);
+  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\(https?:\/\/[^)\s]+\)|https?:\/\/[^\s)]+)/g);
   return parts.map((part, i) => {
     if (part.startsWith('**') && part.endsWith('**') && part.length > 4) {
       return (
@@ -93,68 +97,110 @@ const renderInlineMarkdown = (text: string): React.ReactNode[] => {
         </code>
       );
     }
+    const mdLinkMatch = part.match(/^\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)$/);
+    if (mdLinkMatch) {
+      const safeHref = toSafeHttpUrl(mdLinkMatch[2]);
+      if (safeHref) {
+        return (
+          <a
+            key={i}
+            href={safeHref}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-eztech hover:underline font-medium break-words"
+          >
+            {mdLinkMatch[1]}
+          </a>
+        );
+      }
+      return <React.Fragment key={i}>{mdLinkMatch[1]}</React.Fragment>;
+    }
     if (/^https?:\/\//.test(part)) {
-      return (
-        <a
-          key={i}
-          href={part}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-eztech hover:underline font-medium break-all"
-        >
-          {part}
-        </a>
-      );
+      const trailingMatch = part.match(/[.,;:!?]+$/);
+      const trailing = trailingMatch ? trailingMatch[0] : '';
+      const rawUrl = trailing ? part.slice(0, -trailing.length) : part;
+      const safeHref = toSafeHttpUrl(rawUrl);
+      if (safeHref) {
+        return (
+          <React.Fragment key={i}>
+            <a
+              href={safeHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-eztech hover:underline font-medium break-all"
+            >
+              {rawUrl}
+            </a>
+            {trailing}
+          </React.Fragment>
+        );
+      }
     }
     return <React.Fragment key={i}>{part}</React.Fragment>;
   });
 };
 
 const FormattedAnswer: React.FC<{ content: string }> = ({ content }) => {
-  const lines = content.split('\n');
+  // Tách các khối code fence ```...``` khỏi phần markdown thông thường
+  const segments = content.split(/(```[\s\S]*?```)/g);
   return (
     <div className="space-y-2 text-[13.5px] leading-[1.65] text-navy">
-      {lines.map((line, idx) => {
-        const trimmed = line.trim();
-        if (!trimmed) return <div key={idx} className="h-1.5" />;
-        if (trimmed === '---' || trimmed === '***') {
+      {segments.map((segment, segIdx) => {
+        if (segment.startsWith('```') && segment.endsWith('```') && segment.length >= 6) {
+          const inner = segment.slice(3, -3).replace(/^[a-zA-Z0-9_-]*\n/, '');
           return (
-            <div key={idx} className="py-1.5 flex items-center gap-2">
-              <div className="h-px flex-1 bg-slate-200" />
-              <span className="w-1.5 h-1.5 rounded-full bg-eztech/40" />
-              <div className="h-px flex-1 bg-slate-200" />
-            </div>
+            <pre
+              key={`code-${segIdx}`}
+              className="p-3 rounded-xl bg-slate-100 border border-slate-200 text-[12px] font-mono text-navy overflow-x-auto whitespace-pre"
+            >
+              <code>{inner}</code>
+            </pre>
           );
         }
-        const hMatch = trimmed.match(/^(#{1,4})\s+(.*)$/);
-        if (hMatch) {
-          return (
-            <div key={idx} className="font-bold text-navy text-[14.5px] pt-1.5 tracking-tight">
-              {renderInlineMarkdown(hMatch[2])}
-            </div>
-          );
-        }
-        const olMatch = trimmed.match(/^(\d+)[.)]\s+(.*)$/);
-        if (olMatch) {
-          return (
-            <div key={idx} className="flex items-start gap-2 pl-1">
-              <span className="min-w-[20px] h-5 rounded-md bg-eztech-light text-eztech text-[11px] font-bold flex items-center justify-center mt-0.5 shrink-0 tabular-nums">
-                {olMatch[1]}
-              </span>
-              <span className="flex-1">{renderInlineMarkdown(olMatch[2])}</span>
-            </div>
-          );
-        }
-        const ulMatch = trimmed.match(/^[-*•+]\s+(.*)$/);
-        if (ulMatch) {
-          return (
-            <div key={idx} className="flex items-start gap-2 pl-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-eztech mt-[9px] shrink-0" />
-              <span className="flex-1">{renderInlineMarkdown(ulMatch[1])}</span>
-            </div>
-          );
-        }
-        return <p key={idx}>{renderInlineMarkdown(trimmed)}</p>;
+        const lines = segment.split('\n');
+        return lines.map((line, idx) => {
+          const key = `${segIdx}-${idx}`;
+          const trimmed = line.trim();
+          if (!trimmed) return <div key={key} className="h-1.5" />;
+          if (trimmed === '---' || trimmed === '***') {
+            return (
+              <div key={key} className="py-1.5 flex items-center gap-2">
+                <div className="h-px flex-1 bg-slate-200" />
+                <span className="w-1.5 h-1.5 rounded-full bg-eztech/40" />
+                <div className="h-px flex-1 bg-slate-200" />
+              </div>
+            );
+          }
+          const hMatch = trimmed.match(/^(#{1,4})\s+(.*)$/);
+          if (hMatch) {
+            return (
+              <div key={key} className="font-bold text-navy text-[14.5px] pt-1.5 tracking-tight">
+                {renderInlineMarkdown(hMatch[2])}
+              </div>
+            );
+          }
+          const olMatch = trimmed.match(/^(\d+)[.)]\s+(.*)$/);
+          if (olMatch) {
+            return (
+              <div key={key} className="flex items-start gap-2 pl-1">
+                <span className="min-w-[20px] h-5 rounded-md bg-eztech-light text-eztech text-[11px] font-bold flex items-center justify-center mt-0.5 shrink-0 tabular-nums">
+                  {olMatch[1]}
+                </span>
+                <span className="flex-1">{renderInlineMarkdown(olMatch[2])}</span>
+              </div>
+            );
+          }
+          const ulMatch = trimmed.match(/^[-*•+]\s+(.*)$/);
+          if (ulMatch) {
+            return (
+              <div key={key} className="flex items-start gap-2 pl-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-eztech mt-[9px] shrink-0" />
+                <span className="flex-1">{renderInlineMarkdown(ulMatch[1])}</span>
+              </div>
+            );
+          }
+          return <p key={key}>{renderInlineMarkdown(trimmed)}</p>;
+        });
       })}
     </div>
   );
@@ -172,7 +218,7 @@ export const AiAssistantDashboard: React.FC = () => {
   });
   const [sampleSeed, setSampleSeed] = useState<number>(() => Math.random());
   const [question, setQuestion] = useState<string>('');
-  const [chatLoading, setChatLoading] = useState<boolean>(false);
+  const [loadingByTab, setLoadingByTab] = useState<Record<string, boolean>>({});
   const [errorMsg, setErrorMsg] = useState<string>('');
   const [statusMsg, setStatusMsg] = useState<string>('');
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
@@ -192,6 +238,11 @@ export const AiAssistantDashboard: React.FC = () => {
   const chatFormRef = useRef<HTMLFormElement | null>(null);
   const chatInputRef = useRef<HTMLTextAreaElement | null>(null);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
+  const reqIdByTabRef = useRef<Record<string, number>>({});
+  const selectedTabRef = useRef(selectedAssistantId);
+  selectedTabRef.current = selectedAssistantId;
+
+  const isCurrentTabLoading = Boolean(loadingByTab[selectedAssistantId]);
 
   const loadMetadata = async () => {
     try {
@@ -209,7 +260,7 @@ export const AiAssistantDashboard: React.FC = () => {
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-  }, [chatHistories, selectedAssistantId, chatLoading]);
+  }, [chatHistories, selectedAssistantId, isCurrentTabLoading]);
 
   useEffect(() => {
     const el = chatInputRef.current;
@@ -241,13 +292,13 @@ export const AiAssistantDashboard: React.FC = () => {
   }, [currentAssistant.sample_questions, selectedAssistantId, sampleSeed]);
 
   const handleCopyText = async (text: string, key: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
+    const ok = await copyToClipboard(text);
+    if (ok) {
       setCopiedKey(key);
       window.setTimeout(() => {
         setCopiedKey((prev) => (prev === key ? null : prev));
       }, 1800);
-    } catch {
+    } else {
       setErrorMsg('Trình duyệt không hỗ trợ sao chép tự động.');
     }
   };
@@ -261,27 +312,42 @@ export const AiAssistantDashboard: React.FC = () => {
 
   const handleSendChat = async (e: React.FormEvent) => {
     e.preventDefault();
+    const targetTab = selectedAssistantId;
     const trimmed = question.trim();
-    if (!trimmed || chatLoading) return;
+    if (!trimmed || loadingByTab[targetTab]) return;
 
     setErrorMsg('');
-    const prevTurns = chatHistories[selectedAssistantId] || [];
-    const updatedTurns: ChatTurn[] = [...prevTurns, { role: 'user', content: trimmed }];
-    setChatHistories((prev) => ({ ...prev, [selectedAssistantId]: updatedTurns }));
+    setStatusMsg('');
+
+    const reqId = (reqIdByTabRef.current[targetTab] || 0) + 1;
+    reqIdByTabRef.current[targetTab] = reqId;
+
+    const userTurnId = `u_${Date.now()}_${reqId}`;
+    const prevTurns = chatHistories[targetTab] || [];
+    const userTurn: ChatTurn = { id: userTurnId, role: 'user', content: trimmed };
+
+    setChatHistories((prev) => ({
+      ...prev,
+      [targetTab]: [...(prev[targetTab] || []), userTurn],
+    }));
     setQuestion('');
-    setChatLoading(true);
+    setLoadingByTab((prev) => ({ ...prev, [targetTab]: true }));
 
     try {
       const res = await sendAiChatMessage({
-        assistant_id: selectedAssistantId,
+        assistant_id: targetTab,
         question: trimmed,
         history: prevTurns.map((t) => ({ role: t.role, content: t.content })),
       });
+      // Bỏ qua kết quả nếu hội thoại của tab này đã bị "Xóa hội thoại" hoặc có yêu cầu mới hơn
+      if (reqIdByTabRef.current[targetTab] !== reqId) return;
+
       setChatHistories((prev) => ({
         ...prev,
-        [selectedAssistantId]: [
-          ...updatedTurns,
+        [targetTab]: [
+          ...(prev[targetTab] || []),
           {
+            id: `a_${Date.now()}_${reqId}`,
             role: 'assistant',
             content: res.answer,
             model: res.model,
@@ -291,21 +357,41 @@ export const AiAssistantDashboard: React.FC = () => {
         ],
       }));
     } catch (err: any) {
+      if (reqIdByTabRef.current[targetTab] !== reqId) return;
+      // Rollback lượt hỏi chưa có hồi đáp để tránh kẹt lịch sử user liên tiếp
+      setChatHistories((prev) => ({
+        ...prev,
+        [targetTab]: (prev[targetTab] || []).filter((t) => t.id !== userTurnId),
+      }));
+      if (selectedTabRef.current === targetTab) {
+        setQuestion((curr) => (curr.trim() ? curr : trimmed));
+      }
       setErrorMsg(
         err?.response?.data?.detail ||
           'Lỗi khi gọi Gemini API. Vui lòng thử lại hoặc kiểm tra GEMINI_API_KEY.'
       );
     } finally {
-      setChatLoading(false);
+      if (reqIdByTabRef.current[targetTab] === reqId) {
+        setLoadingByTab((prev) => ({ ...prev, [targetTab]: false }));
+      }
     }
   };
 
+  const handleClearChat = () => {
+    const targetTab = selectedAssistantId;
+    reqIdByTabRef.current[targetTab] = (reqIdByTabRef.current[targetTab] || 0) + 1;
+    setLoadingByTab((prev) => ({ ...prev, [targetTab]: false }));
+    setChatHistories((prev) => ({ ...prev, [targetTab]: [] }));
+    setSampleSeed(Math.random());
+    setErrorMsg('');
+  };
+
   const handleChatTextareaKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.nativeEvent.isComposing || e.key === 'Process') {
+      return;
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      if (e.nativeEvent.isComposing || e.keyCode === 229) {
-        return;
-      }
       chatFormRef.current?.requestSubmit();
     }
   };
@@ -336,15 +422,29 @@ export const AiAssistantDashboard: React.FC = () => {
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const text = await file.text();
-    if (!docName) {
-      setDocName(file.name.replace(/\.[^.]+$/, ''));
+    setErrorMsg('');
+    setStatusMsg('');
+    try {
+      if (file.size > MAX_UPLOAD_BYTES) {
+        setErrorMsg('Tệp vượt quá giới hạn 2MB. Vui lòng chọn tệp văn bản nhỏ hơn.');
+        return;
+      }
+      const text = await file.text();
+      if (!docName) {
+        setDocName(file.name.replace(/\.[^.]+$/, ''));
+      }
+      setDocContent(text);
+    } catch {
+      setErrorMsg('Không thể đọc nội dung tệp đã chọn. Vui lòng kiểm tra định dạng UTF-8.');
+    } finally {
+      e.target.value = '';
     }
-    setDocContent(text);
   };
 
   const handleDeleteDoc = async (docId: string, name: string) => {
     if (!window.confirm(`Xóa tài liệu "${name}" khỏi kho RAG?`)) return;
+    setErrorMsg('');
+    setStatusMsg('');
     try {
       await deleteAiDocument(docId);
       setStatusMsg(`Đã xóa tài liệu "${name}".`);
@@ -357,6 +457,7 @@ export const AiAssistantDashboard: React.FC = () => {
   const handleSeedDocs = async () => {
     setIngesting(true);
     setErrorMsg('');
+    setStatusMsg('');
     try {
       const res = await seedAiDocuments();
       setStatusMsg(res.message);
@@ -373,6 +474,7 @@ export const AiAssistantDashboard: React.FC = () => {
     if (!newApiKey.trim() || savingKey) return;
     setSavingKey(true);
     setErrorMsg('');
+    setStatusMsg('');
     try {
       await updateAiApiKey(newApiKey.trim());
       setNewApiKey('');
@@ -429,6 +531,7 @@ export const AiAssistantDashboard: React.FC = () => {
           <div className="flex items-center gap-2">
             <button
               type="button"
+              aria-expanded={showDocManager}
               onClick={() => {
                 setShowDocManager((v) => !v);
                 setShowKeyForm(false);
@@ -450,6 +553,7 @@ export const AiAssistantDashboard: React.FC = () => {
 
             <button
               type="button"
+              aria-expanded={showKeyForm}
               onClick={() => {
                 setShowKeyForm((v) => !v);
                 setShowDocManager(false);
@@ -565,7 +669,7 @@ export const AiAssistantDashboard: React.FC = () => {
             aria-labelledby="ingest-doc-heading"
             className="bg-white rounded-2xl border border-slate-200/80 shadow-card p-5 space-y-3.5"
           >
-            <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
               <h4
                 id="ingest-doc-heading"
                 className="text-xs font-bold text-navy uppercase tracking-wider flex items-center gap-2"
@@ -580,7 +684,7 @@ export const AiAssistantDashboard: React.FC = () => {
                 className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold bg-eztech-light text-eztech hover:opacity-90 transition-opacity cursor-pointer flex items-center gap-1.5"
               >
                 <Upload className="w-3.5 h-3.5" />
-                <span>Tải file (.txt, .md, .csv)</span>
+                <span>Tải file (.txt, .md, .csv, .json)</span>
                 <input
                   id="rag-file-upload"
                   name="rag_file"
@@ -665,7 +769,7 @@ export const AiAssistantDashboard: React.FC = () => {
                 type="button"
                 onClick={handleSeedDocs}
                 disabled={ingesting}
-                className="px-3.5 py-2 rounded-xl text-xs font-semibold border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors cursor-pointer"
+                className="px-3.5 py-2 rounded-xl text-xs font-semibold border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-50 transition-colors cursor-pointer"
               >
                 Khôi phục tài liệu mẫu
               </button>
@@ -735,6 +839,7 @@ export const AiAssistantDashboard: React.FC = () => {
                       onClick={() => handleDeleteDoc(doc.doc_id, doc.doc_name)}
                       className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors shrink-0 cursor-pointer"
                       title="Xóa tài liệu"
+                      aria-label={`Xóa tài liệu ${doc.doc_name}`}
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -755,14 +860,14 @@ export const AiAssistantDashboard: React.FC = () => {
         {/* Thanh trạng thái ánh sáng mượt trên đỉnh khung chat */}
         <div
           className={`h-[2.5px] w-full shrink-0 transition-opacity duration-300 ${
-            chatLoading ? 'ai-shimmer-bar opacity-100' : 'gradient-brand opacity-80'
+            isCurrentTabLoading ? 'ai-shimmer-bar opacity-100' : 'gradient-brand opacity-80'
           }`}
         />
 
         {/* Header gọn gàng, sạch sẽ */}
         <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between gap-3 bg-white shrink-0">
           <div className="flex items-center gap-2.5 min-w-0">
-            <div className="w-8 h-8 rounded-xl gradient-brand text-white flex items-center justify-center shadow-xs shrink-0">
+            <div className="w-8 h-8 rounded-xl gradient-brand text-white flex items-center justify-center shadow-sm shrink-0">
               {getAssistantIcon(currentAssistant.id, 'w-4 h-4 text-gold-400')}
             </div>
             <span className="text-sm font-bold text-navy tracking-tight truncate">
@@ -773,10 +878,7 @@ export const AiAssistantDashboard: React.FC = () => {
           {currentTurns.length > 0 && (
             <button
               type="button"
-              onClick={() => {
-                setChatHistories((prev) => ({ ...prev, [selectedAssistantId]: [] }));
-                setSampleSeed(Math.random());
-              }}
+              onClick={handleClearChat}
               className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-rose-600 font-semibold px-3 py-1.5 rounded-xl hover:bg-rose-50 transition-all cursor-pointer active:scale-[0.98]"
             >
               <RotateCcw className="w-3.5 h-3.5" />
@@ -851,21 +953,25 @@ export const AiAssistantDashboard: React.FC = () => {
             </div>
           ) : (
             <div className="max-w-4xl mx-auto space-y-5">
-              {currentTurns.map((turn, idx) => {
+              {currentTurns.map((turn) => {
                 const isUser = turn.role === 'user';
                 const scriptSection = !isUser ? extractScriptSection(turn.content) : null;
-                const copyAllId = `all-${idx}`;
-                const copyScriptId = `script-${idx}`;
+                const copyAllId = `all-${turn.id}`;
+                const copyScriptId = `script-${turn.id}`;
+                const uniqueSources = !isUser && turn.sources
+                  ? Array.from(new Map(turn.sources.map((s) => [s.doc_name, s])).values())
+                  : [];
+                const uniqueTools = !isUser && turn.tools_used ? Array.from(new Set(turn.tools_used)) : [];
 
                 return (
                   <div
-                    key={idx}
+                    key={turn.id}
                     className={`ai-animate-fade-up flex items-start gap-3 ${
                       isUser ? 'justify-end' : 'justify-start'
                     }`}
                   >
                     {!isUser && (
-                      <div className="hidden sm:flex w-8 h-8 rounded-xl gradient-brand text-white items-center justify-center shrink-0 mt-0.5 shadow-xs">
+                      <div className="hidden sm:flex w-8 h-8 rounded-xl gradient-brand text-white items-center justify-center shrink-0 mt-0.5 shadow-sm">
                         <Sparkles className="w-4 h-4 text-gold-400" />
                       </div>
                     )}
@@ -874,7 +980,7 @@ export const AiAssistantDashboard: React.FC = () => {
                       className={`max-w-[92%] sm:max-w-[82%] rounded-2xl ${
                         isUser
                           ? 'gradient-brand text-white px-4 py-3 rounded-br-md shadow-sm text-[13.5px] leading-relaxed'
-                          : 'bg-slate-50 border border-slate-200/80 px-4 sm:px-5 py-3.5 rounded-tl-md shadow-xs'
+                          : 'bg-slate-50 border border-slate-200/80 px-4 sm:px-5 py-3.5 rounded-tl-md shadow-sm'
                       }`}
                     >
                       {isUser ? (
@@ -882,51 +988,78 @@ export const AiAssistantDashboard: React.FC = () => {
                       ) : (
                         <>
                           <FormattedAnswer content={turn.content} />
-                          <div className="mt-3 pt-2.5 border-t border-slate-200/70 flex flex-wrap items-center justify-end gap-2">
-                            {scriptSection && (
+                          <div className="mt-3 pt-2.5 border-t border-slate-200/70 flex flex-wrap items-center justify-between gap-2">
+                            {(uniqueSources.length > 0 || uniqueTools.length > 0) && (
+                              <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
+                                {uniqueSources.map((src) => (
+                                  <span
+                                    key={src.doc_name}
+                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-eztech-light text-eztech border border-eztech-border font-medium"
+                                    title={`Nguồn tài liệu RAG (độ khớp ${(src.score * 100).toFixed(0)}%)`}
+                                  >
+                                    <BookOpen className="w-2.5 h-2.5" />
+                                    {src.doc_name}
+                                  </span>
+                                ))}
+                                {uniqueTools.map((tool) => (
+                                  <span
+                                    key={tool}
+                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 font-medium"
+                                    title="Công cụ tra cứu dữ liệu thời gian thực"
+                                  >
+                                    <Database className="w-2.5 h-2.5" />
+                                    {tool}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+
+                            <div className="flex flex-wrap items-center gap-2 ml-auto">
+                              {scriptSection && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopyText(scriptSection, copyScriptId)}
+                                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11.5px] font-semibold transition-all cursor-pointer active:scale-[0.97] ${
+                                    copiedKey === copyScriptId
+                                      ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                      : 'bg-eztech-light text-eztech hover:opacity-90'
+                                  }`}
+                                >
+                                  {copiedKey === copyScriptId ? (
+                                    <Check className="w-3.5 h-3.5" />
+                                  ) : (
+                                    <Copy className="w-3.5 h-3.5" />
+                                  )}
+                                  <span>
+                                    {copiedKey === copyScriptId
+                                      ? 'Đã sao chép tin nhắn'
+                                      : 'Sao chép tin nhắn'}
+                                  </span>
+                                </button>
+                              )}
                               <button
                                 type="button"
-                                onClick={() => handleCopyText(scriptSection, copyScriptId)}
-                                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11.5px] font-semibold transition-all cursor-pointer active:scale-[0.97] ${
-                                  copiedKey === copyScriptId
+                                onClick={() => handleCopyText(turn.content, copyAllId)}
+                                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11.5px] font-medium transition-all cursor-pointer active:scale-[0.97] ${
+                                  copiedKey === copyAllId
                                     ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                                    : 'bg-eztech-light text-eztech hover:opacity-90'
+                                    : 'text-slate-500 hover:text-navy hover:bg-slate-200'
                                 }`}
                               >
-                                {copiedKey === copyScriptId ? (
+                                {copiedKey === copyAllId ? (
                                   <Check className="w-3.5 h-3.5" />
                                 ) : (
                                   <Copy className="w-3.5 h-3.5" />
                                 )}
                                 <span>
-                                  {copiedKey === copyScriptId
-                                    ? 'Đã sao chép tin nhắn'
-                                    : 'Sao chép tin nhắn'}
+                                  {copiedKey === copyAllId
+                                    ? 'Đã sao chép'
+                                    : scriptSection
+                                      ? 'Sao chép tất cả'
+                                      : 'Sao chép'}
                                 </span>
                               </button>
-                            )}
-                            <button
-                              type="button"
-                              onClick={() => handleCopyText(turn.content, copyAllId)}
-                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11.5px] font-medium transition-all cursor-pointer active:scale-[0.97] ${
-                                copiedKey === copyAllId
-                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                                  : 'text-slate-500 hover:text-navy hover:bg-slate-200'
-                              }`}
-                            >
-                              {copiedKey === copyAllId ? (
-                                <Check className="w-3.5 h-3.5" />
-                              ) : (
-                                <Copy className="w-3.5 h-3.5" />
-                              )}
-                              <span>
-                                {copiedKey === copyAllId
-                                  ? 'Đã sao chép'
-                                  : scriptSection
-                                    ? 'Sao chép tất cả'
-                                    : 'Sao chép'}
-                              </span>
-                            </button>
+                            </div>
                           </div>
                         </>
                       )}
@@ -935,9 +1068,9 @@ export const AiAssistantDashboard: React.FC = () => {
                 );
               })}
 
-              {chatLoading && (
+              {isCurrentTabLoading && (
                 <div className="ai-animate-fade-up flex items-start gap-3 justify-start" role="status">
-                  <div className="hidden sm:flex w-8 h-8 rounded-xl gradient-brand text-white items-center justify-center shrink-0 mt-0.5 shadow-xs">
+                  <div className="hidden sm:flex w-8 h-8 rounded-xl gradient-brand text-white items-center justify-center shrink-0 mt-0.5 shadow-sm">
                     <Sparkles className="w-4 h-4 text-gold-400 animate-pulse" />
                   </div>
                   <div className="bg-slate-50 border border-slate-200/80 rounded-2xl rounded-tl-md px-4 py-3 flex items-center gap-3">
@@ -996,10 +1129,10 @@ export const AiAssistantDashboard: React.FC = () => {
                 </span>
                 <button
                   type="submit"
-                  disabled={chatLoading || !question.trim()}
+                  disabled={isCurrentTabLoading || !question.trim()}
                   className="ml-auto group inline-flex items-center gap-1.5 px-4 py-2 rounded-xl gradient-brand text-white text-xs font-semibold shadow-sm hover:shadow-brand hover:opacity-95 disabled:opacity-40 disabled:shadow-none transition-all duration-200 cursor-pointer active:scale-[0.97]"
                 >
-                  <span>{chatLoading ? 'Đang gửi...' : 'Gửi'}</span>
+                  <span>{isCurrentTabLoading ? 'Đang gửi...' : 'Gửi'}</span>
                   <Send className="w-3.5 h-3.5 transition-transform duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
                 </button>
               </div>

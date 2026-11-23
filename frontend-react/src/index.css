@@ -24,15 +24,16 @@
   --ez-border-soft: #F1F5F9;
   --ez-border-strong: #CBD5E1;
 
-  /* Typography */
+  /* Typography (WCAG AA compliant contrast) */
   --ez-text: #0A1F44;
   --ez-text-secondary: #475569;
   --ez-text-muted: #64748B;
-  --ez-text-subtle: #94A3B8;
-  --ez-text-faint: #CBD5E1;
+  --ez-text-subtle: #64748B;
+  --ez-text-faint: #94A3B8;
 
   /* Brand & Semantic Text */
   --ez-navy-bg: #0A1F44;
+  --ez-navy-hover: #0E2757;
   --ez-brand-text: #1E5BD6;
   --ez-brand-tint: #E6F0FF;
   --ez-brand-tint-strong: #DCEAFF;
@@ -49,6 +50,16 @@
   --ez-amber-bg: #FFFBEB;
   --ez-amber-text: #B45309;
   --ez-amber-border: rgba(253, 230, 138, 0.85);
+  --ez-orange-bg: #FFF7ED;
+  --ez-orange-text: #C2410C;
+  --ez-orange-border: rgba(254, 215, 170, 0.85);
+  --ez-sky-bg: #F0F9FF;
+  --ez-sky-text: #0369A1;
+  --ez-sky-border: rgba(186, 230, 253, 0.85);
+  --ez-pink-bg: #FCE7F3;
+  --ez-pink-text: #BE185D;
+  --ez-teal-bg: #CCFBF1;
+  --ez-teal-text: #115E59;
   --ez-rose-bg: #FFF1F2;
   --ez-rose-text: #BE123C;
   --ez-rose-border: rgba(254, 205, 211, 0.85);
@@ -64,7 +75,7 @@
 
   /* Charts */
   --ez-chart-grid: #F1F5F9;
-  --ez-chart-axis: #94A3B8;
+  --ez-chart-axis: #64748B;
   --ez-chart-navy: #0A1F44;
   --ez-tooltip-bg: rgba(255, 255, 255, 0.96);
   --ez-tooltip-border: #E2E8F0;
@@ -122,9 +133,10 @@
   --ez-text-secondary: #CBD5E1;
   --ez-text-muted: #94A3B8;
   --ez-text-subtle: #94A3B8;
-  --ez-text-faint: #475569;
+  --ez-text-faint: #64748B;
 
   --ez-navy-bg: #1E3A8A;
+  --ez-navy-hover: #2563EB;
   --ez-brand-text: #60A5FA;
   --ez-brand-tint: rgba(30, 91, 214, 0.18);
   --ez-brand-tint-strong: rgba(59, 130, 246, 0.25);
@@ -140,6 +152,16 @@
   --ez-amber-bg: rgba(245, 158, 11, 0.15);
   --ez-amber-text: #FBBF24;
   --ez-amber-border: rgba(251, 191, 36, 0.32);
+  --ez-orange-bg: rgba(249, 115, 22, 0.16);
+  --ez-orange-text: #FB923C;
+  --ez-orange-border: rgba(251, 146, 60, 0.34);
+  --ez-sky-bg: rgba(14, 165, 233, 0.16);
+  --ez-sky-text: #38BDF8;
+  --ez-sky-border: rgba(56, 189, 248, 0.34);
+  --ez-pink-bg: rgba(236, 72, 153, 0.18);
+  --ez-pink-text: #F472B6;
+  --ez-teal-bg: rgba(20, 184, 166, 0.18);
+  --ez-teal-text: #2DD4BF;
   --ez-rose-bg: rgba(244, 63, 94, 0.15);
   --ez-rose-text: #FB7185;
   --ez-rose-border: rgba(251, 113, 133, 0.32);
@@ -184,9 +206,10 @@
     --ez-text-secondary: #CBD5E1;
     --ez-text-muted: #94A3B8;
     --ez-text-subtle: #94A3B8;
-    --ez-text-faint: #475569;
+    --ez-text-faint: #64748B;
 
     --ez-navy-bg: #1E3A8A;
+    --ez-navy-hover: #2563EB;
     --ez-brand-text: #60A5FA;
     --ez-brand-tint: rgba(30, 91, 214, 0.18);
     --ez-brand-tint-strong: rgba(59, 130, 246, 0.25);
@@ -202,6 +225,16 @@
     --ez-amber-bg: rgba(245, 158, 11, 0.15);
     --ez-amber-text: #FBBF24;
     --ez-amber-border: rgba(251, 191, 36, 0.32);
+    --ez-orange-bg: rgba(249, 115, 22, 0.16);
+    --ez-orange-text: #FB923C;
+    --ez-orange-border: rgba(251, 146, 60, 0.34);
+    --ez-sky-bg: rgba(14, 165, 233, 0.16);
+    --ez-sky-text: #38BDF8;
+    --ez-sky-border: rgba(56, 189, 248, 0.34);
+    --ez-pink-bg: rgba(236, 72, 153, 0.18);
+    --ez-pink-text: #F472B6;
+    --ez-teal-bg: rgba(20, 184, 166, 0.18);
+    --ez-teal-text: #2DD4BF;
     --ez-rose-bg: rgba(244, 63, 94, 0.15);
     --ez-rose-text: #FB7185;
     --ez-rose-border: rgba(251, 113, 133, 0.32);
@@ -291,6 +324,12 @@
   }
 }
 
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-4px); }
+  40%, 80% { transform: translateX(4px); }
+}
+
 @layer base {
   html {
     accent-color: var(--ez-accent);
@@ -300,6 +339,11 @@
     color: var(--ez-text);
     @apply font-sans antialiased selection:bg-brand-500/20 selection:text-brand-600;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+  /* Keyboard focus-visible indicator (accessible >= 3:1 contrast) */
+  :where(a:any-link, button, input, select, textarea, [tabindex="0"]):focus-visible {
+    outline: 2px solid var(--ez-accent);
+    outline-offset: 2px;
   }
 }
 
@@ -316,6 +360,25 @@
   }
   .gradient-card {
     background: linear-gradient(180deg, var(--ez-card) 0%, var(--ez-elevated) 100%);
+  }
+  .animate-shake {
+    animation: shake 0.35s ease-in-out;
+  }
+  /* Pure white switch knob immune to .bg-white surface override */
+  .switch-thumb {
+    background-color: #FFFFFF !important;
+  }
+  /* Skip link accessible only when focused */
+  .skip-link:where(:not(:focus-within, :active)) {
+    position: absolute !important;
+    clip-path: inset(50%) !important;
+    overflow: hidden !important;
+    width: 1px !important;
+    height: 1px !important;
+    margin: -1px !important;
+    padding: 0 !important;
+    border: 0 !important;
+    white-space: nowrap !important;
   }
 }
 
@@ -346,6 +409,7 @@
 :where(html) .bg-slate-50\/70,
 :where(html) .bg-slate-50\/80,
 :where(html) .bg-slate-50\/90,
+:where(html) .even\:bg-slate-50\/40:nth-child(even),
 :where(html) .bg-gray-50,
 :where(html) .bg-gray-50\/80,
 :where(html) .bg-\[\#F8FAFC\] {
@@ -362,6 +426,7 @@
 :where(html) .bg-slate-200\/70,
 :where(html) .bg-slate-200\/80,
 :where(html) .bg-gray-200,
+:where(html) .bg-gray-300,
 :where(html) .bg-\[\#E5E7EB\] {
   background-color: var(--ez-muted-strong);
 }
@@ -370,6 +435,17 @@
 :where(html) .bg-\[\#f1f3f4\] { background-color: var(--ez-sheet-col); }
 :where(html) .bg-\[\#fff2cc\] { background-color: var(--ez-sheet-gold); }
 :where(html) .bg-navy { background-color: var(--ez-navy-bg); }
+:where(html) .hover\:bg-navy\/90:hover { background-color: var(--ez-navy-hover); }
+
+/* Light gray gradient stops used in live preview boxes */
+:where(html) .from-gray-50 {
+  --tw-gradient-from: var(--ez-elevated) var(--tw-gradient-from-position);
+  --tw-gradient-to: transparent var(--tw-gradient-to-position);
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to);
+}
+:where(html) .to-gray-100 {
+  --tw-gradient-to: var(--ez-muted) var(--tw-gradient-to-position);
+}
 
 /* Hover surfaces */
 :where(html) .hover\:bg-slate-50:hover,
@@ -416,6 +492,14 @@
   border-color: var(--ez-border-strong);
 }
 
+:where(html) .border-r-slate-400 {
+  border-right-color: var(--ez-border-strong);
+}
+
+:where(html) .border-eztech {
+  border-color: var(--ez-brand-text);
+}
+
 :where(html) .divide-slate-50 > :not([hidden]) ~ :not([hidden]),
 :where(html) .divide-slate-100 > :not([hidden]) ~ :not([hidden]),
 :where(html) .divide-gray-100 > :not([hidden]) ~ :not([hidden]) {
@@ -436,6 +520,7 @@
 :where(html) .text-gray-900,
 :where(html) .text-gray-800,
 :where(html) .hover\:text-navy:hover,
+:where(html) .hover\:text-black:hover,
 :where(html) .hover\:text-slate-900:hover {
   color: var(--ez-text);
 }
@@ -466,12 +551,23 @@
   color: var(--ez-text-faint);
 }
 
+:where(html) .placeholder\:text-slate-300::placeholder,
+:where(html) .placeholder\:text-slate-400::placeholder,
+:where(html) .placeholder-gray-400::placeholder {
+  color: var(--ez-text-faint);
+}
+
+:where(html) .accent-navy {
+  accent-color: var(--ez-accent);
+}
+
 /* Brand & Semantic Tinted Badges / Text */
 :where(html) .text-eztech,
 :where(html) .text-\[\#1E5BD6\],
 :where(html) .text-brand-600,
 :where(html) .text-brand-700,
 :where(html) .hover\:text-eztech:hover,
+:where(html) .hover\:text-eztech-hover:hover,
 :where(html) .hover\:text-brand-600:hover,
 :where(html) .group:hover .group-hover\:text-brand-600 {
   color: var(--ez-brand-text);
@@ -571,6 +667,47 @@
 :where(html) .border-amber-200\/90,
 :where(html) .border-amber-300 {
   border-color: var(--ez-amber-border);
+}
+
+:where(html) .bg-orange-50,
+:where(html) .bg-orange-50\/80,
+:where(html) .bg-orange-100 {
+  background-color: var(--ez-orange-bg);
+}
+:where(html) .text-orange-600,
+:where(html) .text-orange-700,
+:where(html) .text-orange-800 {
+  color: var(--ez-orange-text);
+}
+:where(html) .border-orange-200,
+:where(html) .border-orange-200\/70 {
+  border-color: var(--ez-orange-border);
+}
+
+:where(html) .bg-sky-50,
+:where(html) .bg-sky-100 {
+  background-color: var(--ez-sky-bg);
+}
+:where(html) .text-sky-700,
+:where(html) .text-sky-800 {
+  color: var(--ez-sky-text);
+}
+:where(html) .border-sky-200 {
+  border-color: var(--ez-sky-border);
+}
+
+:where(html) .bg-pink-100 {
+  background-color: var(--ez-pink-bg);
+}
+:where(html) .text-pink-700 {
+  color: var(--ez-pink-text);
+}
+
+:where(html) .bg-teal-100 {
+  background-color: var(--ez-teal-bg);
+}
+:where(html) .text-teal-800 {
+  color: var(--ez-teal-text);
 }
 
 :where(html) .bg-rose-50,

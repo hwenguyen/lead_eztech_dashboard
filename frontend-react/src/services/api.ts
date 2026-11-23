@@ -2,23 +2,64 @@ import axios from 'axios';
 
 // Client In-Memory & Session Cache: Chuyển tab & F5 tức thì (<0.01s), giảm 95% request, tiết kiệm tối đa Neon Egress
 const _CLIENT_CACHE = new Map<string, { time: number; data: any }>();
+const _INFLIGHT_REQUESTS = new Map<string, Promise<any>>();
 const CLIENT_CACHE_TTL = 5 * 60 * 1000; // 5 phút
 const SESSION_CACHE_PREFIX = 'ez_cache_';
 
-export const clearClientApiCache = () => {
-  _CLIENT_CACHE.clear();
+// Các endpoint realtime / nhạy cảm (cookie/token) tuyệt đối KHÔNG cache phía client
+const NO_CACHE_SUBSTRINGS = [
+  '/broadcast/status',
+  '/broadcast/active',
+  '/add-friend/status',
+  '/add-friend/active',
+  '/add-friend/state',
+  '/add-friend/leads-phones',
+  '/add-friend/history',
+  '/admin/backfill/status',
+  '/ai/',
+  '/auth/me',
+  '/health',
+];
+
+// Các POST chỉ đọc / không làm bẩn dữ liệu dashboard -> không xóa cache toàn app
+const READONLY_POST_SUBSTRINGS = [
+  '/ai/chat',
+  '/broadcast/preview',
+  '/add-friend/parse-phones',
+  '/auth/login',
+  '/auth/logout',
+];
+
+export const clearClientApiCache = (urlPrefix?: string) => {
+  if (!urlPrefix) {
+    _CLIENT_CACHE.clear();
+  } else {
+    for (const k of Array.from(_CLIENT_CACHE.keys())) {
+      if (k.startsWith(urlPrefix)) _CLIENT_CACHE.delete(k);
+    }
+  }
   try {
     const keysToRemove: string[] = [];
+    const targetPrefix = urlPrefix ? SESSION_CACHE_PREFIX + urlPrefix : SESSION_CACHE_PREFIX;
     for (let i = 0; i < sessionStorage.length; i++) {
       const k = sessionStorage.key(i);
-      if (k && k.startsWith(SESSION_CACHE_PREFIX)) {
+      if (k && k.startsWith(targetPrefix)) {
         keysToRemove.push(k);
       }
     }
     keysToRemove.forEach(k => sessionStorage.removeItem(k));
-  } catch (e) {
+  } catch {
     // ignore storage error
   }
+};
+
+export interface RequestOptions {
+  signal?: AbortSignal;
+  skipCache?: boolean;
+}
+
+export const isAbortError = (err: unknown): boolean => {
+  return axios.isCancel(err) || (err instanceof Error && (err.name === 'CanceledError' || err.name === 'AbortError'));
 };
 
 // Get API URL from env, or default to relative /api if deployed together
@@ -30,6 +71,7 @@ if (import.meta.env.VITE_API_URL && !API_BASE_URL.endsWith('/api')) {
 
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
+  timeout: 60000,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -44,13 +86,16 @@ apiClient.interceptors.request.use((config) => {
   return config;
 });
 
-// Bắt lỗi 401 Unauthorized để yêu cầu đăng nhập lại & Tự động xóa cache khi có thay đổi dữ liệu (POST/PUT/DELETE)
+// Bắt lỗi 401 Unauthorized để yêu cầu đăng nhập lại & Tự động xóa cache khi có ghi dữ liệu thật
 apiClient.interceptors.response.use(
   (response) => {
     const method = response.config.method?.toLowerCase();
     const reqUrl = response.config.url || '';
     if (method && ['post', 'put', 'delete', 'patch'].includes(method) && !reqUrl.includes('/data-export/')) {
-      clearClientApiCache();
+      const isReadOnlyPost = method === 'post' && READONLY_POST_SUBSTRINGS.some(sub => reqUrl.includes(sub));
+      if (!isReadOnlyPost) {
+        clearClientApiCache();
+      }
     }
     return response;
   },
@@ -67,19 +112,43 @@ apiClient.interceptors.response.use(
 );
 
 
-// Bọc apiClient.get với in-memory cache tự động cho toàn bộ dashboard
+// Bọc apiClient.get với in-memory + session cache và in-flight deduplication
 const originalGet = apiClient.get.bind(apiClient);
 apiClient.get = (async (url: string, config?: any): Promise<any> => {
-  const isNoCache = config?.params?.bypass_cache || config?.headers?.['Cache-Control'] === 'no-cache';
-  const shouldSkip = isNoCache || url.includes('/broadcast/status') || url.includes('/auth/me') || url.includes('/health');
-  if (shouldSkip) {
-    return originalGet(url, config);
-  }
+  const isNoCache =
+    Boolean(config?.skipCache) ||
+    Boolean(config?.params?.bypass_cache) ||
+    Boolean(config?.params?.force) ||
+    Boolean(config?.params?.refresh) ||
+    config?.headers?.['Cache-Control'] === 'no-cache';
+  const shouldSkip = isNoCache || NO_CACHE_SUBSTRINGS.some(sub => url.includes(sub));
 
   const paramEntries = Object.entries(config?.params || {}).filter(([_, v]) => v !== undefined && v !== null);
   paramEntries.sort(([a], [b]) => a.localeCompare(b));
   const paramStr = paramEntries.map(([k, v]) => `${k}=${v}`).join('&');
   const cacheKey = `${url}?${paramStr}`;
+
+  if (shouldSkip) {
+    const res = await originalGet(url, config);
+    // Nếu là refresh thủ công cho endpoint có thể cache (không thuộc NO_CACHE_SUBSTRINGS), cập nhật cache mới
+    if (
+      res &&
+      res.status === 200 &&
+      !NO_CACHE_SUBSTRINGS.some(sub => url.includes(sub)) &&
+      !config?.params?.force &&
+      !config?.params?.refresh
+    ) {
+      const entry = { time: Date.now(), data: res.data };
+      _CLIENT_CACHE.set(cacheKey, entry);
+      try {
+        sessionStorage.setItem(SESSION_CACHE_PREFIX + cacheKey, JSON.stringify(entry));
+      } catch {
+        // ignore
+      }
+    }
+    return res;
+  }
+
   const now = Date.now();
 
   // 1. Kiểm tra RAM cache
@@ -97,7 +166,7 @@ apiClient.get = (async (url: string, config?: any): Promise<any> => {
     _CLIENT_CACHE.delete(cacheKey);
   }
 
-  // 2. Kiểm tra sessionStorage (giữ cache ngay cả khi người dùng F5 reload hoặc mở tab mới trong cùng session!)
+  // 2. Kiểm tra sessionStorage (giữ cache ngay cả khi F5 reload)
   try {
     const sessionRaw = sessionStorage.getItem(SESSION_CACHE_PREFIX + cacheKey);
     if (sessionRaw) {
@@ -114,21 +183,34 @@ apiClient.get = (async (url: string, config?: any): Promise<any> => {
       }
       sessionStorage.removeItem(SESSION_CACHE_PREFIX + cacheKey);
     }
-  } catch (e) {
+  } catch {
     // ignore
   }
 
-  const res = await originalGet(url, config);
-  if (res && res.status === 200) {
-    const entry = { time: now, data: res.data };
-    _CLIENT_CACHE.set(cacheKey, entry);
-    try {
-      sessionStorage.setItem(SESSION_CACHE_PREFIX + cacheKey, JSON.stringify(entry));
-    } catch (e) {
-      // ignore
-    }
+  // 3. Chặn gọi trùng đồng thời (StrictMode / double click) khi không truyền AbortSignal riêng
+  if (!config?.signal && _INFLIGHT_REQUESTS.has(cacheKey)) {
+    return _INFLIGHT_REQUESTS.get(cacheKey)!;
   }
-  return res;
+
+  const reqPromise = originalGet(url, config).then((res) => {
+    if (res && res.status === 200) {
+      const entry = { time: Date.now(), data: res.data };
+      _CLIENT_CACHE.set(cacheKey, entry);
+      try {
+        sessionStorage.setItem(SESSION_CACHE_PREFIX + cacheKey, JSON.stringify(entry));
+      } catch {
+        // ignore quota errors
+      }
+    }
+    return res;
+  }).finally(() => {
+    _INFLIGHT_REQUESTS.delete(cacheKey);
+  });
+
+  if (!config?.signal) {
+    _INFLIGHT_REQUESTS.set(cacheKey, reqPromise);
+  }
+  return reqPromise;
 }) as any;
 
 export interface SummaryData {
@@ -203,13 +285,14 @@ export const fetchSummary = async (
   endDate: string,
   pageId?: string,
   employee?: string,
-  filters?: OverviewCrossFilters
+  filters?: OverviewCrossFilters,
+  opts?: RequestOptions
 ) => {
   const params: any = { start_date: startDate, end_date: endDate };
   if (pageId) params.page_id = pageId;
   if (employee) params.employee = employee;
   applyCrossFilterParams(params, filters, true);
-  const res = await apiClient.get<SummaryData>('/metrics/summary', { params });
+  const res = await apiClient.get<SummaryData>('/metrics/summary', { params, ...(opts || {}) } as any);
   return res.data;
 };
 
@@ -218,13 +301,14 @@ export const fetchTrend = async (
   endDate: string,
   pageId?: string,
   employee?: string,
-  filters?: OverviewCrossFilters
+  filters?: OverviewCrossFilters,
+  opts?: RequestOptions
 ) => {
   const params: any = { start_date: startDate, end_date: endDate };
   if (pageId) params.page_id = pageId;
   if (employee) params.employee = employee;
   applyCrossFilterParams(params, filters, false);
-  const res = await apiClient.get<{data: TrendData[]}>('/metrics/trend', { params });
+  const res = await apiClient.get<{data: TrendData[]}>('/metrics/trend', { params, ...(opts || {}) } as any);
   return res.data.data;
 };
 
@@ -235,7 +319,8 @@ export const fetchLeads = async (
   endDate?: string,
   page: number = 1,
   size: number = 50,
-  filters?: OverviewCrossFilters
+  filters?: OverviewCrossFilters,
+  opts?: RequestOptions
 ) => {
   const params: any = { page, size };
   if (pageId) params.page_id = pageId;
@@ -243,16 +328,16 @@ export const fetchLeads = async (
   if (startDate) params.start_date = startDate;
   if (endDate) params.end_date = endDate;
   applyCrossFilterParams(params, filters, true);
-  const res = await apiClient.get<{data: Lead[], total: number, page: number, size: number}>('/leads/list', { params });
+  const res = await apiClient.get<{data: Lead[], total: number, page: number, size: number}>('/leads/list', { params, ...(opts || {}) } as any);
   return res.data;
 };
 
-export const fetchEmployees = async (startDate?: string, endDate?: string, pageId?: string): Promise<string[]> => {
+export const fetchEmployees = async (startDate?: string, endDate?: string, pageId?: string, opts?: RequestOptions): Promise<string[]> => {
   const params: any = {};
   if (startDate) params.start_date = startDate;
   if (endDate) params.end_date = endDate;
   if (pageId) params.page_id = pageId;
-  const response = await apiClient.get<{data: string[]}>('/employees/list', { params });
+  const response = await apiClient.get<{data: string[]}>('/employees/list', { params, ...(opts || {}) } as any);
   return response.data.data;
 };
 
@@ -311,7 +396,8 @@ export const fetchRemindLeads = async (
   daysBucket?: string,
   sortOrder: 'asc' | 'desc' = 'asc',
   page: number = 1,
-  size: number = 20
+  size: number = 20,
+  opts?: RequestOptions
 ): Promise<RemindLeadResponse> => {
   const params: any = { page, size, sort_order: sortOrder };
   if (employee) params.employee = employee;
@@ -319,7 +405,7 @@ export const fetchRemindLeads = async (
   if (tag && tag !== 'all') params.tag = tag;
   if (search) params.search = search;
   if (daysBucket && daysBucket !== 'all') params.days_bucket = daysBucket;
-  const res = await apiClient.get<RemindLeadResponse>('/leads/remind', { params });
+  const res = await apiClient.get<RemindLeadResponse>('/leads/remind', { params, ...(opts || {}) } as any);
   return res.data;
 };
 
@@ -376,7 +462,8 @@ export const fetchDealWinSummary = async (
   salesPerson?: string,
   onlyStudent: boolean = true,
   pageId?: string,
-  sourcePage?: string
+  sourcePage?: string,
+  opts?: RequestOptions
 ): Promise<DealWinSummary> => {
   const params: any = { only_student: onlyStudent };
   if (startDate) params.start_date = startDate;
@@ -384,7 +471,7 @@ export const fetchDealWinSummary = async (
   if (salesPerson) params.sales_person = salesPerson;
   if (pageId) params.page_id = pageId;
   if (sourcePage) params.source_page = sourcePage;
-  const res = await apiClient.get<DealWinSummary>('/deals/summary', { params });
+  const res = await apiClient.get<DealWinSummary>('/deals/summary', { params, ...(opts || {}) } as any);
   return res.data;
 };
 
@@ -397,7 +484,8 @@ export const fetchDealWinList = async (
   search?: string,
   onlyStudent: boolean = true,
   pageId?: string,
-  sourcePage?: string
+  sourcePage?: string,
+  opts?: RequestOptions
 ): Promise<DealWinListResponse> => {
   const params: any = { page, size, only_student: onlyStudent };
   if (startDate) params.start_date = startDate;
@@ -406,17 +494,17 @@ export const fetchDealWinList = async (
   if (pageId) params.page_id = pageId;
   if (sourcePage) params.source_page = sourcePage;
   if (search) params.search = search;
-  const res = await apiClient.get<DealWinListResponse>('/deals/list', { params });
+  const res = await apiClient.get<DealWinListResponse>('/deals/list', { params, ...(opts || {}) } as any);
   return res.data;
 };
 
-export const fetchDealWinOptions = async (onlyStudent: boolean = true): Promise<DealWinOptions> => {
-  const res = await apiClient.get<DealWinOptions>('/deals/options', { params: { only_student: onlyStudent } });
+export const fetchDealWinOptions = async (onlyStudent: boolean = true, opts?: RequestOptions): Promise<DealWinOptions> => {
+  const res = await apiClient.get<DealWinOptions>('/deals/options', { params: { only_student: onlyStudent }, ...(opts || {}) } as any);
   return res.data;
 };
 
-export const fetchDealWinDetail = async (dealId: number): Promise<DealWinItem> => {
-  const res = await apiClient.get<DealWinItem>(`/deals/${dealId}`);
+export const fetchDealWinDetail = async (dealId: number, opts?: RequestOptions): Promise<DealWinItem> => {
+  const res = await apiClient.get<DealWinItem>(`/deals/${dealId}`, { ...(opts || {}) } as any);
   return res.data;
 };
 
@@ -624,10 +712,10 @@ export const stopBroadcast = async (taskId: string): Promise<{ status: string; t
   return res.data;
 };
 
-export const fetchBroadcastHistory = async (campaignName?: string, limit: number = 100): Promise<{ campaigns: BroadcastCampaignSummary[]; logs: BroadcastHistoryItem[] }> => {
+export const fetchBroadcastHistory = async (campaignName?: string, limit: number = 100, opts?: RequestOptions): Promise<{ campaigns: BroadcastCampaignSummary[]; logs: BroadcastHistoryItem[] }> => {
   const params: any = { limit };
   if (campaignName && campaignName !== 'all') params.campaign_name = campaignName;
-  const res = await apiClient.get<{ campaigns: BroadcastCampaignSummary[]; logs: BroadcastHistoryItem[] }>('/broadcast/history', { params });
+  const res = await apiClient.get<{ campaigns: BroadcastCampaignSummary[]; logs: BroadcastHistoryItem[] }>('/broadcast/history', { params, ...(opts || {}) } as any);
   return res.data;
 };
 
@@ -679,6 +767,11 @@ export const loginApi = async (username: string, password: string, rememberMe: b
   });
   const token = res.data.access_token;
   const user = res.data.user;
+  // Luôn dọn sạch token cũ ở cả hai storage để token cũ trong localStorage không ghi đè phiên đăng nhập mới
+  localStorage.removeItem('eztech_auth_token');
+  localStorage.removeItem('eztech_auth_user');
+  sessionStorage.removeItem('eztech_auth_token');
+  sessionStorage.removeItem('eztech_auth_user');
   if (rememberMe) {
     localStorage.setItem('eztech_auth_token', token);
     localStorage.setItem('eztech_auth_user', JSON.stringify(user));
@@ -862,17 +955,19 @@ export interface DealAuditLogItem {
   detail: string;
 }
 
-export const fetchDealEntryInit = async (force: boolean = false): Promise<DealEntryInitResponse> => {
+export const fetchDealEntryInit = async (force: boolean = false, opts?: RequestOptions): Promise<DealEntryInitResponse> => {
   const res = await apiClient.get<DealEntryInitResponse>('/deal-entry/init', {
     params: force ? { force: true } : undefined,
-  });
+    skipCache: force || opts?.skipCache,
+    signal: opts?.signal,
+  } as any);
   return res.data;
 };
 
-export const lookupDealPhone = async (sdt: string, excludeId?: string): Promise<PhoneLookupResponse> => {
+export const lookupDealPhone = async (sdt: string, excludeId?: string, opts?: RequestOptions): Promise<PhoneLookupResponse> => {
   const params: Record<string, string> = { sdt };
   if (excludeId) params.exclude_id = excludeId;
-  const res = await apiClient.get<PhoneLookupResponse>('/deal-entry/lookup-phone', { params });
+  const res = await apiClient.get<PhoneLookupResponse>('/deal-entry/lookup-phone', { params, ...(opts || {}) } as any);
   return res.data;
 };
 
@@ -896,8 +991,8 @@ export const saveDealEntryLists = async (lists: DealEntryLists, actor?: string) 
   return res.data;
 };
 
-export const fetchDealEntryLogs = async (limit: number = 100): Promise<{ ok: boolean; logs: DealAuditLogItem[] }> => {
-  const res = await apiClient.get('/deal-entry/logs', { params: { limit } });
+export const fetchDealEntryLogs = async (limit: number = 100, opts?: RequestOptions): Promise<{ ok: boolean; logs: DealAuditLogItem[] }> => {
+  const res = await apiClient.get('/deal-entry/logs', { params: { limit }, ...(opts || {}) } as any);
   return res.data;
 };
 
@@ -1039,13 +1134,14 @@ export const fetchFacebookPages = async (): Promise<FacebookPageItem[]> => {
 export const fetchFacebookMetrics = async (
   startDate?: string,
   endDate?: string,
-  pageId?: string
+  pageId?: string,
+  opts?: RequestOptions
 ): Promise<FacebookMetricsResponse> => {
   const params: any = {};
   if (startDate) params.start_date = startDate;
   if (endDate) params.end_date = endDate;
   if (pageId) params.page_id = pageId;
-  const res = await apiClient.get<FacebookMetricsResponse>('/facebook/metrics', { params });
+  const res = await apiClient.get<FacebookMetricsResponse>('/facebook/metrics', { params, ...(opts || {}) } as any);
   return res.data;
 };
 
@@ -1066,13 +1162,14 @@ export const fetchTikTokPages = async (): Promise<TikTokPageItem[]> => {
 export const fetchTikTokMetrics = async (
   startDate?: string,
   endDate?: string,
-  pageId?: string
+  pageId?: string,
+  opts?: RequestOptions
 ): Promise<FacebookMetricsResponse> => {
   const params: any = {};
   if (startDate) params.start_date = startDate;
   if (endDate) params.end_date = endDate;
   if (pageId) params.page_id = pageId;
-  const res = await apiClient.get<FacebookMetricsResponse>('/tiktok/metrics', { params });
+  const res = await apiClient.get<FacebookMetricsResponse>('/tiktok/metrics', { params, ...(opts || {}) } as any);
   return res.data;
 };
 
@@ -1147,13 +1244,14 @@ export interface WorkReportResponse {
 export const fetchWorkReport = async (
   startDate?: string,
   endDate?: string,
-  employee?: string
+  employee?: string,
+  opts?: RequestOptions
 ): Promise<WorkReportResponse> => {
   const params: any = {};
   if (startDate) params.start_date = startDate;
   if (endDate) params.end_date = endDate;
   if (employee) params.employee = employee;
-  const res = await apiClient.get<WorkReportResponse>('/work-report', { params });
+  const res = await apiClient.get<WorkReportResponse>('/work-report', { params, ...(opts || {}) } as any);
   return res.data;
 };
 
@@ -1531,8 +1629,8 @@ export const sendAiChatMessage = async (payload: {
   assistant_id: string;
   question: string;
   history: { role: 'user' | 'assistant'; content: string }[];
-}): Promise<AiChatResponse> => {
-  const res = await apiClient.post<AiChatResponse>('/ai/chat', payload);
+}, opts?: RequestOptions): Promise<AiChatResponse> => {
+  const res = await apiClient.post<AiChatResponse>('/ai/chat', payload, { timeout: 120000, signal: opts?.signal });
   return res.data;
 };
 

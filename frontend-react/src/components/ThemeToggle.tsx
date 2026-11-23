@@ -12,7 +12,7 @@ export function ThemeToggle({ className = '' }: ThemeToggleProps) {
     <div
       role="group"
       aria-label="Chuyển đổi giao diện Sáng / Tối"
-      className={`theme-segmented inline-flex items-center p-0.5 rounded-xl border border-slate-200/90 dark:border-slate-700 bg-slate-100/90 dark:bg-slate-800/90 shadow-2xs ${className}`}
+      className={`theme-segmented inline-flex items-center p-0.5 rounded-xl border border-slate-200/90 dark:border-slate-700 bg-slate-100/90 dark:bg-slate-800/90 shadow-sm ${className}`}
     >
       <button
         type="button"

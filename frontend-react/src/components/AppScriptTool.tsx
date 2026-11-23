@@ -17,12 +17,13 @@ import {
   fetchDealEntryInit,
   lookupDealPhone,
   saveSalesDeal,
-  updateSalesDealClasses,
   saveDealEntryLists,
   fetchDealEntryLogs,
   fetchDealSheetConfig,
   saveDealSheetConfig,
   pushAllDealsToGoogleSheet,
+  clearClientApiCache,
+  isAbortError,
   getStoredAuth,
   type SalesDealRecord,
   type DebtSummaryData,
@@ -31,6 +32,10 @@ import {
   type DealAuditLogItem,
   type DealSheetSyncConfig,
 } from '../services/api';
+import { toSafeHttpUrl, copyToClipboard } from '../utils/format';
+import { showAppToast } from '../utils/toast';
+import { AccessibleModal } from './AccessibleModal';
+import { ErrorBanner } from './ErrorBanner';
 
 const fmtMoney = (n: number | undefined | null) => {
   const val = Number(n || 0);
@@ -56,10 +61,20 @@ const isUrl = (s: string | undefined | null) => {
   return trimmed.startsWith('http://') || trimmed.startsWith('https://') || trimmed.startsWith('zalo.me/');
 };
 
-const toSafeHref = (s: string) => {
-  const trimmed = s.trim();
-  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) return trimmed;
-  return `https://${trimmed}`;
+const toSafeHref = (s: string | undefined | null): string | null => {
+  if (!isUrl(s)) return null;
+  const trimmed = s!.trim();
+  const normalized = trimmed.toLowerCase().startsWith('zalo.me/') ? `https://${trimmed}` : trimmed;
+  return toSafeHttpUrl(normalized);
+};
+
+const escapeCsvCell = (raw: unknown): string => {
+  let str = String(raw ?? '');
+  // Chống CSV Formula Injection khi mở bằng Excel / Google Sheets
+  if (/^[=+\-@\t\r]/.test(str)) {
+    str = `'${str}`;
+  }
+  return `"${str.replace(/"/g, '""')}"`;
 };
 
 const parseSources = (val: string | string[] | undefined | null): string[] => {
@@ -104,6 +119,8 @@ export function AppScriptTool() {
   const [subTab, setSubTab] = useState<'deals' | 'debts' | 'lists' | 'logs'>('deals');
   const [loading, setLoading] = useState<boolean>(true);
   const [saving, setSaving] = useState<boolean>(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [logsError, setLogsError] = useState<string | null>(null);
 
   const [deals, setDeals] = useState<SalesDealRecord[]>([]);
   const [debts, setDebts] = useState<DebtSummaryData>({
@@ -142,20 +159,22 @@ export function AppScriptTool() {
   const [copiedRowId, setCopiedRowId] = useState<string | null>(null);
   const [copiedCheckLenh, setCopiedCheckLenh] = useState(false);
   const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(new Set());
-  const [copyToast, setCopyToast] = useState<string | null>(null);
+  const copyRowTimerRef = useRef<number | null>(null);
+  const copyCheckTimerRef = useRef<number | null>(null);
 
-  const showToast = (msg: string) => {
-    setCopyToast(msg);
-    setTimeout(() => {
-      setCopyToast((prev) => (prev === msg ? null : prev));
-    }, 2500);
-  };
+  useEffect(() => {
+    return () => {
+      if (copyRowTimerRef.current) window.clearTimeout(copyRowTimerRef.current);
+      if (copyCheckTimerRef.current) window.clearTimeout(copyCheckTimerRef.current);
+    };
+  }, []);
 
   // Modal Nhập / Sửa Deal
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isCollectDebtMode, setIsCollectDebtMode] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingDealWinId, setEditingDealWinId] = useState<number | null | undefined>(null);
-  const [formNgThu, setFormNgThu] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [formNgThu, setFormNgThu] = useState(() => format(new Date(), 'yyyy-MM-dd'));
   const [formNgContact, setFormNgContact] = useState('');
   const [formSdt, setFormSdt] = useState('');
   const [formHoTen, setFormHoTen] = useState('');
@@ -186,11 +205,6 @@ export function AppScriptTool() {
   // Kết quả tra cứu SĐT thông minh
   const [phoneLookup, setPhoneLookup] = useState<PhoneLookupResponse | null>(null);
   const [lookingUpPhone, setLookingUpPhone] = useState(false);
-
-  // Modal sửa nhanh Lớp học
-  const [classModalDeal, setClassModalDeal] = useState<SalesDealRecord | null>(null);
-  const [quickClasses, setQuickClasses] = useState<string[]>([]);
-  const [quickNewClass, setQuickNewClass] = useState('');
 
   // Quản lý danh mục
   const [draftLists, setDraftLists] = useState<DealEntryLists>({
@@ -245,7 +259,7 @@ export function AppScriptTool() {
       });
       const res = await pushAllDealsToGoogleSheet();
       setSheetFeedback({ ok: true, text: res.message || `Đã đồng bộ ${res.synced_count} dòng.` });
-      showToast(`Đã đẩy ${res.synced_count} dòng lên Google Sheet`);
+      showAppToast(`Đã đẩy ${res.synced_count} dòng lên Google Sheet`, 'success');
     } catch (err: any) {
       setSheetFeedback({ ok: false, text: err?.response?.data?.detail || 'Đồng bộ thất bại.' });
     } finally {
@@ -255,8 +269,12 @@ export function AppScriptTool() {
 
   const loadAll = async (force: boolean = false) => {
     setLoading(true);
+    setLoadError(null);
     try {
-      const res = await fetchDealEntryInit(force);
+      if (force) {
+        clearClientApiCache('/deal-entry/init');
+      }
+      const res = await fetchDealEntryInit(force, { skipCache: force });
       if (res.ok) {
         setDeals(res.deals || []);
         setDebts(res.debts || { items: [], totalPhaiThu: 0, totalDaThuNo: 0, totalConNo: 0, count: 0 });
@@ -266,17 +284,23 @@ export function AppScriptTool() {
       }
     } catch (err) {
       console.error('Lỗi tải dữ liệu Deal Entry:', err);
+      setLoadError('Không thể tải dữ liệu Deal & Công nợ. Vui lòng thử lại.');
     } finally {
       setLoading(false);
     }
   };
 
-  const loadLogs = async () => {
+  const loadLogs = async (force: boolean = false) => {
+    setLogsError(null);
     try {
-      const res = await fetchDealEntryLogs(50);
+      if (force) {
+        clearClientApiCache('/deal-entry/logs');
+      }
+      const res = await fetchDealEntryLogs(50, { skipCache: force });
       if (res.ok) setLogs(res.logs || []);
     } catch (err) {
       console.error('Lỗi tải nhật ký:', err);
+      setLogsError('Không thể tải nhật ký thao tác hệ thống.');
     }
   };
 
@@ -291,7 +315,7 @@ export function AppScriptTool() {
 
   useEffect(() => {
     if (subTab === 'logs') {
-      loadLogs();
+      loadLogs(false);
     }
   }, [subTab]);
 
@@ -311,49 +335,63 @@ export function AppScriptTool() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Tự động tra cứu SĐT khi người dùng nhập đủ 10 chữ số ở chế độ tạo mới
+  // Tự động tra cứu SĐT khi người dùng nhập đủ 10 chữ số ở chế độ tạo mới (không chạy khi mở từ nút Thu nợ)
   useEffect(() => {
-    if (!isModalOpen || editingId) return;
+    if (!isModalOpen || editingId || isCollectDebtMode) return;
     const clean = formSdt.replace(/\D/g, '');
     if (clean.length < 10) {
       setPhoneLookup(null);
       return;
     }
 
-    const timer = setTimeout(async () => {
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
       setLookingUpPhone(true);
       try {
-        const res = await lookupDealPhone(clean);
+        const res = await lookupDealPhone(clean, undefined, { signal: controller.signal });
+        if (controller.signal.aborted) return;
         setPhoneLookup(res);
         if (res.found) {
-          if (res.hoTen && !formHoTen) setFormHoTen(res.hoTen);
-          if (res.ngayContact && !formNgContact) setFormNgContact(res.ngayContact);
-          if (res.zalo && !formZalo) setFormZalo(res.zalo);
-          if (res.nhomCS && !formNhomCS) setFormNhomCS(res.nhomCS);
-          if (res.chucVu && !formChucVu) setFormChucVu(res.chucVu);
-          if (res.nvCS && !formNvCS) setFormNvCS(res.nvCS);
-          if (res.zaloCS && !formZaloCS) {
-            setFormZaloCS(res.zaloCS);
-          } else if (!formZaloCS && res.nguon) {
+          if (res.hoTen) setFormHoTen((prev) => prev || res.hoTen!);
+          if (res.ngayContact) setFormNgContact((prev) => prev || res.ngayContact!);
+          if (res.zalo) setFormZalo((prev) => prev || res.zalo!);
+          if (res.nhomCS) setFormNhomCS((prev) => prev || res.nhomCS!);
+          if (res.chucVu) setFormChucVu((prev) => prev || res.chucVu!);
+          if (res.nvCS) setFormNvCS((prev) => prev || res.nvCS!);
+          if (res.zaloCS) {
+            setFormZaloCS((prev) => prev || res.zaloCS!);
+          } else if (res.nguon) {
             const matched = resolveMatchingZaloCS(res.nguon, lists.zaloCS);
-            if (matched) setFormZaloCS(matched);
+            if (matched) setFormZaloCS((prev) => prev || matched);
           }
-          if (res.nguon && formNguon.length === 0) setFormNguon(parseSources(res.nguon));
-          if (res.lop && res.lop.length > 0 && formLop.length === 0) {
-            setFormLop(res.lop);
+          if (res.nguon) {
+            const parsedSrc = parseSources(res.nguon);
+            if (parsedSrc.length > 0) {
+              setFormNguon((prev) => (prev.length === 0 ? parsedSrc : prev));
+            }
+          }
+          if (res.lop && res.lop.length > 0) {
+            setFormLop((prev) => (prev.length === 0 ? res.lop! : prev));
           }
         }
       } catch (e) {
+        if (isAbortError(e) || controller.signal.aborted) return;
         console.error('Lookup phone error:', e);
       } finally {
-        setLookingUpPhone(false);
+        if (!controller.signal.aborted) {
+          setLookingUpPhone(false);
+        }
       }
     }, 350);
 
-    return () => clearTimeout(timer);
-  }, [formSdt, isModalOpen, editingId]);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [formSdt, isModalOpen, editingId, isCollectDebtMode, lists.zaloCS]);
 
   const openCreateModal = () => {
+    setIsCollectDebtMode(false);
     setEditingId(null);
     setEditingDealWinId(null);
     setFormNgThu(format(new Date(), 'yyyy-MM-dd'));
@@ -387,6 +425,7 @@ export function AppScriptTool() {
   };
 
   const openEditModal = (d: SalesDealRecord) => {
+    setIsCollectDebtMode(false);
     setEditingId(d.id);
     setEditingDealWinId(d.dealWinId);
     setFormNgThu(d.ngayThu || format(new Date(), 'yyyy-MM-dd'));
@@ -413,9 +452,7 @@ export function AppScriptTool() {
     setFormPhaiThu(d.phaiThu || 0);
     setFormTongTien(d.tongTien || 0);
     setFormNgThuAR(d.ngayThuAR || '');
-    setFormTrangThai(
-      d.trangThai === 'Chờ bổ sung' ? 'Hoàn thành' : d.trangThai || 'Hoàn thành'
-    );
+    setFormTrangThai(d.trangThai || 'Chờ bổ sung');
     setFormNote(d.note || '');
     setPhoneLookup(null);
     setIsModalOpen(true);
@@ -430,26 +467,28 @@ export function AppScriptTool() {
     lop?: string[];
     nvCS?: string;
   }) => {
+    const existingDeal = deals.find((d) => d.sdt === item.sdt);
+    setIsCollectDebtMode(true);
     setEditingId(null);
     setEditingDealWinId(null);
     setFormNgThu(format(new Date(), 'yyyy-MM-dd'));
-    setFormNgContact('');
+    setFormNgContact(existingDeal?.ngayContact || '');
     setFormSdt(item.sdt);
     setFormHoTen(item.hoTen);
-    setFormEmail('');
-    setFormNamSinh('');
-    setFormDiaChi('');
-    setFormLinhVuc('');
-    setFormKyVong('');
-    setFormZalo('');
-    setFormNhomCS('');
+    setFormEmail(existingDeal?.email || '');
+    setFormNamSinh(existingDeal?.namSinh || '');
+    setFormDiaChi(existingDeal?.diaChi || '');
+    setFormLinhVuc(existingDeal?.linhVuc || '');
+    setFormKyVong(existingDeal?.kyVong || '');
+    setFormZalo(existingDeal?.zalo || '');
+    setFormNhomCS(existingDeal?.nhomCS || '');
     setFormChuongTrinh(item.chuongTrinh || '');
     setFormLop(item.lop || []);
     setNewClassInput('');
-    setFormChucVu('');
+    setFormChucVu(existingDeal?.chucVu || '');
     setFormNvCS(item.nvCS || actorName);
-    setFormZaloCS(resolveMatchingZaloCS(item.chuongTrinh, lists.zaloCS) || '');
-    setFormNguon([]);
+    setFormZaloCS(existingDeal?.zaloCS || resolveMatchingZaloCS(existingDeal?.nguon, lists.zaloCS) || '');
+    setFormNguon(parseSources(existingDeal?.nguon));
     setNewNguonInput('');
     setIsNguonDropdownOpen(false);
     setFormDaThu(item.conNo);
@@ -458,6 +497,7 @@ export function AppScriptTool() {
     setFormNgThuAR(format(new Date(), 'yyyy-MM-dd'));
     setFormTrangThai('Thu nợ');
     setFormNote(`Thu nợ deal ngày ${fmtDateVi(item.ngayThuGoc)}`);
+    setPhoneLookup(null);
     setIsModalOpen(true);
   };
 
@@ -473,11 +513,23 @@ export function AppScriptTool() {
 
   const handlePhaiThuChange = (val: number) => {
     setFormPhaiThu(val);
+    if (formTrangThai === 'Thu nợ') return;
     setFormTongTien(formDaThu + val);
     if (val > 0 && (formTrangThai === 'Hoàn thành' || formTrangThai === 'Chờ bổ sung')) {
       setFormTrangThai('Còn nợ');
     } else if (val === 0 && formTrangThai === 'Còn nợ') {
       setFormTrangThai('Hoàn thành');
+    }
+  };
+
+  const handleTrangThaiChange = (nextStatus: string) => {
+    setFormTrangThai(nextStatus);
+    if (nextStatus === 'Thu nợ') {
+      setFormPhaiThu(0);
+      setFormTongTien(0);
+      setFormNgThuAR((prev) => prev || format(new Date(), 'yyyy-MM-dd'));
+    } else if (formTrangThai === 'Thu nợ') {
+      setFormTongTien(formDaThu + formPhaiThu);
     }
   };
 
@@ -499,28 +551,24 @@ export function AppScriptTool() {
   const toggleNguonInForm = (source: string) => {
     const s = source.trim();
     if (!s) return;
-    setFormNguon((prev) => {
-      const next = prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s];
-      if (!formZaloCS && next.length > 0) {
-        const matched = resolveMatchingZaloCS(next, lists.zaloCS);
-        if (matched) setFormZaloCS(matched);
-      }
-      return next;
-    });
+    const next = formNguon.includes(s) ? formNguon.filter((x) => x !== s) : [...formNguon, s];
+    setFormNguon(next);
+    if (!formZaloCS && next.length > 0) {
+      const matched = resolveMatchingZaloCS(next, lists.zaloCS);
+      if (matched) setFormZaloCS(matched);
+    }
   };
 
   const addCustomNguonToForm = () => {
     const s = newNguonInput.trim();
     if (!s) return;
     if (!formNguon.includes(s)) {
-      setFormNguon((prev) => {
-        const next = [...prev, s];
-        if (!formZaloCS) {
-          const matched = resolveMatchingZaloCS(next, lists.zaloCS);
-          if (matched) setFormZaloCS(matched);
-        }
-        return next;
-      });
+      const next = [...formNguon, s];
+      setFormNguon(next);
+      if (!formZaloCS) {
+        const matched = resolveMatchingZaloCS(next, lists.zaloCS);
+        if (matched) setFormZaloCS(matched);
+      }
     }
     if (!lists.nguon.includes(s)) {
       const updated = [...lists.nguon, s];
@@ -533,7 +581,7 @@ export function AppScriptTool() {
   const handleSubmitDeal = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formSdt.trim() || !formHoTen.trim()) {
-      alert('Vui lòng nhập đầy đủ Số điện thoại và Họ tên học viên!');
+      showAppToast('Vui lòng nhập đầy đủ Số điện thoại và Họ tên học viên!', 'warning');
       return;
     }
     setSaving(true);
@@ -573,10 +621,10 @@ export function AppScriptTool() {
           setDraftLists(res.lists);
         }
         setIsModalOpen(false);
-        alert('✅ Đã lưu học phí và thông tin học viên lên Database thành công!');
+        showAppToast('Đã lưu học phí và thông tin học viên lên Database thành công!', 'success');
       }
     } catch (err: any) {
-      alert(err?.response?.data?.detail || 'Có lỗi xảy ra khi lưu deal');
+      showAppToast(err?.response?.data?.detail || 'Có lỗi xảy ra khi lưu deal', 'error');
     } finally {
       setSaving(false);
     }
@@ -584,8 +632,9 @@ export function AppScriptTool() {
 
   const handleOpenPancake = async (d: SalesDealRecord) => {
     // 1. Nếu deal đã có link Zalo/Pancake hợp lệ
-    if (d.zalo && isUrl(d.zalo)) {
-      window.open(toSafeHref(d.zalo), '_blank');
+    const directHref = toSafeHref(d.zalo);
+    if (directHref) {
+      window.open(directHref, '_blank', 'noopener,noreferrer');
       return;
     }
 
@@ -594,8 +643,9 @@ export function AppScriptTool() {
     if (cleanPhone && cleanPhone.length >= 9) {
       try {
         const lookup = await lookupDealPhone(cleanPhone);
-        if (lookup && lookup.zalo && isUrl(lookup.zalo)) {
-          window.open(toSafeHref(lookup.zalo), '_blank');
+        const lookupHref = toSafeHref(lookup?.zalo);
+        if (lookupHref) {
+          window.open(lookupHref, '_blank', 'noopener,noreferrer');
           setDeals((prev) =>
             prev.map((item) => (item.id === d.id ? { ...item, zalo: lookup.zalo! } : item))
           );
@@ -608,32 +658,12 @@ export function AppScriptTool() {
 
     // 3. Fallback: sao chép SĐT vào clipboard và mở trang chủ Pancake
     if (d.sdt) {
-      try {
-        await navigator.clipboard.writeText(d.sdt);
-      } catch (_) {}
-    }
-    window.open('https://pancake.vn', '_blank');
-  };
-
-  const handleSaveQuickClasses = async () => {
-    if (!classModalDeal) return;
-    setSaving(true);
-    try {
-      const res = await updateSalesDealClasses(classModalDeal.id, quickClasses, actorName);
-      if (res.ok) {
-        setDeals(res.deals || []);
-        setDebts(res.debts);
-        if (res.lists) {
-          setLists(res.lists);
-          setDraftLists(res.lists);
-        }
-        setClassModalDeal(null);
+      const copied = await copyToClipboard(d.sdt);
+      if (copied) {
+        showAppToast(`Đã copy SĐT ${d.sdt} để tìm trên Pancake.`, 'info');
       }
-    } catch (err: any) {
-      alert(err?.response?.data?.detail || 'Không thể cập nhật lớp học');
-    } finally {
-      setSaving(false);
     }
+    window.open('https://pancake.vn', '_blank', 'noopener,noreferrer');
   };
 
   const handleSaveLists = async () => {
@@ -643,47 +673,19 @@ export function AppScriptTool() {
       if (res.ok) {
         setLists(res.lists);
         setDraftLists(res.lists);
-        alert('Đã lưu Danh mục thành công!');
+        showAppToast('Đã lưu Danh mục thành công!', 'success');
       }
     } catch (err: any) {
-      alert(err?.response?.data?.detail || 'Không thể lưu danh mục');
+      showAppToast(err?.response?.data?.detail || 'Không thể lưu danh mục', 'error');
     } finally {
       setSaving(false);
     }
   };
 
-  // Đếm số lượng chờ bổ sung thông tin
-  const countsByCompletion = useMemo(() => {
-    let base = onlyStudentFilter ? deals.filter((d) => d.isStudent !== false) : deals;
-    if (filterClass) {
-      if (filterClass === '__NONE__') {
-        base = base.filter((d) => (d.lop || []).length === 0);
-      } else {
-        base = base.filter((d) => (d.lop || []).includes(filterClass));
-      }
-    }
-    let incomplete = 0;
-    let completed = 0;
-    for (const d of base) {
-      const missingInfo = (d.daThu === 0 && d.phaiThu === 0) || (d.lop || []).length === 0 || !(d.nhomCS || '').trim();
-      if (missingInfo) incomplete++;
-      else completed++;
-    }
-    return { total: base.length, incomplete, completed };
-  }, [deals, onlyStudentFilter, filterClass]);
-
-  // Lọc danh sách Deals
-  const filteredDeals = useMemo(() => {
+  // Cơ sở lọc chung (trước khi lọc completionFilter) để đếm chính xác trạng thái điền thông tin
+  const baseFilteredForCompletion = useMemo(() => {
     return deals.filter((d) => {
-      // 1. Lọc tag "Đã là học viên"
       if (onlyStudentFilter && d.isStudent === false) return false;
-
-      // 2. Lọc trạng thái điền thông tin
-      const missingInfo = (d.daThu === 0 && d.phaiThu === 0) || (d.lop || []).length === 0 || !(d.nhomCS || '').trim();
-      if (completionFilter === 'incomplete' && !missingInfo) return false;
-      if (completionFilter === 'completed' && missingInfo) return false;
-
-      // 3. CHỈ LỌC THEO NHÂN VIÊN CHĂM SÓC
       if (filterSale) {
         if (filterSale === 'Chưa phân công') {
           const raw = (d.nvCS || '').trim().toLowerCase();
@@ -691,12 +693,10 @@ export function AppScriptTool() {
         } else {
           const raw = (d.nvCS || '').toLowerCase();
           const target = filterSale.toLowerCase();
-          const parts = raw.split(/[,;/]/).map((p) => p.trim());
-          if (!parts.includes(target) && !raw.includes(target)) return false;
+          const parts = raw.split(/[,;/]/).map((p) => p.trim()).filter(Boolean);
+          if (!parts.includes(target)) return false;
         }
       }
-
-      // 4. Lọc theo Lớp học
       if (filterClass) {
         const dLop = d.lop || [];
         if (filterClass === '__NONE__') {
@@ -705,8 +705,6 @@ export function AppScriptTool() {
           return false;
         }
       }
-
-      // 5. Tìm kiếm từ khóa
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
         const matchName = (d.hoTen || '').toLowerCase().includes(q);
@@ -720,14 +718,41 @@ export function AppScriptTool() {
       }
       return true;
     });
-  }, [
-    deals,
-    onlyStudentFilter,
-    completionFilter,
-    filterSale,
-    filterClass,
-    searchQuery,
-  ]);
+  }, [deals, onlyStudentFilter, filterSale, filterClass, searchQuery]);
+
+  // Đếm số lượng chờ bổ sung thông tin đồng bộ với toàn bộ bộ lọc đang áp dụng
+  const countsByCompletion = useMemo(() => {
+    let incomplete = 0;
+    let completed = 0;
+    for (const d of baseFilteredForCompletion) {
+      const missingInfo = (d.daThu === 0 && d.phaiThu === 0) || (d.lop || []).length === 0 || !(d.nhomCS || '').trim();
+      if (missingInfo) incomplete++;
+      else completed++;
+    }
+    return { total: baseFilteredForCompletion.length, incomplete, completed };
+  }, [baseFilteredForCompletion]);
+
+  // Lọc danh sách Deals
+  const filteredDeals = useMemo(() => {
+    if (completionFilter === 'all') return baseFilteredForCompletion;
+    return baseFilteredForCompletion.filter((d) => {
+      const missingInfo = (d.daThu === 0 && d.phaiThu === 0) || (d.lop || []).length === 0 || !(d.nhomCS || '').trim();
+      return completionFilter === 'incomplete' ? missingInfo : !missingInfo;
+    });
+  }, [baseFilteredForCompletion, completionFilter]);
+
+  // Đồng bộ selectedRowIds theo danh sách đang lọc để không copy nhầm dòng bị ẩn
+  useEffect(() => {
+    setSelectedRowIds((prev) => {
+      if (prev.size === 0) return prev;
+      const visibleIds = new Set(filteredDeals.map((d) => d.id));
+      const next = new Set<string>();
+      prev.forEach((id) => {
+        if (visibleIds.has(id)) next.add(id);
+      });
+      return next.size === prev.size ? prev : next;
+    });
+  }, [filteredDeals]);
 
   const totalPages = Math.max(1, Math.ceil(filteredDeals.length / pageSize));
   const pagedDeals = useMemo(() => {
@@ -740,6 +765,7 @@ export function AppScriptTool() {
     let totalDaThu = 0;
     let totalThuNo = 0;
     let totalConNo = 0;
+    let debtDealCount = 0;
     let totalDoanhThu = 0;
     const uniquePhones = new Set<string>();
 
@@ -747,6 +773,7 @@ export function AppScriptTool() {
       totalDaThu += d.daThu || 0;
       totalThuNo += d.thuNo || 0;
       totalConNo += d.conNo || 0;
+      if ((d.conNo || 0) > 0) debtDealCount += 1;
       if (d.trangThai !== 'Thu nợ') {
         totalDoanhThu += (d.daThu - (d.thuNo || 0)) + (d.phaiThu || 0);
       }
@@ -758,6 +785,7 @@ export function AppScriptTool() {
       totalDaThu,
       totalThuNo,
       totalConNo,
+      debtDealCount,
       dealCount: filteredDeals.length,
       studentCount: uniquePhones.size,
     };
@@ -873,15 +901,16 @@ export function AppScriptTool() {
 
   const handleCopySingleRow = async (d: SalesDealRecord) => {
     const tsv = formatDealRowForSheet(d);
-    try {
-      await navigator.clipboard.writeText(tsv);
+    const ok = await copyToClipboard(tsv);
+    if (ok) {
       setCopiedRowId(d.id);
-      showToast(`Đã copy dòng "${d.hoTen}" (${d.sdt}) — Bấm Ctrl+V vào Google Sheet!`);
-      setTimeout(() => {
+      showAppToast(`Đã copy dòng "${d.hoTen}" (${d.sdt}) — Bấm Ctrl+V vào Google Sheet!`, 'success');
+      if (copyRowTimerRef.current) window.clearTimeout(copyRowTimerRef.current);
+      copyRowTimerRef.current = window.setTimeout(() => {
         setCopiedRowId((prev) => (prev === d.id ? null : prev));
       }, 2200);
-    } catch {
-      showToast('Không thể truy cập bộ nhớ tạm (Clipboard).');
+    } else {
+      showAppToast('Không thể truy cập bộ nhớ tạm (Clipboard).', 'error');
     }
   };
 
@@ -911,11 +940,11 @@ export function AppScriptTool() {
     if (includeHeader) {
       lines.unshift(headerCols.join('\t'));
     }
-    try {
-      await navigator.clipboard.writeText(lines.join('\n'));
-      showToast(`Đã copy ${rowsToCopy.length} dòng — Bấm Ctrl+V vào Google Sheet!`);
-    } catch {
-      showToast('Không thể truy cập bộ nhớ tạm (Clipboard).');
+    const ok = await copyToClipboard(lines.join('\n'));
+    if (ok) {
+      showAppToast(`Đã copy ${rowsToCopy.length} dòng — Bấm Ctrl+V vào Google Sheet!`, 'success');
+    } else {
+      showAppToast('Không thể truy cập bộ nhớ tạm (Clipboard).', 'error');
     }
   };
 
@@ -930,13 +959,14 @@ export function AppScriptTool() {
       `Nguồn: ${nguon}`,
     ].join('\n');
 
-    try {
-      await navigator.clipboard.writeText(text);
+    const ok = await copyToClipboard(text);
+    if (ok) {
       setCopiedCheckLenh(true);
-      setTimeout(() => setCopiedCheckLenh(false), 2000);
-      showToast('Đã copy mẫu Check lệnh!');
-    } catch {
-      showToast('Không thể truy cập bộ nhớ tạm (Clipboard).');
+      if (copyCheckTimerRef.current) window.clearTimeout(copyCheckTimerRef.current);
+      copyCheckTimerRef.current = window.setTimeout(() => setCopiedCheckLenh(false), 2000);
+      showAppToast('Đã copy mẫu Check lệnh!', 'success');
+    } else {
+      showAppToast('Không thể truy cập bộ nhớ tạm (Clipboard).', 'error');
     }
   };
 
@@ -963,7 +993,7 @@ export function AppScriptTool() {
     });
   };
 
-  // Xuất CSV
+  // Xuất CSV (chống CSV formula injection & giải phóng ObjectURL)
   const exportDealsCsv = () => {
     const headers = [
       'ID', 'Ngày thu tiền', 'Ngày contact đầu tiên', 'Số điện thoại', 'Họ tên', 'Email',
@@ -974,7 +1004,7 @@ export function AppScriptTool() {
       'Trong đó thu nợ cũ', 'Đã thu nợ', 'Còn nợ'
     ];
     const rows = filteredDeals.map((d) => [
-      d.id, fmtDateVi(d.ngayThu), fmtDateVi(d.ngayContact), `'${d.sdt}`, d.hoTen, d.email || '',
+      d.id, fmtDateVi(d.ngayThu), fmtDateVi(d.ngayContact), d.sdt ? `\t${d.sdt}` : '', d.hoTen, d.email || '',
       d.namSinh || '', d.diaChi || '', d.linhVuc || '', d.chucVu || '', d.kyVong || '',
       d.zalo, d.nhomCS, d.chuongTrinh, (d.lop || []).join(', '),
       d.nvCS, d.zaloCS, d.nguon, d.daThu, d.phaiThu,
@@ -984,7 +1014,7 @@ export function AppScriptTool() {
     const csvContent =
       '\uFEFF' +
       [headers, ...rows]
-        .map((r) => r.map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(','))
+        .map((r) => r.map((cell) => escapeCsvCell(cell)).join(','))
         .join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -992,6 +1022,7 @@ export function AppScriptTool() {
     a.href = url;
     a.download = `EzTech_Deals_${format(new Date(), 'yyyyMMdd_HHmm')}.csv`;
     a.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
   const getStatusBadgeStyle = (st: string) => {
@@ -1011,17 +1042,15 @@ export function AppScriptTool() {
     return 'bg-emerald-50 text-emerald-700 border-emerald-200';
   };
 
+  const safeSheetUrl = toSafeHref(sheetCfg.sheet_url);
+
   return (
     <div className="space-y-4">
-      {copyToast && (
-        <div className="ez-toast-in fixed bottom-5 right-5 z-[60] px-4 py-2.5 bg-slate-900 text-white text-xs font-semibold rounded-lg shadow-lg border border-slate-700">
-          {copyToast}
-        </div>
-      )}
+      {loadError && <ErrorBanner message={loadError} onRetry={() => loadAll(true)} />}
       {/* 1. Header & Sub-navigation */}
       <div className="bg-white rounded-xl border border-slate-200/80 shadow-card p-4 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <h2 className="text-sm font-bold text-navy">Quản Lý Deal Win, Bổ Sung Học Phí & Công Nợ</h2>
             <span className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-slate-100 text-slate-700 rounded-md border border-slate-200">
               Đồng bộ từ DB Deal Win
@@ -1034,12 +1063,14 @@ export function AppScriptTool() {
 
         <div className="flex flex-wrap items-center gap-2">
           {/* Sub-tabs */}
-          <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200/70">
+          <div className="flex flex-wrap items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200/70">
             <button
+              type="button"
+              aria-pressed={subTab === 'deals'}
               onClick={() => setSubTab('deals')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                 subTab === 'deals'
-                  ? 'bg-white text-navy shadow-xs'
+                  ? 'bg-white text-navy shadow-sm'
                   : 'text-slate-600 hover:text-navy'
               }`}
             >
@@ -1047,16 +1078,18 @@ export function AppScriptTool() {
             </button>
 
             <button
+              type="button"
+              aria-pressed={subTab === 'debts'}
               onClick={() => setSubTab('debts')}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                 subTab === 'debts'
-                  ? 'bg-white text-navy shadow-xs'
+                  ? 'bg-white text-navy shadow-sm'
                   : 'text-slate-600 hover:text-navy'
               }`}
             >
               <span>Sổ Công Nợ</span>
               {filteredDebts.count > 0 && (
-                <span className="px-1.5 py-0.2 bg-slate-200 text-slate-700 rounded-full text-[10px] font-mono font-bold">
+                <span className="px-1.5 py-0.5 bg-slate-200 text-slate-700 rounded-full text-[10px] font-mono font-bold">
                   {filteredDebts.count}
                 </span>
               )}
@@ -1065,11 +1098,12 @@ export function AppScriptTool() {
             {/* Filter Lớp cạnh Sổ Công Nợ */}
             <div className="flex items-center gap-1 pl-1 border-l border-slate-200/80">
               <select
+                aria-label="Lọc học viên và công nợ theo lớp"
                 value={filterClass}
                 onChange={(e) => setFilterClass(e.target.value)}
                 className={`px-2.5 py-1 text-xs font-medium rounded-lg border transition-all cursor-pointer ${
                   filterClass
-                    ? 'bg-eztech text-white border-eztech shadow-2xs font-semibold'
+                    ? 'bg-eztech text-white border-eztech shadow-sm font-semibold'
                     : 'bg-white text-slate-700 border-slate-200 hover:border-slate-300'
                 } focus:outline-none focus:ring-1 focus:ring-eztech`}
                 title="Lọc học viên & công nợ theo lớp"
@@ -1090,6 +1124,7 @@ export function AppScriptTool() {
                 <button
                   type="button"
                   onClick={() => setFilterClass('')}
+                  aria-label="Bỏ lọc lớp"
                   className="p-1 text-slate-400 hover:text-slate-600 rounded cursor-pointer"
                   title="Bỏ lọc lớp"
                 >
@@ -1099,10 +1134,12 @@ export function AppScriptTool() {
             </div>
 
             <button
+              type="button"
+              aria-pressed={subTab === 'lists'}
               onClick={() => setSubTab('lists')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                 subTab === 'lists'
-                  ? 'bg-white text-navy shadow-xs'
+                  ? 'bg-white text-navy shadow-sm'
                   : 'text-slate-600 hover:text-navy'
               }`}
             >
@@ -1110,10 +1147,12 @@ export function AppScriptTool() {
             </button>
 
             <button
+              type="button"
+              aria-pressed={subTab === 'logs'}
               onClick={() => setSubTab('logs')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                 subTab === 'logs'
-                  ? 'bg-white text-navy shadow-xs'
+                  ? 'bg-white text-navy shadow-sm'
                   : 'text-slate-600 hover:text-navy'
               }`}
             >
@@ -1122,8 +1161,9 @@ export function AppScriptTool() {
           </div>
 
           <button
+            type="button"
             onClick={openCreateModal}
-            className="flex items-center gap-1.5 px-3.5 py-2 bg-eztech hover:bg-eztech-dark text-white text-xs font-semibold rounded-xl shadow-sm transition-all cursor-pointer"
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-eztech hover:bg-eztech-hover text-white text-xs font-semibold rounded-xl shadow-sm transition-all cursor-pointer"
           >
             <Plus className="w-4 h-4" />
             <span>Nhập Deal / Thu Nợ</span>
@@ -1160,12 +1200,17 @@ export function AppScriptTool() {
         <div className="bg-white rounded-xl border border-slate-200/80 shadow-card p-3.5">
           <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Tổng Còn Nợ (AR)</p>
           <p className="text-lg font-bold font-mono text-amber-600 mt-1 tabular-nums">
-            {fmtMoney(filteredDebts.totalConNo)} <span className="text-xs font-normal text-slate-400">đ</span>
+            {fmtMoney(subTab === 'debts' ? filteredDebts.totalConNo : kpiStats.totalConNo)}{' '}
+            <span className="text-xs font-normal text-slate-400">đ</span>
           </p>
-          <p className="text-[11px] text-slate-400 mt-0.5">{filteredDebts.count} khoản chưa tất toán</p>
+          <p className="text-[11px] text-slate-400 mt-0.5">
+            {subTab === 'debts'
+              ? `${filteredDebts.count} khoản chưa tất toán`
+              : `${kpiStats.debtDealCount} deal còn nợ theo bộ lọc`}
+          </p>
         </div>
 
-        <div className="bg-white rounded-xl border border-slate-200/80 shadow-card p-3.5">
+        <div className="bg-white rounded-xl border border-slate-200/80 shadow-card p-3.5 sm:col-span-2 lg:col-span-1">
           <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Chờ Điền Thông Tin</p>
           <p className="text-lg font-bold font-mono text-slate-700 mt-1 tabular-nums">
             {countsByCompletion.incomplete} <span className="text-xs font-normal text-slate-400">/ {countsByCompletion.total}</span>
@@ -1182,10 +1227,12 @@ export function AppScriptTool() {
             <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-slate-100">
               <div className="flex flex-wrap items-center gap-1.5">
                 <button
+                  type="button"
+                  aria-pressed={completionFilter === 'all'}
                   onClick={() => setCompletionFilter('all')}
                   className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                     completionFilter === 'all'
-                      ? 'bg-navy text-white shadow-2xs'
+                      ? 'bg-navy text-white shadow-sm'
                       : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                   }`}
                 >
@@ -1193,10 +1240,12 @@ export function AppScriptTool() {
                 </button>
 
                 <button
+                  type="button"
+                  aria-pressed={completionFilter === 'incomplete'}
                   onClick={() => setCompletionFilter('incomplete')}
                   className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                     completionFilter === 'incomplete'
-                      ? 'bg-slate-800 text-white shadow-2xs'
+                      ? 'bg-slate-800 text-white shadow-sm'
                       : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                   }`}
                 >
@@ -1204,10 +1253,12 @@ export function AppScriptTool() {
                 </button>
 
                 <button
+                  type="button"
+                  aria-pressed={completionFilter === 'completed'}
                   onClick={() => setCompletionFilter('completed')}
                   className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                     completionFilter === 'completed'
-                      ? 'bg-slate-800 text-white shadow-2xs'
+                      ? 'bg-slate-800 text-white shadow-sm'
                       : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                   }`}
                 >
@@ -1229,18 +1280,20 @@ export function AppScriptTool() {
             {/* Bộ lọc: Chỉ lọc theo NV CS & Tìm kiếm */}
             <div className="flex flex-wrap items-center gap-2.5">
               <div className="relative flex-1 min-w-[240px]">
-                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                 <input
                   type="text"
+                  aria-label="Tìm kiếm học viên, SĐT, lớp học"
                   placeholder="Tìm SĐT, Họ tên, Email, Chức vụ, Lớp học, Ghi chú..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-eztech/20 focus:border-eztech"
+                  className="w-full pl-8 pr-3 py-1.5 text-xs bg-white text-navy border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-eztech/20 focus:border-eztech"
                 />
               </div>
 
               <div className="flex items-center gap-1.5">
                 <select
+                  aria-label="Lọc theo nhân viên chăm sóc"
                   value={filterSale}
                   onChange={(e) => setFilterSale(e.target.value)}
                   className="px-3 py-1.5 text-xs font-medium border border-slate-300 rounded-lg bg-white text-navy focus:outline-none focus:ring-2 focus:ring-eztech/20 focus:border-eztech cursor-pointer min-w-[200px]"
@@ -1256,6 +1309,7 @@ export function AppScriptTool() {
                   <button
                     type="button"
                     onClick={() => setFilterSale('')}
+                    aria-label="Bỏ chọn lọc nhân viên chăm sóc"
                     className="p-1 text-slate-400 hover:text-slate-600 rounded cursor-pointer"
                     title="Bỏ chọn lọc NV CS"
                   >
@@ -1297,6 +1351,7 @@ export function AppScriptTool() {
               </button>
 
               <button
+                type="button"
                 onClick={exportDealsCsv}
                 className="px-3 py-1.5 text-xs font-medium text-slate-700 hover:text-navy bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg transition-colors cursor-pointer"
                 title="Xuất file Excel / CSV"
@@ -1305,6 +1360,7 @@ export function AppScriptTool() {
               </button>
 
               <button
+                type="button"
                 onClick={() => {
                   setSheetFeedback(null);
                   setShowSheetModal(true);
@@ -1323,9 +1379,9 @@ export function AppScriptTool() {
                 )}
               </button>
 
-              {sheetCfg.sheet_url && isUrl(sheetCfg.sheet_url) && (
+              {safeSheetUrl && (
                 <a
-                  href={toSafeHref(sheetCfg.sheet_url)}
+                  href={safeSheetUrl}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-eztech hover:bg-eztech-light border border-slate-200 rounded-lg transition-colors"
@@ -1337,8 +1393,11 @@ export function AppScriptTool() {
               )}
 
               <button
+                type="button"
+                disabled={loading}
                 onClick={() => loadAll(true)}
-                className="p-1.5 text-slate-500 hover:text-eztech bg-slate-50 hover:bg-eztech-light border border-slate-200 rounded-lg transition-colors cursor-pointer"
+                aria-label="Đồng bộ từ Deal Win và làm mới dữ liệu"
+                className="p-1.5 text-slate-500 hover:text-eztech bg-slate-50 hover:bg-eztech-light border border-slate-200 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
                 title="Đồng bộ từ Deal Win & Làm mới dữ liệu"
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
@@ -1348,13 +1407,14 @@ export function AppScriptTool() {
 
           {/* Bảng danh sách Deals — Thiết kế dạng Spreadsheet phẳng, có kẻ ô rõ ràng & nút Copy từng dòng sang Google Sheet */}
           <div className="bg-white rounded-xl border border-slate-200 shadow-card overflow-hidden">
-            <div className="overflow-x-auto">
+            <div className="overflow-auto max-h-[70vh]">
               <table className="w-full text-left border-collapse text-xs">
-                <thead>
-                  <tr className="bg-slate-100/90 border-b border-slate-200 text-[11px] font-bold uppercase tracking-wider text-slate-600 select-none">
+                <thead className="sticky top-0 z-10">
+                  <tr className="bg-slate-100 border-b border-slate-200 text-[11px] font-bold uppercase tracking-wider text-slate-600 select-none">
                     <th className="py-2.5 px-2.5 border-r border-slate-200/80 text-center w-9">
                       <input
                         type="checkbox"
+                        aria-label="Chọn tất cả dòng trên trang này"
                         checked={pagedDeals.length > 0 && pagedDeals.every((d) => selectedRowIds.has(d.id))}
                         onChange={toggleSelectCurrentPage}
                         className="rounded border-slate-300 text-eztech focus:ring-eztech cursor-pointer"
@@ -1419,6 +1479,7 @@ export function AppScriptTool() {
                           <td className="py-2 px-2.5 border-r border-slate-200/70 text-center align-middle select-none">
                             <input
                               type="checkbox"
+                              aria-label={`Chọn dòng ${d.hoTen}`}
                               checked={isSelected}
                               onChange={() => toggleSelectRow(d.id)}
                               className="rounded border-slate-300 text-eztech focus:ring-eztech cursor-pointer"
@@ -1463,7 +1524,7 @@ export function AppScriptTool() {
                               <button
                                 type="button"
                                 onClick={() => openEditModal(d)}
-                                className="px-2 py-0.5 text-[11px] font-semibold bg-eztech hover:bg-eztech-dark text-white rounded transition-colors cursor-pointer"
+                                className="px-2 py-0.5 text-[11px] font-semibold bg-eztech hover:bg-eztech-hover text-white rounded transition-colors cursor-pointer"
                                 title="Điền số tiền thu được, lớp học, link nhóm 1-1 và Lưu lên DB"
                               >
                                 {missingMoney ? 'Điền tiền & Lớp' : 'Sửa deal'}
@@ -1493,58 +1554,72 @@ export function AppScriptTool() {
 
                           {/* Link Pancake */}
                           <td className="py-2 px-2.5 border-r border-slate-200/70 whitespace-nowrap align-middle max-w-[190px]">
-                            {d.zalo ? (
-                              <div className="flex items-center gap-1.5">
-                                <a
-                                  href={toSafeHref(d.zalo)}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="px-2 py-0.5 text-[11px] font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded transition-colors select-none shrink-0"
-                                  title={`Mở trực tiếp hội thoại Pancake: ${d.zalo}`}
-                                >
-                                  Mở Pancake ↗
-                                </a>
-                                <a
-                                  href={toSafeHref(d.zalo)}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-[11px] font-mono text-slate-500 hover:text-eztech hover:underline truncate max-w-[110px]"
-                                  title={d.zalo}
-                                >
-                                  {d.zalo}
-                                </a>
-                              </div>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => handleOpenPancake(d)}
-                                className="px-2 py-0.5 text-[11px] font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded transition-colors cursor-pointer select-none"
-                                title={`Tra cứu hội thoại Pancake theo SĐT (${d.sdt})`}
-                              >
-                                Mở Pancake ↗
-                              </button>
-                            )}
+                            {(() => {
+                              const safeZaloHref = toSafeHref(d.zalo);
+                              if (safeZaloHref) {
+                                return (
+                                  <div className="flex items-center gap-1.5">
+                                    <a
+                                      href={safeZaloHref}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="px-2 py-0.5 text-[11px] font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded transition-colors select-none shrink-0"
+                                      title={`Mở trực tiếp hội thoại Pancake: ${d.zalo}`}
+                                    >
+                                      Mở Pancake ↗
+                                    </a>
+                                    <a
+                                      href={safeZaloHref}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-[11px] font-mono text-slate-500 hover:text-eztech hover:underline truncate max-w-[110px]"
+                                      title={d.zalo}
+                                    >
+                                      {d.zalo}
+                                    </a>
+                                  </div>
+                                );
+                              }
+                              return (
+                                <div className="flex items-center gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenPancake(d)}
+                                    className="px-2 py-0.5 text-[11px] font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded transition-colors cursor-pointer select-none shrink-0"
+                                    title={`Tra cứu hội thoại Pancake theo SĐT (${d.sdt})`}
+                                  >
+                                    Mở Pancake ↗
+                                  </button>
+                                  {d.zalo && (
+                                    <span className="text-[11px] text-slate-600 truncate max-w-[110px]" title={d.zalo}>
+                                      {d.zalo}
+                                    </span>
+                                  )}
+                                </div>
+                              );
+                            })()}
                           </td>
 
                           {/* Nhóm 1-1 */}
                           <td className="py-2 px-2.5 border-r border-slate-200/70 whitespace-nowrap align-middle max-w-[150px] truncate">
-                            {d.nhomCS ? (
-                              isUrl(d.nhomCS) ? (
-                                <a
-                                  href={toSafeHref(d.nhomCS)}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-eztech hover:underline font-medium"
-                                  title={d.nhomCS}
-                                >
-                                  {d.nhomCS}
-                                </a>
-                              ) : (
-                                <span className="text-navy font-medium">{d.nhomCS}</span>
-                              )
-                            ) : (
-                              <span className="text-slate-300">—</span>
-                            )}
+                            {(() => {
+                              if (!d.nhomCS) return <span className="text-slate-300">—</span>;
+                              const safeNhomHref = toSafeHref(d.nhomCS);
+                              if (safeNhomHref) {
+                                return (
+                                  <a
+                                    href={safeNhomHref}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-eztech hover:underline font-medium"
+                                    title={d.nhomCS}
+                                  >
+                                    {d.nhomCS}
+                                  </a>
+                                );
+                              }
+                              return <span className="text-navy font-medium">{d.nhomCS}</span>;
+                            })()}
                           </td>
 
                           {/* Chương trình */}
@@ -1653,6 +1728,8 @@ export function AppScriptTool() {
                 </div>
                 <div className="flex items-center gap-1.5">
                   <button
+                    type="button"
+                    aria-label="Trang trước"
                     disabled={currentPage <= 1}
                     onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                     className="p-1.5 rounded-lg border border-slate-200 disabled:opacity-40 hover:bg-slate-50"
@@ -1663,6 +1740,8 @@ export function AppScriptTool() {
                     Trang {currentPage} / {totalPages}
                   </span>
                   <button
+                    type="button"
+                    aria-label="Trang sau"
                     disabled={currentPage >= totalPages}
                     onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
                     className="p-1.5 rounded-lg border border-slate-200 disabled:opacity-40 hover:bg-slate-50"
@@ -1739,8 +1818,9 @@ export function AppScriptTool() {
                         <td className="py-2.5 px-3">{(item.lop || []).join(', ') || '—'}</td>
                         <td className="py-2.5 px-3 text-right">
                           <button
+                            type="button"
                             onClick={() => openCollectDebtModal(item)}
-                            className="px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-white font-semibold text-[11px] rounded-lg shadow-2xs transition-colors"
+                            className="px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-white font-semibold text-[11px] rounded-lg shadow-sm transition-colors"
                           >
                             + Thu nợ ngay
                           </button>
@@ -1781,9 +1861,10 @@ export function AppScriptTool() {
               </p>
             </div>
             <button
+              type="button"
               onClick={handleSaveLists}
               disabled={saving}
-              className="flex items-center gap-1.5 px-4 py-2 bg-eztech hover:bg-eztech-dark text-white text-xs font-semibold rounded-xl shadow-sm transition-colors cursor-pointer"
+              className="flex items-center gap-1.5 px-4 py-2 bg-eztech hover:bg-eztech-hover text-white text-xs font-semibold rounded-xl shadow-sm transition-colors cursor-pointer disabled:opacity-50"
             >
               <Save className="w-4 h-4" />
               <span>{saving ? 'Đang lưu...' : 'Lưu Toàn Bộ Danh Mục'}</span>
@@ -1813,6 +1894,7 @@ export function AppScriptTool() {
                 <div className="flex items-center gap-1.5 mb-3">
                   <input
                     type="text"
+                    aria-label={`Thêm ${title.toLowerCase()}`}
                     placeholder={`Thêm ${title.toLowerCase()}...`}
                     value={newItemText[key] || ''}
                     onChange={(e) => setNewItemText((prev) => ({ ...prev, [key]: e.target.value }))}
@@ -1826,10 +1908,11 @@ export function AppScriptTool() {
                         }
                       }
                     }}
-                    className="flex-1 px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-eztech"
+                    className="flex-1 px-2.5 py-1.5 text-xs bg-white text-navy border border-slate-200 rounded-lg focus:outline-none focus:border-eztech"
                   />
                   <button
                     type="button"
+                    aria-label={`Thêm vào ${title}`}
                     onClick={() => {
                       const val = (newItemText[key] || '').trim();
                       if (val && !draftLists[key].includes(val)) {
@@ -1852,6 +1935,7 @@ export function AppScriptTool() {
                       <span className="truncate">{item}</span>
                       <button
                         type="button"
+                        aria-label={`Xóa ${item}`}
                         onClick={() =>
                           setDraftLists((prev) => ({
                             ...prev,
@@ -1879,13 +1963,19 @@ export function AppScriptTool() {
               Nhật Ký Thao Tác Hệ Thống (50 hoạt động gần nhất)
             </h3>
             <button
-              onClick={loadLogs}
+              type="button"
+              onClick={() => loadLogs(true)}
               className="px-2.5 py-1 text-xs font-medium bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg flex items-center gap-1"
             >
               <RefreshCw className="w-3 h-3" />
               <span>Tải lại</span>
             </button>
           </div>
+          {logsError && (
+            <div className="p-3">
+              <ErrorBanner message={logsError} onRetry={() => loadLogs(true)} />
+            </div>
+          )}
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
@@ -1926,795 +2016,756 @@ export function AppScriptTool() {
       )}
 
       {/* MODAL ĐIỀN THÔNG TIN / NHẬP & SỬA DEAL */}
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 bg-navy/50 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-3xl w-full overflow-hidden my-8">
-            <div className="px-5 py-3.5 bg-navy text-white flex items-center justify-between">
-              <h3 className="text-sm font-bold">
-                {editingId
-                  ? `Điền Bổ Sung / Cập Nhật Học Viên ${editingDealWinId ? `(Deal Win #${editingDealWinId})` : ''}`
-                  : 'Nhập Deal Mới / Thu Nợ Học Viên'}
-              </h3>
-              <button
-                onClick={() => setIsModalOpen(false)}
-                className="p-1 text-slate-300 hover:text-white rounded-lg"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+      <AccessibleModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        labelledBy="deal-entry-modal-title"
+        contentClassName="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-3xl w-full overflow-hidden my-8"
+      >
+        <div className="px-5 py-3.5 bg-navy text-white flex items-center justify-between">
+          <h3 id="deal-entry-modal-title" className="text-sm font-bold">
+            {editingId
+              ? `Điền Bổ Sung / Cập Nhật Học Viên ${editingDealWinId ? `(Deal Win #${editingDealWinId})` : ''}`
+              : isCollectDebtMode
+              ? 'Nhập Thu Nợ Học Viên'
+              : 'Nhập Deal Mới / Thu Nợ Học Viên'}
+          </h3>
+          <button
+            type="button"
+            aria-label="Đóng hộp thoại nhập deal"
+            onClick={() => setIsModalOpen(false)}
+            className="p-1 text-slate-300 hover:text-white rounded-lg"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
 
-            <form onSubmit={handleSubmitDeal} className="p-5 space-y-4 max-h-[84vh] overflow-y-auto">
-              {/* Cảnh báo công nợ hoặc Gợi ý tự động từ Pancake khi nhập SĐT */}
-              {phoneLookup?.found && !editingId && (
-                <div className="space-y-2">
-                  {phoneLookup.conNo && phoneLookup.conNo > 0 ? (
-                    <div className="p-3 bg-amber-50 border border-amber-300 rounded-xl flex flex-wrap items-center justify-between gap-2">
-                      <div className="text-xs text-amber-900">
-                        <span>
-                          Học viên <strong>{phoneLookup.hoTen}</strong> đang còn nợ{' '}
-                          <strong className="font-mono text-amber-700">{fmtMoney(phoneLookup.conNo)} đ</strong>
-                          {phoneLookup.noTuNgay ? ` (từ ngày ${fmtDateVi(phoneLookup.noTuNgay)})` : ''}.
-                        </span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setFormTrangThai('Thu nợ');
-                          setFormDaThu(phoneLookup.conNo || 0);
-                          setFormPhaiThu(0);
-                          setFormTongTien(0);
-                          setFormNgThuAR(format(new Date(), 'yyyy-MM-dd'));
-                          setFormNote(`Thu nợ cũ phát sinh ngày ${fmtDateVi(phoneLookup.noTuNgay)}`);
-                        }}
-                        className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-semibold rounded-lg shadow-2xs transition-colors"
-                      >
-                        ⚡ Điền nhanh Thu nợ ({fmtMoney(phoneLookup.conNo)} đ)
-                      </button>
-                    </div>
-                  ) : null}
-
-                  {phoneLookup.pancake?.foundInPancake && (
-                    <div className="px-3 py-2 bg-eztech-light/70 border border-eztech-border rounded-xl flex items-center justify-between text-[11px] text-eztech">
-                      <span>
-                        ✨ Đã tự động đồng bộ thông tin khách từ <strong>Pancake CRM</strong> (
-                        {[
-                          phoneLookup.pancake.hoTen,
-                          phoneLookup.pancake.nguon,
-                          phoneLookup.pancake.ngayContact ? `Contact: ${fmtDateVi(phoneLookup.pancake.ngayContact)}` : '',
-                        ]
-                          .filter(Boolean)
-                          .join(' • ')}
-                        )
-                      </span>
-                    </div>
-                  )}
+        <form onSubmit={handleSubmitDeal} className="p-5 space-y-4 max-h-[84vh] overflow-y-auto">
+          {/* Cảnh báo công nợ hoặc Gợi ý tự động từ Pancake khi nhập SĐT */}
+          {phoneLookup?.found && !editingId && !isCollectDebtMode && (
+            <div className="space-y-2">
+              {phoneLookup.conNo && phoneLookup.conNo > 0 ? (
+                <div className="p-3 bg-amber-50 border border-amber-300 rounded-xl flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-xs text-amber-900">
+                    <span>
+                      Học viên <strong>{phoneLookup.hoTen}</strong> đang còn nợ{' '}
+                      <strong className="font-mono text-amber-700">{fmtMoney(phoneLookup.conNo)} đ</strong>
+                      {phoneLookup.noTuNgay ? ` (từ ngày ${fmtDateVi(phoneLookup.noTuNgay)})` : ''}.
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFormTrangThai('Thu nợ');
+                      setFormDaThu(phoneLookup.conNo || 0);
+                      setFormPhaiThu(0);
+                      setFormTongTien(0);
+                      setFormNgThuAR(format(new Date(), 'yyyy-MM-dd'));
+                      setFormNote(`Thu nợ cũ phát sinh ngày ${fmtDateVi(phoneLookup.noTuNgay)}`);
+                    }}
+                    className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-semibold rounded-lg shadow-sm transition-colors"
+                  >
+                    ⚡ Điền nhanh Thu nợ ({fmtMoney(phoneLookup.conNo)} đ)
+                  </button>
                 </div>
-              )}
+              ) : null}
 
-              {/* PHẦN QUAN TRỌNG NHẤT: ĐIỀN SỐ TIỀN THU ĐƯỢC, LỚP HỌC, LINK NHÓM 1-1 */}
-              <div className="p-4 bg-eztech-light/40 rounded-xl border border-eztech-border space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-eztech uppercase tracking-wider">
-                    1. Điền Học Phí, Chương Trình, Lớp Học & Nhóm CS 1-1
+              {phoneLookup.pancake?.foundInPancake && (
+                <div className="px-3 py-2 bg-eztech-light/70 border border-eztech-border rounded-xl flex items-center justify-between text-[11px] text-eztech">
+                  <span>
+                    ✨ Đã tự động đồng bộ thông tin khách từ <strong>Pancake CRM</strong> (
+                    {[
+                      phoneLookup.pancake.hoTen,
+                      phoneLookup.pancake.nguon,
+                      phoneLookup.pancake.ngayContact ? `Contact: ${fmtDateVi(phoneLookup.pancake.ngayContact)}` : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' • ')}
+                    )
                   </span>
                 </div>
+              )}
+            </div>
+          )}
 
-                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                  <div>
-                    <label className="block text-[11px] font-semibold text-emerald-700 mb-1">
-                      Số tiền thu được (VNĐ) <span className="text-rose-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      autoFocus
-                      value={formDaThu ? fmtMoney(formDaThu) : ''}
-                      placeholder="VD: 3,500,000"
-                      onChange={(e) => handleDaThuChange(parseMoneyInput(e.target.value))}
-                      className="w-full px-3 py-2 text-xs font-mono font-bold text-emerald-700 bg-white border border-emerald-400 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
-                    />
-                  </div>
+          {/* PHẦN QUAN TRỌNG NHẤT: ĐIỀN SỐ TIỀN THU ĐƯỢC, LỚP HỌC, LINK NHÓM 1-1 */}
+          <div className="p-4 bg-eztech-light/40 rounded-xl border border-eztech-border space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-eztech uppercase tracking-wider">
+                1. Điền Học Phí, Chương Trình, Lớp Học & Nhóm CS 1-1
+              </span>
+            </div>
 
-                  <div>
-                    <label className="block text-[11px] font-semibold text-amber-700 mb-1">
-                      Phải thu KH (Còn nợ)
-                    </label>
-                    <input
-                      type="text"
-                      value={formPhaiThu ? fmtMoney(formPhaiThu) : ''}
-                      placeholder="0"
-                      onChange={(e) => handlePhaiThuChange(parseMoneyInput(e.target.value))}
-                      className="w-full px-3 py-2 text-xs font-mono font-bold text-amber-700 bg-white border border-amber-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500/20"
-                    />
-                  </div>
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+              <div>
+                <label htmlFor="deal-dathu" className="block text-[11px] font-semibold text-emerald-700 mb-1">
+                  Số tiền thu được (VNĐ) <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  id="deal-dathu"
+                  type="text"
+                  autoFocus
+                  value={formDaThu ? fmtMoney(formDaThu) : ''}
+                  placeholder="VD: 3,500,000"
+                  onChange={(e) => handleDaThuChange(parseMoneyInput(e.target.value))}
+                  className="w-full px-3 py-2 text-xs font-mono font-bold text-emerald-700 bg-white border border-emerald-400 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                />
+              </div>
 
-                  <div>
-                    <label className="block text-[11px] font-semibold text-navy mb-1">
-                      Tổng tiền khoá học
-                    </label>
-                    <input
-                      type="text"
-                      value={formTongTien ? fmtMoney(formTongTien) : ''}
-                      placeholder="0"
-                      onChange={(e) => setFormTongTien(parseMoneyInput(e.target.value))}
-                      className="w-full px-3 py-2 text-xs font-mono font-bold text-navy bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-eztech"
-                    />
-                  </div>
+              <div>
+                <label htmlFor="deal-phaithu" className="block text-[11px] font-semibold text-amber-700 mb-1">
+                  Phải thu KH (Còn nợ)
+                </label>
+                <input
+                  id="deal-phaithu"
+                  type="text"
+                  disabled={formTrangThai === 'Thu nợ'}
+                  value={formPhaiThu ? fmtMoney(formPhaiThu) : ''}
+                  placeholder="0"
+                  onChange={(e) => handlePhaiThuChange(parseMoneyInput(e.target.value))}
+                  className="w-full px-3 py-2 text-xs font-mono font-bold text-amber-700 bg-white border border-amber-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500/20 disabled:opacity-50"
+                />
+              </div>
 
-                  <div>
-                    <label className="block text-[11px] font-semibold text-navy mb-1">
-                      Trạng thái deal
-                    </label>
-                    <select
-                      value={formTrangThai}
-                      onChange={(e) => setFormTrangThai(e.target.value)}
-                      className="w-full px-2.5 py-2 text-xs font-semibold bg-white border border-slate-200 rounded-lg text-navy focus:outline-none focus:border-eztech"
+              <div>
+                <label htmlFor="deal-tongtien" className="block text-[11px] font-semibold text-navy mb-1">
+                  Tổng tiền khoá học
+                </label>
+                <input
+                  id="deal-tongtien"
+                  type="text"
+                  disabled={formTrangThai === 'Thu nợ'}
+                  value={formTongTien ? fmtMoney(formTongTien) : ''}
+                  placeholder="0"
+                  onChange={(e) => setFormTongTien(parseMoneyInput(e.target.value))}
+                  className="w-full px-3 py-2 text-xs font-mono font-bold text-navy bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-eztech disabled:opacity-50"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="deal-trangthai" className="block text-[11px] font-semibold text-navy mb-1">
+                  Trạng thái deal
+                </label>
+                <select
+                  id="deal-trangthai"
+                  value={formTrangThai}
+                  onChange={(e) => handleTrangThaiChange(e.target.value)}
+                  className="w-full px-2.5 py-2 text-xs font-semibold bg-white border border-slate-200 rounded-lg text-navy focus:outline-none focus:border-eztech"
+                >
+                  {statuses.map((st) => (
+                    <option key={st} value={st}>{st}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <label htmlFor="deal-chuongtrinh" className="block text-[11px] font-semibold text-navy mb-1">
+                  Chương trình học
+                </label>
+                <select
+                  id="deal-chuongtrinh"
+                  value={formChuongTrinh}
+                  onChange={(e) => setFormChuongTrinh(e.target.value)}
+                  className="w-full px-2.5 py-2 text-xs border border-slate-200 rounded-lg bg-white text-navy font-medium"
+                >
+                  <option value="">-- Chọn chương trình --</option>
+                  {lists.chuongTrinh.map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="sm:col-span-2">
+                <label htmlFor="deal-nhomcs" className="block text-[11px] font-semibold text-navy mb-1">
+                  Link Nhóm CS 1-1 (Zalo Group / Tên nhóm)
+                </label>
+                <input
+                  id="deal-nhomcs"
+                  type="text"
+                  value={formNhomCS}
+                  onChange={(e) => setFormNhomCS(e.target.value)}
+                  placeholder="Dán link nhóm Zalo 1-1 (https://zalo.me/g/...) hoặc tên nhóm..."
+                  className="w-full px-3 py-2 text-xs bg-white text-navy border border-slate-200 rounded-lg focus:outline-none focus:border-eztech"
+                />
+              </div>
+            </div>
+
+            {/* Chọn Lớp học (hiển thị cả các mã lớp custom đã thêm) */}
+            <div>
+              <span className="block text-[11px] font-semibold text-navy mb-1">
+                Lớp học (Tự động đồng bộ cho mọi deal cùng SĐT)
+              </span>
+              <div className="flex flex-wrap items-center gap-1.5 p-2.5 bg-white border border-slate-200 rounded-xl">
+                {Array.from(new Set([...lists.lop, ...formLop])).map((cls) => {
+                  const active = formLop.includes(cls);
+                  return (
+                    <button
+                      type="button"
+                      key={cls}
+                      aria-pressed={active}
+                      onClick={() => toggleClassInForm(cls)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-mono font-semibold transition-all cursor-pointer ${
+                        active
+                          ? 'bg-eztech text-white shadow-sm'
+                          : 'bg-slate-50 text-slate-600 border border-slate-200 hover:border-eztech'
+                      }`}
                     >
-                      {statuses.map((st) => (
-                        <option key={st} value={st}>{st}</option>
-                      ))}
-                    </select>
-                  </div>
+                      {cls}
+                    </button>
+                  );
+                })}
+                <div className="flex items-center gap-1 ml-auto">
+                  <input
+                    type="text"
+                    aria-label="Thêm mã lớp mới"
+                    placeholder="Thêm mã lớp mới..."
+                    value={newClassInput}
+                    onChange={(e) => setNewClassInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        addCustomClassToForm();
+                      }
+                    }}
+                    className="px-2 py-1 text-xs border border-slate-200 rounded-lg bg-slate-50 text-navy w-36"
+                  />
+                  <button
+                    type="button"
+                    onClick={addCustomClassToForm}
+                    className="px-2 py-1 text-xs font-semibold bg-navy text-white rounded-lg"
+                  >
+                    + Thêm
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* PHẦN 2: THÔNG TIN HỌC VIÊN TỪ BẢNG DEAL WIN & PANCAKE */}
+          <div className="space-y-3 pt-1">
+            <span className="block text-xs font-bold text-navy uppercase tracking-wider">
+              2. Hồ Sơ Học Viên (Từ Bảng Deal Win & Pancake)
+            </span>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <label htmlFor="deal-sdt" className="block text-[11px] font-semibold text-navy mb-1">
+                  Số điện thoại <span className="text-rose-500">*</span>
+                  {lookingUpPhone && <span className="ml-1 text-[10px] text-eztech">(Đang tra cứu...)</span>}
+                </label>
+                <input
+                  id="deal-sdt"
+                  type="text"
+                  required
+                  placeholder="VD: 0987654321"
+                  value={formSdt}
+                  onChange={(e) => setFormSdt(e.target.value)}
+                  className="w-full px-3 py-2 text-xs font-mono font-semibold bg-white text-navy border border-slate-200 rounded-lg"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="deal-hoten" className="block text-[11px] font-semibold text-navy mb-1">
+                  Họ và tên học viên <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  id="deal-hoten"
+                  type="text"
+                  required
+                  value={formHoTen}
+                  onChange={(e) => setFormHoTen(e.target.value)}
+                  className="w-full px-3 py-2 text-xs font-semibold bg-white text-navy border border-slate-200 rounded-lg"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="deal-email" className="block text-[11px] font-semibold text-navy mb-1">
+                  Email học viên
+                </label>
+                <input
+                  id="deal-email"
+                  type="text"
+                  value={formEmail}
+                  onChange={(e) => setFormEmail(e.target.value)}
+                  placeholder="email@example.com"
+                  className="w-full px-3 py-2 text-xs bg-white text-navy border border-slate-200 rounded-lg"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="deal-ngthu" className="block text-[11px] font-semibold text-navy mb-1">
+                  Ngày thu tiền / Đăng ký <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  id="deal-ngthu"
+                  type="date"
+                  required
+                  value={formNgThu}
+                  onChange={(e) => setFormNgThu(e.target.value)}
+                  className="w-full px-3 py-2 text-xs font-mono bg-white text-navy border border-slate-200 rounded-lg"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="deal-ngcontact" className="block text-[11px] font-semibold text-navy mb-1">
+                  Ngày contact đầu tiên
+                </label>
+                <input
+                  id="deal-ngcontact"
+                  type="date"
+                  value={formNgContact}
+                  onChange={(e) => setFormNgContact(e.target.value)}
+                  className="w-full px-3 py-2 text-xs font-mono bg-white text-navy border border-slate-200 rounded-lg"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="deal-ngthuar" className="block text-[11px] font-semibold text-navy mb-1">
+                  Ngày thu AR (Công nợ)
+                </label>
+                <input
+                  id="deal-ngthuar"
+                  type="date"
+                  value={formNgThuAR}
+                  onChange={(e) => setFormNgThuAR(e.target.value)}
+                  className="w-full px-3 py-2 text-xs font-mono bg-white text-navy border border-slate-200 rounded-lg"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="deal-namsinh" className="block text-[11px] font-semibold text-navy mb-1">
+                  Năm sinh & Địa chỉ
+                </label>
+                <div className="flex gap-1.5">
+                  <input
+                    id="deal-namsinh"
+                    type="text"
+                    placeholder="Năm sinh"
+                    value={formNamSinh}
+                    onChange={(e) => setFormNamSinh(e.target.value)}
+                    className="w-24 px-2.5 py-2 text-xs font-mono bg-white text-navy border border-slate-200 rounded-lg"
+                  />
+                  <input
+                    type="text"
+                    aria-label="Địa chỉ tỉnh thành phố"
+                    placeholder="Tỉnh / Thành phố"
+                    value={formDiaChi}
+                    onChange={(e) => setFormDiaChi(e.target.value)}
+                    className="flex-1 px-2.5 py-2 text-xs bg-white text-navy border border-slate-200 rounded-lg"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label htmlFor="deal-chucvu" className="block text-[11px] font-semibold text-navy mb-1">
+                  Chức vụ / Vị trí công việc
+                </label>
+                <input
+                  id="deal-chucvu"
+                  type="text"
+                  value={formChucVu}
+                  onChange={(e) => setFormChucVu(e.target.value)}
+                  placeholder="VD: Kế toán trưởng..."
+                  className="w-full px-3 py-2 text-xs bg-white text-navy border border-slate-200 rounded-lg"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="deal-linhvuc" className="block text-[11px] font-semibold text-navy mb-1">
+                  Lĩnh vực hoạt động
+                </label>
+                <input
+                  id="deal-linhvuc"
+                  type="text"
+                  value={formLinhVuc}
+                  onChange={(e) => setFormLinhVuc(e.target.value)}
+                  placeholder="VD: Thương mại, Sản xuất..."
+                  className="w-full px-3 py-2 text-xs bg-white text-navy border border-slate-200 rounded-lg"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="deal-nvcs" className="block text-[11px] font-semibold text-navy mb-1">
+                  NV chăm sóc (Sale)
+                </label>
+                <input
+                  id="deal-nvcs"
+                  type="text"
+                  value={formNvCS}
+                  onChange={(e) => setFormNvCS(e.target.value)}
+                  placeholder="Tên nhân viên sale..."
+                  className="w-full px-3 py-2 text-xs bg-white text-navy border border-slate-200 rounded-lg"
+                />
+              </div>
+
+              <div className="relative" ref={nguonRef}>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="block text-[11px] font-semibold text-navy">
+                    Nguồn khách hàng
+                    {formNguon.length > 0 && (
+                      <span className="ml-1 text-[10px] font-bold text-eztech">({formNguon.length})</span>
+                    )}
+                  </span>
+                  {formNguon.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setFormNguon([])}
+                      className="text-[10px] text-slate-400 hover:text-rose-500 cursor-pointer"
+                    >
+                      Xoá chọn
+                    </button>
+                  )}
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div>
-                    <label className="block text-[11px] font-semibold text-navy mb-1">
-                      Chương trình học
-                    </label>
-                    <select
-                      value={formChuongTrinh}
-                      onChange={(e) => setFormChuongTrinh(e.target.value)}
-                      className="w-full px-2.5 py-2 text-xs border border-slate-200 rounded-lg bg-white text-navy font-medium"
-                    >
-                      <option value="">-- Chọn chương trình --</option>
-                      {lists.chuongTrinh.map((c) => (
-                        <option key={c} value={c}>{c}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="sm:col-span-2">
-                    <label className="block text-[11px] font-semibold text-navy mb-1">
-                      Link Nhóm CS 1-1 (Zalo Group / Tên nhóm)
-                    </label>
-                    <input
-                      type="text"
-                      value={formNhomCS}
-                      onChange={(e) => setFormNhomCS(e.target.value)}
-                      placeholder="Dán link nhóm Zalo 1-1 (https://zalo.me/g/...) hoặc tên nhóm..."
-                      className="w-full px-3 py-2 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-eztech"
-                    />
-                  </div>
-                </div>
-
-                {/* Chọn Lớp học */}
-                <div>
-                  <label className="block text-[11px] font-semibold text-navy mb-1">
-                    Lớp học (Tự động đồng bộ cho mọi deal cùng SĐT)
-                  </label>
-                  <div className="flex flex-wrap items-center gap-1.5 p-2.5 bg-white border border-slate-200 rounded-xl">
-                    {lists.lop.map((cls) => {
-                      const active = formLop.includes(cls);
-                      return (
-                        <button
-                          type="button"
-                          key={cls}
-                          onClick={() => toggleClassInForm(cls)}
-                          className={`px-2.5 py-1 rounded-lg text-xs font-mono font-semibold transition-all cursor-pointer ${
-                            active
-                              ? 'bg-eztech text-white shadow-2xs'
-                              : 'bg-slate-50 text-slate-600 border border-slate-200 hover:border-eztech'
-                          }`}
+                <div
+                  role="button"
+                  tabIndex={0}
+                  aria-expanded={isNguonDropdownOpen}
+                  aria-label="Chọn nguồn khách hàng"
+                  onClick={() => setIsNguonDropdownOpen((prev) => !prev)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      setIsNguonDropdownOpen((prev) => !prev);
+                    }
+                  }}
+                  className="w-full min-h-[38px] px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg bg-white text-navy cursor-pointer flex flex-wrap items-center gap-1 hover:border-slate-300 focus:outline-none focus:border-eztech transition-all"
+                >
+                  {formNguon.length === 0 ? (
+                    <span className="text-slate-400 text-xs py-0.5 select-none">
+                      -- Chọn nguồn khách hàng --
+                    </span>
+                  ) : (
+                    formNguon.map((s) => (
+                      <span
+                        key={s}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-blue-50 text-blue-700 border border-blue-200"
+                      >
+                        <span className="max-w-[130px] truncate" title={s}>{s}</span>
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          aria-label={`Bỏ chọn nguồn ${s}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleNguonInForm(s);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              toggleNguonInForm(s);
+                            }
+                          }}
+                          className="hover:text-rose-600 text-slate-400 font-bold ml-0.5"
                         >
-                          {cls}
-                        </button>
-                      );
-                    })}
-                    <div className="flex items-center gap-1 ml-auto">
+                          ×
+                        </span>
+                      </span>
+                    ))
+                  )}
+                  <span className="ml-auto text-slate-400 text-[10px] pl-1 select-none">▼</span>
+                </div>
+
+                {isNguonDropdownOpen && (
+                  <div className="absolute left-0 right-0 top-full mt-1 z-50 bg-white border border-slate-200 rounded-xl shadow-xl p-2 max-h-60 overflow-y-auto">
+                    <div className="flex items-center gap-1 mb-2">
                       <input
                         type="text"
-                        placeholder="Thêm mã lớp mới..."
-                        value={newClassInput}
-                        onChange={(e) => setNewClassInput(e.target.value)}
+                        aria-label="Thêm nguồn khách hàng mới"
+                        placeholder="Thêm nguồn mới..."
+                        value={newNguonInput}
+                        onChange={(e) => setNewNguonInput(e.target.value)}
                         onKeyDown={(e) => {
                           if (e.key === 'Enter') {
                             e.preventDefault();
-                            addCustomClassToForm();
+                            addCustomNguonToForm();
                           }
                         }}
-                        className="px-2 py-1 text-xs border border-slate-200 rounded-lg bg-slate-50 w-36"
+                        className="flex-1 px-2 py-1 text-xs border border-slate-200 rounded-lg bg-slate-50 text-navy focus:bg-white focus:outline-none focus:border-eztech"
                       />
                       <button
                         type="button"
-                        onClick={addCustomClassToForm}
-                        className="px-2 py-1 text-xs font-semibold bg-navy text-white rounded-lg"
+                        onClick={addCustomNguonToForm}
+                        className="px-2 py-1 text-xs font-semibold bg-navy text-white rounded-lg hover:bg-slate-800 transition-colors"
                       >
                         + Thêm
                       </button>
                     </div>
-                  </div>
-                </div>
-              </div>
 
-              {/* PHẦN 2: THÔNG TIN HỌC VIÊN TỪ BẢNG DEAL WIN & PANCAKE */}
-              <div className="space-y-3 pt-1">
-                <span className="block text-xs font-bold text-navy uppercase tracking-wider">
-                  2. Hồ Sơ Học Viên (Từ Bảng Deal Win & Pancake)
-                </span>
-
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div>
-                    <label className="block text-[11px] font-semibold text-navy mb-1">
-                      Số điện thoại <span className="text-rose-500">*</span>
-                      {lookingUpPhone && <span className="ml-1 text-[10px] text-eztech">(Đang tra cứu...)</span>}
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="VD: 0987654321"
-                      value={formSdt}
-                      onChange={(e) => setFormSdt(e.target.value)}
-                      className="w-full px-3 py-2 text-xs font-mono font-semibold border border-slate-200 rounded-lg"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-semibold text-navy mb-1">
-                      Họ và tên học viên <span className="text-rose-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={formHoTen}
-                      onChange={(e) => setFormHoTen(e.target.value)}
-                      className="w-full px-3 py-2 text-xs font-semibold border border-slate-200 rounded-lg"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-semibold text-navy mb-1">
-                      Email học viên
-                    </label>
-                    <input
-                      type="text"
-                      value={formEmail}
-                      onChange={(e) => setFormEmail(e.target.value)}
-                      placeholder="email@example.com"
-                      className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-semibold text-navy mb-1">
-                      Ngày thu tiền / Đăng ký <span className="text-rose-500">*</span>
-                    </label>
-                    <input
-                      type="date"
-                      required
-                      value={formNgThu}
-                      onChange={(e) => setFormNgThu(e.target.value)}
-                      className="w-full px-3 py-2 text-xs font-mono border border-slate-200 rounded-lg"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-semibold text-navy mb-1">
-                      Ngày contact đầu tiên
-                    </label>
-                    <input
-                      type="date"
-                      value={formNgContact}
-                      onChange={(e) => setFormNgContact(e.target.value)}
-                      className="w-full px-3 py-2 text-xs font-mono border border-slate-200 rounded-lg"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-semibold text-navy mb-1">
-                      Ngày thu AR (Công nợ)
-                    </label>
-                    <input
-                      type="date"
-                      value={formNgThuAR}
-                      onChange={(e) => setFormNgThuAR(e.target.value)}
-                      className="w-full px-3 py-2 text-xs font-mono border border-slate-200 rounded-lg"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-semibold text-navy mb-1">
-                      Năm sinh & Địa chỉ
-                    </label>
-                    <div className="flex gap-1.5">
-                      <input
-                        type="text"
-                        placeholder="Năm sinh"
-                        value={formNamSinh}
-                        onChange={(e) => setFormNamSinh(e.target.value)}
-                        className="w-24 px-2.5 py-2 text-xs font-mono border border-slate-200 rounded-lg"
-                      />
-                      <input
-                        type="text"
-                        placeholder="Tỉnh / Thành phố"
-                        value={formDiaChi}
-                        onChange={(e) => setFormDiaChi(e.target.value)}
-                        className="flex-1 px-2.5 py-2 text-xs border border-slate-200 rounded-lg"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-semibold text-navy mb-1">
-                      Chức vụ / Vị trí công việc
-                    </label>
-                    <input
-                      type="text"
-                      value={formChucVu}
-                      onChange={(e) => setFormChucVu(e.target.value)}
-                      placeholder="VD: Kế toán trưởng..."
-                      className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-semibold text-navy mb-1">
-                      Lĩnh vực hoạt động
-                    </label>
-                    <input
-                      type="text"
-                      value={formLinhVuc}
-                      onChange={(e) => setFormLinhVuc(e.target.value)}
-                      placeholder="VD: Thương mại, Sản xuất..."
-                      className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-semibold text-navy mb-1">
-                      NV chăm sóc (Sale)
-                    </label>
-                    <input
-                      type="text"
-                      value={formNvCS}
-                      onChange={(e) => setFormNvCS(e.target.value)}
-                      placeholder="Tên nhân viên sale..."
-                      className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg"
-                    />
-                  </div>
-
-                  <div className="relative" ref={nguonRef}>
-                    <div className="flex items-center justify-between mb-1">
-                      <label className="block text-[11px] font-semibold text-navy">
-                        Nguồn khách hàng
-                        {formNguon.length > 0 && (
-                          <span className="ml-1 text-[10px] font-bold text-eztech">({formNguon.length})</span>
-                        )}
-                      </label>
-                      {formNguon.length > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => setFormNguon([])}
-                          className="text-[10px] text-slate-400 hover:text-rose-500 cursor-pointer"
-                        >
-                          Xoá chọn
-                        </button>
-                      )}
-                    </div>
-
-                    <div
-                      onClick={() => setIsNguonDropdownOpen((prev) => !prev)}
-                      className="w-full min-h-[38px] px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg bg-white cursor-pointer flex flex-wrap items-center gap-1 hover:border-slate-300 focus-within:border-eztech transition-all"
-                    >
-                      {formNguon.length === 0 ? (
-                        <span className="text-slate-400 text-xs py-0.5 select-none">
-                          -- Chọn nguồn khách hàng --
-                        </span>
+                    <div className="space-y-0.5">
+                      {lists.nguon.length === 0 ? (
+                        <div className="text-center py-2 text-xs text-slate-400">Chưa có nguồn trong Danh mục</div>
                       ) : (
-                        formNguon.map((s) => (
-                          <span
-                            key={s}
-                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-blue-50 text-blue-700 border border-blue-200"
-                          >
-                            <span className="max-w-[130px] truncate" title={s}>{s}</span>
-                            <span
-                              role="button"
-                              tabIndex={0}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                toggleNguonInForm(s);
-                              }}
-                              className="hover:text-rose-600 text-slate-400 font-bold ml-0.5"
+                        lists.nguon.map((item) => {
+                          const selected = formNguon.includes(item);
+                          return (
+                            <label
+                              key={item}
+                              className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs cursor-pointer select-none transition-colors ${
+                                selected
+                                  ? 'bg-blue-50 text-blue-800 font-medium'
+                                  : 'hover:bg-slate-50 text-slate-700'
+                              }`}
                             >
-                              ×
-                            </span>
-                          </span>
-                        ))
-                      )}
-                      <span className="ml-auto text-slate-400 text-[10px] pl-1 select-none">▼</span>
-                    </div>
-
-                    {isNguonDropdownOpen && (
-                      <div className="absolute left-0 right-0 top-full mt-1 z-50 bg-white border border-slate-200 rounded-xl shadow-xl p-2 max-h-60 overflow-y-auto">
-                        <div className="flex items-center gap-1 mb-2">
-                          <input
-                            type="text"
-                            placeholder="Thêm nguồn mới..."
-                            value={newNguonInput}
-                            onChange={(e) => setNewNguonInput(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                e.preventDefault();
-                                addCustomNguonToForm();
-                              }
-                            }}
-                            className="flex-1 px-2 py-1 text-xs border border-slate-200 rounded-lg bg-slate-50 focus:bg-white focus:outline-none focus:border-eztech"
-                          />
-                          <button
-                            type="button"
-                            onClick={addCustomNguonToForm}
-                            className="px-2 py-1 text-xs font-semibold bg-navy text-white rounded-lg hover:bg-slate-800 transition-colors"
-                          >
-                            + Thêm
-                          </button>
-                        </div>
-
-                        <div className="space-y-0.5">
-                          {lists.nguon.length === 0 ? (
-                            <div className="text-center py-2 text-xs text-slate-400">Chưa có nguồn trong Danh mục</div>
-                          ) : (
-                            lists.nguon.map((item) => {
-                              const selected = formNguon.includes(item);
-                              return (
-                                <label
-                                  key={item}
-                                  className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs cursor-pointer select-none transition-colors ${
-                                    selected
-                                      ? 'bg-blue-50 text-blue-800 font-medium'
-                                      : 'hover:bg-slate-50 text-slate-700'
-                                  }`}
-                                >
-                                  <input
-                                    type="checkbox"
-                                    checked={selected}
-                                    onChange={() => toggleNguonInForm(item)}
-                                    className="w-3.5 h-3.5 rounded border-slate-300 text-eztech focus:ring-eztech cursor-pointer"
-                                  />
-                                  <span className="truncate flex-1">{item}</span>
-                                </label>
-                              );
-                            })
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-semibold text-navy mb-1">
-                      Zalo chăm sóc
-                    </label>
-                    <select
-                      value={formZaloCS}
-                      onChange={(e) => setFormZaloCS(e.target.value)}
-                      className="w-full px-2.5 py-2 text-xs border border-slate-200 rounded-lg bg-white text-navy"
-                    >
-                      <option value="">-- Chọn Zalo CS --</option>
-                      {lists.zaloCS.map((z) => (
-                        <option key={z} value={z}>{z}</option>
-                      ))}
-                      {formZaloCS && !lists.zaloCS.includes(formZaloCS) && (
-                        <option value={formZaloCS}>{formZaloCS}</option>
-                      )}
-                    </select>
-                  </div>
-
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <label className="block text-[11px] font-semibold text-navy">
-                        Zalo (Link hội thoại Pancake)
-                      </label>
-                      {formZalo && (
-                        <a
-                          href={toSafeHref(formZalo)}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-[11px] font-semibold text-eztech hover:underline"
-                        >
-                          Mở Pancake ↗
-                        </a>
+                              <input
+                                type="checkbox"
+                                checked={selected}
+                                onChange={() => toggleNguonInForm(item)}
+                                className="w-3.5 h-3.5 rounded border-slate-300 text-eztech focus:ring-eztech cursor-pointer"
+                              />
+                              <span className="truncate flex-1">{item}</span>
+                            </label>
+                          );
+                        })
                       )}
                     </div>
-                    <input
-                      type="text"
-                      value={formZalo}
-                      onChange={(e) => setFormZalo(e.target.value)}
-                      placeholder="https://pancake.vn/..."
-                      className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg"
-                    />
                   </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-[11px] font-semibold text-navy mb-1">
-                      Mục đích / Kỳ vọng tham gia khoá học (Từ Form)
-                    </label>
-                    <textarea
-                      rows={2}
-                      value={formKyVong}
-                      onChange={(e) => setFormKyVong(e.target.value)}
-                      className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg bg-slate-50"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-semibold text-navy mb-1">
-                      Ghi chú nội bộ (Note học phí / Lịch hẹn đóng nợ)
-                    </label>
-                    <textarea
-                      rows={2}
-                      value={formNote}
-                      onChange={(e) => setFormNote(e.target.value)}
-                      placeholder="Ghi chú thêm về lịch đóng tiền, ưu đãi học phí..."
-                      className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-eztech"
-                    />
-                  </div>
-                </div>
+                )}
               </div>
 
-              <div className="pt-2 border-t border-slate-100 flex items-center justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setIsModalOpen(false)}
-                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl"
-                >
-                  Huỷ
-                </button>
-                <button
-                  type="button"
-                  onClick={handleCopyCheckLenh}
-                  className={`inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-xl border transition-colors cursor-pointer ${
-                    copiedCheckLenh
-                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                      : 'bg-slate-50 hover:bg-slate-100 text-navy border-slate-200'
-                  }`}
-                >
-                  <Copy className="w-3.5 h-3.5" />
-                  <span>{copiedCheckLenh ? 'Đã copy Check lệnh' : 'Copy Check lệnh'}</span>
-                </button>
-                <button
-                  type="submit"
-                  disabled={saving}
-                  className="px-5 py-2 bg-eztech hover:bg-eztech-dark text-white text-xs font-semibold rounded-xl shadow-sm transition-colors cursor-pointer"
-                >
-                  {saving ? 'Đang lưu lên DB...' : 'Lưu Thông Tin Lên DB'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL SỬA NHANH LỚP HỌC */}
-      {classModalDeal && (
-        <div className="fixed inset-0 z-50 bg-navy/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-xl max-w-md w-full p-5 space-y-4">
-            <div className="flex items-center justify-between">
               <div>
-                <h4 className="text-sm font-bold text-navy">Xếp Lớp Cho Học Viên</h4>
-                <p className="text-xs text-slate-500">
-                  {classModalDeal.hoTen} ({classModalDeal.sdt})
-                </p>
+                <label htmlFor="deal-zalocs" className="block text-[11px] font-semibold text-navy mb-1">
+                  Zalo chăm sóc
+                </label>
+                <select
+                  id="deal-zalocs"
+                  value={formZaloCS}
+                  onChange={(e) => setFormZaloCS(e.target.value)}
+                  className="w-full px-2.5 py-2 text-xs border border-slate-200 rounded-lg bg-white text-navy"
+                >
+                  <option value="">-- Chọn Zalo CS --</option>
+                  {lists.zaloCS.map((z) => (
+                    <option key={z} value={z}>{z}</option>
+                  ))}
+                  {formZaloCS && !lists.zaloCS.includes(formZaloCS) && (
+                    <option value={formZaloCS}>{formZaloCS}</option>
+                  )}
+                </select>
               </div>
-              <button onClick={() => setClassModalDeal(null)} className="text-slate-400 hover:text-navy">
-                <X className="w-4 h-4" />
-              </button>
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label htmlFor="deal-zalo" className="block text-[11px] font-semibold text-navy">
+                    Zalo (Link hội thoại Pancake)
+                  </label>
+                  {toSafeHref(formZalo) && (
+                    <a
+                      href={toSafeHref(formZalo)!}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[11px] font-semibold text-eztech hover:underline"
+                    >
+                      Mở Pancake ↗
+                    </a>
+                  )}
+                </div>
+                <input
+                  id="deal-zalo"
+                  type="text"
+                  value={formZalo}
+                  onChange={(e) => setFormZalo(e.target.value)}
+                  placeholder="https://pancake.vn/..."
+                  className="w-full px-3 py-2 text-xs bg-white text-navy border border-slate-200 rounded-lg"
+                />
+              </div>
             </div>
 
-            <div className="flex flex-wrap gap-1.5 p-3 bg-slate-50 rounded-xl border border-slate-200">
-              {Array.from(new Set([...lists.lop, ...quickClasses])).map((cls) => {
-                const active = quickClasses.includes(cls);
-                return (
-                  <button
-                    type="button"
-                    key={cls}
-                    onClick={() =>
-                      setQuickClasses((prev) =>
-                        prev.includes(cls) ? prev.filter((x) => x !== cls) : [...prev, cls]
-                      )
-                    }
-                    className={`px-2.5 py-1 rounded-lg text-xs font-mono font-semibold transition-all ${
-                      active
-                        ? 'bg-eztech text-white'
-                        : 'bg-white text-slate-600 border border-slate-200'
-                    }`}
-                  >
-                    {cls}
-                  </button>
-                );
-              })}
-            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label htmlFor="deal-kyvong" className="block text-[11px] font-semibold text-navy mb-1">
+                  Mục đích / Kỳ vọng tham gia khoá học (Từ Form)
+                </label>
+                <textarea
+                  id="deal-kyvong"
+                  rows={2}
+                  value={formKyVong}
+                  onChange={(e) => setFormKyVong(e.target.value)}
+                  className="w-full px-3 py-2 text-xs text-navy border border-slate-200 rounded-lg bg-slate-50"
+                />
+              </div>
 
-            <div className="flex items-center gap-2">
-              <input
-                type="text"
-                placeholder="Nhập mã lớp mới (VD: DF-K3)..."
-                value={quickNewClass}
-                onChange={(e) => setQuickNewClass(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    const c = quickNewClass.trim();
-                    if (c && !quickClasses.includes(c)) {
-                      setQuickClasses((prev) => [...prev, c]);
-                      setQuickNewClass('');
-                    }
-                  }
-                }}
-                className="flex-1 px-3 py-1.5 text-xs border border-slate-200 rounded-lg"
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  const c = quickNewClass.trim();
-                  if (c && !quickClasses.includes(c)) {
-                    setQuickClasses((prev) => [...prev, c]);
-                    setQuickNewClass('');
-                  }
-                }}
-                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-navy text-xs font-semibold rounded-lg"
-              >
-                + Thêm
-              </button>
-            </div>
-
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setClassModalDeal(null)}
-                className="px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-lg"
-              >
-                Huỷ
-              </button>
-              <button
-                type="button"
-                onClick={handleSaveQuickClasses}
-                disabled={saving}
-                className="px-4 py-1.5 bg-eztech hover:bg-eztech-dark text-white text-xs font-semibold rounded-lg"
-              >
-                {saving ? 'Đang lưu...' : 'Lưu & Đồng Bộ Lớp'}
-              </button>
+              <div>
+                <label htmlFor="deal-note" className="block text-[11px] font-semibold text-navy mb-1">
+                  Ghi chú nội bộ (Note học phí / Lịch hẹn đóng nợ)
+                </label>
+                <textarea
+                  id="deal-note"
+                  rows={2}
+                  value={formNote}
+                  onChange={(e) => setFormNote(e.target.value)}
+                  placeholder="Ghi chú thêm về lịch đóng tiền, ưu đãi học phí..."
+                  className="w-full px-3 py-2 text-xs bg-white text-navy border border-slate-200 rounded-lg focus:outline-none focus:border-eztech"
+                />
+              </div>
             </div>
           </div>
-        </div>
-      )}
+
+          <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setIsModalOpen(false)}
+              className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl"
+            >
+              Huỷ
+            </button>
+            <button
+              type="button"
+              onClick={handleCopyCheckLenh}
+              className={`inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-xl border transition-colors cursor-pointer ${
+                copiedCheckLenh
+                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                  : 'bg-slate-50 hover:bg-slate-100 text-navy border-slate-200'
+              }`}
+            >
+              <Copy className="w-3.5 h-3.5" />
+              <span>{copiedCheckLenh ? 'Đã copy Check lệnh' : 'Copy Check lệnh'}</span>
+            </button>
+            <button
+              type="submit"
+              disabled={saving}
+              className="px-5 py-2 bg-eztech hover:bg-eztech-hover text-white text-xs font-semibold rounded-xl shadow-sm transition-colors cursor-pointer disabled:opacity-50"
+            >
+              {saving ? 'Đang lưu lên DB...' : 'Lưu Thông Tin Lên DB'}
+            </button>
+          </div>
+        </form>
+      </AccessibleModal>
 
       {/* Modal Cấu Hình Google Sheet Live */}
-      {showSheetModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-[1px] flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-xl max-w-lg w-full p-5 space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <FileSpreadsheet className="w-5 h-5 text-emerald-600" />
-                <div>
-                  <h3 className="text-sm font-bold text-navy">Google Sheet Live (Apps Script)</h3>
-                  <p className="text-xs text-slate-500">
-                    Tự động đồng bộ từng giao dịch khi lưu/sửa/xóa (~1-2s, không tốn egress DB).
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={() => setShowSheetModal(false)}
-                className="p-1 text-slate-400 hover:text-slate-600 cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-600 space-y-1">
-              <div className="font-semibold text-navy">Cách thiết lập nhanh (1 lần):</div>
-              <div>1. Mở Google Sheet muốn đồng bộ → <b>Tiện ích mở rộng → Apps Script</b>.</div>
-              <div>
-                2. Dán nội dung file <code className="px-1 py-0.5 bg-white border border-slate-200 rounded">scripts/deal_entry_google_sheet.gs</code> vào trình soạn thảo rồi lưu.
-              </div>
-              <div>
-                3. Chọn <b>Triển khai → Tùy chọn triển khai mới → Ứng dụng web</b> (Quyền truy cập: <b>Bất kỳ ai</b>) → Copy URL <code className="px-1 py-0.5 bg-white border border-slate-200 rounded">/exec</code>.
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Apps Script Web App URL (<code className="font-normal">.../exec</code>)
-                </label>
-                <input
-                  type="url"
-                  placeholder="https://script.google.com/macros/s/.../exec"
-                  value={sheetCfg.webhook_url}
-                  onChange={(e) => setSheetCfg((p) => ({ ...p, webhook_url: e.target.value }))}
-                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-eztech"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Link Google Sheet (tùy chọn, để hiện nút Mở Sheet)
-                </label>
-                <input
-                  type="url"
-                  placeholder="https://docs.google.com/spreadsheets/d/..."
-                  value={sheetCfg.sheet_url}
-                  onChange={(e) => setSheetCfg((p) => ({ ...p, sheet_url: e.target.value }))}
-                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-eztech"
-                />
-              </div>
-
-              <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={sheetCfg.only_students}
-                  onChange={(e) => setSheetCfg((p) => ({ ...p, only_students: e.target.checked }))}
-                  className="rounded border-slate-300 text-eztech focus:ring-eztech"
-                />
-                <span>Chỉ đồng bộ dòng có tag &quot;Đã là học viên&quot;</span>
-              </label>
-
-              <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={sheetCfg.auto_sync}
-                  onChange={(e) => setSheetCfg((p) => ({ ...p, auto_sync: e.target.checked }))}
-                  className="rounded border-slate-300 text-eztech focus:ring-eztech"
-                />
-                <span>Tự động đẩy lên Google Sheet ngay khi Lưu / Sửa lớp / Xóa giao dịch</span>
-              </label>
-            </div>
-
-            {sheetFeedback && (
-              <div
-                className={`px-3 py-2 rounded-lg text-xs border ${
-                  sheetFeedback.ok
-                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                    : 'bg-rose-50 text-rose-700 border-rose-200'
-                }`}
-              >
-                {sheetFeedback.text}
-              </div>
-            )}
-
-            <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100">
-              <button
-                type="button"
-                onClick={handlePushAllToSheet}
-                disabled={pushingSheet || !sheetCfg.webhook_url.trim()}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-semibold rounded-lg cursor-pointer"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${pushingSheet ? 'animate-spin' : ''}`} />
-                <span>{pushingSheet ? 'Đang đẩy...' : 'Đồng bộ toàn bộ lên Sheet'}</span>
-              </button>
-
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowSheetModal(false)}
-                  className="px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer"
-                >
-                  Đóng
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSaveSheetCfg}
-                  disabled={savingSheetCfg}
-                  className="inline-flex items-center gap-1.5 px-4 py-1.5 bg-eztech hover:bg-eztech-dark disabled:opacity-50 text-white text-xs font-semibold rounded-lg cursor-pointer"
-                >
-                  <Save className="w-3.5 h-3.5" />
-                  <span>{savingSheetCfg ? 'Đang lưu...' : 'Lưu cấu hình'}</span>
-                </button>
-              </div>
+      <AccessibleModal
+        isOpen={showSheetModal}
+        onClose={() => setShowSheetModal(false)}
+        labelledBy="sheet-live-modal-title"
+        contentClassName="bg-white rounded-2xl border border-slate-200 shadow-xl max-w-lg w-full p-5 space-y-4"
+      >
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <FileSpreadsheet className="w-5 h-5 text-emerald-600" />
+            <div>
+              <h3 id="sheet-live-modal-title" className="text-sm font-bold text-navy">Google Sheet Live (Apps Script)</h3>
+              <p className="text-xs text-slate-500">
+                Tự động đồng bộ từng giao dịch khi lưu/sửa/xóa (~1-2s, không tốn egress DB).
+              </p>
             </div>
           </div>
+          <button
+            type="button"
+            aria-label="Đóng hộp thoại cấu hình Google Sheet"
+            onClick={() => setShowSheetModal(false)}
+            className="p-1 text-slate-400 hover:text-slate-600 cursor-pointer"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
-      )}
+
+        <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-600 space-y-1">
+          <div className="font-semibold text-navy">Cách thiết lập nhanh (1 lần):</div>
+          <div>1. Mở Google Sheet muốn đồng bộ → <b>Tiện ích mở rộng → Apps Script</b>.</div>
+          <div>
+            2. Dán nội dung file <code className="px-1 py-0.5 bg-white border border-slate-200 rounded">scripts/deal_entry_google_sheet.gs</code> vào trình soạn thảo rồi lưu.
+          </div>
+          <div>
+            3. Chọn <b>Triển khai → Tùy chọn triển khai mới → Ứng dụng web</b> (Quyền truy cập: <b>Bất kỳ ai</b>) → Copy URL <code className="px-1 py-0.5 bg-white border border-slate-200 rounded">/exec</code>.
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          <div>
+            <label htmlFor="sheet-webhook-url" className="block text-xs font-semibold text-slate-700 mb-1">
+              Apps Script Web App URL (<code className="font-normal">.../exec</code>)
+            </label>
+            <input
+              id="sheet-webhook-url"
+              type="url"
+              placeholder="https://script.google.com/macros/s/.../exec"
+              value={sheetCfg.webhook_url}
+              onChange={(e) => setSheetCfg((p) => ({ ...p, webhook_url: e.target.value }))}
+              className="w-full px-3 py-2 text-xs bg-white text-navy border border-slate-200 rounded-lg focus:outline-none focus:border-eztech"
+            />
+          </div>
+
+          <div>
+            <label htmlFor="sheet-doc-url" className="block text-xs font-semibold text-slate-700 mb-1">
+              Link Google Sheet (tùy chọn, để hiện nút Mở Sheet)
+            </label>
+            <input
+              id="sheet-doc-url"
+              type="url"
+              placeholder="https://docs.google.com/spreadsheets/d/..."
+              value={sheetCfg.sheet_url}
+              onChange={(e) => setSheetCfg((p) => ({ ...p, sheet_url: e.target.value }))}
+              className="w-full px-3 py-2 text-xs bg-white text-navy border border-slate-200 rounded-lg focus:outline-none focus:border-eztech"
+            />
+          </div>
+
+          <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={sheetCfg.only_students}
+              onChange={(e) => setSheetCfg((p) => ({ ...p, only_students: e.target.checked }))}
+              className="rounded border-slate-300 text-eztech focus:ring-eztech"
+            />
+            <span>Chỉ đồng bộ dòng có tag &quot;Đã là học viên&quot;</span>
+          </label>
+
+          <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={sheetCfg.auto_sync}
+              onChange={(e) => setSheetCfg((p) => ({ ...p, auto_sync: e.target.checked }))}
+              className="rounded border-slate-300 text-eztech focus:ring-eztech"
+            />
+            <span>Tự động đẩy lên Google Sheet ngay khi Lưu / Sửa lớp / Xóa giao dịch</span>
+          </label>
+        </div>
+
+        {sheetFeedback && (
+          <div
+            role={sheetFeedback.ok ? 'status' : 'alert'}
+            className={`px-3 py-2 rounded-lg text-xs border ${
+              sheetFeedback.ok
+                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                : 'bg-rose-50 text-rose-700 border-rose-200'
+            }`}
+          >
+            {sheetFeedback.text}
+          </div>
+        )}
+
+        <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100">
+          <button
+            type="button"
+            onClick={handlePushAllToSheet}
+            disabled={pushingSheet || !sheetCfg.webhook_url.trim()}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-semibold rounded-lg cursor-pointer"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${pushingSheet ? 'animate-spin' : ''}`} />
+            <span>{pushingSheet ? 'Đang đẩy...' : 'Đồng bộ toàn bộ lên Sheet'}</span>
+          </button>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowSheetModal(false)}
+              className="px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer"
+            >
+              Đóng
+            </button>
+            <button
+              type="button"
+              onClick={handleSaveSheetCfg}
+              disabled={savingSheetCfg}
+              className="inline-flex items-center gap-1.5 px-4 py-1.5 bg-eztech hover:bg-eztech-hover disabled:opacity-50 text-white text-xs font-semibold rounded-lg cursor-pointer"
+            >
+              <Save className="w-3.5 h-3.5" />
+              <span>{savingSheetCfg ? 'Đang lưu...' : 'Lưu cấu hình'}</span>
+            </button>
+          </div>
+        </div>
+      </AccessibleModal>
     </div>
   );
 }

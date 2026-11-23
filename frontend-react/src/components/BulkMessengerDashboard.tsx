@@ -36,6 +36,7 @@ import {
   fetchTokenStatus,
   saveTokenConfig,
   clearFailedBroadcastLogs,
+  clearClientApiCache,
   type BroadcastOptions,
   type BroadcastRecipientItem,
   type BroadcastCampaignSummary,
@@ -44,6 +45,10 @@ import {
   type TokenStatusResponse,
   type BroadcastImageItem
 } from '../services/api';
+import { getVnTodayStr, toSafeHttpUrl } from '../utils/format';
+import { showAppToast } from '../utils/toast';
+import { AccessibleModal } from './AccessibleModal';
+import { ErrorBanner } from './ErrorBanner';
 
 type AttachedBroadcastImage = BroadcastImageItem & {
   id: string;
@@ -54,6 +59,32 @@ type AttachedBroadcastImage = BroadcastImageItem & {
 const MAX_BROADCAST_IMAGES = 10;
 const MAX_IMAGE_FILE_BYTES = 5 * 1024 * 1024;
 const ALLOWED_IMAGE_MIME_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+const ACTIVE_BROADCAST_KEY = 'eztech_active_broadcast_task_id';
+const PREVIEW_PAGE_CHUNK = 100;
+
+function safeGetStorage(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function safeSetStorage(key: string, val: string): void {
+  try {
+    localStorage.setItem(key, val);
+  } catch {
+    // ignore storage errors
+  }
+}
+
+function safeRemoveStorage(key: string): void {
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    // ignore storage errors
+  }
+}
 
 export const BulkMessengerDashboard: React.FC = () => {
   // Navigation sub-tabs
@@ -62,6 +93,7 @@ export const BulkMessengerDashboard: React.FC = () => {
   // Options & Token Status from Backend
   const [options, setOptions] = useState<BroadcastOptions | null>(null);
   const [loadingOptions, setLoadingOptions] = useState(false);
+  const [optionsError, setOptionsError] = useState<string | null>(null);
   const [tokenStatus, setTokenStatus] = useState<TokenStatusResponse | null>(null);
   const [showTokenModal, setShowTokenModal] = useState(false);
   const [tokenInput, setTokenInput] = useState('');
@@ -70,7 +102,7 @@ export const BulkMessengerDashboard: React.FC = () => {
 
   // Settings & Filters Form State
   const [campaignName, setCampaignName] = useState(
-    `campaign_${new Date().toISOString().slice(0, 10).replace(/-/g, '')}`
+    () => `campaign_${getVnTodayStr().replace(/-/g, '')}`
   );
   const [pageId, setPageId] = useState<string>('all');
   const [nameFilter, setNameFilter] = useState<string>('');
@@ -90,7 +122,7 @@ export const BulkMessengerDashboard: React.FC = () => {
 
   // Zalo Personal Anti-Ban & Rate Limit Protection State
   const [zaloProtection, setZaloProtection] = useState<boolean>(true);
-  const [zaloPreset, setZaloPreset] = useState<'fast' | 'recommended' | 'ultra'>('recommended');
+  const [zaloPreset, setZaloPreset] = useState<'fast' | 'recommended' | 'ultra' | 'custom'>('recommended');
   const [zaloMinDelay, setZaloMinDelay] = useState<number>(8);
   const [zaloMaxDelay, setZaloMaxDelay] = useState<number>(15);
   const [zaloBatchSize, setZaloBatchSize] = useState<number>(10);
@@ -104,12 +136,16 @@ export const BulkMessengerDashboard: React.FC = () => {
   );
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [attachedImages, setAttachedImages] = useState<AttachedBroadcastImage[]>([]);
+  const attachedImagesRef = useRef<AttachedBroadcastImage[]>([]);
+  attachedImagesRef.current = attachedImages;
   const [sendMode, setSendMode] = useState<'text_then_images' | 'images_then_text' | 'images_only'>('text_then_images');
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const insertTimerRef = useRef<number | null>(null);
 
   // Preview State & Custom Recipient Management
   const [originalRecipients, setOriginalRecipients] = useState<BroadcastRecipientItem[]>([]);
   const [previewRecipients, setPreviewRecipients] = useState<BroadcastRecipientItem[]>([]);
+  const [previewDisplayLimit, setPreviewDisplayLimit] = useState<number>(PREVIEW_PAGE_CHUNK);
   const [selectedConvIds, setSelectedConvIds] = useState<Set<string>>(new Set());
   const [isCustomListApplied, setIsCustomListApplied] = useState<boolean>(false);
   const [totalMatching, setTotalMatching] = useState<number>(0);
@@ -120,6 +156,7 @@ export const BulkMessengerDashboard: React.FC = () => {
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
   const [taskStatus, setTaskStatus] = useState<BroadcastStatusResponse | null>(null);
   const [isStarting, setIsStarting] = useState<boolean>(false);
+  const [isStopping, setIsStopping] = useState<boolean>(false);
   const [showConfirmModal, setShowConfirmModal] = useState<boolean>(false);
 
   // History State
@@ -127,6 +164,10 @@ export const BulkMessengerDashboard: React.FC = () => {
   const [historyLogs, setHistoryLogs] = useState<BroadcastHistoryItem[]>([]);
   const [selectedHistoryCampaign, setSelectedHistoryCampaign] = useState<string>('all');
   const [loadingHistory, setLoadingHistory] = useState<boolean>(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const subTabRef = useRef(subTab);
+  subTabRef.current = subTab;
+  const filterMountedRef = useRef(false);
 
   // Áp dụng preset tốc độ Zalo cá nhân
   const handleSelectZaloPreset = (preset: 'fast' | 'recommended' | 'ultra') => {
@@ -193,10 +234,11 @@ export const BulkMessengerDashboard: React.FC = () => {
   // Áp dụng danh sách custom
   const handleApplyCustomList = () => {
     if (previewRecipients.length === 0) {
-      alert('Danh sách đang trống, không thể áp dụng.');
+      showAppToast('Danh sách đang trống, không thể áp dụng.', 'warning');
       return;
     }
     setIsCustomListApplied(true);
+    showAppToast(`Đã khóa danh sách gửi gồm ${previewRecipients.length} khách hàng.`, 'success');
   };
 
   // Khôi phục danh sách gốc ban đầu
@@ -206,10 +248,51 @@ export const BulkMessengerDashboard: React.FC = () => {
     setIsCustomListApplied(false);
   };
 
+  // Vô hiệu hóa danh sách xem trước cũ mỗi khi bộ lọc thay đổi để tránh gửi nhầm khách của bộ lọc trước
+  useEffect(() => {
+    if (!filterMountedRef.current) {
+      filterMountedRef.current = true;
+      return;
+    }
+    setHasPreviewed(false);
+    setOriginalRecipients([]);
+    setPreviewRecipients([]);
+    setPreviewDisplayLimit(PREVIEW_PAGE_CHUNK);
+    setSelectedConvIds(new Set());
+    setIsCustomListApplied(false);
+  }, [
+    pageId,
+    nameFilter,
+    employee,
+    gender,
+    selectedTags,
+    timeFilter,
+    phoneFilter,
+    limit,
+    excludeAlreadySent,
+    excludeStudents,
+    campaignName
+  ]);
+
+  // Thu hồi object URL ảnh & timer khi unmount
+  useEffect(() => {
+    return () => {
+      if (insertTimerRef.current) window.clearTimeout(insertTimerRef.current);
+      attachedImagesRef.current.forEach((img) => {
+        if (img.previewUrl.startsWith('blob:')) URL.revokeObjectURL(img.previewUrl);
+      });
+    };
+  }, []);
+
   // 1. Tải danh sách Options & Token Status
   const loadOptions = async (targetPageId?: string, forceRefresh: boolean = false) => {
     setLoadingOptions(true);
+    setOptionsError(null);
     try {
+      if (forceRefresh) {
+        clearClientApiCache('/broadcast/options');
+        clearClientApiCache('/broadcast/token-status');
+      }
       const pageToFetch = typeof targetPageId === 'string' ? targetPageId : undefined;
       const [optData, tokData] = await Promise.all([
         fetchBroadcastOptions(pageToFetch, forceRefresh),
@@ -219,6 +302,7 @@ export const BulkMessengerDashboard: React.FC = () => {
       if (tokData) setTokenStatus(tokData);
     } catch (err) {
       console.error('Lỗi tải broadcast options:', err);
+      setOptionsError('Không thể tải danh sách kênh và thẻ lọc từ máy chủ.');
     } finally {
       setLoadingOptions(false);
     }
@@ -328,15 +412,20 @@ export const BulkMessengerDashboard: React.FC = () => {
     }
   }, [availableEmployees, employee]);
 
-  // 2. Tải lịch sử
-  const loadHistory = async (camp?: string) => {
+  // 2. Tải lịch sử (lazy-load chỉ khi mở tab Lịch sử)
+  const loadHistory = async (camp?: string, forceRefresh: boolean = false) => {
     setLoadingHistory(true);
+    setHistoryError(null);
     try {
-      const data = await fetchBroadcastHistory(camp, 150);
+      if (forceRefresh) {
+        clearClientApiCache('/broadcast/history');
+      }
+      const data = await fetchBroadcastHistory(camp, 150, { skipCache: forceRefresh });
       setCampaignSummaries(data.campaigns);
       setHistoryLogs(data.logs);
     } catch (err) {
       console.error('Lỗi tải lịch sử broadcast:', err);
+      setHistoryError('Không thể tải lịch sử gửi tin. Vui lòng thử lại.');
     } finally {
       setLoadingHistory(false);
     }
@@ -346,19 +435,27 @@ export const BulkMessengerDashboard: React.FC = () => {
     try {
       const active = await fetchActiveBroadcast();
       if (active && active.task_id) {
-        setActiveTaskId(active.task_id);
         setTaskStatus(active);
-        localStorage.setItem('eztech_active_broadcast_task_id', active.task_id);
+        if (active.is_running) {
+          setActiveTaskId(active.task_id);
+          safeSetStorage(ACTIVE_BROADCAST_KEY, active.task_id);
+        } else {
+          safeRemoveStorage(ACTIVE_BROADCAST_KEY);
+        }
         return;
       }
-      const savedId = localStorage.getItem('eztech_active_broadcast_task_id');
+      const savedId = safeGetStorage(ACTIVE_BROADCAST_KEY);
       if (savedId) {
         try {
           const st = await fetchBroadcastStatus(savedId);
-          setActiveTaskId(st.task_id);
           setTaskStatus(st);
+          if (st.is_running) {
+            setActiveTaskId(st.task_id);
+          } else {
+            safeRemoveStorage(ACTIVE_BROADCAST_KEY);
+          }
         } catch {
-          localStorage.removeItem('eztech_active_broadcast_task_id');
+          safeRemoveStorage(ACTIVE_BROADCAST_KEY);
         }
       }
     } catch (err) {
@@ -368,34 +465,77 @@ export const BulkMessengerDashboard: React.FC = () => {
 
   useEffect(() => {
     loadOptions();
-    loadHistory();
     restoreActiveTask();
   }, []);
 
-  // Polling tiến độ nếu có task đang chạy
+  // Polling tiến độ có in-flight lock, tạm dừng khi ẩn tab và tự dọn dẹp khi xong/404
   useEffect(() => {
     if (!activeTaskId) return;
 
-    const interval = setInterval(async () => {
+    let cancelled = false;
+    let inFlight = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const scheduleNext = (delayMs: number) => {
+      if (cancelled) return;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        if (document.visibilityState === 'hidden') return;
+        void poll();
+      }, delayMs);
+    };
+
+    const poll = async () => {
+      if (cancelled || inFlight) return;
+      inFlight = true;
       try {
         const res = await fetchBroadcastStatus(activeTaskId);
+        if (cancelled) return;
         setTaskStatus(res);
         if (!res.is_running) {
-          clearInterval(interval);
-          loadHistory();
+          safeRemoveStorage(ACTIVE_BROADCAST_KEY);
+          setActiveTaskId(null);
+          clearClientApiCache('/broadcast/history');
+          if (subTabRef.current === 'history') {
+            loadHistory(selectedHistoryCampaign, true);
+          }
+          return;
         }
-      } catch (err) {
+        scheduleNext(1200);
+      } catch (err: any) {
+        if (cancelled) return;
         console.error('Lỗi kiểm tra tiến độ:', err);
+        if (err?.response?.status === 404) {
+          safeRemoveStorage(ACTIVE_BROADCAST_KEY);
+          setActiveTaskId(null);
+          return;
+        }
+        scheduleNext(3000);
+      } finally {
+        inFlight = false;
       }
-    }, 1200);
+    };
 
-    return () => clearInterval(interval);
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && !cancelled) {
+        void poll();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    void poll();
+
+    return () => {
+      cancelled = true;
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      if (timer) clearTimeout(timer);
+    };
   }, [activeTaskId]);
 
   // Lưu cấu hình Token Pancake
   const handleSaveTokenConfig = async () => {
     if (!tokenInput.trim() && !pagesJsonInput.trim()) {
-      alert('Vui lòng nhập Pancake Token hoặc cấu hình JSON.');
+      showAppToast('Vui lòng nhập Pancake Token hoặc cấu hình JSON.', 'warning');
       return;
     }
     setSavingToken(true);
@@ -405,9 +545,9 @@ export const BulkMessengerDashboard: React.FC = () => {
       setTokenInput('');
       setPagesJsonInput('');
       setShowTokenModal(false);
-      alert(res.message);
+      showAppToast(res.message || 'Đã lưu cấu hình Token thành công.', 'success');
     } catch (err: any) {
-      alert('Lỗi lưu Token: ' + (err.response?.data?.detail || err.message));
+      showAppToast('Lỗi lưu Token: ' + (err.response?.data?.detail || err.message), 'error');
     } finally {
       setSavingToken(false);
     }
@@ -420,10 +560,10 @@ export const BulkMessengerDashboard: React.FC = () => {
     }
     try {
       const res = await clearFailedBroadcastLogs(selectedHistoryCampaign);
-      alert(res.message);
-      loadHistory(selectedHistoryCampaign);
+      showAppToast(res.message || 'Đã xóa các bản ghi lỗi.', 'success');
+      loadHistory(selectedHistoryCampaign, true);
     } catch (err: any) {
-      alert('Không thể xóa log lỗi: ' + (err.response?.data?.detail || err.message));
+      showAppToast('Không thể xóa log lỗi: ' + (err.response?.data?.detail || err.message), 'error');
     }
   };
 
@@ -436,7 +576,8 @@ export const BulkMessengerDashboard: React.FC = () => {
     const text = el.value;
     const newText = text.substring(0, start) + varName + text.substring(end);
     setTemplate(newText);
-    setTimeout(() => {
+    if (insertTimerRef.current) window.clearTimeout(insertTimerRef.current);
+    insertTimerRef.current = window.setTimeout(() => {
       el.focus();
       el.setSelectionRange(start + varName.length, start + varName.length);
     }, 50);
@@ -463,13 +604,14 @@ export const BulkMessengerDashboard: React.FC = () => {
       });
       setOriginalRecipients(res.recipients);
       setPreviewRecipients(res.recipients);
+      setPreviewDisplayLimit(PREVIEW_PAGE_CHUNK);
       setSelectedConvIds(new Set());
       setIsCustomListApplied(false);
       setTotalMatching(res.total_matching);
       setHasPreviewed(true);
     } catch (err) {
       console.error('Lỗi xem trước:', err);
-      alert('Không thể xem trước danh sách. Vui lòng kiểm tra lại kết nối backend.');
+      showAppToast('Không thể xem trước danh sách. Vui lòng kiểm tra lại kết nối backend.', 'error');
     } finally {
       setLoadingPreview(false);
     }
@@ -482,7 +624,7 @@ export const BulkMessengerDashboard: React.FC = () => {
 
     const remainingSlots = MAX_BROADCAST_IMAGES - attachedImages.length;
     if (remainingSlots <= 0) {
-      alert(`Chỉ cho phép đính kèm tối đa ${MAX_BROADCAST_IMAGES} ảnh mỗi chiến dịch.`);
+      showAppToast(`Chỉ cho phép đính kèm tối đa ${MAX_BROADCAST_IMAGES} ảnh mỗi chiến dịch.`, 'warning');
       return;
     }
 
@@ -514,13 +656,14 @@ export const BulkMessengerDashboard: React.FC = () => {
       try {
         const dataUrl = await readFileAsDataUrl(f);
         const b64 = dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl;
+        const objectUrl = URL.createObjectURL(f);
         newItems.push({
           id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
           filename: f.name,
           content_type: mime,
           sizeBytes: f.size,
           data_base64: b64,
-          previewUrl: dataUrl
+          previewUrl: objectUrl
         });
       } catch (err: any) {
         errors.push(err?.message || `Lỗi đọc file "${f.name}"`);
@@ -531,27 +674,41 @@ export const BulkMessengerDashboard: React.FC = () => {
       setAttachedImages((prev) => [...prev, ...newItems]);
     }
     if (errors.length > 0) {
-      alert(errors.join('\n'));
+      showAppToast(errors.join(' | '), 'warning');
     }
   };
 
   const handleRemoveImage = (id: string) => {
-    setAttachedImages((prev) => {
-      const next = prev.filter((item) => item.id !== id);
-      if (next.length === 0 && sendMode === 'images_only') {
-        setSendMode('text_then_images');
-      }
-      return next;
+    const target = attachedImages.find((item) => item.id === id);
+    if (target?.previewUrl.startsWith('blob:')) {
+      URL.revokeObjectURL(target.previewUrl);
+    }
+    const nextLength = attachedImages.length - (target ? 1 : 0);
+    setAttachedImages((prev) => prev.filter((item) => item.id !== id));
+    if (nextLength <= 0 && sendMode === 'images_only') {
+      setSendMode('text_then_images');
+    }
+  };
+
+  const handleClearAllImages = () => {
+    attachedImages.forEach((img) => {
+      if (img.previewUrl.startsWith('blob:')) URL.revokeObjectURL(img.previewUrl);
     });
+    setAttachedImages([]);
+    if (sendMode === 'images_only') setSendMode('text_then_images');
   };
 
   const openConfirmModal = () => {
     if (sendMode === 'images_only' && attachedImages.length === 0) {
-      alert('Vui lòng chọn ít nhất 1 ảnh khi dùng chế độ Chỉ gửi ảnh.');
+      showAppToast('Vui lòng chọn ít nhất 1 ảnh khi dùng chế độ Chỉ gửi ảnh.', 'warning');
       return;
     }
     if (!template.trim() && attachedImages.length === 0) {
-      alert('Vui lòng nhập nội dung tin nhắn hoặc đính kèm ít nhất 1 ảnh.');
+      showAppToast('Vui lòng nhập nội dung tin nhắn hoặc đính kèm ít nhất 1 ảnh.', 'warning');
+      return;
+    }
+    if (hasPreviewed && previewRecipients.length === 0) {
+      showAppToast('Danh sách người nhận xem trước đang trống. Vui lòng khôi phục hoặc đổi bộ lọc.', 'warning');
       return;
     }
     setShowConfirmModal(true);
@@ -559,16 +716,24 @@ export const BulkMessengerDashboard: React.FC = () => {
 
   // Bắt đầu gửi tin
   const handleStartBroadcast = async () => {
+    if (hasPreviewed && previewRecipients.length === 0) {
+      showAppToast('Danh sách người nhận đang trống, đã hủy lệnh gửi.', 'warning');
+      setShowConfirmModal(false);
+      return;
+    }
     setShowConfirmModal(false);
     setIsStarting(true);
     try {
-      const isCustomMode =
-        isCustomListApplied ||
-        (hasPreviewed && previewRecipients.length > 0 && previewRecipients.length !== originalRecipients.length);
-      const targetConvIds =
-        isCustomMode || (hasPreviewed && previewRecipients.length > 0)
-          ? previewRecipients.map((r) => r.conversation_id)
-          : undefined;
+      const targetConvIds = hasPreviewed
+        ? previewRecipients.map((r) => r.conversation_id)
+        : undefined;
+
+      const safeDelay = Math.min(10, Math.max(0.5, Number(delay) || 1.5));
+      const safeMinDelay = Math.min(60, Math.max(2, Number(zaloMinDelay) || 8));
+      const safeMaxDelay = Math.min(120, Math.max(safeMinDelay, Number(zaloMaxDelay) || safeMinDelay));
+      const safeBatchSize = Math.min(50, Math.max(3, Number(zaloBatchSize) || 10));
+      const safeBatchPause = Math.min(300, Math.max(10, Number(zaloBatchPause) || 45));
+      const safeMaxErr = Math.min(20, Math.max(2, Number(maxConsecutiveErrors) || 5));
 
       const res = await startBroadcast({
         campaign_name: campaignName,
@@ -588,25 +753,25 @@ export const BulkMessengerDashboard: React.FC = () => {
         time_filter: timeFilter,
         phone_filter: phoneFilter,
         limit: targetConvIds ? targetConvIds.length : limit,
-        delay: delay,
+        delay: safeDelay,
         dry_run: dryRun,
         exclude_already_sent: excludeAlreadySent,
         exclude_students: excludeStudents,
         target_conversation_ids: targetConvIds,
         zalo_protection: zaloProtection,
-        zalo_min_delay: zaloMinDelay,
-        zalo_max_delay: zaloMaxDelay,
-        zalo_batch_size: zaloBatchSize,
-        zalo_batch_pause: zaloBatchPause,
+        zalo_min_delay: safeMinDelay,
+        zalo_max_delay: safeMaxDelay,
+        zalo_batch_size: safeBatchSize,
+        zalo_batch_pause: safeBatchPause,
         enable_spintax: enableSpintax,
-        max_consecutive_errors: maxConsecutiveErrors
+        max_consecutive_errors: safeMaxErr
       });
       setActiveTaskId(res.task_id);
-      localStorage.setItem('eztech_active_broadcast_task_id', res.task_id);
+      safeSetStorage(ACTIVE_BROADCAST_KEY, res.task_id);
     } catch (err: any) {
       console.error('Lỗi khởi động broadcast:', err);
       const errDetail = err.response?.data?.detail || 'Không thể bắt đầu gửi tin';
-      alert('Lỗi: ' + errDetail);
+      showAppToast('Lỗi: ' + errDetail, 'error');
       if (String(errDetail).toLowerCase().includes('token')) {
         setShowTokenModal(true);
       }
@@ -617,12 +782,17 @@ export const BulkMessengerDashboard: React.FC = () => {
 
   // Dừng gửi khẩn cấp
   const handleStopBroadcast = async () => {
-    if (!activeTaskId) return;
+    if (!activeTaskId || isStopping) return;
     if (!window.confirm('Bạn có chắc chắn muốn dừng tác vụ gửi tin này không?')) return;
+    setIsStopping(true);
     try {
       await stopBroadcast(activeTaskId);
-    } catch (err) {
+      showAppToast('Đã gửi lệnh dừng khẩn cấp chiến dịch.', 'info');
+    } catch (err: any) {
       console.error('Lỗi dừng broadcast:', err);
+      showAppToast(err?.response?.data?.detail || 'Không thể dừng chiến dịch. Vui lòng thử lại.', 'error');
+    } finally {
+      setIsStopping(false);
     }
   };
 
@@ -642,8 +812,11 @@ export const BulkMessengerDashboard: React.FC = () => {
     page_id: pageId !== 'all' && pageId !== 'all_zalo' && pageId !== 'all_source' ? pageId : 'Eztech Phân Tích Dữ Liệu'
   };
 
-  const sampleRenderedText = template
-    .replace(/\{([^{}]*\|[^{}]*)\}/g, (_, group) => group.split('|')[0])
+  const sampleRenderedText = (
+    enableSpintax
+      ? template.replace(/\{([^{}]*\|[^{}]*)\}/g, (_, group) => group.split('|')[0])
+      : template
+  )
     .replace(/\{name\}/g, sampleRecipient.name || 'anh/chị')
     .replace(/\{gender_title\}/g, sampleRecipient.gender_title || 'Anh')
     .replace(
@@ -654,6 +827,16 @@ export const BulkMessengerDashboard: React.FC = () => {
     .replace(/\{page_id\}/g, sampleRecipient.page_id || 'Page')
     .replace(/\{customer_id\}/g, 'cust_101')
     .replace(/\{staff\}/g, 'Chăm sóc khách hàng');
+
+  const broadcastProgressPercent =
+    taskStatus && taskStatus.total > 0
+      ? Math.min(100, Math.round((taskStatus.processed / taskStatus.total) * 100))
+      : 0;
+  const visiblePreviewRecipients = useMemo(
+    () => previewRecipients.slice(0, previewDisplayLimit),
+    [previewRecipients, previewDisplayLimit]
+  );
+  const limitLabel = limit >= 999999 ? 'Tất cả' : String(limit);
 
   return (
     <div className="space-y-6">
@@ -706,6 +889,8 @@ export const BulkMessengerDashboard: React.FC = () => {
 
           <div className="flex items-center gap-1 bg-gray-100 p-1 rounded-xl">
             <button
+              type="button"
+              aria-pressed={subTab === 'compose'}
               onClick={() => setSubTab('compose')}
               className={`flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                 subTab === 'compose' ? 'bg-white text-navy shadow-sm' : 'text-gray-500 hover:text-navy'
@@ -716,6 +901,8 @@ export const BulkMessengerDashboard: React.FC = () => {
             </button>
 
             <button
+              type="button"
+              aria-pressed={subTab === 'history'}
               onClick={() => {
                 setSubTab('history');
                 loadHistory(selectedHistoryCampaign);
@@ -730,6 +917,8 @@ export const BulkMessengerDashboard: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {optionsError && <ErrorBanner message={optionsError} onRetry={() => loadOptions(undefined, true)} />}
 
       {/* ========================================================================= */}
       {/* THANH TIẾN TRÌNH REAL-TIME NẾU CÓ TÁC VỤ ĐANG CHẠY */}
@@ -794,29 +983,32 @@ export const BulkMessengerDashboard: React.FC = () => {
 
               {taskStatus.is_running && (
                 <button
+                  type="button"
+                  disabled={isStopping}
                   onClick={handleStopBroadcast}
-                  className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg font-semibold flex items-center gap-1.5 shadow-sm transition-colors"
+                  className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg font-semibold flex items-center gap-1.5 shadow-sm transition-colors disabled:opacity-50"
                 >
                   <Square className="w-3.5 h-3.5" />
-                  <span>Dừng khẩn cấp</span>
+                  <span>{isStopping ? 'Đang dừng...' : 'Dừng khẩn cấp'}</span>
                 </button>
               )}
             </div>
           </div>
 
           {/* Progress Bar */}
-          <div className="w-full bg-gray-200 h-2.5 rounded-full overflow-hidden">
+          <div
+            role="progressbar"
+            aria-label="Tiến độ gửi tin"
+            aria-valuenow={broadcastProgressPercent}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            className="w-full bg-gray-200 h-2.5 rounded-full overflow-hidden"
+          >
             <div
               className={`h-full transition-all duration-300 ${
                 taskStatus.dry_run ? 'bg-blue-600' : 'bg-emerald-600'
               }`}
-              style={{
-                width: `${
-                  taskStatus.total > 0
-                    ? Math.min(100, Math.round((taskStatus.processed / taskStatus.total) * 100))
-                    : 0
-                }%`
-              }}
+              style={{ width: `${broadcastProgressPercent}%` }}
             />
           </div>
 
@@ -868,9 +1060,10 @@ export const BulkMessengerDashboard: React.FC = () => {
                     </h3>
                   </div>
                   <button
+                    type="button"
                     onClick={() => loadOptions(undefined, true)}
                     disabled={loadingOptions}
-                    className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1"
+                    className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1 disabled:opacity-50"
                   >
                     <RefreshCw className={`w-3 h-3 ${loadingOptions ? 'animate-spin' : ''}`} />
                     <span>Làm mới bộ lọc</span>
@@ -880,10 +1073,11 @@ export const BulkMessengerDashboard: React.FC = () => {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                   {/* 1. Tên chiến dịch */}
                   <div>
-                    <label className="block text-xs font-semibold text-gray-700 mb-1">
+                    <label htmlFor="bc-campaign-name" className="block text-xs font-semibold text-gray-700 mb-1">
                       Tên chiến dịch (Lưu lịch sử & chống gửi trùng)
                     </label>
                     <input
+                      id="bc-campaign-name"
                       type="text"
                       value={campaignName}
                       onChange={(e) => setCampaignName(e.target.value)}
@@ -894,16 +1088,19 @@ export const BulkMessengerDashboard: React.FC = () => {
 
                   {/* 2. Lọc theo Kênh (Tách rõ Zalo cá nhân & Fanpage nguồn) */}
                   <div>
-                    <label className="block text-xs font-semibold text-gray-700 mb-1">
+                    <label htmlFor="bc-page-id" className="block text-xs font-semibold text-gray-700 mb-1">
                       Tên Kênh (Fanpage / Zalo cá nhân)
                     </label>
                     <select
+                      id="bc-page-id"
                       value={pageId}
                       onChange={(e) => handlePageChange(e.target.value)}
                       className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-xs focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all font-medium"
                     >
                       <option value="all">Tất cả các kênh (Fanpage + Zalo)</option>
-                      <option value="all_zalo">Tất cả kênh Zalo cá nhân (3 kênh)</option>
+                      <option value="all_zalo">
+                        Tất cả kênh Zalo cá nhân ({options?.zalo_pages?.length ?? 3} kênh)
+                      </option>
                       <option value="all_source">Tất cả kênh Nguồn Lead (FB & TikTok)</option>
                       {options?.zalo_pages && options.zalo_pages.length > 0 && (
                         <optgroup label="Kênh Zalo Cá Nhân">
@@ -1225,17 +1422,18 @@ export const BulkMessengerDashboard: React.FC = () => {
 
                   {/* 10. Tốc độ gửi cho Fanpage thường */}
                   <div>
-                    <label className="block text-xs font-semibold text-gray-700 mb-1 flex items-center justify-between">
+                    <label htmlFor="bc-delay" className="block text-xs font-semibold text-gray-700 mb-1 flex items-center justify-between">
                       <span>Nghỉ giữa 2 tin Fanpage (giây)</span>
                       <span className="text-[10px] text-gray-500">FB/TikTok &le; 5 req/s</span>
                     </label>
                     <input
+                      id="bc-delay"
                       type="number"
                       step="0.2"
                       min="0.5"
                       max="10.0"
                       value={delay}
-                      onChange={(e) => setDelay(Number(e.target.value))}
+                      onChange={(e) => setDelay(Math.min(10, Math.max(0.5, Number(e.target.value) || 0.5)))}
                       className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-xs focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all"
                     />
                   </div>
@@ -1304,13 +1502,16 @@ export const BulkMessengerDashboard: React.FC = () => {
 
                   <button
                     type="button"
+                    role="switch"
+                    aria-checked={zaloProtection}
+                    aria-label="Bật hoặc tắt bảo vệ nick Zalo cá nhân"
                     onClick={() => setZaloProtection(!zaloProtection)}
                     className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
                       zaloProtection ? 'bg-emerald-600' : 'bg-gray-300'
                     }`}
                   >
                     <span
-                      className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow transition duration-200 ease-in-out ${
+                      className={`switch-thumb pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow transition duration-200 ease-in-out ${
                         zaloProtection ? 'translate-x-5' : 'translate-x-0'
                       }`}
                     />
@@ -1324,7 +1525,7 @@ export const BulkMessengerDashboard: React.FC = () => {
                       <span className="block text-[11px] font-semibold text-gray-700 mb-1.5">
                         Chế độ giãn cách Zalo cá nhân:
                       </span>
-                      <div className="grid grid-cols-3 gap-2">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                         {[
                           {
                             id: 'fast',
@@ -1345,7 +1546,8 @@ export const BulkMessengerDashboard: React.FC = () => {
                           <button
                             key={p.id}
                             type="button"
-                            onClick={() => handleSelectZaloPreset(p.id as any)}
+                            aria-pressed={zaloPreset === p.id}
+                            onClick={() => handleSelectZaloPreset(p.id as 'fast' | 'recommended' | 'ultra')}
                             className={`p-2.5 rounded-xl border text-left transition-all ${
                               zaloPreset === p.id
                                 ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
@@ -1368,54 +1570,73 @@ export const BulkMessengerDashboard: React.FC = () => {
                     {/* Thông số chi tiết */}
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
                       <div>
-                        <label className="block text-[11px] font-semibold text-gray-700 mb-1">
+                        <label htmlFor="bc-zalo-min" className="block text-[11px] font-semibold text-gray-700 mb-1">
                           Nghỉ tối thiểu (s)
                         </label>
                         <input
+                          id="bc-zalo-min"
                           type="number"
                           min={2}
                           max={60}
                           value={zaloMinDelay}
-                          onChange={(e) => setZaloMinDelay(Number(e.target.value))}
+                          onChange={(e) => {
+                            const v = Math.min(60, Math.max(2, Number(e.target.value) || 2));
+                            setZaloMinDelay(v);
+                            setZaloMaxDelay((m) => Math.max(v, m));
+                            setZaloPreset('custom');
+                          }}
                           className="w-full px-2.5 py-1.5 bg-white border border-gray-300 rounded-lg text-xs"
                         />
                       </div>
                       <div>
-                        <label className="block text-[11px] font-semibold text-gray-700 mb-1">
+                        <label htmlFor="bc-zalo-max" className="block text-[11px] font-semibold text-gray-700 mb-1">
                           Nghỉ tối đa (s)
                         </label>
                         <input
+                          id="bc-zalo-max"
                           type="number"
-                          min={3}
+                          min={zaloMinDelay}
                           max={120}
                           value={zaloMaxDelay}
-                          onChange={(e) => setZaloMaxDelay(Number(e.target.value))}
+                          onChange={(e) => {
+                            const v = Math.min(120, Math.max(zaloMinDelay, Number(e.target.value) || zaloMinDelay));
+                            setZaloMaxDelay(v);
+                            setZaloPreset('custom');
+                          }}
                           className="w-full px-2.5 py-1.5 bg-white border border-gray-300 rounded-lg text-xs"
                         />
                       </div>
                       <div>
-                        <label className="block text-[11px] font-semibold text-gray-700 mb-1">
+                        <label htmlFor="bc-zalo-batch" className="block text-[11px] font-semibold text-gray-700 mb-1">
                           Mỗi chặng (số tin)
                         </label>
                         <input
+                          id="bc-zalo-batch"
                           type="number"
                           min={3}
                           max={50}
                           value={zaloBatchSize}
-                          onChange={(e) => setZaloBatchSize(Number(e.target.value))}
+                          onChange={(e) => {
+                            setZaloBatchSize(Math.min(50, Math.max(3, Number(e.target.value) || 3)));
+                            setZaloPreset('custom');
+                          }}
                           className="w-full px-2.5 py-1.5 bg-white border border-gray-300 rounded-lg text-xs"
                         />
                       </div>
                       <div>
-                        <label className="block text-[11px] font-semibold text-gray-700 mb-1">
+                        <label htmlFor="bc-zalo-pause" className="block text-[11px] font-semibold text-gray-700 mb-1">
                           Nghỉ giữa chặng (s)
                         </label>
                         <input
+                          id="bc-zalo-pause"
                           type="number"
                           min={10}
                           max={300}
                           value={zaloBatchPause}
-                          onChange={(e) => setZaloBatchPause(Number(e.target.value))}
+                          onChange={(e) => {
+                            setZaloBatchPause(Math.min(300, Math.max(10, Number(e.target.value) || 10)));
+                            setZaloPreset('custom');
+                          }}
                           className="w-full px-2.5 py-1.5 bg-white border border-gray-300 rounded-lg text-xs"
                         />
                       </div>
@@ -1435,13 +1656,16 @@ export const BulkMessengerDashboard: React.FC = () => {
                       </label>
 
                       <div className="flex items-center gap-1.5 text-[11px] text-gray-600">
-                        <span>Ngắt bảo vệ nếu lỗi liên tiếp:</span>
+                        <label htmlFor="bc-max-err">Ngắt bảo vệ nếu lỗi liên tiếp:</label>
                         <input
+                          id="bc-max-err"
                           type="number"
                           min={2}
                           max={20}
                           value={maxConsecutiveErrors}
-                          onChange={(e) => setMaxConsecutiveErrors(Number(e.target.value))}
+                          onChange={(e) =>
+                            setMaxConsecutiveErrors(Math.min(20, Math.max(2, Number(e.target.value) || 2)))
+                          }
                           className="w-12 px-1.5 py-0.5 bg-white border border-gray-300 rounded text-xs text-center font-bold"
                         />
                         <span>lần</span>
@@ -1531,10 +1755,7 @@ export const BulkMessengerDashboard: React.FC = () => {
                       {attachedImages.length > 0 && (
                         <button
                           type="button"
-                          onClick={() => {
-                            setAttachedImages([]);
-                            if (sendMode === 'images_only') setSendMode('text_then_images');
-                          }}
+                          onClick={handleClearAllImages}
                           className="text-[11px] text-red-500 hover:text-red-700 font-medium"
                         >
                           Xóa hết ảnh
@@ -1557,7 +1778,7 @@ export const BulkMessengerDashboard: React.FC = () => {
                         {attachedImages.map((img) => (
                           <div
                             key={img.id}
-                            className="relative group bg-white border border-gray-200 rounded-lg overflow-hidden shadow-xs"
+                            className="relative group bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm"
                           >
                             <img
                               src={img.previewUrl}
@@ -1568,6 +1789,7 @@ export const BulkMessengerDashboard: React.FC = () => {
                               type="button"
                               onClick={() => handleRemoveImage(img.id)}
                               title="Xóa ảnh này"
+                              aria-label={`Xóa ảnh ${img.filename}`}
                               className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/65 hover:bg-red-600 text-white flex items-center justify-center text-[10px] transition-colors"
                             >
                               <X className="w-3 h-3" />
@@ -1592,10 +1814,11 @@ export const BulkMessengerDashboard: React.FC = () => {
                             <button
                               key={m.id}
                               type="button"
-                              onClick={() => setSendMode(m.id as any)}
+                              aria-pressed={sendMode === m.id}
+                              onClick={() => setSendMode(m.id as 'text_then_images' | 'images_then_text' | 'images_only')}
                               className={`px-2 py-1.5 rounded-lg text-[11px] font-semibold border transition-all ${
                                 sendMode === m.id
-                                  ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+                                  ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
                                   : 'bg-white text-gray-700 border-gray-200 hover:bg-indigo-50/50'
                               }`}
                             >
@@ -1619,7 +1842,13 @@ export const BulkMessengerDashboard: React.FC = () => {
                       Xem trước hiển thị thực tế:
                     </span>
                     <span className="text-[10px] bg-white px-2 py-0.5 rounded border border-gray-200">
-                      Mẫu: {sampleRecipient.name} ({sampleRecipient.gender === 'female' ? 'Nữ' : 'Nam'})
+                      Mẫu: {sampleRecipient.name} (
+                      {sampleRecipient.gender === 'female'
+                        ? 'Nữ'
+                        : sampleRecipient.gender === 'male'
+                        ? 'Nam'
+                        : 'Chưa rõ'}
+                      )
                     </span>
                   </div>
 
@@ -1672,13 +1901,16 @@ export const BulkMessengerDashboard: React.FC = () => {
 
                   <button
                     type="button"
+                    role="switch"
+                    aria-checked={!dryRun}
+                    aria-label="Chuyển đổi giữa chế độ Mô phỏng và Gửi thật"
                     onClick={() => setDryRun(!dryRun)}
-                    className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                    className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
                       dryRun ? 'bg-blue-600' : 'bg-red-600'
                     }`}
                   >
                     <span
-                      className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                      className={`switch-thumb pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
                         dryRun ? 'translate-x-0' : 'translate-x-5'
                       }`}
                     />
@@ -1691,14 +1923,14 @@ export const BulkMessengerDashboard: React.FC = () => {
                     type="button"
                     onClick={handlePreview}
                     disabled={loadingPreview}
-                    className="flex-1 px-4 py-2.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-900 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all border border-indigo-200"
+                    className="flex-1 px-4 py-2.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-900 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all border border-indigo-200 disabled:opacity-50"
                   >
                     {loadingPreview ? (
                       <RefreshCw className="w-3.5 h-3.5 animate-spin" />
                     ) : (
                       <Eye className="w-3.5 h-3.5 text-indigo-600" />
                     )}
-                    <span>Xem trước khách ({limit})</span>
+                    <span>Xem trước khách ({limitLabel})</span>
                   </button>
 
                   <button
@@ -1796,8 +2028,10 @@ export const BulkMessengerDashboard: React.FC = () => {
                   <div className="flex items-center gap-2">
                     <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
                     <span>
-                      <strong>Đã áp dụng danh sách custom ({previewRecipients.length} khách):</strong> Hệ thống sẽ gửi tin nhắn đến chính xác {previewRecipients.length} khách hàng này (Đã loại trừ{' '}
-                      {originalRecipients.length - previewRecipients.length} khách khỏi danh sách gốc).
+                      <strong>Đã áp dụng danh sách ({previewRecipients.length} khách):</strong> Hệ thống sẽ gửi tin nhắn đến chính xác {previewRecipients.length} khách hàng này
+                      {originalRecipients.length > previewRecipients.length
+                        ? ` (Đã loại trừ ${originalRecipients.length - previewRecipients.length} khách khỏi danh sách gốc).`
+                        : '.'}
                     </span>
                   </div>
                   <button
@@ -1841,155 +2075,175 @@ export const BulkMessengerDashboard: React.FC = () => {
                   )}
                 </div>
               ) : (
-                <div className="overflow-x-auto border border-gray-200 rounded-xl">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-gray-50 text-gray-600 border-b border-gray-200">
-                      <tr>
-                        <th className="py-2.5 px-3 text-center w-10">
-                          <input
-                            type="checkbox"
-                            checked={
-                              previewRecipients.length > 0 &&
-                              selectedConvIds.size === previewRecipients.length
-                            }
-                            onChange={handleToggleSelectAll}
-                            className="rounded text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5 cursor-pointer"
-                            title="Chọn tất cả / Bỏ chọn tất cả"
-                          />
-                        </th>
-                        <th className="py-2.5 px-2 font-semibold text-center w-12">STT</th>
-                        <th className="py-2.5 px-3 font-semibold">Khách hàng</th>
-                        <th className="py-2.5 px-3 font-semibold">Giới tính</th>
-                        <th className="py-2.5 px-3 font-semibold">Kênh / Page</th>
-                        <th className="py-2.5 px-3 font-semibold">Tags &amp; Sale</th>
-                        <th className="py-2.5 px-3 font-semibold">Liên hệ cuối</th>
-                        <th className="py-2.5 px-3 font-semibold">Nội dung tin nhắn gửi đi</th>
-                        <th className="py-2.5 px-3 font-semibold text-center">Pancake</th>
-                        <th className="py-2.5 px-3 font-semibold text-center w-14">Xóa</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {previewRecipients.map((r, idx) => {
-                        const isSelected = selectedConvIds.has(r.conversation_id);
-                        return (
-                          <tr
-                            key={r.conversation_id}
-                            className={`transition-colors ${
-                              isSelected ? 'bg-indigo-50/50' : 'hover:bg-blue-50/30'
-                            }`}
-                          >
-                            <td className="py-2 px-3 text-center">
-                              <input
-                                type="checkbox"
-                                checked={isSelected}
-                                onChange={() => handleToggleSelectRecipient(r.conversation_id)}
-                                className="rounded text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5 cursor-pointer"
-                              />
-                            </td>
-                            <td className="py-2 px-2 text-gray-400 font-mono text-center">
-                              {idx + 1}
-                            </td>
-                            <td className="py-2 px-3">
-                              <span className="font-semibold text-navy">{r.name}</span>
-                              {r.phone_number ? (
-                                <span className="block text-[11px] text-emerald-700 font-mono">
-                                  {r.phone_number}
-                                </span>
-                              ) : (
-                                <span className="block text-[10px] text-gray-400">Chưa có SĐT</span>
-                              )}
-                            </td>
-                            <td className="py-2 px-3">
-                              <span
-                                className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
-                                  r.gender === 'female'
-                                    ? 'bg-pink-100 text-pink-700'
-                                    : r.gender === 'male'
-                                    ? 'bg-blue-100 text-blue-700'
-                                    : 'bg-gray-100 text-gray-600'
-                                }`}
-                              >
-                                {r.gender === 'female'
-                                  ? 'Nữ (Chị)'
-                                  : r.gender === 'male'
-                                  ? 'Nam (Anh)'
-                                  : 'Chưa rõ'}
-                              </span>
-                            </td>
-                            <td className="py-2 px-3">
-                              <div className="flex items-center gap-1.5">
+                <div className="space-y-3">
+                  <div className="overflow-x-auto border border-gray-200 rounded-xl">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-gray-50 text-gray-600 border-b border-gray-200">
+                        <tr>
+                          <th className="py-2.5 px-3 text-center w-10">
+                            <input
+                              type="checkbox"
+                              aria-label="Chọn tất cả khách hàng trong danh sách xem trước"
+                              checked={
+                                previewRecipients.length > 0 &&
+                                selectedConvIds.size === previewRecipients.length
+                              }
+                              onChange={handleToggleSelectAll}
+                              className="rounded text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5 cursor-pointer"
+                              title="Chọn tất cả / Bỏ chọn tất cả"
+                            />
+                          </th>
+                          <th className="py-2.5 px-2 font-semibold text-center w-12">STT</th>
+                          <th className="py-2.5 px-3 font-semibold">Khách hàng</th>
+                          <th className="py-2.5 px-3 font-semibold">Giới tính</th>
+                          <th className="py-2.5 px-3 font-semibold">Kênh / Page</th>
+                          <th className="py-2.5 px-3 font-semibold">Tags &amp; Sale</th>
+                          <th className="py-2.5 px-3 font-semibold">Liên hệ cuối</th>
+                          <th className="py-2.5 px-3 font-semibold">Nội dung tin nhắn gửi đi</th>
+                          <th className="py-2.5 px-3 font-semibold text-center">Pancake</th>
+                          <th className="py-2.5 px-3 font-semibold text-center w-14">Xóa</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {visiblePreviewRecipients.map((r, idx) => {
+                          const isSelected = selectedConvIds.has(r.conversation_id);
+                          const safePancakeUrl = toSafeHttpUrl(r.pancake_url);
+                          return (
+                            <tr
+                              key={r.conversation_id}
+                              className={`transition-colors ${
+                                isSelected ? 'bg-indigo-50/50' : 'hover:bg-blue-50/30'
+                              }`}
+                            >
+                              <td className="py-2 px-3 text-center">
+                                <input
+                                  type="checkbox"
+                                  aria-label={`Chọn khách hàng ${r.name}`}
+                                  checked={isSelected}
+                                  onChange={() => handleToggleSelectRecipient(r.conversation_id)}
+                                  className="rounded text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5 cursor-pointer"
+                                />
+                              </td>
+                              <td className="py-2 px-2 text-gray-400 font-mono text-center">
+                                {idx + 1}
+                              </td>
+                              <td className="py-2 px-3">
+                                <span className="font-semibold text-navy">{r.name}</span>
+                                {r.phone_number ? (
+                                  <span className="block text-[11px] text-emerald-700 font-mono">
+                                    {r.phone_number}
+                                  </span>
+                                ) : (
+                                  <span className="block text-[10px] text-gray-400">Chưa có SĐT</span>
+                                )}
+                              </td>
+                              <td className="py-2 px-3">
                                 <span
-                                  className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ${
-                                    r.is_zalo
-                                      ? 'bg-teal-100 text-teal-800'
-                                      : 'bg-indigo-50 text-indigo-700'
+                                  className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
+                                    r.gender === 'female'
+                                      ? 'bg-pink-100 text-pink-700'
+                                      : r.gender === 'male'
+                                      ? 'bg-blue-100 text-blue-700'
+                                      : 'bg-gray-100 text-gray-600'
                                   }`}
                                 >
-                                  {r.is_zalo ? 'Zalo' : 'Page'}
+                                  {r.gender === 'female'
+                                    ? 'Nữ (Chị)'
+                                    : r.gender === 'male'
+                                    ? 'Nam (Anh)'
+                                    : 'Chưa rõ'}
                                 </span>
-                                <span className="text-gray-700 font-medium">{r.page_id}</span>
-                              </div>
-                            </td>
-                            <td className="py-2 px-3">
-                              <span className="px-2 py-0.5 bg-gray-100 text-gray-700 rounded text-[10px] block w-fit">
-                                {r.status_tag || 'Chưa gắn tag'}
-                              </span>
-                              {r.assigned_users && (
-                                <span className="text-[10px] text-gray-400 block mt-0.5">
-                                  NV: {r.assigned_users}
+                              </td>
+                              <td className="py-2 px-3">
+                                <div className="flex items-center gap-1.5">
+                                  <span
+                                    className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ${
+                                      r.is_zalo
+                                        ? 'bg-teal-100 text-teal-800'
+                                        : 'bg-indigo-50 text-indigo-700'
+                                    }`}
+                                  >
+                                    {r.is_zalo ? 'Zalo' : 'Page'}
+                                  </span>
+                                  <span className="text-gray-700 font-medium">{r.page_id}</span>
+                                </div>
+                              </td>
+                              <td className="py-2 px-3">
+                                <span className="px-2 py-0.5 bg-gray-100 text-gray-700 rounded text-[10px] block w-fit">
+                                  {r.status_tag || 'Chưa gắn tag'}
                                 </span>
-                              )}
-                            </td>
-                            <td className="py-2 px-3 text-[11px] text-gray-600">
-                              {r.days_since_contact !== undefined ? (
-                                <span className="font-semibold text-navy">
-                                  {r.days_since_contact === 0
-                                    ? 'Hôm nay'
-                                    : `${r.days_since_contact} ngày trước`}
-                                </span>
-                              ) : null}
-                              {r.last_contacted_at && (
-                                <span className="block text-[10px] text-gray-400 font-mono">
-                                  {r.last_contacted_at}
-                                </span>
-                              )}
-                            </td>
-                            <td
-                              className="py-2 px-3 text-gray-800 max-w-xs truncate"
-                              title={r.rendered_message}
-                            >
-                              {r.rendered_message}
-                            </td>
-                            <td className="py-2 px-3 text-center">
-                              {r.pancake_url ? (
-                                <a
-                                  href={r.pancake_url}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="inline-flex items-center gap-1 text-[11px] text-blue-600 hover:text-blue-800"
-                                >
-                                  <span>Mở</span>
-                                  <ExternalLink className="w-3 h-3" />
-                                </a>
-                              ) : (
-                                <span className="text-gray-300">-</span>
-                              )}
-                            </td>
-                            <td className="py-2 px-3 text-center">
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveSingleRecipient(r.conversation_id)}
-                                className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
-                                title="Xóa khách này khỏi danh sách gửi"
+                                {r.assigned_users && (
+                                  <span className="text-[10px] text-gray-400 block mt-0.5">
+                                    NV: {r.assigned_users}
+                                  </span>
+                                )}
+                              </td>
+                              <td className="py-2 px-3 text-[11px] text-gray-600">
+                                {r.days_since_contact !== undefined ? (
+                                  <span className="font-semibold text-navy">
+                                    {r.days_since_contact === 0
+                                      ? 'Hôm nay'
+                                      : `${r.days_since_contact} ngày trước`}
+                                  </span>
+                                ) : null}
+                                {r.last_contacted_at && (
+                                  <span className="block text-[10px] text-gray-400 font-mono">
+                                    {r.last_contacted_at}
+                                  </span>
+                                )}
+                              </td>
+                              <td
+                                className="py-2 px-3 text-gray-800 max-w-xs truncate"
+                                title={r.rendered_message}
                               >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                                {r.rendered_message}
+                              </td>
+                              <td className="py-2 px-3 text-center">
+                                {safePancakeUrl ? (
+                                  <a
+                                    href={safePancakeUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1 text-[11px] text-blue-600 hover:text-blue-800"
+                                  >
+                                    <span>Mở</span>
+                                    <ExternalLink className="w-3 h-3" />
+                                  </a>
+                                ) : (
+                                  <span className="text-gray-300">-</span>
+                                )}
+                              </td>
+                              <td className="py-2 px-3 text-center">
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveSingleRecipient(r.conversation_id)}
+                                  className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                                  title="Xóa khách này khỏi danh sách gửi"
+                                  aria-label={`Xóa khách hàng ${r.name}`}
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  {previewRecipients.length > previewDisplayLimit && (
+                    <div className="flex items-center justify-between text-xs text-gray-500 pt-1">
+                      <span>
+                        Đang hiển thị {visiblePreviewRecipients.length} / {previewRecipients.length} người nhận (để trình duyệt mượt hơn)
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setPreviewDisplayLimit((n) => n + PREVIEW_PAGE_CHUNK)}
+                        className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg font-semibold border border-indigo-200"
+                      >
+                        Hiển thị thêm +{Math.min(PREVIEW_PAGE_CHUNK, previewRecipients.length - previewDisplayLimit)} khách
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -2002,6 +2256,12 @@ export const BulkMessengerDashboard: React.FC = () => {
       {/* ========================================================================= */}
       {subTab === 'history' && (
         <div className="ez-tab-panel space-y-6">
+          {historyError && (
+            <ErrorBanner
+              message={historyError}
+              onRetry={() => loadHistory(selectedHistoryCampaign, true)}
+            />
+          )}
           {/* BẢNG 1: TỔNG HỢP CÁC CHIẾN DỊCH ĐÃ CHẠY */}
           <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 shadow-sm space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -2016,6 +2276,7 @@ export const BulkMessengerDashboard: React.FC = () => {
               </div>
               <div className="flex items-center gap-2">
                 <button
+                  type="button"
                   onClick={handleClearFailedLogs}
                   className="px-3 py-1.5 text-xs text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg flex items-center gap-1.5 transition-colors font-semibold"
                 >
@@ -2023,8 +2284,10 @@ export const BulkMessengerDashboard: React.FC = () => {
                   <span>Xóa các log lỗi (FAILED)</span>
                 </button>
                 <button
-                  onClick={() => loadHistory(selectedHistoryCampaign)}
-                  className="px-3 py-1.5 text-xs text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg flex items-center gap-1.5 transition-colors font-semibold"
+                  type="button"
+                  disabled={loadingHistory}
+                  onClick={() => loadHistory(selectedHistoryCampaign, true)}
+                  className="px-3 py-1.5 text-xs text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg flex items-center gap-1.5 transition-colors font-semibold disabled:opacity-50"
                 >
                   <RefreshCw className={`w-3 h-3 ${loadingHistory ? 'animate-spin' : ''}`} />
                   <span>Làm mới</span>
@@ -2054,7 +2317,7 @@ export const BulkMessengerDashboard: React.FC = () => {
                   <tbody className="divide-y divide-gray-100">
                     {campaignSummaries.map((camp) => (
                       <tr
-                        key={camp.campaign_name + camp.page_id}
+                        key={`${camp.campaign_name}__${camp.page_id || 'all'}`}
                         onClick={() => {
                           setSelectedHistoryCampaign(camp.campaign_name);
                           loadHistory(camp.campaign_name);
@@ -2124,6 +2387,7 @@ export const BulkMessengerDashboard: React.FC = () => {
 
               {selectedHistoryCampaign !== 'all' && (
                 <button
+                  type="button"
                   onClick={() => {
                     setSelectedHistoryCampaign('all');
                     loadHistory('all');
@@ -2154,61 +2418,64 @@ export const BulkMessengerDashboard: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {historyLogs.map((log) => (
-                      <tr key={log.id} className="hover:bg-gray-50 transition-colors">
-                        <td className="py-2 px-3 text-gray-500 font-mono text-[11px] whitespace-nowrap">
-                          {log.sent_at}
-                        </td>
-                        <td className="py-2 px-3 font-mono font-medium text-navy">
-                          {log.campaign_name}
-                        </td>
-                        <td className="py-2 px-3">
-                          <span className="font-semibold text-gray-800">{log.customer_name}</span>
-                          {log.phone_number && (
-                            <span className="block text-[10px] text-gray-500">{log.phone_number}</span>
-                          )}
-                        </td>
-                        <td className="py-2 px-3 text-gray-600">{log.page_id}</td>
-                        <td className="py-2 px-3 text-gray-700 max-w-md">
-                          <div className="truncate" title={log.message}>
-                            {log.message}
-                          </div>
-                          {log.error_message && (
-                            <div className="text-[10px] text-rose-600 font-mono mt-0.5">
-                              Lỗi: {log.error_message}
+                    {historyLogs.map((log) => {
+                      const safeLogUrl = toSafeHttpUrl(log.pancake_url);
+                      return (
+                        <tr key={log.id} className="hover:bg-gray-50 transition-colors">
+                          <td className="py-2 px-3 text-gray-500 font-mono text-[11px] whitespace-nowrap">
+                            {log.sent_at}
+                          </td>
+                          <td className="py-2 px-3 font-mono font-medium text-navy">
+                            {log.campaign_name}
+                          </td>
+                          <td className="py-2 px-3">
+                            <span className="font-semibold text-gray-800">{log.customer_name}</span>
+                            {log.phone_number && (
+                              <span className="block text-[10px] text-gray-500">{log.phone_number}</span>
+                            )}
+                          </td>
+                          <td className="py-2 px-3 text-gray-600">{log.page_id}</td>
+                          <td className="py-2 px-3 text-gray-700 max-w-md">
+                            <div className="truncate" title={log.message}>
+                              {log.message}
                             </div>
-                          )}
-                        </td>
-                        <td className="py-2 px-3 text-center">
-                          <span
-                            className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                              log.status === 'SENT'
-                                ? 'bg-emerald-100 text-emerald-700'
-                                : log.status === 'DRY_RUN'
-                                ? 'bg-blue-100 text-blue-700'
-                                : 'bg-red-100 text-red-700'
-                            }`}
-                          >
-                            {log.status}
-                          </span>
-                        </td>
-                        <td className="py-2 px-3 text-center">
-                          {log.pancake_url ? (
-                            <a
-                              href={log.pancake_url}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="text-blue-600 hover:text-blue-800 inline-flex items-center gap-1 text-[11px]"
+                            {log.error_message && (
+                              <div className="text-[10px] text-rose-600 font-mono mt-0.5">
+                                Lỗi: {log.error_message}
+                              </div>
+                            )}
+                          </td>
+                          <td className="py-2 px-3 text-center">
+                            <span
+                              className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                log.status === 'SENT'
+                                  ? 'bg-emerald-100 text-emerald-700'
+                                  : log.status === 'DRY_RUN'
+                                  ? 'bg-blue-100 text-blue-700'
+                                  : 'bg-red-100 text-red-700'
+                              }`}
                             >
-                              <span>Mở</span>
-                              <ExternalLink className="w-3 h-3" />
-                            </a>
-                          ) : (
-                            <span className="text-gray-300">-</span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
+                              {log.status}
+                            </span>
+                          </td>
+                          <td className="py-2 px-3 text-center">
+                            {safeLogUrl ? (
+                              <a
+                                href={safeLogUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-blue-600 hover:text-blue-800 inline-flex items-center gap-1 text-[11px]"
+                              >
+                                <span>Mở</span>
+                                <ExternalLink className="w-3 h-3" />
+                              </a>
+                            ) : (
+                              <span className="text-gray-300">-</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -2220,218 +2487,225 @@ export const BulkMessengerDashboard: React.FC = () => {
       {/* ========================================================================= */}
       {/* MODAL CẤU HÌNH TOKEN PANCAKE */}
       {/* ========================================================================= */}
-      {showTokenModal && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-gray-200 space-y-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center">
-                  <Key className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-base font-bold text-navy">Cấu hình Pancake API Token</h3>
-                  <p className="text-xs text-gray-500">
-                    Lưu trữ an toàn trong Database để gửi tin nhắn thật từ Web
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowTokenModal(false)}
-                className="text-gray-400 hover:text-gray-600 text-sm font-bold"
-              >
-                ✕
-              </button>
+      <AccessibleModal
+        isOpen={showTokenModal}
+        onClose={() => setShowTokenModal(false)}
+        labelledBy="bc-token-modal-title"
+        contentClassName="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-gray-200 space-y-4 max-h-[90vh] overflow-y-auto"
+      >
+        <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center">
+              <Key className="w-5 h-5" />
             </div>
-
-            {/* Trạng thái các kênh hiện tại */}
-            {tokenStatus && (
-              <div className="bg-gray-50 rounded-xl p-3 border border-gray-200 space-y-1.5">
-                <p className="text-[11px] font-bold text-gray-700 mb-1">
-                  Trạng thái Token theo từng kênh hiện tại:
-                </p>
-                <div className="grid grid-cols-1 gap-1 max-h-36 overflow-y-auto">
-                  {tokenStatus.channels.map((ch) => (
-                    <div
-                      key={ch.page_name}
-                      className="flex items-center justify-between text-[11px] bg-white px-2.5 py-1.5 rounded border border-gray-100"
-                    >
-                      <span className="font-medium text-navy">
-                        <span className="text-[10px] font-semibold text-gray-500 mr-1.5">[{ch.is_zalo ? 'Zalo' : 'Nguồn'}]</span>
-                        {ch.page_name}{' '}
-                        <span className="text-[10px] text-gray-400 font-mono">
-                          ({ch.api_page_id})
-                        </span>
-                      </span>
-                      {ch.has_token ? (
-                        <span className="text-emerald-600 font-bold text-[10px]">
-                          ✓ Đã có ({ch.masked_token})
-                        </span>
-                      ) : (
-                        <span className="text-rose-600 font-semibold text-[10px]">
-                          ✗ Chưa có Token
-                        </span>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <div className="space-y-3">
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">
-                  Cách 1: Nhập Pancake Token chung (User Access Token hoặc Page Access Token)
-                </label>
-                <input
-                  type="password"
-                  value={tokenInput}
-                  onChange={(e) => setTokenInput(e.target.value)}
-                  placeholder="Dán PANCAKE_API_TOKEN của bạn vào đây..."
-                  className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-xl text-xs font-mono focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">
-                  Cách 2 (Tùy chọn): Dán cấu hình JSON nhiều Page (PANCAKE_PAGES_JSON)
-                </label>
-                <textarea
-                  rows={3}
-                  value={pagesJsonInput}
-                  onChange={(e) => setPagesJsonInput(e.target.value)}
-                  placeholder='VD: {"pzl_629476615535063343": "token_1", "514400205095512": "token_2"}'
-                  className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-xl text-xs font-mono focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-                />
-              </div>
-            </div>
-
-            <div className="flex items-center justify-end gap-2.5 pt-2">
-              <button
-                type="button"
-                onClick={() => setShowTokenModal(false)}
-                className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-xs font-semibold"
-              >
-                Đóng
-              </button>
-              <button
-                type="button"
-                onClick={handleSaveTokenConfig}
-                disabled={savingToken}
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-sm"
-              >
-                {savingToken ? 'Đang lưu...' : 'Lưu Token vào Hệ thống'}
-              </button>
+            <div>
+              <h3 id="bc-token-modal-title" className="text-base font-bold text-navy">Cấu hình Pancake API Token</h3>
+              <p className="text-xs text-gray-500">
+                Lưu trữ an toàn trong Database để gửi tin nhắn thật từ Web
+              </p>
             </div>
           </div>
+          <button
+            type="button"
+            onClick={() => setShowTokenModal(false)}
+            aria-label="Đóng hộp thoại cấu hình Token"
+            className="text-gray-400 hover:text-gray-600 text-sm font-bold p-1 rounded-lg"
+          >
+            ✕
+          </button>
         </div>
-      )}
+
+        {/* Trạng thái các kênh hiện tại */}
+        {tokenStatus && (
+          <div className="bg-gray-50 rounded-xl p-3 border border-gray-200 space-y-1.5">
+            <p className="text-[11px] font-bold text-gray-700 mb-1">
+              Trạng thái Token theo từng kênh hiện tại:
+            </p>
+            <div className="grid grid-cols-1 gap-1 max-h-36 overflow-y-auto">
+              {tokenStatus.channels.map((ch) => (
+                <div
+                  key={ch.page_name}
+                  className="flex items-center justify-between text-[11px] bg-white px-2.5 py-1.5 rounded border border-gray-100"
+                >
+                  <span className="font-medium text-navy">
+                    <span className="text-[10px] font-semibold text-gray-500 mr-1.5">[{ch.is_zalo ? 'Zalo' : 'Nguồn'}]</span>
+                    {ch.page_name}{' '}
+                    <span className="text-[10px] text-gray-400 font-mono">
+                      ({ch.api_page_id})
+                    </span>
+                  </span>
+                  {ch.has_token ? (
+                    <span className="text-emerald-600 font-bold text-[10px]">
+                      ✓ Đã có ({ch.masked_token})
+                    </span>
+                  ) : (
+                    <span className="text-rose-600 font-semibold text-[10px]">
+                      ✗ Chưa có Token
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="space-y-3">
+          <div>
+            <label htmlFor="bc-token-input" className="block text-xs font-semibold text-gray-700 mb-1">
+              Cách 1: Nhập Pancake Token chung (User Access Token hoặc Page Access Token)
+            </label>
+            <input
+              id="bc-token-input"
+              type="password"
+              value={tokenInput}
+              onChange={(e) => setTokenInput(e.target.value)}
+              placeholder="Dán PANCAKE_API_TOKEN của bạn vào đây..."
+              className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-xl text-xs font-mono focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+            />
+          </div>
+
+          <div>
+            <label htmlFor="bc-pages-json" className="block text-xs font-semibold text-gray-700 mb-1">
+              Cách 2 (Tùy chọn): Dán cấu hình JSON nhiều Page (PANCAKE_PAGES_JSON)
+            </label>
+            <textarea
+              id="bc-pages-json"
+              rows={3}
+              value={pagesJsonInput}
+              onChange={(e) => setPagesJsonInput(e.target.value)}
+              placeholder='VD: {"pzl_629476615535063343": "token_1", "514400205095512": "token_2"}'
+              className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-xl text-xs font-mono focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+            />
+          </div>
+        </div>
+
+        <div className="flex items-center justify-end gap-2.5 pt-2">
+          <button
+            type="button"
+            onClick={() => setShowTokenModal(false)}
+            className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-xs font-semibold"
+          >
+            Đóng
+          </button>
+          <button
+            type="button"
+            onClick={handleSaveTokenConfig}
+            disabled={savingToken}
+            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-sm disabled:opacity-50"
+          >
+            {savingToken ? 'Đang lưu...' : 'Lưu Token vào Hệ thống'}
+          </button>
+        </div>
+      </AccessibleModal>
 
       {/* ========================================================================= */}
       {/* MODAL XÁC NHẬN AN TOÀN TRƯỚC KHI BẮT ĐẦU */}
       {/* ========================================================================= */}
-      {showConfirmModal && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-200 space-y-4">
-            <div className="flex items-center gap-3">
-              <div
-                className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                  dryRun ? 'bg-blue-100 text-blue-600' : 'bg-red-100 text-red-600'
-                }`}
-              >
-                {dryRun ? <Play className="w-5 h-5" /> : <ShieldAlert className="w-5 h-5" />}
-              </div>
-              <div>
-                <h3 className="text-base font-bold text-navy">
-                  {dryRun ? 'Xác nhận Chạy Mô Phỏng (Dry-run)' : 'CẢNH BÁO: XÁC NHẬN GỬI THẬT'}
-                </h3>
-                <p className="text-xs text-gray-500">
-                  Chiến dịch: <span className="font-mono font-semibold">{campaignName}</span>
-                </p>
-              </div>
-            </div>
-
-            <div className="bg-gray-50 p-3.5 rounded-xl text-xs space-y-2 border border-gray-200">
-              <div className="flex justify-between">
-                <span className="text-gray-500">Kênh gửi:</span>
-                <span className="font-semibold text-gray-800">
-                  {pageId === 'all'
-                    ? 'Tất cả các kênh'
-                    : pageId === 'all_zalo'
-                    ? 'Tất cả kênh Zalo cá nhân'
-                    : pageId === 'all_source'
-                    ? 'Tất cả kênh Nguồn Lead'
-                    : pageId}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500">Đối tượng gửi:</span>
-                <span className="font-semibold text-gray-800">
-                  {isCustomListApplied ||
-                  (hasPreviewed &&
-                    previewRecipients.length > 0 &&
-                    previewRecipients.length !== originalRecipients.length)
-                    ? `Danh sách Custom (${previewRecipients.length} khách đã chọn)`
-                    : `${hasPreviewed ? previewRecipients.length : limit} khách hàng`}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500">Bảo vệ Zalo cá nhân:</span>
-                <span className="font-semibold text-emerald-700">
-                  {zaloProtection
-                    ? `Bật (Nghỉ ${zaloMinDelay}-${zaloMaxDelay}s, giải lao ${zaloBatchPause}s mỗi ${zaloBatchSize} tin)`
-                    : `Tắt (${delay}s/tin)`}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500">Hình ảnh đính kèm:</span>
-                <span className="font-semibold text-gray-800">
-                  {attachedImages.length > 0
-                    ? `${attachedImages.length} ảnh (${
-                        sendMode === 'images_only'
-                          ? 'Chỉ gửi ảnh'
-                          : sendMode === 'images_then_text'
-                          ? 'Ảnh → Chữ'
-                          : 'Chữ → Ảnh'
-                      })`
-                    : 'Không có (Chỉ gửi chữ)'}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500">Chế độ:</span>
-                <span className={`font-bold ${dryRun ? 'text-blue-600' : 'text-red-600'}`}>
-                  {dryRun ? 'Mô phỏng (Không gọi API thật)' : 'GỬI THẬT ĐẾN KHÁCH HÀNG'}
-                </span>
-              </div>
-            </div>
-
-            {hasZaloInSelection && attachedImages.length > 0 && sendMode !== 'images_only' && (
-              <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-xl p-3 text-[11px] leading-relaxed">
-                <strong>Cảnh báo Zalo cá nhân:</strong> Do Pancake không cho phép gửi chữ và ảnh trong cùng 1 request, mỗi khách sẽ nhận <strong>2 tin tách rời</strong> (tốn gấp đôi request). Nên cân nhắc giảm số lượng khách hoặc bật chế độ <strong>Siêu an toàn</strong>.
-              </div>
-            )}
-
-            <div className="flex items-center justify-end gap-3 pt-2">
-              <button
-                type="button"
-                onClick={() => setShowConfirmModal(false)}
-                className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-xs font-semibold transition-colors"
-              >
-                Hủy bỏ
-              </button>
-              <button
-                type="button"
-                onClick={handleStartBroadcast}
-                className={`px-5 py-2 text-white rounded-xl text-xs font-bold shadow-sm transition-all ${
-                  dryRun ? 'bg-blue-600 hover:bg-blue-700' : 'bg-red-600 hover:bg-red-700'
-                }`}
-              >
-                {dryRun ? 'Bắt đầu mô phỏng' : 'Tôi đồng ý gửi thật'}
-              </button>
-            </div>
+      <AccessibleModal
+        isOpen={showConfirmModal}
+        onClose={() => setShowConfirmModal(false)}
+        labelledBy="bc-confirm-modal-title"
+        contentClassName="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-200 space-y-4"
+      >
+        <div className="flex items-center gap-3">
+          <div
+            className={`w-10 h-10 rounded-full flex items-center justify-center ${
+              dryRun ? 'bg-blue-100 text-blue-600' : 'bg-red-100 text-red-600'
+            }`}
+          >
+            {dryRun ? <Play className="w-5 h-5" /> : <ShieldAlert className="w-5 h-5" />}
+          </div>
+          <div>
+            <h3 id="bc-confirm-modal-title" className="text-base font-bold text-navy">
+              {dryRun ? 'Xác nhận Chạy Mô Phỏng (Dry-run)' : 'CẢNH BÁO: XÁC NHẬN GỬI THẬT'}
+            </h3>
+            <p className="text-xs text-gray-500">
+              Chiến dịch: <span className="font-mono font-semibold">{campaignName}</span>
+            </p>
           </div>
         </div>
-      )}
+
+        <div className="bg-gray-50 p-3.5 rounded-xl text-xs space-y-2 border border-gray-200">
+          <div className="flex justify-between">
+            <span className="text-gray-500">Kênh gửi:</span>
+            <span className="font-semibold text-gray-800">
+              {pageId === 'all'
+                ? 'Tất cả các kênh'
+                : pageId === 'all_zalo'
+                ? 'Tất cả kênh Zalo cá nhân'
+                : pageId === 'all_source'
+                ? 'Tất cả kênh Nguồn Lead'
+                : pageId}
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-500">Đối tượng gửi:</span>
+            <span className="font-semibold text-gray-800">
+              {isCustomListApplied ||
+              (hasPreviewed &&
+                previewRecipients.length > 0 &&
+                previewRecipients.length !== originalRecipients.length)
+                ? `Danh sách Custom (${previewRecipients.length} khách đã chọn)`
+                : hasPreviewed
+                ? `${previewRecipients.length} khách hàng`
+                : `${limitLabel} khách hàng`}
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-500">Bảo vệ Zalo cá nhân:</span>
+            <span className="font-semibold text-emerald-700">
+              {zaloProtection
+                ? `Bật (Nghỉ ${zaloMinDelay}-${zaloMaxDelay}s, giải lao ${zaloBatchPause}s mỗi ${zaloBatchSize} tin)`
+                : `Tắt (${delay}s/tin)`}
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-500">Hình ảnh đính kèm:</span>
+            <span className="font-semibold text-gray-800">
+              {attachedImages.length > 0
+                ? `${attachedImages.length} ảnh (${
+                    sendMode === 'images_only'
+                      ? 'Chỉ gửi ảnh'
+                      : sendMode === 'images_then_text'
+                      ? 'Ảnh → Chữ'
+                      : 'Chữ → Ảnh'
+                  })`
+                : 'Không có (Chỉ gửi chữ)'}
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-500">Chế độ:</span>
+            <span className={`font-bold ${dryRun ? 'text-blue-600' : 'text-red-600'}`}>
+              {dryRun ? 'Mô phỏng (Không gọi API thật)' : 'GỬI THẬT ĐẾN KHÁCH HÀNG'}
+            </span>
+          </div>
+        </div>
+
+        {hasZaloInSelection && attachedImages.length > 0 && sendMode !== 'images_only' && (
+          <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-xl p-3 text-[11px] leading-relaxed">
+            <strong>Cảnh báo Zalo cá nhân:</strong> Do Pancake không cho phép gửi chữ và ảnh trong cùng 1 request, mỗi khách sẽ nhận <strong>2 tin tách rời</strong> (tốn gấp đôi request). Nên cân nhắc giảm số lượng khách hoặc bật chế độ <strong>Siêu an toàn</strong>.
+          </div>
+        )}
+
+        <div className="flex items-center justify-end gap-3 pt-2">
+          <button
+            type="button"
+            onClick={() => setShowConfirmModal(false)}
+            className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-xs font-semibold transition-colors"
+          >
+            Hủy bỏ
+          </button>
+          <button
+            type="button"
+            onClick={handleStartBroadcast}
+            className={`px-5 py-2 text-white rounded-xl text-xs font-bold shadow-sm transition-all ${
+              dryRun ? 'bg-blue-600 hover:bg-blue-700' : 'bg-red-600 hover:bg-red-700'
+            }`}
+          >
+            {dryRun ? 'Bắt đầu mô phỏng' : 'Tôi đồng ý gửi thật'}
+          </button>
+        </div>
+      </AccessibleModal>
     </div>
   );
 };

@@ -1,3 +1,4 @@
+import React, { useMemo } from 'react';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
 
 interface RatioChartProps {
@@ -9,8 +10,15 @@ interface RatioChartProps {
   onSelectLeadType?: (leadType: 'new' | 'recontact' | null) => void;
 }
 
-const CustomLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent }: any) => {
-  if (percent < 0.05) return null;
+const CustomLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent }: {
+  cx?: number;
+  cy?: number;
+  midAngle?: number;
+  innerRadius?: number;
+  outerRadius?: number;
+  percent?: number;
+}) => {
+  if (!percent || percent < 0.05 || cx === undefined || cy === undefined || midAngle === undefined || innerRadius === undefined || outerRadius === undefined) return null;
   const RADIAN = Math.PI / 180;
   const radius = innerRadius + (outerRadius - innerRadius) * 0.5;
   const x = cx + radius * Math.cos(-midAngle * RADIAN);
@@ -44,7 +52,7 @@ const RatioTooltip = ({ active, payload, total, selectedLeadType, clickable }: a
           {item?.name}
         </span>
         {isSelected && (
-          <span className="px-1.5 py-0.2 rounded text-[10px] font-semibold bg-eztech-light text-eztech">
+          <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-eztech-light text-eztech">
             Đang lọc
           </span>
         )}
@@ -61,7 +69,7 @@ const RatioTooltip = ({ active, payload, total, selectedLeadType, clickable }: a
   );
 };
 
-export function RatioChart({
+export const RatioChart = React.memo(function RatioChart({
   newLeads,
   recontactLeads,
   totalLeads,
@@ -69,14 +77,19 @@ export function RatioChart({
   selectedLeadType,
   onSelectLeadType,
 }: RatioChartProps) {
-  const data = [
-    { key: 'new' as const, name: 'Lead Mới', value: newLeads, color: '#1E5BD6' },
-    { key: 'recontact' as const, name: 'Contact Lại', value: recontactLeads, color: 'var(--ez-chart-navy)' },
-  ].filter(d => d.value > 0);
+  const data = useMemo(
+    () =>
+      [
+        { key: 'new' as const, name: 'Lead Mới', value: newLeads, color: '#1E5BD6' },
+        { key: 'recontact' as const, name: 'Contact Lại', value: recontactLeads, color: 'var(--ez-chart-navy)' },
+      ].filter((d) => d.value > 0),
+    [newLeads, recontactLeads]
+  );
 
   const sliceTotal = data.reduce((acc, d) => acc + d.value, 0);
-  const recontactRate = totalLeads > 0 ? ((recontactLeads / totalLeads) * 100).toFixed(1) : '0';
-  const phoneRate = newLeads > 0 ? ((newPhoneLeads / newLeads) * 100).toFixed(1) : '0';
+  const newRate = totalLeads > 0 ? ((newLeads / totalLeads) * 100).toFixed(1) : '0.0';
+  const recontactRate = totalLeads > 0 ? ((recontactLeads / totalLeads) * 100).toFixed(1) : '0.0';
+  const phoneRate = newLeads > 0 ? ((newPhoneLeads / newLeads) * 100).toFixed(1) : '0.0';
 
   const handleToggleType = (typeKey: 'new' | 'recontact') => {
     if (!onSelectLeadType) return;
@@ -94,14 +107,14 @@ export function RatioChart({
 
       {data.length > 0 ? (
         <>
-          <ResponsiveContainer width="100%" height={165}>
+          <ResponsiveContainer width="100%" height={160}>
             <PieChart>
               <Pie
                 data={data}
                 cx="50%"
                 cy="50%"
-                innerRadius={46}
-                outerRadius={74}
+                innerRadius={44}
+                outerRadius={72}
                 paddingAngle={3}
                 dataKey="value"
                 labelLine={false}
@@ -138,11 +151,27 @@ export function RatioChart({
             </PieChart>
           </ResponsiveContainer>
 
-          <div className="mt-3 pt-3 border-t border-slate-100 space-y-2">
+          <div className="mt-3 pt-3 border-t border-slate-100 space-y-1.5">
+            <button
+              type="button"
+              onClick={() => handleToggleType('new')}
+              disabled={!onSelectLeadType}
+              aria-pressed={onSelectLeadType ? selectedLeadType === 'new' : undefined}
+              className={`w-full flex items-center justify-between text-xs rounded-md px-1.5 py-0.5 -mx-1.5 transition-colors ${
+                onSelectLeadType ? 'cursor-pointer hover:bg-slate-50' : ''
+              } ${selectedLeadType === 'new' ? 'bg-eztech-light font-semibold text-eztech' : ''}`}
+            >
+              <span className="flex items-center gap-2 text-slate-600">
+                <span className="w-2 h-2 rounded-full bg-eztech inline-block" />
+                Tỉ lệ Lead Mới
+              </span>
+              <span className="font-mono font-semibold text-navy tabular-nums">{newRate}%</span>
+            </button>
             <button
               type="button"
               onClick={() => handleToggleType('recontact')}
               disabled={!onSelectLeadType}
+              aria-pressed={onSelectLeadType ? selectedLeadType === 'recontact' : undefined}
               className={`w-full flex items-center justify-between text-xs rounded-md px-1.5 py-0.5 -mx-1.5 transition-colors ${
                 onSelectLeadType ? 'cursor-pointer hover:bg-slate-50' : ''
               } ${selectedLeadType === 'recontact' ? 'bg-eztech-light font-semibold text-eztech' : ''}`}
@@ -168,10 +197,10 @@ export function RatioChart({
           </div>
         </>
       ) : (
-        <div className="flex items-center justify-center h-[200px] text-slate-300 text-xs">
+        <div className="flex items-center justify-center h-[200px] text-slate-400 text-xs">
           Không có dữ liệu
         </div>
       )}
     </div>
   );
-}
+});
