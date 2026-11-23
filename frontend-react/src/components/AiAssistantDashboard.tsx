@@ -19,7 +19,6 @@ import {
   Wallet,
   ShieldCheck,
   Upload,
-  CornerDownLeft,
 } from 'lucide-react';
 import {
   fetchAiAssistants,
@@ -958,10 +957,6 @@ export const AiAssistantDashboard: React.FC = () => {
                 const scriptSection = !isUser ? extractScriptSection(turn.content) : null;
                 const copyAllId = `all-${turn.id}`;
                 const copyScriptId = `script-${turn.id}`;
-                const uniqueSources = !isUser && turn.sources
-                  ? Array.from(new Map(turn.sources.map((s) => [s.doc_name, s])).values())
-                  : [];
-                const uniqueTools = !isUser && turn.tools_used ? Array.from(new Set(turn.tools_used)) : [];
 
                 return (
                   <div
@@ -988,78 +983,51 @@ export const AiAssistantDashboard: React.FC = () => {
                       ) : (
                         <>
                           <FormattedAnswer content={turn.content} />
-                          <div className="mt-3 pt-2.5 border-t border-slate-200/70 flex flex-wrap items-center justify-between gap-2">
-                            {(uniqueSources.length > 0 || uniqueTools.length > 0) && (
-                              <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
-                                {uniqueSources.map((src) => (
-                                  <span
-                                    key={src.doc_name}
-                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-eztech-light text-eztech border border-eztech-border font-medium"
-                                    title={`Nguồn tài liệu RAG (độ khớp ${(src.score * 100).toFixed(0)}%)`}
-                                  >
-                                    <BookOpen className="w-2.5 h-2.5" />
-                                    {src.doc_name}
-                                  </span>
-                                ))}
-                                {uniqueTools.map((tool) => (
-                                  <span
-                                    key={tool}
-                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 font-medium"
-                                    title="Công cụ tra cứu dữ liệu thời gian thực"
-                                  >
-                                    <Database className="w-2.5 h-2.5" />
-                                    {tool}
-                                  </span>
-                                ))}
-                              </div>
-                            )}
-
-                            <div className="flex flex-wrap items-center gap-2 ml-auto">
-                              {scriptSection && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleCopyText(scriptSection, copyScriptId)}
-                                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11.5px] font-semibold transition-all cursor-pointer active:scale-[0.97] ${
-                                    copiedKey === copyScriptId
-                                      ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                                      : 'bg-eztech-light text-eztech hover:opacity-90'
-                                  }`}
-                                >
-                                  {copiedKey === copyScriptId ? (
-                                    <Check className="w-3.5 h-3.5" />
-                                  ) : (
-                                    <Copy className="w-3.5 h-3.5" />
-                                  )}
-                                  <span>
-                                    {copiedKey === copyScriptId
-                                      ? 'Đã sao chép tin nhắn'
-                                      : 'Sao chép tin nhắn'}
-                                  </span>
-                                </button>
-                              )}
+                          <div className="mt-3 pt-2.5 border-t border-slate-200/70 flex flex-wrap items-center justify-end gap-2">
+                            {scriptSection && (
                               <button
                                 type="button"
-                                onClick={() => handleCopyText(turn.content, copyAllId)}
-                                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11.5px] font-medium transition-all cursor-pointer active:scale-[0.97] ${
-                                  copiedKey === copyAllId
+                                onClick={() => handleCopyText(scriptSection, copyScriptId)}
+                                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11.5px] font-semibold transition-all cursor-pointer active:scale-[0.97] ${
+                                  copiedKey === copyScriptId
                                     ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                                    : 'text-slate-500 hover:text-navy hover:bg-slate-200'
+                                    : 'bg-eztech-light text-eztech hover:opacity-90'
                                 }`}
                               >
-                                {copiedKey === copyAllId ? (
+                                {copiedKey === copyScriptId ? (
                                   <Check className="w-3.5 h-3.5" />
                                 ) : (
                                   <Copy className="w-3.5 h-3.5" />
                                 )}
                                 <span>
-                                  {copiedKey === copyAllId
-                                    ? 'Đã sao chép'
-                                    : scriptSection
-                                      ? 'Sao chép tất cả'
-                                      : 'Sao chép'}
+                                  {copiedKey === copyScriptId
+                                    ? 'Đã sao chép tin nhắn'
+                                    : 'Sao chép tin nhắn'}
                                 </span>
                               </button>
-                            </div>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => handleCopyText(turn.content, copyAllId)}
+                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11.5px] font-medium transition-all cursor-pointer active:scale-[0.97] ${
+                                copiedKey === copyAllId
+                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                  : 'text-slate-500 hover:text-navy hover:bg-slate-200'
+                              }`}
+                            >
+                              {copiedKey === copyAllId ? (
+                                <Check className="w-3.5 h-3.5" />
+                              ) : (
+                                <Copy className="w-3.5 h-3.5" />
+                              )}
+                              <span>
+                                {copiedKey === copyAllId
+                                  ? 'Đã sao chép'
+                                  : scriptSection
+                                    ? 'Sao chép tất cả'
+                                    : 'Sao chép'}
+                              </span>
+                            </button>
                           </div>
                         </>
                       )}
@@ -1122,11 +1090,7 @@ export const AiAssistantDashboard: React.FC = () => {
                 placeholder={`Hỏi ${currentAssistant.name} hoặc dán SĐT khách hàng để tra cứu...`}
                 className="w-full min-h-[42px] max-h-[220px] overflow-y-auto bg-transparent text-[13.5px] leading-relaxed text-navy placeholder:text-slate-400 focus:outline-none resize-none custom-scrollbar"
               />
-              <div className="flex items-center justify-between gap-2 pt-0.5">
-                <span className="hidden sm:inline-flex items-center gap-1.5 text-[11px] text-slate-400 select-none">
-                  <CornerDownLeft className="w-3 h-3" />
-                  <span>Enter gửi · Shift + Enter xuống dòng</span>
-                </span>
+              <div className="flex items-center justify-end gap-2 pt-0.5">
                 <button
                   type="submit"
                   disabled={isCurrentTabLoading || !question.trim()}

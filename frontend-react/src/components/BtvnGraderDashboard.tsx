@@ -356,15 +356,10 @@ export const BtvnGraderDashboard: React.FC = () => {
     <div className="space-y-6">
       {/* Header Banner */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
-        <div>
-          <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
-            <Sparkles className="w-5 h-5 text-indigo-500" />
-            Chấm Bài Tập Về Nhà Power BI / Power Query (Gemini AI)
-          </h2>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-            Trích xuất M Code từ .pbix, .xlsx, .Dataset (.tmdl) và chấm tự động 3 tầng (Chuẩn hóa AST + Gemini AI).
-          </p>
-        </div>
+        <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+          <Sparkles className="w-5 h-5 text-indigo-500" />
+          Chấm Bài Tập Về Nhà Power BI / Power Query (Gemini AI)
+        </h2>
         <div className="flex items-center gap-3">
           <div
             className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-medium border ${
@@ -416,7 +411,7 @@ export const BtvnGraderDashboard: React.FC = () => {
           </div>
 
           {answerMode === 'saved' ? (
-            <div className="space-y-2">
+            <div>
               <select
                 value={selectedAnswerId}
                 onChange={(e) => setSelectedAnswerId(e.target.value)}
@@ -430,9 +425,6 @@ export const BtvnGraderDashboard: React.FC = () => {
                   </option>
                 ))}
               </select>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Có {answerFilesList.length} bộ đáp án đã lưu trong Database.
-              </p>
             </div>
           ) : (
             <div className="border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl p-4 text-center space-y-2">

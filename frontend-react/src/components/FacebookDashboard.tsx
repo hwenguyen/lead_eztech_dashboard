@@ -279,12 +279,7 @@ export function FacebookDashboard() {
             <div className="w-10 h-10 rounded-xl bg-eztech text-white flex items-center justify-center shadow-md shadow-blue-500/20 shrink-0">
               <Facebook className="w-5 h-5 fill-white" aria-hidden="true" />
             </div>
-            <div>
-              <h2 className="text-lg font-bold text-navy tracking-tight">Facebook Analytics</h2>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Hiệu quả bài viết, tương tác, Lead Organic & Post, SĐT thu được và Deal chốt
-              </p>
-            </div>
+            <h2 className="text-lg font-bold text-navy tracking-tight">Facebook Analytics</h2>
           </div>
 
           <div className="flex items-center gap-2.5 self-start md:self-auto">
@@ -489,10 +484,7 @@ export function FacebookDashboard() {
         {/* Cột trái: Xu hướng Tương tác & SĐT theo ngày */}
         <div className="lg:col-span-2 bg-white rounded-xl border border-slate-200/80 p-5 shadow-card">
           <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
-            <div>
-              <h3 className="text-[15px] font-semibold text-navy tracking-tight">Xu hướng hoạt động Facebook</h3>
-              <p className="text-xs text-slate-500 mt-0.5">Biến động Tương tác, Bình luận và SĐT thu được theo ngày</p>
-            </div>
+            <h3 className="text-[15px] font-semibold text-navy tracking-tight">Xu hướng hoạt động Facebook</h3>
             <div className="flex items-center gap-3 text-[11px] font-medium text-slate-500">
               <span className="flex items-center gap-1.5">
                 <span className="w-2.5 h-2.5 rounded-full bg-eztech" />
@@ -605,10 +597,7 @@ export function FacebookDashboard() {
 
         {/* Cột phải: Phân bổ Cảm xúc & Định dạng */}
         <div className="bg-white rounded-xl border border-slate-200/80 p-5 shadow-card flex flex-col justify-between">
-          <div>
-            <h3 className="text-[15px] font-semibold text-navy tracking-tight">Cảm xúc & Định dạng</h3>
-            <p className="text-xs text-slate-500 mt-0.5">Tỷ lệ tương tác theo cảm xúc và loại bài đăng</p>
-          </div>
+          <h3 className="text-[15px] font-semibold text-navy tracking-tight">Cảm xúc & Định dạng</h3>
 
           <div className="grid grid-cols-2 gap-3 my-4">
             {/* Donut Cảm xúc */}
@@ -690,13 +679,7 @@ export function FacebookDashboard() {
       {/* 4. PHÂN TÍCH NGUỒN LEAD: QUẢNG CÁO (ADS) VS BÀI VIẾT VS TỰ NHIÊN */}
       <div className="space-y-3.5">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <h3 className="text-[15px] font-bold text-navy tracking-tight">Phân tích Nguồn Lead Facebook</h3>
-            <span className="text-[11px] font-semibold bg-purple-50 text-purple-700 border border-purple-200 px-2 py-0.5 rounded-md">
-              Ads • Post • Organic
-            </span>
-          </div>
-          <span className="text-xs text-slate-400">Bóc tách chuẩn xác hiệu quả từng nguồn</span>
+          <h3 className="text-[15px] font-bold text-navy tracking-tight">Phân tích Nguồn Lead Facebook</h3>
         </div>
 
         {/* 3 Thẻ KPI Tóm tắt Nguồn Lead */}
@@ -972,19 +955,14 @@ export function FacebookDashboard() {
       {/* 5. Bảng Hiệu quả Quảng cáo Facebook (Facebook Ads Performance) */}
       <div className="bg-white rounded-xl border border-slate-200/80 shadow-card overflow-hidden">
         <div className="p-4 sm:p-5 border-b border-slate-100 flex flex-col md:flex-row md:items-center md:justify-between gap-3 bg-gradient-to-r from-purple-50/40 via-white to-slate-50/30 dark:from-purple-950/30 dark:via-slate-900 dark:to-slate-900">
-          <div>
-            <div className="flex items-center gap-2">
-              <div className="w-7 h-7 rounded-lg bg-purple-100 text-purple-700 flex items-center justify-center">
-                <Megaphone className="w-4 h-4" aria-hidden="true" />
-              </div>
-              <h3 className="text-[15px] font-bold text-navy">Hiệu quả Chiến dịch / Mẫu Ads Facebook</h3>
-              <span className="px-2 py-0.5 rounded-md text-[11px] font-mono font-bold bg-purple-50 text-purple-700 border border-purple-200">
-                {filteredAds.length} mẫu Ads
-              </span>
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 rounded-lg bg-purple-100 text-purple-700 flex items-center justify-center">
+              <Megaphone className="w-4 h-4" aria-hidden="true" />
             </div>
-            <p className="text-xs text-slate-500 mt-1">
-              Thống kê lượng khách (Leads), SĐT thu được, tỷ lệ có số (CR %) và Học viên chốt theo từng Mẫu Ads
-            </p>
+            <h3 className="text-[15px] font-bold text-navy">Hiệu quả Chiến dịch / Mẫu Ads Facebook</h3>
+            <span className="px-2 py-0.5 rounded-md text-[11px] font-mono font-bold bg-purple-50 text-purple-700 border border-purple-200">
+              {filteredAds.length} mẫu Ads
+            </span>
           </div>
 
           <div className="flex items-center gap-2.5">
@@ -1144,16 +1122,11 @@ export function FacebookDashboard() {
       <div className="bg-white rounded-xl border border-slate-200/80 shadow-card overflow-hidden">
         {/* Bảng Header & Bộ lọc bài viết */}
         <div className="p-4 sm:p-5 border-b border-slate-100 flex flex-col md:flex-row md:items-center md:justify-between gap-3 bg-slate-50/40">
-          <div>
-            <div className="flex items-center gap-2">
-              <h3 className="text-[15px] font-bold text-navy">Top Bài viết Facebook Hiệu quả nhất</h3>
-              <span className="px-2 py-0.5 rounded-md text-[11px] font-mono font-medium bg-slate-200/80 text-slate-700">
-                {filteredPosts.length} bài
-              </span>
-            </div>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Thống kê Lead thu về, SĐT và Deal win chi tiết của từng bài viết
-            </p>
+          <div className="flex items-center gap-2">
+            <h3 className="text-[15px] font-bold text-navy">Top Bài viết Facebook Hiệu quả nhất</h3>
+            <span className="px-2 py-0.5 rounded-md text-[11px] font-mono font-medium bg-slate-200/80 text-slate-700">
+              {filteredPosts.length} bài
+            </span>
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5">

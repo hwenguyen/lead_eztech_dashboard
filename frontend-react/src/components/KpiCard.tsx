@@ -102,19 +102,12 @@ export const KpiCard = React.memo(function KpiCard({
       )}
     >
       <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1.5 min-w-0">
-          <span
-            title={title}
-            className="text-[11px] font-semibold uppercase tracking-[0.05em] text-slate-500 truncate"
-          >
-            {title}
-          </span>
-          {active && (
-            <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-eztech-light text-eztech border border-eztech-border shrink-0">
-              Lọc
-            </span>
-          )}
-        </div>
+        <span
+          title={title}
+          className="text-[11px] font-semibold uppercase tracking-[0.05em] text-slate-500 truncate min-w-0"
+        >
+          {title}
+        </span>
         {icon && (
           <div
             aria-hidden="true"

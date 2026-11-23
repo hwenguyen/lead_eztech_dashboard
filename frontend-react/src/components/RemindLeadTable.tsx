@@ -191,7 +191,6 @@ export function RemindLeadTable({ pagesList, zaloPages }: RemindLeadTableProps) 
           <div className="text-2xl font-bold text-navy mt-2 tabular-nums">
             {(summary?.total || 0).toLocaleString()}
           </div>
-          <div className="text-[11px] text-slate-400 mt-1">Tất cả lead đang lọc</div>
         </button>
 
         <button
@@ -210,10 +209,6 @@ export function RemindLeadTable({ pagesList, zaloPages }: RemindLeadTableProps) 
           </div>
           <div className="text-2xl font-bold text-navy mt-2 tabular-nums">
             {(summary?.under_1_day || 0).toLocaleString()}
-          </div>
-          <div className="text-[11px] text-emerald-600 mt-1 flex items-center gap-1.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-            Mới tương tác &lt; 24h
           </div>
         </button>
 
@@ -234,10 +229,6 @@ export function RemindLeadTable({ pagesList, zaloPages }: RemindLeadTableProps) 
           <div className="text-2xl font-bold text-navy mt-2 tabular-nums">
             {(summary?.days_1_to_3 || 0).toLocaleString()}
           </div>
-          <div className="text-[11px] text-gold-dark mt-1 flex items-center gap-1.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-gold" />
-            1 - 3 ngày chưa chat
-          </div>
         </button>
 
         <button
@@ -256,10 +247,6 @@ export function RemindLeadTable({ pagesList, zaloPages }: RemindLeadTableProps) 
           </div>
           <div className="text-2xl font-bold text-navy mt-2 tabular-nums">
             {(summary?.days_3_to_7 || 0).toLocaleString()}
-          </div>
-          <div className="text-[11px] text-orange-600 mt-1 flex items-center gap-1.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-orange-500" />
-            Cần nhắc lịch sớm
           </div>
         </button>
 
@@ -280,28 +267,19 @@ export function RemindLeadTable({ pagesList, zaloPages }: RemindLeadTableProps) 
           <div className="text-2xl font-bold text-navy mt-2 tabular-nums">
             {(summary?.over_7_days || 0).toLocaleString()}
           </div>
-          <div className="text-[11px] text-rose-600 mt-1 flex items-center gap-1.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
-            Quá 1 tuần chưa chăm sóc
-          </div>
         </button>
       </div>
 
       {/* Bộ lọc bảng Remind */}
       <div className="bg-white rounded-xl border border-slate-200/80 shadow-card p-4 space-y-3.5">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 className="text-[15px] font-semibold text-navy tracking-[-0.01em]">
-              {tag === 'remind'
-                ? 'Danh sách Remind Lead (Thẻ Remind)'
-                : tag === 'all'
-                ? 'Danh sách Chăm Sóc Lead (Toàn Bộ)'
-                : `Danh sách Chăm Sóc Lead (${tag})`}
-            </h2>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Theo dõi tiến độ tương tác và khoảng cách thời gian từ tin nhắn cuối cùng
-            </p>
-          </div>
+          <h2 className="text-[15px] font-semibold text-navy tracking-[-0.01em]">
+            {tag === 'remind'
+              ? 'Danh sách Remind Lead (Thẻ Remind)'
+              : tag === 'all'
+              ? 'Danh sách Chăm Sóc Lead (Toàn Bộ)'
+              : `Danh sách Chăm Sóc Lead (${tag})`}
+          </h2>
 
           <div className="flex items-center gap-2">
             <button

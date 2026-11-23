@@ -144,24 +144,19 @@ export const TrendChart = React.memo(function TrendChart({ data, selectedDate, o
       {/* Area Chart - chiếm 2/3 */}
       <div className="lg:col-span-2 bg-white rounded-xl border border-slate-200/80 p-5 shadow-card">
         <div className="flex flex-wrap items-center justify-between gap-2 mb-5">
-          <div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <h3 className="text-[15px] font-semibold tracking-[-0.01em] text-navy">Xu hướng Lead theo thời gian</h3>
-              {selectedDate && onSelectDate && (
-                <button
-                  type="button"
-                  onClick={() => onSelectDate(null)}
-                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-eztech-light text-eztech border border-eztech-border hover:bg-eztech-border/50 transition-colors cursor-pointer"
-                  title="Bỏ lọc ngày"
-                >
-                  <span className="font-mono">{formatAxisDate(selectedDate)}</span>
-                  <X className="w-3 h-3" />
-                </button>
-              )}
-            </div>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Biến động Lead Mới, Contact Lại & SĐT thu được{onSelectDate ? ' • Nhấn vào ngày để lọc' : ''}
-            </p>
+          <div className="flex items-center gap-2 flex-wrap">
+            <h3 className="text-[15px] font-semibold tracking-[-0.01em] text-navy">Xu hướng Lead theo thời gian</h3>
+            {selectedDate && onSelectDate && (
+              <button
+                type="button"
+                onClick={() => onSelectDate(null)}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-eztech-light text-eztech border border-eztech-border hover:bg-eztech-border/50 transition-colors cursor-pointer"
+                title="Bỏ lọc ngày"
+              >
+                <span className="font-mono">{formatAxisDate(selectedDate)}</span>
+                <X className="w-3 h-3" />
+              </button>
+            )}
           </div>
           <div className="flex items-center gap-3.5 text-[11px] font-medium text-slate-500">
             <span className="flex items-center gap-1.5">
@@ -254,11 +249,8 @@ export const TrendChart = React.memo(function TrendChart({ data, selectedDate, o
 
       {/* Bar Chart - chiếm 1/3 */}
       <div className="bg-white rounded-xl border border-slate-200/80 p-5 shadow-card">
-        <div className="flex flex-wrap items-start justify-between gap-2 mb-5">
-          <div>
-            <h3 className="text-[15px] font-semibold tracking-[-0.01em] text-navy">So sánh theo ngày</h3>
-            <p className="text-xs text-slate-500 mt-0.5">Lead Mới vs Contact Lại</p>
-          </div>
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-5">
+          <h3 className="text-[15px] font-semibold tracking-[-0.01em] text-navy">So sánh theo ngày</h3>
           <div className="flex items-center gap-2.5 text-[10px] font-medium text-slate-500">
             <span className="flex items-center gap-1">
               <span className="w-2 h-2 rounded-full bg-eztech inline-block" />

@@ -527,7 +527,6 @@ export function DealWinDashboard() {
             <div className="text-3xl font-bold text-navy tracking-tight font-mono">
               {loadingSummary ? '...' : total.toLocaleString('vi-VN')}
             </div>
-            <p className="text-xs font-medium text-brand-600 mt-1">Đã chốt từ Google Form / Sheet</p>
           </div>
         </div>
 
@@ -562,7 +561,6 @@ export function DealWinDashboard() {
             <div className="text-3xl font-bold text-navy tracking-tight font-mono">
               {loadingSummary ? '...' : (summary?.total_phones || 0).toLocaleString('vi-VN')}
             </div>
-            <p className="text-xs font-medium text-purple-600 mt-1">SĐT phát sinh từ Lead CRM</p>
           </div>
         </div>
 
@@ -589,14 +587,8 @@ export function DealWinDashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Trend Area Chart (2/3 width) */}
         <div className="lg:col-span-2 bg-white rounded-2xl border border-[#E5E7EB] p-6 shadow-sm">
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h3 className="text-base font-semibold text-navy">Xu hướng Deal Win theo ngày</h3>
-              <p className="text-xs text-[#4B5563] mt-0.5">Số học viên đăng ký hoàn tất theo thời gian</p>
-            </div>
-            <span className="text-xs font-medium text-brand-600 bg-brand-50 px-2.5 py-1 rounded-full border border-brand-200/60">
-              {summary?.daily_trend?.length || 0} ngày có dữ liệu
-            </span>
+          <div className="mb-6">
+            <h3 className="text-base font-semibold text-navy">Xu hướng Deal Win theo ngày</h3>
           </div>
 
           <ResponsiveContainer width="100%" height={260}>
@@ -662,7 +654,6 @@ export function DealWinDashboard() {
         <div className="bg-white rounded-2xl border border-[#E5E7EB] p-6 shadow-sm flex flex-col justify-between">
           <div className="mb-4">
             <h3 className="text-base font-semibold text-navy">Top Sales chốt Deal</h3>
-            <p className="text-xs text-[#4B5563] mt-0.5">Xếp hạng số học viên theo nhân viên chăm sóc</p>
           </div>
 
           {topSalesData.length > 0 ? (
@@ -798,13 +789,9 @@ export function DealWinDashboard() {
                           <div>
                             <div className="font-semibold text-navy flex items-center gap-1.5">
                               <span>{deal.full_name || 'Học viên'}</span>
-                              {deal.is_student ? (
+                              {deal.is_student && (
                                 <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
                                   Học viên
-                                </span>
-                              ) : (
-                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-500">
-                                  Chưa có tag
                                 </span>
                               )}
                             </div>

@@ -3,7 +3,7 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
 
 interface StatsPieChartProps {
   title: string;
-  subtitle: string;
+  subtitle?: string;
   stats: Record<string, number> | undefined;
   colorMap?: Record<string, string>;
   unit?: string;
@@ -121,7 +121,7 @@ export const StatsPieChart = React.memo(function StatsPieChart({
       <div className="flex items-start justify-between gap-2 mb-3">
         <div>
           <h3 className="text-[15px] font-semibold tracking-[-0.01em] text-navy">{title}</h3>
-          <p className="text-xs text-slate-500 mt-0.5">{subtitle}</p>
+          {subtitle && <p className="text-xs text-slate-500 mt-0.5">{subtitle}</p>}
         </div>
         {headerAction && (
           <div className="shrink-0">

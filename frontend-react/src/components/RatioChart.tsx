@@ -100,9 +100,6 @@ export const RatioChart = React.memo(function RatioChart({
     <div className="bg-white rounded-xl border border-slate-200/80 p-5 shadow-card h-full flex flex-col justify-between">
       <div className="mb-3">
         <h3 className="text-[15px] font-semibold tracking-[-0.01em] text-navy">Tỉ lệ chuyển đổi</h3>
-        <p className="text-xs text-slate-500 mt-0.5">
-          Phân bổ Lead trong kỳ{onSelectLeadType ? ' • Nhấn để lọc' : ''}
-        </p>
       </div>
 
       {data.length > 0 ? (

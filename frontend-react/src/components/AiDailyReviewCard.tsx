@@ -38,27 +38,6 @@ const renderInlineBold = (text: string): React.ReactNode[] => {
   });
 };
 
-const STATUS_META: Record<
-  'good' | 'warning' | 'critical',
-  { label: string; badgeClass: string; dotClass: string }
-> = {
-  good: {
-    label: 'Hiệu suất ổn định',
-    badgeClass: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-    dotClass: 'bg-emerald-500',
-  },
-  warning: {
-    label: 'Cần tối ưu',
-    badgeClass: 'bg-amber-50 text-amber-700 border-amber-200',
-    dotClass: 'bg-amber-500',
-  },
-  critical: {
-    label: 'Cảnh báo SLA',
-    badgeClass: 'bg-rose-50 text-rose-700 border-rose-200',
-    dotClass: 'bg-rose-500',
-  },
-};
-
 export const AiDailyReviewCard: React.FC = () => {
   const [review, setReview] = useState<AiDailyReviewData | null>(null);
   const [isToday, setIsToday] = useState<boolean>(false);
@@ -119,7 +98,6 @@ export const AiDailyReviewCard: React.FC = () => {
     }
   };
 
-  const statusInfo = STATUS_META[review?.summary_status || 'warning'];
   const isBusy = refreshing || generating;
 
   return (
@@ -135,14 +113,6 @@ export const AiDailyReviewCard: React.FC = () => {
               <h3 className="text-sm font-bold text-navy tracking-tight">
                 AI Đánh Giá Hiệu Suất &amp; Insight Hằng Ngày
               </h3>
-              {review && (
-                <span
-                  className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${statusInfo.badgeClass}`}
-                >
-                  <span className={`w-1.5 h-1.5 rounded-full ${statusInfo.dotClass}`} />
-                  {statusInfo.label}
-                </span>
-              )}
               {isBusy && (
                 <span className="inline-flex items-center gap-1 text-[11px] font-medium text-brand-600">
                   <RefreshCw className="w-3 h-3 animate-spin" />
@@ -153,14 +123,8 @@ export const AiDailyReviewCard: React.FC = () => {
             <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500 mt-0.5">
               <span className="inline-flex items-center gap-1">
                 <Clock className="w-3 h-3 text-slate-400" />
-                {review ? `Cập nhật ${review.generated_at}` : 'Tự động cập nhật 1 lần mỗi ngày'}
+                {review ? `Cập nhật ${review.generated_at}` : 'Tự động cập nhật mỗi ngày'}
               </span>
-              {review?.period_label && (
-                <>
-                  <span className="text-slate-300">•</span>
-                  <span>{review.period_label}</span>
-                </>
-              )}
               {review && !isToday && !isBusy && (
                 <span className="text-amber-600 font-medium">(Bản ngày {review.date})</span>
               )}
@@ -311,20 +275,6 @@ export const AiDailyReviewCard: React.FC = () => {
                   </ol>
                 </div>
               </div>
-
-              {review.sources && review.sources.length > 0 && (
-                <div className="pt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-400">
-                  <span className="font-medium text-slate-500">Nguồn phân tích:</span>
-                  {review.sources.map((src, i) => (
-                    <span
-                      key={i}
-                      className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-500 text-[10px] font-medium"
-                    >
-                      {src}
-                    </span>
-                  ))}
-                </div>
-              )}
             </>
           )}
         </div>

@@ -550,9 +550,6 @@ function App() {
                   <span className="block text-xs font-semibold text-navy truncate">
                     {currentUser?.username || 'admin'}
                   </span>
-                  <span className="inline-block text-[10px] text-eztech font-semibold uppercase bg-eztech-light px-1.5 py-0.5 rounded">
-                    {currentUser?.role || 'admin'}
-                  </span>
                 </div>
               </div>
               <div className="flex items-center gap-1.5 pt-1.5 border-t border-slate-100">
@@ -608,9 +605,6 @@ function App() {
                 <h1 key={activeTab} className="ez-title-in text-base sm:text-lg font-bold text-navy tracking-tight truncate">
                   {TAB_TITLES[activeTab]}
                 </h1>
-                <span className="hidden md:inline-block text-xs text-slate-400 font-medium shrink-0">
-                  • EzTech Lead Intelligence
-                </span>
               </div>
             </div>
 
@@ -709,9 +703,6 @@ function App() {
                         <ExternalLink className="w-4 h-4" aria-hidden="true" />
                       </a>
                     </div>
-                    <p className="text-[11px] text-slate-400">
-                      * Nếu trang không tự động bật lên, vui lòng bấm nút phía trên để mở trực tiếp.
-                    </p>
                   </div>
                 ) : (
                   <>
@@ -885,7 +876,6 @@ function App() {
                           <KpiCard
                             title="Tổng Lead"
                             value={totalLeadsCount.toLocaleString()}
-                            subtitle="Mới + Contact lại"
                             icon={<Users className="w-4 h-4" />}
                             color="navy"
                             onClick={() => {
@@ -931,7 +921,6 @@ function App() {
                           <KpiCard
                             title="SĐT Mới"
                             value={newPhoneCount.toLocaleString()}
-                            subtitle="Từ lead tạo trong kỳ"
                             icon={<PhoneCall className="w-4 h-4" />}
                             color="gold"
                             active={selectedLeadType === 'new' && onlyPhone}
@@ -949,7 +938,6 @@ function App() {
                           <KpiCard
                             title="SĐT Contact Lại"
                             value={recontactPhoneCount.toLocaleString()}
-                            subtitle="Từ lead cũ tương tác"
                             icon={<PhoneForwarded className="w-4 h-4" />}
                             color="gold"
                             active={selectedLeadType === 'recontact' && onlyPhone}
@@ -1000,7 +988,6 @@ function App() {
                         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                           <StatsPieChart
                             title="Lead Mới / Nhân viên"
-                            subtitle="Phân bổ Lead Mới theo nhân sự • Nhấn để lọc"
                             stats={summary?.new_leads_employee_stats}
                             selectedKey={selectedChartEmployee}
                             onSelectKey={setSelectedChartEmployee}
@@ -1012,13 +999,6 @@ function App() {
                                 : phoneCategoryFilter === 'recontact'
                                 ? 'SĐT Contact lại / Lead Other & Đào tạo'
                                 : 'SĐT thu được / Lead Other & Đào tạo'
-                            }
-                            subtitle={
-                              phoneCategoryFilter === 'new'
-                                ? 'Phân bổ SĐT từ Lead Mới • Nhấn để lọc'
-                                : phoneCategoryFilter === 'recontact'
-                                ? 'Phân bổ SĐT từ Lead Contact lại • Nhấn để lọc'
-                                : 'Phân bổ Tổng SĐT thu được trong kỳ • Nhấn để lọc'
                             }
                             stats={
                               phoneCategoryFilter === 'new'
@@ -1057,7 +1037,6 @@ function App() {
                           />
                           <StatsPieChart
                             title="Tổng Lead / Lead Other & Đào tạo"
-                            subtitle="Thống kê Tag phân loại (tất cả Lead) • Nhấn để lọc"
                             stats={summary?.tag_stats}
                             selectedKey={selectedTagCategory}
                             onSelectKey={(tag) => {

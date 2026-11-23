@@ -118,7 +118,7 @@ export const LeadTable = React.memo(function LeadTable({
                               <span>Pancake</span>
                             </a>
                           )}
-                          {safePostUrl ? (
+                          {safePostUrl && (
                             <a
                               href={safePostUrl}
                               target="_blank"
@@ -129,14 +129,7 @@ export const LeadTable = React.memo(function LeadTable({
                               <ExternalLink className="w-2.5 h-2.5" aria-hidden="true" />
                               <span>Post</span>
                             </a>
-                          ) : lead.post_id ? (
-                            <span
-                              className="inline-flex items-center gap-1 text-[10px] font-medium text-indigo-600 bg-indigo-50/90 px-1.5 py-0.5 rounded-md border border-indigo-200/80"
-                              title={`Post ID: ${lead.post_id}`}
-                            >
-                              <span>Post</span>
-                            </span>
-                          ) : null}
+                          )}
                         </div>
                       </div>
                     </div>
@@ -194,7 +187,6 @@ export const LeadTable = React.memo(function LeadTable({
                           const event = lead.tag_timeline?.find(
                             (t) => t.tag.trim().toLowerCase() === tagTrimmed.toLowerCase()
                           );
-                          const formattedTime = event?.tagged_at ? safeFormatDate(event.tagged_at, 'dd/MM HH:mm', '') : '';
                           const fullTimeStr = event?.tagged_at ? safeFormatDate(event.tagged_at, 'dd/MM/yyyy HH:mm', '') : '';
                           const tooltip = fullTimeStr
                             ? `Gắn lúc: ${fullTimeStr}${event?.editor ? ` bởi ${event.editor}` : ''}`
@@ -204,17 +196,10 @@ export const LeadTable = React.memo(function LeadTable({
                             <span
                               key={`${tagTrimmed}-${i}`}
                               title={tooltip}
-                              className="inline-flex flex-col px-2 py-0.5 rounded-md text-xs font-medium bg-slate-50 text-slate-700 border border-slate-200/80 whitespace-nowrap cursor-help hover:border-eztech/40 hover:bg-eztech-light/30 transition-colors"
+                              className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-xs font-medium bg-slate-50 text-slate-700 border border-slate-200/80 whitespace-nowrap cursor-help hover:border-eztech/40 hover:bg-eztech-light/30 transition-colors"
                             >
-                              <span className="flex items-center gap-1.5">
-                                <span className="w-1.5 h-1.5 rounded-full bg-gold shrink-0" />
-                                <span>{tagTrimmed}</span>
-                              </span>
-                              {formattedTime && (
-                                <span className="text-[10px] font-mono text-slate-400 font-normal leading-tight pl-3 tabular-nums">
-                                  {formattedTime}
-                                </span>
-                              )}
+                              <span className="w-1.5 h-1.5 rounded-full bg-gold shrink-0" />
+                              <span>{tagTrimmed}</span>
                             </span>
                           );
                         })}

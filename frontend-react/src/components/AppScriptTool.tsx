@@ -1049,17 +1049,7 @@ export function AppScriptTool() {
       {loadError && <ErrorBanner message={loadError} onRetry={() => loadAll(true)} />}
       {/* 1. Header & Sub-navigation */}
       <div className="bg-white rounded-xl border border-slate-200/80 shadow-card p-4 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <h2 className="text-sm font-bold text-navy">Quản Lý Deal Win, Bổ Sung Học Phí & Công Nợ</h2>
-            <span className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-slate-100 text-slate-700 rounded-md border border-slate-200">
-              Đồng bộ từ DB Deal Win
-            </span>
-          </div>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Tự động lấy danh sách học viên từ bảng Deal Win — Điền số tiền thu được, lớp học, link nhóm 1-1
-          </p>
-        </div>
+        <h2 className="text-sm font-bold text-navy">Quản Lý Deal Win, Bổ Sung Học Phí & Công Nợ</h2>
 
         <div className="flex flex-wrap items-center gap-2">
           {/* Sub-tabs */}

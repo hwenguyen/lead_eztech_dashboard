@@ -633,10 +633,7 @@ export const AutoAddFriendDashboard: React.FC = () => {
           <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0">
             <UserPlus className="w-5 h-5" />
           </div>
-          <div>
-            <h2 className="text-base font-bold text-slate-900">Kết Bạn Zalo Tự Động</h2>
-            <p className="text-xs text-slate-500">Dán danh sách SĐT • Chọn Page • Tự động kết bạn & gắn Tag</p>
-          </div>
+          <h2 className="text-base font-bold text-slate-900">Kết Bạn Zalo Tự Động</h2>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">

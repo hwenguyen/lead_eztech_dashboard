@@ -214,17 +214,7 @@ export function TikTokDashboard() {
             <div className="w-10 h-10 rounded-xl bg-slate-900 dark:bg-slate-800 dark:border dark:border-slate-700 text-white flex items-center justify-center shadow-md shadow-slate-900/20 shrink-0">
               <TikTokIcon className="w-5 h-5" />
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-lg font-bold text-navy tracking-tight">TikTok Analytics</h2>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-800 border border-slate-300 uppercase">
-                  Video Performance
-                </span>
-              </div>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Hiệu quả Video, tương tác, Lead Organic & Video, SĐT thu được và Deal chốt từ TikTok
-              </p>
-            </div>
+            <h2 className="text-lg font-bold text-navy tracking-tight">TikTok Analytics</h2>
           </div>
 
           <div className="flex items-center gap-2.5 self-start md:self-auto">
@@ -423,10 +413,7 @@ export function TikTokDashboard() {
         {/* Cột trái: Xu hướng Hoạt động TikTok theo ngày */}
         <div className="lg:col-span-2 bg-white rounded-xl border border-slate-200/80 p-5 shadow-card">
           <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
-            <div>
-              <h3 className="text-[15px] font-semibold text-navy tracking-tight">Xu hướng hoạt động TikTok</h3>
-              <p className="text-xs text-slate-500 mt-0.5">Biến động Bình luận, Lead và SĐT thu được theo ngày</p>
-            </div>
+            <h3 className="text-[15px] font-semibold text-navy tracking-tight">Xu hướng hoạt động TikTok</h3>
             <div className="flex items-center gap-3 text-[11px] font-medium text-slate-500">
               <span className="flex items-center gap-1.5">
                 <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: 'var(--ez-chart-navy)' }} />
@@ -539,10 +526,7 @@ export function TikTokDashboard() {
 
         {/* Cột phải: Phân bổ Video theo Kênh */}
         <div className="bg-white rounded-xl border border-slate-200/80 p-5 shadow-card flex flex-col justify-between">
-          <div>
-            <h3 className="text-[15px] font-semibold text-navy tracking-tight">Phân bổ Kênh TikTok</h3>
-            <p className="text-xs text-slate-500 mt-0.5">Số lượng video đã đăng tải theo từng kênh</p>
-          </div>
+          <h3 className="text-[15px] font-semibold text-navy tracking-tight">Phân bổ Kênh TikTok</h3>
 
           <div className="my-4 flex flex-col items-center">
             <div className="h-40 w-full">
@@ -592,7 +576,6 @@ export function TikTokDashboard() {
       <div className="space-y-3.5">
         <div className="flex items-center justify-between">
           <h3 className="text-[15px] font-bold text-navy tracking-tight">Nguồn Lead: Video vs Organic</h3>
-          <span className="text-xs text-slate-400">So sánh hiệu quả thu hút & chuyển đổi SĐT</span>
         </div>
 
         {/* 3 Thẻ KPI Tóm tắt Nguồn Lead */}
@@ -839,16 +822,11 @@ export function TikTokDashboard() {
       <div className="bg-white rounded-xl border border-slate-200/80 shadow-card overflow-hidden">
         {/* Bảng Header & Bộ lọc video */}
         <div className="p-4 sm:p-5 border-b border-slate-100 flex flex-col md:flex-row md:items-center md:justify-between gap-3 bg-slate-50/40">
-          <div>
-            <div className="flex items-center gap-2">
-              <h3 className="text-[15px] font-bold text-navy">Top Video TikTok Hiệu quả nhất</h3>
-              <span className="px-2 py-0.5 rounded-md text-[11px] font-mono font-medium bg-slate-200/80 text-slate-700">
-                {filteredPosts.length} video
-              </span>
-            </div>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Xếp hạng video TikTok theo Lead thu về, SĐT, bình luận và học viên chốt
-            </p>
+          <div className="flex items-center gap-2">
+            <h3 className="text-[15px] font-bold text-navy">Top Video TikTok Hiệu quả nhất</h3>
+            <span className="px-2 py-0.5 rounded-md text-[11px] font-mono font-medium bg-slate-200/80 text-slate-700">
+              {filteredPosts.length} video
+            </span>
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5">

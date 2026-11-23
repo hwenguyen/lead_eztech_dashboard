@@ -5,7 +5,6 @@ import {
   Check,
   Calendar,
   UserCheck,
-  Sparkles,
   Plus,
   Trash2,
   Award,
@@ -898,23 +897,19 @@ export function WorkReportDashboard() {
               </h3>
               <p className="text-[11px] text-slate-500">
                 Kỳ báo cáo: <span className="font-mono font-semibold text-navy">{startDate}</span> →{' '}
-                <span className="font-mono font-semibold text-navy">{endDate}</span> • Nhấp trực tiếp vào từng ô để chỉnh sửa trước khi Copy sang Google Sheet
+                <span className="font-mono font-semibold text-navy">{endDate}</span>
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2 text-[11px] text-slate-500">
-            {loading && (
+          {loading && (
+            <div className="flex items-center gap-2 text-[11px] text-slate-500">
               <span className="inline-flex items-center gap-1.5 bg-eztech-light text-eztech px-2.5 py-1 rounded border border-eztech-border font-medium">
                 <span className="w-2.5 h-2.5 rounded-full border-2 border-eztech/30 border-t-eztech animate-spin" />
                 Đang đồng bộ số liệu...
               </span>
-            )}
-            <span className="inline-flex items-center gap-1 bg-white px-2.5 py-1 rounded border border-slate-200 font-medium">
-              <Sparkles className="w-3 h-3 text-amber-500" />
-              Tự động lưu nháp theo kỳ
-            </span>
-          </div>
+            </div>
+          )}
         </div>
 
         {/* Bảng Spreadsheet */}
