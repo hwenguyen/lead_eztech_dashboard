@@ -21,3 +21,6 @@ pancake_state.json
 # Temporary export files
 *.xlsx
 *.csv
+
+# Graphify
+graphify-out/

@@ -409,7 +409,7 @@
 :where(html) .bg-slate-50\/70,
 :where(html) .bg-slate-50\/80,
 :where(html) .bg-slate-50\/90,
-:where(html) .even\:bg-slate-50\/40:nth-child(even),
+html .even\:bg-slate-50\/40:nth-child(even),
 :where(html) .bg-gray-50,
 :where(html) .bg-gray-50\/80,
 :where(html) .bg-\[\#F8FAFC\] {
@@ -435,7 +435,7 @@
 :where(html) .bg-\[\#f1f3f4\] { background-color: var(--ez-sheet-col); }
 :where(html) .bg-\[\#fff2cc\] { background-color: var(--ez-sheet-gold); }
 :where(html) .bg-navy { background-color: var(--ez-navy-bg); }
-:where(html) .hover\:bg-navy\/90:hover { background-color: var(--ez-navy-hover); }
+html .hover\:bg-navy\/90:hover { background-color: var(--ez-navy-hover); }
 
 /* Light gray gradient stops used in live preview boxes */
 :where(html) .from-gray-50 {
@@ -447,25 +447,25 @@
   --tw-gradient-to: var(--ez-muted) var(--tw-gradient-to-position);
 }
 
-/* Hover surfaces */
-:where(html) .hover\:bg-slate-50:hover,
-:where(html) .hover\:bg-slate-50\/70:hover,
-:where(html) .hover\:bg-slate-50\/80:hover,
-:where(html) .hover\:bg-gray-50:hover,
-:where(html) .hover\:bg-\[\#F8FAFC\]:hover {
+/* Hover & focus surfaces (html beats Tailwind hoisted variants while dark:hover:* still wins) */
+html .hover\:bg-slate-50:hover,
+html .hover\:bg-slate-50\/70:hover,
+html .hover\:bg-slate-50\/80:hover,
+html .hover\:bg-gray-50:hover,
+html .hover\:bg-\[\#F8FAFC\]:hover {
   background-color: var(--ez-elevated);
 }
 
-:where(html) .hover\:bg-slate-100:hover,
-:where(html) .hover\:bg-slate-100\/70:hover,
-:where(html) .hover\:bg-gray-100:hover,
-:where(html) .hover\:bg-slate-200:hover,
-:where(html) .hover\:bg-gray-200:hover {
+html .hover\:bg-slate-100:hover,
+html .hover\:bg-slate-100\/70:hover,
+html .hover\:bg-gray-100:hover,
+html .hover\:bg-slate-200:hover,
+html .hover\:bg-gray-200:hover {
   background-color: var(--ez-muted);
 }
 
-:where(html) .hover\:bg-white:hover,
-:where(html) .focus\:bg-white:focus {
+html .hover\:bg-white:hover,
+html .focus\:bg-white:focus {
   background-color: var(--ez-card);
 }
 
@@ -488,7 +488,7 @@
 :where(html) .border-slate-300,
 :where(html) .border-slate-400,
 :where(html) .border-gray-300,
-:where(html) .hover\:border-slate-300:hover {
+html .hover\:border-slate-300:hover {
   border-color: var(--ez-border-strong);
 }
 
@@ -519,9 +519,9 @@
 :where(html) .text-slate-800,
 :where(html) .text-gray-900,
 :where(html) .text-gray-800,
-:where(html) .hover\:text-navy:hover,
-:where(html) .hover\:text-black:hover,
-:where(html) .hover\:text-slate-900:hover {
+html .hover\:text-navy:hover,
+html .hover\:text-black:hover,
+html .hover\:text-slate-900:hover {
   color: var(--ez-text);
 }
 
@@ -530,9 +530,9 @@
 :where(html) .text-gray-700,
 :where(html) .text-gray-600,
 :where(html) .text-\[\#4B5563\],
-:where(html) .hover\:text-slate-700:hover,
-:where(html) .hover\:text-slate-600:hover,
-:where(html) .hover\:text-gray-600:hover {
+html .hover\:text-slate-700:hover,
+html .hover\:text-slate-600:hover,
+html .hover\:text-gray-600:hover {
   color: var(--ez-text-secondary);
 }
 
@@ -551,9 +551,9 @@
   color: var(--ez-text-faint);
 }
 
-:where(html) .placeholder\:text-slate-300::placeholder,
-:where(html) .placeholder\:text-slate-400::placeholder,
-:where(html) .placeholder-gray-400::placeholder {
+html .placeholder\:text-slate-300::placeholder,
+html .placeholder\:text-slate-400::placeholder,
+html .placeholder-gray-400::placeholder {
   color: var(--ez-text-faint);
 }
 
@@ -566,10 +566,10 @@
 :where(html) .text-\[\#1E5BD6\],
 :where(html) .text-brand-600,
 :where(html) .text-brand-700,
-:where(html) .hover\:text-eztech:hover,
-:where(html) .hover\:text-eztech-hover:hover,
-:where(html) .hover\:text-brand-600:hover,
-:where(html) .group:hover .group-hover\:text-brand-600 {
+html .hover\:text-eztech:hover,
+html .hover\:text-eztech-hover:hover,
+html .hover\:text-brand-600:hover,
+html .group:hover .group-hover\:text-brand-600 {
   color: var(--ez-brand-text);
 }
 
@@ -579,17 +579,17 @@
 :where(html) .bg-eztech-light\/60,
 :where(html) .bg-eztech-light\/70,
 :where(html) .bg-brand-50,
-:where(html) .hover\:bg-brand-50:hover,
-:where(html) .hover\:bg-eztech-light:hover,
-:where(html) .hover\:bg-eztech-light\/20:hover,
-:where(html) .hover\:bg-eztech-light\/30:hover,
-:where(html) .hover\:bg-eztech-light\/40:hover {
+html .hover\:bg-brand-50:hover,
+html .hover\:bg-eztech-light:hover,
+html .hover\:bg-eztech-light\/20:hover,
+html .hover\:bg-eztech-light\/30:hover,
+html .hover\:bg-eztech-light\/40:hover {
   background-color: var(--ez-brand-tint);
 }
 
 :where(html) .bg-brand-100,
-:where(html) .hover\:bg-brand-100:hover,
-:where(html) .hover\:bg-eztech-border\/50:hover {
+html .hover\:bg-brand-100:hover,
+html .hover\:bg-eztech-border\/50:hover {
   background-color: var(--ez-brand-tint-strong);
 }
 
@@ -601,7 +601,7 @@
 :where(html) .border-brand-200\/60,
 :where(html) .border-brand-200\/70,
 :where(html) .border-brand-200\/80,
-:where(html) .hover\:border-eztech-border:hover {
+html .hover\:border-eztech-border:hover {
   border-color: var(--ez-brand-border);
 }
 
@@ -628,8 +628,8 @@
 :where(html) .bg-emerald-50\/80,
 :where(html) .bg-emerald-50\/90,
 :where(html) .bg-emerald-100,
-:where(html) .hover\:bg-emerald-50\/50:hover,
-:where(html) .hover\:bg-emerald-100:hover {
+html .hover\:bg-emerald-50\/50:hover,
+html .hover\:bg-emerald-100:hover {
   background-color: var(--ez-emerald-bg);
 }
 :where(html) .text-emerald-600,
@@ -650,9 +650,9 @@
 :where(html) .bg-amber-50,
 :where(html) .bg-amber-50\/60,
 :where(html) .bg-amber-100,
-:where(html) .hover\:bg-amber-50\/30:hover,
-:where(html) .hover\:bg-amber-100:hover,
-:where(html) .hover\:bg-amber-100\/80:hover {
+html .hover\:bg-amber-50\/30:hover,
+html .hover\:bg-amber-100:hover,
+html .hover\:bg-amber-100\/80:hover {
   background-color: var(--ez-amber-bg);
 }
 :where(html) .text-amber-600,
@@ -716,8 +716,8 @@
 :where(html) .bg-red-50,
 :where(html) .bg-red-50\/60,
 :where(html) .bg-red-100,
-:where(html) .hover\:bg-rose-50:hover,
-:where(html) .hover\:bg-rose-100:hover {
+html .hover\:bg-rose-50:hover,
+html .hover\:bg-rose-100:hover {
   background-color: var(--ez-rose-bg);
 }
 :where(html) .text-rose-600,
@@ -726,9 +726,9 @@
 :where(html) .text-red-600,
 :where(html) .text-red-700,
 :where(html) .text-red-900,
-:where(html) .hover\:text-rose-600:hover,
-:where(html) .hover\:text-red-600:hover,
-:where(html) .hover\:text-red-700:hover {
+html .hover\:text-rose-600:hover,
+html .hover\:text-red-600:hover,
+html .hover\:text-red-700:hover {
   color: var(--ez-rose-text);
 }
 :where(html) .border-rose-200,
@@ -745,23 +745,23 @@
 :where(html) .bg-indigo-50\/60,
 :where(html) .bg-indigo-50\/90,
 :where(html) .bg-indigo-100,
-:where(html) .hover\:bg-indigo-50:hover,
-:where(html) .hover\:bg-indigo-50\/50:hover,
-:where(html) .hover\:bg-indigo-100:hover {
+html .hover\:bg-indigo-50:hover,
+html .hover\:bg-indigo-50\/50:hover,
+html .hover\:bg-indigo-100:hover {
   background-color: var(--ez-indigo-bg);
 }
 :where(html) .text-indigo-600,
 :where(html) .text-indigo-700,
 :where(html) .text-indigo-900,
-:where(html) .hover\:text-indigo-600:hover,
-:where(html) .hover\:text-indigo-700:hover,
-:where(html) .hover\:text-indigo-800:hover {
+html .hover\:text-indigo-600:hover,
+html .hover\:text-indigo-700:hover,
+html .hover\:text-indigo-800:hover {
   color: var(--ez-indigo-text);
 }
 :where(html) .border-indigo-200,
 :where(html) .border-indigo-200\/70,
 :where(html) .border-indigo-200\/80,
-:where(html) .hover\:border-indigo-300:hover {
+html .hover\:border-indigo-300:hover {
   border-color: var(--ez-indigo-border);
 }
 
@@ -770,17 +770,17 @@
 :where(html) .bg-blue-50\/60,
 :where(html) .bg-blue-50\/80,
 :where(html) .bg-blue-100,
-:where(html) .hover\:bg-blue-50\/30:hover,
-:where(html) .hover\:bg-blue-50\/40:hover,
-:where(html) .hover\:bg-blue-100:hover,
-:where(html) .hover\:bg-blue-100\/80:hover {
+html .hover\:bg-blue-50\/30:hover,
+html .hover\:bg-blue-50\/40:hover,
+html .hover\:bg-blue-100:hover,
+html .hover\:bg-blue-100\/80:hover {
   background-color: var(--ez-blue-bg);
 }
 :where(html) .text-blue-600,
 :where(html) .text-blue-700,
 :where(html) .text-blue-800,
 :where(html) .text-blue-900,
-:where(html) .hover\:text-blue-800:hover {
+html .hover\:text-blue-800:hover {
   color: var(--ez-blue-text);
 }
 :where(html) .border-blue-200,
@@ -790,13 +790,13 @@
 
 :where(html) .bg-purple-50,
 :where(html) .bg-purple-100,
-:where(html) .hover\:bg-purple-50\/30:hover {
+html .hover\:bg-purple-50\/30:hover {
   background-color: var(--ez-purple-bg);
 }
 :where(html) .text-purple-600,
 :where(html) .text-purple-700,
 :where(html) .text-purple-900,
-:where(html) .hover\:text-purple-800:hover {
+html .hover\:text-purple-800:hover {
   color: var(--ez-purple-text);
 }
 :where(html) .border-purple-100,
