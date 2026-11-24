@@ -438,6 +438,41 @@ function App() {
     iso.length >= 10 && iso[4] === '-' && iso[7] === '-'
       ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`
       : iso;
+  const fmtShortDateVi = (iso: string) =>
+    iso.length >= 10 && iso[4] === '-' && iso[7] === '-'
+      ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}`
+      : iso;
+
+  const prevPeriod = summary?.previous_period;
+  const prevRangeLabel = prevPeriod
+    ? prevPeriod.start_date === prevPeriod.end_date
+      ? fmtShortDateVi(prevPeriod.start_date)
+      : `${fmtShortDateVi(prevPeriod.start_date)}–${fmtShortDateVi(prevPeriod.end_date)}`
+    : '';
+
+  const buildPeriodComparison = (current: number, previous?: number) => {
+    if (previous === undefined) {
+      return {
+        trend: undefined as number | undefined,
+        subtitle: 'So với kỳ trước: —',
+        subtitleTone: 'neutral' as const,
+        detail: '',
+      };
+    }
+    const delta = current - previous;
+    const trend = previous > 0 ? ((current - previous) / previous) * 100 : current === 0 ? 0 : undefined;
+    const signedDelta = delta > 0 ? `+${delta.toLocaleString()}` : delta < 0 ? delta.toLocaleString() : '0';
+    const subtitleTone: 'neutral' | 'positive' | 'negative' =
+      delta > 0 ? 'positive' : delta < 0 ? 'negative' : 'neutral';
+    const subtitle = `${signedDelta} so với kỳ trước`;
+    const pctText = trend !== undefined ? `, ${trend > 0 ? '+' : ''}${trend.toFixed(1)}%` : '';
+    const detail = `Kỳ trước${prevRangeLabel ? ` (${prevRangeLabel})` : ''}: ${previous.toLocaleString()} → ${current.toLocaleString()} (${signedDelta}${pctText})`;
+    return { trend, subtitle, subtitleTone, detail };
+  };
+
+  const totalLeadsCmp = buildPeriodComparison(totalLeadsCount, prevPeriod?.total_leads);
+  const newPhoneCmp = buildPeriodComparison(newPhoneCount, prevPeriod?.new_phone_leads);
+  const recontactPhoneCmp = buildPeriodComparison(recontactPhoneCount, prevPeriod?.recontact_phone_leads);
 
   return (
     <div className="min-h-screen bg-bg-page text-foreground flex">
@@ -876,13 +911,20 @@ function App() {
                           <KpiCard
                             title="Tổng Lead"
                             value={totalLeadsCount.toLocaleString()}
+                            subtitle={totalLeadsCmp.subtitle}
+                            subtitleTone={totalLeadsCmp.subtitleTone}
+                            trend={totalLeadsCmp.trend}
                             icon={<Users className="w-4 h-4" />}
                             color="navy"
                             onClick={() => {
                               setSelectedLeadType(null);
                               setOnlyPhone(false);
                             }}
-                            tooltip="Hiển thị toàn bộ Lead Mới & Contact Lại (nhấn để bỏ lọc nhóm)"
+                            tooltip={
+                              totalLeadsCmp.detail
+                                ? `${totalLeadsCmp.detail} • Nhấn để bỏ lọc nhóm`
+                                : 'Hiển thị toàn bộ Lead Mới & Contact Lại (nhấn để bỏ lọc nhóm)'
+                            }
                           />
                           <KpiCard
                             title="Lead Mới"
@@ -921,6 +963,9 @@ function App() {
                           <KpiCard
                             title="SĐT Mới"
                             value={newPhoneCount.toLocaleString()}
+                            subtitle={newPhoneCmp.subtitle}
+                            subtitleTone={newPhoneCmp.subtitleTone}
+                            trend={newPhoneCmp.trend}
                             icon={<PhoneCall className="w-4 h-4" />}
                             color="gold"
                             active={selectedLeadType === 'new' && onlyPhone}
@@ -933,11 +978,18 @@ function App() {
                                 setOnlyPhone(true);
                               }
                             }}
-                            tooltip="Nhấn để lọc chỉ Lead Mới có SĐT"
+                            tooltip={
+                              newPhoneCmp.detail
+                                ? `${newPhoneCmp.detail} • Nhấn để lọc chỉ Lead Mới có SĐT`
+                                : 'Nhấn để lọc chỉ Lead Mới có SĐT'
+                            }
                           />
                           <KpiCard
                             title="SĐT Contact Lại"
                             value={recontactPhoneCount.toLocaleString()}
+                            subtitle={recontactPhoneCmp.subtitle}
+                            subtitleTone={recontactPhoneCmp.subtitleTone}
+                            trend={recontactPhoneCmp.trend}
                             icon={<PhoneForwarded className="w-4 h-4" />}
                             color="gold"
                             active={selectedLeadType === 'recontact' && onlyPhone}
@@ -950,7 +1002,11 @@ function App() {
                                 setOnlyPhone(true);
                               }
                             }}
-                            tooltip="Nhấn để lọc chỉ Lead Contact Lại có SĐT"
+                            tooltip={
+                              recontactPhoneCmp.detail
+                                ? `${recontactPhoneCmp.detail} • Nhấn để lọc chỉ Lead Contact Lại có SĐT`
+                                : 'Nhấn để lọc chỉ Lead Contact Lại có SĐT'
+                            }
                           />
                           <KpiCard
                             title="SĐT / Tạo mới"

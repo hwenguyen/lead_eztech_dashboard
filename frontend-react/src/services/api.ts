@@ -213,6 +213,17 @@ apiClient.get = (async (url: string, config?: any): Promise<any> => {
   return reqPromise;
 }) as any;
 
+export interface PreviousSummaryData {
+  start_date: string;
+  end_date: string;
+  total_leads: number;
+  new_leads: number;
+  recontact_leads: number;
+  phone_leads: number;
+  new_phone_leads: number;
+  recontact_phone_leads: number;
+}
+
 export interface SummaryData {
   new_leads: number;
   recontact_leads: number;
@@ -228,6 +239,7 @@ export interface SummaryData {
   phone_tag_stats?: Record<string, number>;
   new_phone_tag_stats?: Record<string, number>;
   recontact_phone_tag_stats?: Record<string, number>;
+  previous_period?: PreviousSummaryData;
 }
 
 export interface TrendData {

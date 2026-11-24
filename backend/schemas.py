@@ -2,6 +2,16 @@ from pydantic import BaseModel
 from typing import List, Optional
 from datetime import datetime
 
+class LeadMetricsPrevious(BaseModel):
+    start_date: str
+    end_date: str
+    total_leads: int
+    new_leads: int
+    recontact_leads: int
+    phone_leads: int
+    new_phone_leads: int = 0
+    recontact_phone_leads: int = 0
+
 class LeadMetricsSummary(BaseModel):
     new_leads: int
     recontact_leads: int
@@ -17,6 +27,7 @@ class LeadMetricsSummary(BaseModel):
     phone_tag_stats: Optional[dict] = None
     new_phone_tag_stats: Optional[dict] = None
     recontact_phone_tag_stats: Optional[dict] = None
+    previous_period: Optional[LeadMetricsPrevious] = None
 
 class LeadResponse(BaseModel):
     id: int

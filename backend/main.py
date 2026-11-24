@@ -17,6 +17,7 @@ from database.models import DimLead, FactLeadActivity, RawConversation, DealWin
 from database.deal_sync import find_lead_info_by_phone, sync_all_deals_with_dim_leads, DEFAULT_SOURCE_PAGE
 from database.schema import ensure_schema
 from backend.schemas import (
+    LeadMetricsPrevious,
     LeadMetricsSummary,
     TrendResponse,
     TrendDataPoint,
@@ -418,6 +419,70 @@ def _matches_cross_filters(
     return True
 
 
+def _resolve_prev_period_window(
+    start: datetime,
+    end: datetime,
+    clean_date: Optional[str],
+) -> Tuple[datetime, datetime]:
+    """Xác định khung thời gian kỳ trước liền kề (cùng số ngày, hoặc ngày liền trước nếu đang lọc 1 ngày)."""
+    if clean_date:
+        try:
+            sel_day = datetime.strptime(clean_date, "%Y-%m-%d")
+            prev_day = sel_day - timedelta(days=1)
+            return (
+                prev_day.replace(hour=0, minute=0, second=0, microsecond=0),
+                prev_day.replace(hour=23, minute=59, second=59, microsecond=999999),
+            )
+        except ValueError:
+            pass
+    span_days = max(1, (end.date() - start.date()).days + 1)
+    prev_end = (start - timedelta(days=1)).replace(hour=23, minute=59, second=59, microsecond=999999)
+    prev_start = (start - timedelta(days=span_days)).replace(hour=0, minute=0, second=0, microsecond=0)
+    return prev_start, prev_end
+
+
+def _tally_previous_period(
+    leads: Dict[int, Any],
+    prev_start: datetime,
+    prev_end: datetime,
+    clean_type: Optional[str],
+    clean_has_phone: Optional[bool],
+    clean_emp: Optional[str],
+    clean_tag: Optional[str],
+) -> LeadMetricsPrevious:
+    """Đếm tổng hợp Lead & SĐT kỳ trước theo cùng bộ lọc chéo đang chọn."""
+    prev_new = prev_recontact = prev_new_phone = prev_recontact_phone = 0
+    for lead in leads.values():
+        emp = lead.primary_employee
+        chosen_cat = _resolve_lead_tag_category(lead)
+        if not (
+            (clean_type is None or (clean_type == "new" and lead.is_new) or (clean_type == "recontact" and not lead.is_new))
+            and (clean_has_phone is None or (bool(lead.has_phone) is bool(clean_has_phone)))
+            and (not clean_emp or normalize_text(emp or "") == clean_emp)
+            and (not clean_tag or _tag_key(chosen_cat) == clean_tag)
+        ):
+            continue
+        if lead.is_new:
+            prev_new += 1
+            if lead.has_phone:
+                prev_new_phone += 1
+        else:
+            prev_recontact += 1
+            if lead.has_phone:
+                prev_recontact_phone += 1
+
+    return LeadMetricsPrevious(
+        start_date=prev_start.strftime("%Y-%m-%d"),
+        end_date=prev_end.strftime("%Y-%m-%d"),
+        total_leads=prev_new + prev_recontact,
+        new_leads=prev_new,
+        recontact_leads=prev_recontact,
+        phone_leads=prev_new_phone + prev_recontact_phone,
+        new_phone_leads=prev_new_phone,
+        recontact_phone_leads=prev_recontact_phone,
+    )
+
+
 @app.get("/api/metrics/summary", response_model=LeadMetricsSummary)
 def get_summary(
     start_date: Optional[datetime] = None,
@@ -493,6 +558,18 @@ def get_summary(
             else:
                 recontact_phone_tag_stats[chosen_cat] += 1
 
+    prev_start, prev_end = _resolve_prev_period_window(start, end, clean_date)
+    prev_leads = classify_leads(db, prev_start, prev_end, page_id, employee)
+    previous_period = _tally_previous_period(
+        prev_leads,
+        prev_start,
+        prev_end,
+        clean_type,
+        clean_has_phone,
+        clean_emp,
+        clean_tag,
+    )
+
     return LeadMetricsSummary(
         new_leads=new_leads,
         recontact_leads=recontact_leads,
@@ -508,6 +585,7 @@ def get_summary(
         phone_tag_stats=dict(phone_tag_stats),
         new_phone_tag_stats=dict(new_phone_tag_stats),
         recontact_phone_tag_stats=dict(recontact_phone_tag_stats),
+        previous_period=previous_period,
     )
 
 @app.get("/api/metrics/trend", response_model=TrendResponse)
