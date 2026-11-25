@@ -601,7 +601,7 @@ export function DealWinDashboard() {
             </div>
           </div>
           <div className="mt-4">
-            <div className="text-3xl font-bold text-navy tracking-tight font-mono">
+            <div className="text-3xl font-bold text-navy tracking-tight tabular-nums">
               {loadingSummary ? '...' : total.toLocaleString('vi-VN')}
             </div>
           </div>
@@ -617,10 +617,10 @@ export function DealWinDashboard() {
             </div>
           </div>
           <div className="mt-4 relative z-10">
-            <div className="text-3xl font-bold text-emerald-600 tracking-tight font-mono">
+            <div className="text-3xl font-bold text-emerald-600 tracking-tight tabular-nums">
               {loadingSummary ? '...' : `${summary?.conversion_rate || 0}%`}
             </div>
-            <p className="text-xs font-semibold text-emerald-700 mt-1 font-mono">
+            <p className="text-xs font-semibold text-emerald-700 mt-1 tabular-nums">
               {total.toLocaleString('vi-VN')} deal / {(summary?.total_phones || 0).toLocaleString('vi-VN')} SĐT thu về
             </p>
           </div>
@@ -635,7 +635,7 @@ export function DealWinDashboard() {
             </div>
           </div>
           <div className="mt-4">
-            <div className="text-3xl font-bold text-navy tracking-tight font-mono">
+            <div className="text-3xl font-bold text-navy tracking-tight tabular-nums">
               {loadingSummary ? '...' : (summary?.total_phones || 0).toLocaleString('vi-VN')}
             </div>
           </div>
