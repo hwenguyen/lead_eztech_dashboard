@@ -170,6 +170,8 @@ def _add_missing_columns():
             ddl_statements.append(f"ALTER TABLE daily_checklists ADD COLUMN {if_not_exists}is_deleted BOOLEAN DEFAULT FALSE NOT NULL")
         if "admin_note" not in existing_dc:
             ddl_statements.append(f"ALTER TABLE daily_checklists ADD COLUMN {if_not_exists}admin_note TEXT")
+        if "admin_note_by" not in existing_dc:
+            ddl_statements.append(f"ALTER TABLE daily_checklists ADD COLUMN {if_not_exists}admin_note_by VARCHAR(255)")
 
     if "daily_checklist_items" in table_names:
         existing_dci = {col["name"] for col in inspector.get_columns("daily_checklist_items")}

@@ -2011,6 +2011,7 @@ export interface DailyChecklistItemGroup {
   is_recurring_daily: boolean;
   recurring_template_id?: number | null;
   admin_note?: string | null;
+  admin_note_by?: string | null;
   is_assigned?: boolean;
   done_count: number;
   total_count: number;

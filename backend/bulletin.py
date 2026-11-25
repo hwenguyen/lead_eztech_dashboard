@@ -994,6 +994,7 @@ def _serialize_checklist(
         "is_recurring_daily": bool(cl.is_recurring_daily),
         "recurring_template_id": cl.recurring_template_id,
         "admin_note": getattr(cl, "admin_note", None),
+        "admin_note_by": getattr(cl, "admin_note_by", None),
         "is_assigned": cl_is_assigned,
         "done_count": done_cnt,
         "total_count": total_cnt,
@@ -1236,6 +1237,9 @@ def create_checklist(
             source_post_id=req.source_post_id,
             is_recurring_daily=req.is_recurring_daily,
             admin_note=(req.admin_note.strip() or None) if (is_adm and req.admin_note) else None,
+            admin_note_by=((current_user.full_name or current_user.username).strip() or None)
+            if (is_adm and req.admin_note and req.admin_note.strip())
+            else None,
             is_deleted=False,
             created_at=now_vn,
             updated_at=now_vn,
@@ -1283,7 +1287,9 @@ def update_checklist(
     if req.admin_note is not None:
         if not _is_admin(current_user):
             raise HTTPException(status_code=403, detail="Chỉ Admin mới có quyền cập nhật ghi chú cho nhân viên.")
-        cl.admin_note = req.admin_note.strip() or None
+        cleaned_note = req.admin_note.strip() or None
+        cl.admin_note = cleaned_note
+        cl.admin_note_by = ((current_user.full_name or current_user.username).strip() or None) if cleaned_note else None
     cl.updated_at = get_vn_now()
     db.commit()
     db.refresh(cl)

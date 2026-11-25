@@ -373,6 +373,7 @@ class DailyChecklist(Base):
     is_recurring_daily = Column(Boolean, default=False, nullable=False)
     recurring_template_id = Column(Integer, nullable=True, index=True)
     admin_note = Column(Text, nullable=True)  # Ghi chú (Note) của Admin dành cho nhân viên
+    admin_note_by = Column(String, nullable=True)  # Tên Admin viết note
     is_deleted = Column(Boolean, default=False, nullable=False, index=True)
     created_at = Column(DateTime, default=get_vn_now)
     updated_at = Column(DateTime, default=get_vn_now, onupdate=get_vn_now)

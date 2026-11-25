@@ -754,7 +754,9 @@ export function BulletinDashboard({ onUnreadCountChange }: BulletinDashboardProp
     try {
       const updated = await updateDailyChecklist(checklistId, { admin_note: editingNoteText.trim() });
       setChecklists((prev) =>
-        prev.map((cl) => (cl.id === checklistId ? { ...cl, admin_note: updated.admin_note } : cl))
+        prev.map((cl) =>
+          cl.id === checklistId ? { ...cl, admin_note: updated.admin_note, admin_note_by: updated.admin_note_by } : cl
+        )
       );
       setEditingNoteChecklistId(null);
       setEditingNoteText('');
@@ -1824,7 +1826,9 @@ export function BulletinDashboard({ onUnreadCountChange }: BulletinDashboardProp
                           <div className="rounded-lg border border-amber-200/80 bg-amber-50/70 px-2.5 py-2 flex items-start gap-2 text-xs text-amber-900">
                             <StickyNote className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-[1px]" aria-hidden="true" />
                             <div className="min-w-0 flex-1 whitespace-pre-wrap break-words text-[11px] leading-4">
-                              <span className="font-bold">Note Admin: </span>
+                              <span className="font-bold">
+                                {cl.admin_note_by ? `Note (${cl.admin_note_by}): ` : 'Note Admin: '}
+                              </span>
                               <span>{cl.admin_note}</span>
                             </div>
                           </div>
