@@ -894,18 +894,6 @@ export function BulletinDashboard({ onUnreadCountChange }: BulletinDashboardProp
                 </p>
               </div>
             </div>
-
-            <div className="flex flex-wrap items-center gap-2 shrink-0">
-              <button
-                type="button"
-                onClick={handleSyncGroup}
-                disabled={syncingPosts}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-brand-500 hover:bg-brand-600 text-white shadow-sm transition-all cursor-pointer disabled:opacity-50"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${syncingPosts ? 'animate-spin' : ''}`} aria-hidden="true" />
-                <span>{syncingPosts ? 'Đang đồng bộ...' : 'Đồng bộ nhóm Zalo'}</span>
-              </button>
-            </div>
           </div>
 
           {/* Facebook Group Navigation Tabs + Pill Search */}
