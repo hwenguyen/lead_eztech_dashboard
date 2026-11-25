@@ -81,6 +81,8 @@ def import_rows_to_neon(rows):
                     serializable_row[k] = v
 
             if existing:
+                if getattr(existing, "is_manually_edited", False):
+                    continue
                 existing.timestamp = submitted_at
                 existing.email = str(email).strip() if email else existing.email
                 existing.full_name = str(full_name).strip() if full_name else existing.full_name

@@ -115,6 +115,9 @@ class DealWinItem(BaseModel):
     is_student: Optional[bool] = False
     lead_tag: Optional[str] = None
     dim_lead_id: Optional[int] = None
+    is_manually_edited: Optional[bool] = False
+    edited_by: Optional[str] = None
+    edited_at: Optional[datetime] = None
     raw_data: Optional[dict] = None
     created_at: Optional[datetime] = None
 
@@ -133,6 +136,22 @@ class DealWinItem(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class DealWinUpdateRequest(BaseModel):
+    full_name: Optional[str] = None
+    phone_number: Optional[str] = None
+    email: Optional[str] = None
+    birth_year: Optional[str] = None
+    address: Optional[str] = None
+    industry: Optional[str] = None
+    job_title: Optional[str] = None
+    expectation: Optional[str] = None
+    care_by: Optional[str] = None
+    page_id: Optional[str] = None
+    source_page: Optional[str] = None
+    is_student: Optional[bool] = None
+    lead_tag: Optional[str] = None
 
 
 class DealWinSummary(BaseModel):

@@ -105,6 +105,15 @@ def _add_missing_columns():
         if "source_page" not in existing_deals:
             ddl_statements.append(f"ALTER TABLE deal_wins ADD COLUMN {if_not_exists}source_page VARCHAR(255)")
             logger.info("Đã lên kế hoạch thêm cột deal_wins.source_page.")
+        if "is_manually_edited" not in existing_deals:
+            ddl_statements.append(f"ALTER TABLE deal_wins ADD COLUMN {if_not_exists}is_manually_edited BOOLEAN DEFAULT FALSE")
+            logger.info("Đã lên kế hoạch thêm cột deal_wins.is_manually_edited.")
+        if "edited_by" not in existing_deals:
+            ddl_statements.append(f"ALTER TABLE deal_wins ADD COLUMN {if_not_exists}edited_by VARCHAR(255)")
+            logger.info("Đã lên kế hoạch thêm cột deal_wins.edited_by.")
+        if "edited_at" not in existing_deals:
+            ddl_statements.append(f"ALTER TABLE deal_wins ADD COLUMN {if_not_exists}edited_at TIMESTAMP")
+            logger.info("Đã lên kế hoạch thêm cột deal_wins.edited_at.")
 
     if "posts" in table_names:
         existing_posts = {col["name"] for col in inspector.get_columns("posts")}

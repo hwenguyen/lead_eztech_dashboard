@@ -169,6 +169,9 @@ class DealWin(Base):
     dim_lead_id = Column(Integer, nullable=True, index=True)             # ID của lead tương ứng trong dim_leads
     is_student = Column(Boolean, default=False, index=True)              # True nếu có tag "Đã là học viên" trên Pancake
     lead_tag = Column(String, nullable=True)                              # Tag lấy từ Pancake (vd: "Đã là học viên, Khách VIP")
+    is_manually_edited = Column(Boolean, default=False, index=True)      # True nếu nhân viên đã sửa thủ công -> ETL không ghi đè lại
+    edited_by = Column(String, nullable=True)                             # Người chỉnh sửa gần nhất
+    edited_at = Column(DateTime, nullable=True)                           # Thời điểm chỉnh sửa gần nhất
     raw_data = Column(JSON, nullable=True)                               # Lưu toàn bộ dữ liệu gốc của dòng form
     created_at = Column(DateTime, default=get_vn_now)                    # Thời điểm lưu vào DB
     updated_at = Column(DateTime, default=get_vn_now, onupdate=get_vn_now)

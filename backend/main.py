@@ -13,7 +13,7 @@ import re
 import threading
 import logging
 from database.db import get_db, SessionLocal
-from database.models import DimLead, FactLeadActivity, RawConversation, DealWin
+from database.models import DimLead, FactLeadActivity, RawConversation, DealWin, SalesDeal
 from database.deal_sync import find_lead_info_by_phone, sync_all_deals_with_dim_leads, DEFAULT_SOURCE_PAGE
 from database.schema import ensure_schema
 from backend.schemas import (
@@ -27,6 +27,7 @@ from backend.schemas import (
     RemindLeadItem,
     RemindSummary,
     DealWinItem,
+    DealWinUpdateRequest,
     DealWinListResponse,
     DealWinSummary,
     DealWinOptions,
@@ -1243,6 +1244,8 @@ async def receive_deal_webhook(request: Request, db: Session = Depends(get_db)):
             existing_deal = db.query(DealWin).options(defer(DealWin.raw_data)).filter(DealWin.phone_number == phone).first()
 
         if existing_deal:
+            if getattr(existing_deal, "is_manually_edited", False):
+                continue
             existing_deal.timestamp = submitted_at
             existing_deal.email = str(email).strip() if email else existing_deal.email
             existing_deal.full_name = str(full_name).strip() if full_name else existing_deal.full_name
@@ -1346,12 +1349,13 @@ def get_deals_options(
             return DealWinOptions(sales_persons=[personal_emp], pages=cached_res.pages, sources=cached_res.sources)
         return cached_res
 
-    # Luôn chỉ lấy danh sách nhân viên có học viên chốt (Đã là học viên)
+    # Lấy danh sách nhân viên phụ trách (lọc theo is_student nếu only_student=True)
     sales_query = db.query(DealWin.care_by).distinct().filter(
-        DealWin.is_student == True,
         DealWin.care_by.isnot(None),
         func.trim(DealWin.care_by) != ""
     )
+    if only_student:
+        sales_query = sales_query.filter(DealWin.is_student == True)
 
     raw_sales = [r[0] for r in sales_query.all() if r[0]]
     individual_sales = set()
@@ -1575,6 +1579,9 @@ def get_deals_list(
         DealWin.is_student,
         DealWin.lead_tag,
         DealWin.dim_lead_id,
+        DealWin.is_manually_edited,
+        DealWin.edited_by,
+        DealWin.edited_at,
         DealWin.created_at
     ).order_by(desc(DealWin.timestamp)).offset((page - 1) * size).limit(size).all()
 
@@ -1597,6 +1604,9 @@ def get_deals_list(
             is_student=r.is_student,
             lead_tag=r.lead_tag,
             dim_lead_id=r.dim_lead_id,
+            is_manually_edited=bool(r.is_manually_edited),
+            edited_by=r.edited_by,
+            edited_at=r.edited_at,
             raw_data=None,  # Tối ưu băng thông
             created_at=r.created_at
         )
@@ -1625,6 +1635,100 @@ def get_deal_detail(
         emp_name = (current_user.full_name or current_user.username).strip()
         if not employee_matches_field(deal.care_by, emp_name):
             raise HTTPException(status_code=403, detail="Bạn chỉ được xem chi tiết Deal thuộc phạm vi cá nhân phụ trách.")
+    item = DealWinItem.from_orm(deal)
+    item.source_page = item.source_page or DEFAULT_SOURCE_PAGE
+    return item
+
+
+@app.put("/api/deals/{deal_id}", response_model=DealWinItem)
+def update_deal_win(
+    deal_id: int,
+    payload: DealWinUpdateRequest,
+    current_user: AppUser = Depends(require_tab_access("deals")),
+    db: Session = Depends(get_db),
+):
+    """Cập nhật thông tin 1 học viên Deal Win từ bảng danh sách và đánh dấu is_manually_edited=True để ETL không cào đè lại."""
+    deal = db.query(DealWin).filter(DealWin.id == deal_id).first()
+    if not deal:
+        raise HTTPException(status_code=404, detail="Deal không tồn tại")
+
+    updates = payload.model_dump(exclude_unset=True) if hasattr(payload, "model_dump") else payload.dict(exclude_unset=True)
+    actor = (current_user.full_name or current_user.username or "").strip()
+    now_vn = datetime.now(VN_TZ).replace(tzinfo=None)
+
+    def _clean_opt_str(val: Optional[str]) -> Optional[str]:
+        if val is None:
+            return None
+        s = str(val).strip()
+        return s if s else None
+
+    if "full_name" in updates:
+        deal.full_name = _clean_opt_str(updates["full_name"]) or deal.full_name or "Học viên"
+    if "phone_number" in updates:
+        raw_p = _clean_opt_str(updates["phone_number"])
+        deal.phone_number = (normalize_phone(raw_p) or raw_p) if raw_p else None
+    if "email" in updates:
+        deal.email = _clean_opt_str(updates["email"])
+    if "birth_year" in updates:
+        deal.birth_year = _clean_opt_str(updates["birth_year"])
+    if "address" in updates:
+        deal.address = _clean_opt_str(updates["address"])
+    if "industry" in updates:
+        deal.industry = _clean_opt_str(updates["industry"])
+    if "job_title" in updates:
+        deal.job_title = _clean_opt_str(updates["job_title"])
+    if "expectation" in updates:
+        deal.expectation = _clean_opt_str(updates["expectation"])
+    if "care_by" in updates:
+        deal.care_by = _clean_opt_str(updates["care_by"]) or "Chưa phân công"
+    if "page_id" in updates:
+        deal.page_id = _clean_opt_str(updates["page_id"])
+    if "source_page" in updates:
+        deal.source_page = _clean_opt_str(updates["source_page"]) or DEFAULT_SOURCE_PAGE
+    if "lead_tag" in updates:
+        deal.lead_tag = _clean_opt_str(updates["lead_tag"])
+    if "is_student" in updates and updates["is_student"] is not None:
+        deal.is_student = bool(updates["is_student"])
+
+    deal.is_manually_edited = True
+    deal.edited_by = actor
+    deal.edited_at = now_vn
+
+    # Đồng bộ sang bảng SalesDeal nếu đã liên kết
+    linked_sales = db.query(SalesDeal).filter(
+        SalesDeal.deal_win_id == deal.id,
+        or_(SalesDeal.is_deleted == False, SalesDeal.is_deleted.is_(None)),
+    ).all()
+    if linked_sales:
+        from backend.deal_entry import resolve_canonical_zalo_cs
+        zalo_cs_val = resolve_canonical_zalo_cs(deal.page_id) if deal.page_id else ""
+        nv_cs_val = "" if not deal.care_by or deal.care_by == "Chưa phân công" else deal.care_by
+        for sd in linked_sales:
+            if deal.full_name:
+                sd.ho_ten = deal.full_name
+            if deal.phone_number:
+                sd.sdt = deal.phone_number
+            sd.email = deal.email
+            sd.nam_sinh = deal.birth_year
+            sd.dia_chi = deal.address
+            sd.linh_vuc = deal.industry
+            sd.chuc_vu = deal.job_title
+            sd.ky_vong = deal.expectation
+            sd.nv_cs = nv_cs_val
+            sd.zalo_cs = zalo_cs_val
+            sd.nguon = deal.source_page or DEFAULT_SOURCE_PAGE
+            sd.is_student = bool(deal.is_student)
+            sd.lead_tag = deal.lead_tag
+            sd.nguoi_sua = actor
+            sd.sua_luc = now_vn
+
+    db.commit()
+    db.refresh(deal)
+
+    with _DEAL_CACHE_LOCK:
+        _DEAL_CACHE.clear()
+    invalidate_deal_entry_cache()
+
     item = DealWinItem.from_orm(deal)
     item.source_page = item.source_page or DEFAULT_SOURCE_PAGE
     return item

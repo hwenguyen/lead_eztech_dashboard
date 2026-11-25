@@ -92,8 +92,11 @@ DEPARTMENT_MATRIX: Dict[str, Dict[str, Any]] = {
     DEPT_CONSULTANT: {
         "allowed_tabs": CONSULTANT_TABS,
         "default_tab": "bulletin",
-        "module_scopes": {tab: "personal" for tab in CONSULTANT_TABS},
-        "scope_summary": "Chỉ xem & thao tác trên dữ liệu cá nhân gắn với chính bạn tại tất cả 6 trang nghiệp vụ.",
+        "module_scopes": {
+            **{tab: "personal" for tab in CONSULTANT_TABS},
+            "deals": "all",
+        },
+        "scope_summary": "Xem toàn bộ danh sách Deal Win; xem & thao tác dữ liệu cá nhân tại các trang nghiệp vụ khác.",
     },
     DEPT_MARKETING: {
         "allowed_tabs": MARKETING_TABS,
@@ -103,8 +106,9 @@ DEPARTMENT_MATRIX: Dict[str, Dict[str, Any]] = {
             "facebook": "all",
             "tiktok": "all",
             **{tab: "personal" for tab in CONSULTANT_TABS},
+            "deals": "all",
         },
-        "scope_summary": "Xem toàn bộ dữ liệu tại các trang Marketing (Tổng quan, Facebook, TikTok); chỉ xem dữ liệu cá nhân tại 6 trang nghiệp vụ Consultant.",
+        "scope_summary": "Xem toàn bộ dữ liệu tại các trang Marketing & Deal Win; chỉ xem dữ liệu cá nhân tại các trang Consultant còn lại.",
     },
     DEPT_CLASS_MANAGER: {
         "allowed_tabs": CLASS_MANAGER_TABS,

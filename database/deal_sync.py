@@ -238,7 +238,10 @@ def sync_all_deals_with_dim_leads(
     - Dùng defer(DealWin.raw_data) để không tải JSON raw_data qua mạng.
     Trả về: (total_processed, student_count, care_by_updated)
     """
-    query = db.query(DealWin).options(defer(DealWin.raw_data))
+    # Bỏ qua toàn bộ các dòng đã được nhân viên chỉnh sửa thủ công (ETL không cào đè lại nữa)
+    query = db.query(DealWin).options(defer(DealWin.raw_data)).filter(
+        or_(DealWin.is_manually_edited == False, DealWin.is_manually_edited.is_(None))
+    )
 
     if target_phones is not None:
         clean_targets = list({str(p).strip() for p in target_phones if p and str(p).strip()})

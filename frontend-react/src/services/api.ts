@@ -452,8 +452,27 @@ export interface DealWinItem {
   is_student?: boolean;
   lead_tag?: string;
   dim_lead_id?: number;
+  is_manually_edited?: boolean;
+  edited_by?: string;
+  edited_at?: string;
   raw_data?: Record<string, any>;
   created_at?: string;
+}
+
+export interface DealWinUpdatePayload {
+  full_name?: string | null;
+  phone_number?: string | null;
+  email?: string | null;
+  birth_year?: string | null;
+  address?: string | null;
+  industry?: string | null;
+  job_title?: string | null;
+  expectation?: string | null;
+  care_by?: string | null;
+  page_id?: string | null;
+  source_page?: string | null;
+  is_student?: boolean;
+  lead_tag?: string | null;
 }
 
 export interface DealWinSummary {
@@ -528,6 +547,12 @@ export const fetchDealWinOptions = async (onlyStudent: boolean = true, opts?: Re
 
 export const fetchDealWinDetail = async (dealId: number, opts?: RequestOptions): Promise<DealWinItem> => {
   const res = await apiClient.get<DealWinItem>(`/deals/${dealId}`, { ...(opts || {}) } as any);
+  return res.data;
+};
+
+export const updateDealWinItem = async (dealId: number, payload: DealWinUpdatePayload): Promise<DealWinItem> => {
+  const res = await apiClient.put<DealWinItem>(`/deals/${dealId}`, payload);
+  clearClientApiCache('/deals/');
   return res.data;
 };
 

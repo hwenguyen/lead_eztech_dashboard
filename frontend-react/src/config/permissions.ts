@@ -108,8 +108,11 @@ export const DEPARTMENT_PERMISSIONS: Record<DepartmentName, DepartmentPermission
     department: 'Consultant',
     allowedTabs: CONSULTANT_TABS,
     defaultTab: 'bulletin',
-    moduleScopes: buildScopeMap(CONSULTANT_TABS, 'personal'),
-    scopeSummary: 'Chỉ dữ liệu cá nhân: Chỉ xem, lọc và thao tác trên dữ liệu gắn với chính bạn trên cả 6 trang nghiệp vụ.',
+    moduleScopes: {
+      ...buildScopeMap(CONSULTANT_TABS, 'personal'),
+      deals: 'all',
+    },
+    scopeSummary: 'Xem toàn bộ danh sách Deal Win; xem & thao tác trên dữ liệu cá nhân tại các trang nghiệp vụ khác.',
     badgeClass: 'bg-blue-50 text-blue-700 border-blue-200',
   },
   Marketing: {
@@ -121,8 +124,9 @@ export const DEPARTMENT_PERMISSIONS: Record<DepartmentName, DepartmentPermission
       facebook: 'all',
       tiktok: 'all',
       ...buildScopeMap(CONSULTANT_TABS, 'personal'),
+      deals: 'all',
     },
-    scopeSummary: 'Xem toàn bộ dữ liệu tại các trang Marketing (Tổng quan, Facebook, TikTok); chỉ xem dữ liệu cá nhân tại 6 trang nghiệp vụ Consultant.',
+    scopeSummary: 'Xem toàn bộ dữ liệu tại các trang Marketing & Deal Win; chỉ xem dữ liệu cá nhân tại các trang nghiệp vụ Consultant.',
     badgeClass: 'bg-purple-50 text-purple-700 border-purple-200',
   },
   'Quản lý lớp học': {
@@ -185,10 +189,15 @@ export function getEffectivePermissions(user: AuthUser | null | undefined) {
         : fallback.defaultTab)
     : 'bulletin';
 
-  const moduleScopes: Partial<Record<AppTabId, DataScopeType>> =
+  const rawModuleScopes: Partial<Record<AppTabId, DataScopeType>> =
     user.module_scopes && Object.keys(user.module_scopes).length > 0
       ? (user.module_scopes as Partial<Record<AppTabId, DataScopeType>>)
       : fallback.moduleScopes;
+
+  const moduleScopes: Partial<Record<AppTabId, DataScopeType>> = {
+    ...rawModuleScopes,
+    deals: 'all',
+  };
 
   return {
     department: dept,

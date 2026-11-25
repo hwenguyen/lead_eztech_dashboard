@@ -8,6 +8,9 @@ import {
   ChevronLeft,
   ChevronRight,
   Eye,
+  Pencil,
+  Save,
+  ShieldCheck,
   X,
   Phone,
   Mail,
@@ -37,10 +40,12 @@ import {
   fetchDealWinOptions,
   clearClientApiCache,
   fetchDealWinDetail,
+  updateDealWinItem,
   syncDealsWithLeads,
   isAbortError,
   getStoredAuth,
   type DealWinItem,
+  type DealWinUpdatePayload,
   type DealWinSummary,
   type DealWinOptions
 } from '../services/api';
@@ -60,8 +65,8 @@ export function DealWinDashboard() {
   const [endDate, setEndDate] = useState(() => format(new Date(), 'yyyy-MM-dd'));
   const [datePreset, setDatePreset] = useState<'7d' | '30d' | 'month' | 'all' | 'custom'>('30d');
 
-  // Filters
-  const [onlyStudent, setOnlyStudent] = useState<boolean>(true);
+  // Filters (auto chọn lọc 'Tất cả form đăng ký')
+  const [onlyStudent, setOnlyStudent] = useState<boolean>(false);
   const [selectedSale, setSelectedSale] = useState(() => (isPersonalScope ? personalEmployeeName : ''));
   const [selectedPage, setSelectedPage] = useState('');
   const [selectedSource, setSelectedSource] = useState('');
@@ -110,9 +115,12 @@ export function DealWinDashboard() {
   const [syncingPancake, setSyncingPancake] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
-  // Modal detail
+  // Modal detail & edit
   const [detailModal, setDetailModal] = useState<DealWinItem | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
+  const [editModal, setEditModal] = useState<DealWinItem | null>(null);
+  const [editForm, setEditForm] = useState<DealWinUpdatePayload>({});
+  const [savingEdit, setSavingEdit] = useState(false);
 
   const summaryAbortRef = useRef<AbortController | null>(null);
   const listAbortRef = useRef<AbortController | null>(null);
@@ -287,6 +295,55 @@ export function DealWinDashboard() {
     detailReqIdRef.current = null;
     setDetailModal(null);
     setLoadingDetail(false);
+  };
+
+  const handleOpenEdit = (deal: DealWinItem) => {
+    setEditModal(deal);
+    setEditForm({
+      full_name: deal.full_name || '',
+      phone_number: deal.phone_number || '',
+      email: deal.email || '',
+      birth_year: deal.birth_year || '',
+      address: deal.address || '',
+      industry: deal.industry || '',
+      job_title: deal.job_title || '',
+      expectation: deal.expectation || '',
+      care_by: deal.care_by || 'Chưa phân công',
+      page_id: deal.page_id || '',
+      source_page: deal.source_page || 'Other/ Web',
+      is_student: Boolean(deal.is_student),
+      lead_tag: deal.lead_tag || '',
+    });
+  };
+
+  const closeEditModal = () => {
+    if (savingEdit) return;
+    setEditModal(null);
+    setEditForm({});
+  };
+
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editModal) return;
+    setSavingEdit(true);
+    try {
+      const updated = await updateDealWinItem(editModal.id, editForm);
+      setDeals((prev) => prev.map((d) => (d.id === updated.id ? { ...d, ...updated } : d)));
+      if (detailModal && detailModal.id === updated.id) {
+        setDetailModal(updated);
+      }
+      showAppToast('Đã lưu chỉnh sửa học viên vào database (ETL sẽ giữ nguyên bản ghi này).', 'success');
+      setEditModal(null);
+      setEditForm({});
+      // Cập nhật lại options & summary nền
+      fetchDealWinOptions(onlyStudent, { skipCache: true }).then(setOptions).catch(() => {});
+      loadSummaryData(true);
+    } catch (err: any) {
+      console.error('Error saving deal edit:', err);
+      showAppToast(err?.response?.data?.detail || 'Không thể lưu chỉnh sửa. Vui lòng thử lại.', 'error');
+    } finally {
+      setSavingEdit(false);
+    }
   };
 
   const handleRefresh = () => {
@@ -807,11 +864,20 @@ export function DealWinDashboard() {
                             {(deal.full_name || 'H').charAt(0).toUpperCase()}
                           </div>
                           <div>
-                            <div className="font-semibold text-navy flex items-center gap-1.5">
+                            <div className="font-semibold text-navy flex items-center gap-1.5 flex-wrap">
                               <span>{deal.full_name || 'Học viên'}</span>
                               {deal.is_student && (
                                 <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
                                   Học viên
+                                </span>
+                              )}
+                              {deal.is_manually_edited && (
+                                <span
+                                  title={deal.edited_by ? `Đã sửa bởi ${deal.edited_by} (ETL không ghi đè lại)` : 'Đã chỉnh sửa thủ công (ETL không ghi đè lại)'}
+                                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200"
+                                >
+                                  <ShieldCheck className="w-2.5 h-2.5" aria-hidden="true" />
+                                  Đã sửa
                                 </span>
                               )}
                             </div>
@@ -873,13 +939,25 @@ export function DealWinDashboard() {
 
                       {/* Action */}
                       <td className="px-5 py-3.5 whitespace-nowrap text-right">
-                        <button
-                          onClick={() => handleOpenDetail(deal)}
-                          className="inline-flex items-center gap-1 text-xs font-semibold text-brand-600 hover:text-navy bg-brand-50 hover:bg-brand-100 border border-brand-200/60 px-2.5 py-1 rounded-lg transition-colors"
-                        >
-                          <Eye className="w-3.5 h-3.5" />
-                          <span>Xem</span>
-                        </button>
+                        <div className="inline-flex items-center justify-end gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEdit(deal)}
+                            className="inline-flex items-center gap-1 text-xs font-semibold text-amber-700 hover:text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-200/80 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
+                            title="Chỉnh sửa thông tin học viên (lưu vào DB & khóa không cho ETL ghi đè)"
+                          >
+                            <Pencil className="w-3.5 h-3.5" aria-hidden="true" />
+                            <span>Sửa</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenDetail(deal)}
+                            className="inline-flex items-center gap-1 text-xs font-semibold text-brand-600 hover:text-navy bg-brand-50 hover:bg-brand-100 border border-brand-200/60 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
+                          >
+                            <Eye className="w-3.5 h-3.5" aria-hidden="true" />
+                            <span>Xem</span>
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -1069,16 +1147,254 @@ export function DealWinDashboard() {
             </div>
 
             {/* Modal Footer */}
-            <div className="px-6 py-3 border-t border-gray-100 flex justify-end bg-gray-50 rounded-b-2xl">
-              <button
-                type="button"
-                onClick={closeDetailModal}
-                className="px-4 py-2 text-xs font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-100 transition-colors cursor-pointer"
-              >
-                Đóng
-              </button>
+            <div className="px-6 py-3 border-t border-gray-100 flex items-center justify-between gap-3 bg-gray-50 rounded-b-2xl">
+              <div>
+                {detailModal.is_manually_edited && (
+                  <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-700">
+                    <ShieldCheck className="w-3.5 h-3.5" aria-hidden="true" />
+                    Đã sửa thủ công{detailModal.edited_by ? ` bởi ${detailModal.edited_by}` : ''} — ETL giữ nguyên
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const target = detailModal;
+                    closeDetailModal();
+                    handleOpenEdit(target);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-xl transition-colors cursor-pointer"
+                >
+                  <Pencil className="w-3.5 h-3.5" aria-hidden="true" />
+                  Chỉnh sửa
+                </button>
+                <button
+                  type="button"
+                  onClick={closeDetailModal}
+                  className="px-4 py-2 text-xs font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-100 transition-colors cursor-pointer"
+                >
+                  Đóng
+                </button>
+              </div>
             </div>
           </div>
+        )}
+      </AccessibleModal>
+
+      {/* EDIT MODAL */}
+      <AccessibleModal
+        isOpen={Boolean(editModal)}
+        onClose={closeEditModal}
+        labelledBy="deal-edit-modal-title"
+        overlayClassName="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+      >
+        {editModal && (
+          <form
+            onSubmit={handleSaveEdit}
+            className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl border border-gray-100 flex flex-col"
+          >
+            {/* Header */}
+            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white z-10">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-amber-50 text-amber-700 border border-amber-200 flex items-center justify-center">
+                  <Pencil className="w-4 h-4" aria-hidden="true" />
+                </div>
+                <div>
+                  <h3 id="deal-edit-modal-title" className="text-base font-bold text-navy">
+                    Chỉnh sửa học viên Deal Win
+                  </h3>
+                  <p className="text-xs text-gray-500">
+                    ID #{editModal.id}{editModal.sheet_row_id ? ` • ${editModal.sheet_row_id}` : ''}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                aria-label="Đóng chỉnh sửa học viên"
+                onClick={closeEditModal}
+                className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" aria-hidden="true" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-6 space-y-4 text-sm">
+              <div className="flex items-start gap-2.5 p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-800">
+                <ShieldCheck className="w-4 h-4 shrink-0 mt-0.5" aria-hidden="true" />
+                <span>
+                  Khi lưu chỉnh sửa, bản ghi này sẽ được đánh dấu <strong>Đã chỉnh sửa thủ công</strong> vào database và quy trình ETL / đồng bộ Pancake sẽ <strong>không cào đè lại</strong> nữa.
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <div>
+                  <label className="block text-xs font-semibold text-navy mb-1">Họ và tên</label>
+                  <input
+                    type="text"
+                    required
+                    value={editForm.full_name || ''}
+                    onChange={(e) => setEditForm((f) => ({ ...f, full_name: e.target.value }))}
+                    className="w-full px-3 py-2 border border-[#E5E7EB] rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#1E5BD6]/20 focus:border-[#1E5BD6]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-navy mb-1">Số điện thoại</label>
+                  <input
+                    type="text"
+                    value={editForm.phone_number || ''}
+                    onChange={(e) => setEditForm((f) => ({ ...f, phone_number: e.target.value }))}
+                    className="w-full px-3 py-2 border border-[#E5E7EB] rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#1E5BD6]/20 focus:border-[#1E5BD6]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-navy mb-1">Email</label>
+                  <input
+                    type="text"
+                    value={editForm.email || ''}
+                    onChange={(e) => setEditForm((f) => ({ ...f, email: e.target.value }))}
+                    className="w-full px-3 py-2 border border-[#E5E7EB] rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#1E5BD6]/20 focus:border-[#1E5BD6]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-navy mb-1">Năm sinh / Ngày sinh</label>
+                  <input
+                    type="text"
+                    value={editForm.birth_year || ''}
+                    onChange={(e) => setEditForm((f) => ({ ...f, birth_year: e.target.value }))}
+                    className="w-full px-3 py-2 border border-[#E5E7EB] rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#1E5BD6]/20 focus:border-[#1E5BD6]"
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-semibold text-navy mb-1">Địa chỉ (Tỉnh / Thành phố)</label>
+                  <input
+                    type="text"
+                    value={editForm.address || ''}
+                    onChange={(e) => setEditForm((f) => ({ ...f, address: e.target.value }))}
+                    className="w-full px-3 py-2 border border-[#E5E7EB] rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#1E5BD6]/20 focus:border-[#1E5BD6]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-navy mb-1">Sale chăm sóc (Care by)</label>
+                  <input
+                    type="text"
+                    list="dealwin-sales-datalist"
+                    value={editForm.care_by || ''}
+                    onChange={(e) => setEditForm((f) => ({ ...f, care_by: e.target.value }))}
+                    placeholder="Nhập hoặc chọn tên Sale..."
+                    className="w-full px-3 py-2 border border-[#E5E7EB] rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#1E5BD6]/20 focus:border-[#1E5BD6]"
+                  />
+                  <datalist id="dealwin-sales-datalist">
+                    <option value="Chưa phân công" />
+                    {salesPersonsList.map((sp) => (
+                      <option key={sp} value={sp} />
+                    ))}
+                  </datalist>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-navy mb-1">Page Zalo CS</label>
+                  <input
+                    type="text"
+                    list="dealwin-pages-datalist"
+                    value={editForm.page_id || ''}
+                    onChange={(e) => setEditForm((f) => ({ ...f, page_id: e.target.value }))}
+                    placeholder="VD: Eztech Consultant..."
+                    className="w-full px-3 py-2 border border-[#E5E7EB] rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#1E5BD6]/20 focus:border-[#1E5BD6]"
+                  />
+                  <datalist id="dealwin-pages-datalist">
+                    {(options.pages || []).map((pg) => (
+                      <option key={pg} value={pg} />
+                    ))}
+                  </datalist>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-navy mb-1">Nguồn</label>
+                  <input
+                    type="text"
+                    list="dealwin-sources-datalist"
+                    value={editForm.source_page || ''}
+                    onChange={(e) => setEditForm((f) => ({ ...f, source_page: e.target.value }))}
+                    placeholder="Other/ Web hoặc tên Fanpage/TikTok..."
+                    className="w-full px-3 py-2 border border-[#E5E7EB] rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#1E5BD6]/20 focus:border-[#1E5BD6]"
+                  />
+                  <datalist id="dealwin-sources-datalist">
+                    {(options.sources || []).map((src) => (
+                      <option key={src} value={src} />
+                    ))}
+                  </datalist>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-navy mb-1">Tags Pancake</label>
+                  <input
+                    type="text"
+                    value={editForm.lead_tag || ''}
+                    onChange={(e) => setEditForm((f) => ({ ...f, lead_tag: e.target.value }))}
+                    placeholder="VD: Đã là học viên"
+                    className="w-full px-3 py-2 border border-[#E5E7EB] rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#1E5BD6]/20 focus:border-[#1E5BD6]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-navy mb-1">Lĩnh vực hoạt động</label>
+                  <input
+                    type="text"
+                    value={editForm.industry || ''}
+                    onChange={(e) => setEditForm((f) => ({ ...f, industry: e.target.value }))}
+                    className="w-full px-3 py-2 border border-[#E5E7EB] rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#1E5BD6]/20 focus:border-[#1E5BD6]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-navy mb-1">Vị trí / Ngành nghề</label>
+                  <input
+                    type="text"
+                    value={editForm.job_title || ''}
+                    onChange={(e) => setEditForm((f) => ({ ...f, job_title: e.target.value }))}
+                    className="w-full px-3 py-2 border border-[#E5E7EB] rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#1E5BD6]/20 focus:border-[#1E5BD6]"
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="inline-flex items-center gap-2 text-xs font-semibold text-navy cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(editForm.is_student)}
+                      onChange={(e) => setEditForm((f) => ({ ...f, is_student: e.target.checked }))}
+                      className="rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+                    />
+                    <span>Đánh dấu đã là học viên (có tag &apos;Đã là học viên&apos;)</span>
+                  </label>
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-semibold text-navy mb-1">Mục đích / Kỳ vọng tham gia khoá học</label>
+                  <textarea
+                    rows={3}
+                    value={editForm.expectation || ''}
+                    onChange={(e) => setEditForm((f) => ({ ...f, expectation: e.target.value }))}
+                    className="w-full px-3 py-2 border border-[#E5E7EB] rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#1E5BD6]/20 focus:border-[#1E5BD6]"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-3 border-t border-gray-100 flex items-center justify-end gap-2 bg-gray-50 rounded-b-2xl">
+              <button
+                type="button"
+                onClick={closeEditModal}
+                disabled={savingEdit}
+                className="px-4 py-2 text-xs font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-100 transition-colors cursor-pointer disabled:opacity-50"
+              >
+                Hủy
+              </button>
+              <button
+                type="submit"
+                disabled={savingEdit}
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-xl shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+              >
+                <Save className="w-3.5 h-3.5" aria-hidden="true" />
+                <span>{savingEdit ? 'Đang lưu...' : 'Lưu thay đổi'}</span>
+              </button>
+            </div>
+          </form>
         )}
       </AccessibleModal>
     </div>
