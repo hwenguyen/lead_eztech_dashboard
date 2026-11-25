@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { format } from 'date-fns';
+import { format, subDays, startOfMonth } from 'date-fns';
 import {
   Plus,
   Search,
@@ -13,6 +13,7 @@ import {
   ExternalLink,
   Copy,
   Trash2,
+  Calendar,
 } from 'lucide-react';
 import {
   fetchDealEntryInit,
@@ -173,12 +174,15 @@ export function AppScriptTool() {
       });
   }, []);
 
-  // Bộ lọc bảng Deals: Chỉ lọc theo NV CS & Tìm kiếm
+  // Bộ lọc bảng Deals: Trạng thái, NV CS, Lớp học, Ngày & Tìm kiếm
   const [completionFilter, setCompletionFilter] = useState<'all' | 'incomplete' | 'completed'>('all');
   const [onlyStudentFilter, setOnlyStudentFilter] = useState<boolean>(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterSale, setFilterSale] = useState('');
   const [filterClass, setFilterClass] = useState('');
+  const [filterDateField, setFilterDateField] = useState<'ngayThu' | 'ngayContact' | 'ngayThuAR'>('ngayThu');
+  const [filterStartDate, setFilterStartDate] = useState('');
+  const [filterEndDate, setFilterEndDate] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 25;
   const [copiedRowId, setCopiedRowId] = useState<string | null>(null);
@@ -347,7 +351,7 @@ export function AppScriptTool() {
   // Reset về trang 1 khi thay đổi bộ lọc
   useEffect(() => {
     setCurrentPage(1);
-  }, [completionFilter, onlyStudentFilter, searchQuery, filterSale, filterClass]);
+  }, [completionFilter, onlyStudentFilter, searchQuery, filterSale, filterClass, filterDateField, filterStartDate, filterEndDate]);
 
   // Đóng dropdown chọn nguồn khi click ra ngoài
   useEffect(() => {
@@ -761,10 +765,32 @@ export function AppScriptTool() {
     }
   };
 
+  // Chuẩn hóa ngày về YYYY-MM-DD để lọc theo khoảng ngày
+  const toIsoDateKey = (raw?: string | null): string => {
+    if (!raw) return '';
+    const s = String(raw).trim();
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+    const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+    return '';
+  };
+
   // Cơ sở lọc chung (trước khi lọc completionFilter) để đếm chính xác trạng thái điền thông tin
   const baseFilteredForCompletion = useMemo(() => {
     return deals.filter((d) => {
       if (onlyStudentFilter && d.isStudent === false) return false;
+      if (filterStartDate || filterEndDate) {
+        const rawDate =
+          filterDateField === 'ngayContact'
+            ? d.ngayContact
+            : filterDateField === 'ngayThuAR'
+            ? d.ngayThuAR
+            : d.ngayThu;
+        const iso = toIsoDateKey(rawDate);
+        if (!iso) return false;
+        if (filterStartDate && iso < filterStartDate) return false;
+        if (filterEndDate && iso > filterEndDate) return false;
+      }
       if (filterSale) {
         if (filterSale === 'Chưa phân công') {
           const raw = (d.nvCS || '').trim().toLowerCase();
@@ -797,7 +823,7 @@ export function AppScriptTool() {
       }
       return true;
     });
-  }, [deals, onlyStudentFilter, filterSale, filterClass, searchQuery]);
+  }, [deals, onlyStudentFilter, filterSale, filterClass, searchQuery, filterDateField, filterStartDate, filterEndDate]);
 
   // Đếm số lượng chờ bổ sung thông tin đồng bộ với toàn bộ bộ lọc đang áp dụng
   const countsByCompletion = useMemo(() => {
@@ -1397,6 +1423,85 @@ export function AppScriptTool() {
                       </button>
                     )}
                   </>
+                )}
+              </div>
+
+              {/* Bộ lọc theo khoảng ngày */}
+              <div className="flex flex-wrap items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1">
+                <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" aria-hidden="true" />
+                <select
+                  aria-label="Chọn trường ngày lọc"
+                  value={filterDateField}
+                  onChange={(e) => setFilterDateField(e.target.value as 'ngayThu' | 'ngayContact' | 'ngayThuAR')}
+                  className="text-xs font-medium bg-transparent text-navy focus:outline-none cursor-pointer pr-1"
+                >
+                  <option value="ngayThu">Ngày thu</option>
+                  <option value="ngayContact">Ngày contact</option>
+                  <option value="ngayThuAR">Ngày thu AR</option>
+                </select>
+                <input
+                  type="date"
+                  aria-label="Từ ngày"
+                  value={filterStartDate}
+                  onChange={(e) => setFilterStartDate(e.target.value)}
+                  className="px-2 py-1 text-xs bg-white text-navy border border-slate-200 rounded-md focus:outline-none focus:ring-2 focus:ring-eztech/20 focus:border-eztech"
+                />
+                <span className="text-xs text-slate-400">→</span>
+                <input
+                  type="date"
+                  aria-label="Đến ngày"
+                  value={filterEndDate}
+                  onChange={(e) => setFilterEndDate(e.target.value)}
+                  className="px-2 py-1 text-xs bg-white text-navy border border-slate-200 rounded-md focus:outline-none focus:ring-2 focus:ring-eztech/20 focus:border-eztech"
+                />
+                <div className="hidden sm:flex items-center gap-1 pl-1 border-l border-slate-200">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const today = new Date();
+                      setFilterStartDate(format(subDays(today, 7), 'yyyy-MM-dd'));
+                      setFilterEndDate(format(today, 'yyyy-MM-dd'));
+                    }}
+                    className="px-2 py-0.5 text-[11px] font-medium text-slate-600 hover:text-navy hover:bg-white rounded transition-colors cursor-pointer"
+                  >
+                    7 ngày
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const today = new Date();
+                      setFilterStartDate(format(subDays(today, 30), 'yyyy-MM-dd'));
+                      setFilterEndDate(format(today, 'yyyy-MM-dd'));
+                    }}
+                    className="px-2 py-0.5 text-[11px] font-medium text-slate-600 hover:text-navy hover:bg-white rounded transition-colors cursor-pointer"
+                  >
+                    30 ngày
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const today = new Date();
+                      setFilterStartDate(format(startOfMonth(today), 'yyyy-MM-dd'));
+                      setFilterEndDate(format(today, 'yyyy-MM-dd'));
+                    }}
+                    className="px-2 py-0.5 text-[11px] font-medium text-slate-600 hover:text-navy hover:bg-white rounded transition-colors cursor-pointer"
+                  >
+                    Tháng này
+                  </button>
+                </div>
+                {(filterStartDate || filterEndDate) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFilterStartDate('');
+                      setFilterEndDate('');
+                    }}
+                    aria-label="Xóa lọc ngày"
+                    title="Xóa lọc ngày"
+                    className="p-0.5 text-slate-400 hover:text-rose-600 rounded cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" aria-hidden="true" />
+                  </button>
                 )}
               </div>
 

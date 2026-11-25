@@ -1655,6 +1655,7 @@ def update_deal_win(
     updates = payload.model_dump(exclude_unset=True) if hasattr(payload, "model_dump") else payload.dict(exclude_unset=True)
     actor = (current_user.full_name or current_user.username or "").strip()
     now_vn = datetime.now(VN_TZ).replace(tzinfo=None)
+    old_phone = (deal.phone_number or "").strip()
 
     def _clean_opt_str(val: Optional[str]) -> Optional[str]:
         if val is None:
@@ -1694,9 +1695,14 @@ def update_deal_win(
     deal.edited_by = actor
     deal.edited_at = now_vn
 
-    # Đồng bộ sang bảng SalesDeal nếu đã liên kết
+    # Đồng bộ sang bảng SalesDeal (khớp theo deal_win_id hoặc SĐT cũ/mới)
+    match_conds = [SalesDeal.deal_win_id == deal.id]
+    if old_phone:
+        match_conds.append(SalesDeal.sdt == old_phone)
+    if deal.phone_number and deal.phone_number != old_phone:
+        match_conds.append(SalesDeal.sdt == deal.phone_number)
     linked_sales = db.query(SalesDeal).filter(
-        SalesDeal.deal_win_id == deal.id,
+        or_(*match_conds),
         or_(SalesDeal.is_deleted == False, SalesDeal.is_deleted.is_(None)),
     ).all()
     if linked_sales:
@@ -1704,6 +1710,8 @@ def update_deal_win(
         zalo_cs_val = resolve_canonical_zalo_cs(deal.page_id) if deal.page_id else ""
         nv_cs_val = "" if not deal.care_by or deal.care_by == "Chưa phân công" else deal.care_by
         for sd in linked_sales:
+            if sd.deal_win_id is None:
+                sd.deal_win_id = deal.id
             if deal.full_name:
                 sd.ho_ten = deal.full_name
             if deal.phone_number:

@@ -553,11 +553,14 @@ export const fetchDealWinDetail = async (dealId: number, opts?: RequestOptions):
 export const updateDealWinItem = async (dealId: number, payload: DealWinUpdatePayload): Promise<DealWinItem> => {
   const res = await apiClient.put<DealWinItem>(`/deals/${dealId}`, payload);
   clearClientApiCache('/deals/');
+  clearClientApiCache('/deal-entry/');
   return res.data;
 };
 
 export const syncDealsWithLeads = async (): Promise<{ status: string; total_deals: number; students_count: number; care_by_updated: number; message: string }> => {
   const res = await apiClient.post('/deals/sync-leads');
+  clearClientApiCache('/deals/');
+  clearClientApiCache('/deal-entry/');
   return res.data;
 };
 
