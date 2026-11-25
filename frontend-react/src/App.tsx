@@ -152,7 +152,7 @@ const NAV_GROUPS: NavGroupConfig[] = [
   },
   {
     id: 'sales',
-    label: 'Kinh doanh & Học viên',
+    label: 'Quy trình & Học viên',
     icon: Briefcase,
     items: [
       { id: 'work_report', label: 'Báo cáo công việc', icon: FileSpreadsheet },
