@@ -28,9 +28,11 @@ import {
   seedAiDocuments,
   updateAiApiKey,
   sendAiChatMessage,
+  getStoredAuth,
   type AiAssistantProfile,
   type AiDocumentItem,
 } from '../services/api';
+import { getEffectivePermissions } from '../config/permissions';
 import { copyToClipboard, toSafeHttpUrl } from '../utils/format';
 
 interface ChatTurn {
@@ -206,6 +208,7 @@ const FormattedAnswer: React.FC<{ content: string }> = ({ content }) => {
 };
 
 export const AiAssistantDashboard: React.FC = () => {
+  const isAdmin = getEffectivePermissions(getStoredAuth()?.user).isAdmin;
   const [assistants, setAssistants] = useState<AiAssistantProfile[]>([]);
   const [selectedAssistantId, setSelectedAssistantId] = useState<AssistantId>('sale');
   const [documents, setDocuments] = useState<AiDocumentItem[]>([]);
@@ -550,27 +553,29 @@ export const AiAssistantDashboard: React.FC = () => {
               )}
             </button>
 
-            <button
-              type="button"
-              aria-expanded={showKeyForm}
-              onClick={() => {
-                setShowKeyForm((v) => !v);
-                setShowDocManager(false);
-              }}
-              className={`px-3 py-2 rounded-xl text-xs font-semibold border transition-all duration-200 flex items-center gap-1.5 cursor-pointer active:scale-[0.98] ${
-                showKeyForm
-                  ? 'bg-amber-50 border-amber-200 text-amber-700'
-                  : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300'
-              }`}
-            >
-              <KeyRound className="w-3.5 h-3.5 text-amber-600" />
-              <span>API Key</span>
-            </button>
+            {isAdmin && (
+              <button
+                type="button"
+                aria-expanded={showKeyForm}
+                onClick={() => {
+                  setShowKeyForm((v) => !v);
+                  setShowDocManager(false);
+                }}
+                className={`px-3 py-2 rounded-xl text-xs font-semibold border transition-all duration-200 flex items-center gap-1.5 cursor-pointer active:scale-[0.98] ${
+                  showKeyForm
+                    ? 'bg-amber-50 border-amber-200 text-amber-700'
+                    : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300'
+                }`}
+              >
+                <KeyRound className="w-3.5 h-3.5 text-amber-600" />
+                <span>API Key</span>
+              </button>
+            )}
           </div>
         </div>
 
         {/* Form đổi API Key */}
-        {showKeyForm && (
+        {isAdmin && showKeyForm && (
           <form
             onSubmit={handleSaveApiKey}
             aria-labelledby="api-key-form-heading"
@@ -661,8 +666,9 @@ export const AiAssistantDashboard: React.FC = () => {
 
       {/* Khu vực Quản lý Tài liệu RAG */}
       {showDocManager && (
-        <div className="ai-animate-panel grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className={`ai-animate-panel grid grid-cols-1 ${isAdmin ? 'lg:grid-cols-2' : ''} gap-4`}>
           {/* Form thêm tài liệu mới */}
+          {isAdmin && (
           <form
             onSubmit={handleIngestDocument}
             aria-labelledby="ingest-doc-heading"
@@ -786,6 +792,7 @@ export const AiAssistantDashboard: React.FC = () => {
               </button>
             </div>
           </form>
+          )}
 
           {/* Danh sách tài liệu hiện có */}
           <div className="bg-white rounded-2xl border border-slate-200/80 shadow-card p-5 flex flex-col">
@@ -833,15 +840,17 @@ export const AiAssistantDashboard: React.FC = () => {
                         {doc.preview}
                       </p>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteDoc(doc.doc_id, doc.doc_name)}
-                      className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors shrink-0 cursor-pointer"
-                      title="Xóa tài liệu"
-                      aria-label={`Xóa tài liệu ${doc.doc_name}`}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    {isAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteDoc(doc.doc_id, doc.doc_name)}
+                        className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors shrink-0 cursor-pointer"
+                        title="Xóa tài liệu"
+                        aria-label={`Xóa tài liệu ${doc.doc_name}`}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
                 ))
               )}

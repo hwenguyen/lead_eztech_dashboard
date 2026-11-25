@@ -16,7 +16,9 @@ from sqlalchemy.orm import Session, defer
 from sqlalchemy import or_, desc
 
 from database.db import get_db
-from database.models import DealWin, SalesDeal, FactLeadActivity
+from database.models import DealWin, SalesDeal, FactLeadActivity, AppUser
+from backend.auth import require_tab_access
+from backend.rbac_config import get_module_scope, resolve_scoped_employee
 from backend.lead_metrics import classify_leads, resolve_period, normalize_text, split_csv
 from etl.utils import VN_TZ, ZALO_PAGE_NAMES, resolve_canonical_page_name, normalize_phone
 
@@ -78,8 +80,12 @@ def get_work_report(
     start_date: Optional[datetime] = None,
     end_date: Optional[datetime] = None,
     employee: Optional[str] = None,
+    current_user: AppUser = Depends(require_tab_access("work_report")),
     db: Session = Depends(get_db),
 ):
+    is_personal = get_module_scope(current_user, "work_report") == "personal"
+    employee = resolve_scoped_employee(current_user, "work_report", employee)
+
     # Mặc định kỳ báo cáo là 7 ngày gần nhất (1 tuần làm việc)
     if not end_date:
         end_date = datetime.now(VN_TZ).replace(tzinfo=None)
@@ -92,7 +98,7 @@ def get_work_report(
     emp_clean = employee.strip() if employee and employee.strip() else None
 
     # 0. Kiểm tra in-memory cache
-    cache_key = f"{start_ymd}_{end_ymd}_{emp_clean}"
+    cache_key = f"{start_ymd}_{end_ymd}_{emp_clean}_{'p' if is_personal else 'a'}"
     now_ts = time.time()
     with _WORK_REPORT_LOCK:
         if cache_key in _WORK_REPORT_CACHE:
@@ -104,20 +110,23 @@ def get_work_report(
 
     # 1. Lấy danh sách toàn bộ nhân viên từ Leads trong kỳ + DealWin + SalesDeal
     all_period_leads = classify_leads(db, start, end)
-    emp_set = set()
-    for l in all_period_leads.values():
-        for e in l.employees:
-            if e and e != "Chưa phân công":
-                emp_set.add(e)
+    if is_personal:
+        employees_list = [emp_clean] if emp_clean else []
+    else:
+        emp_set = set()
+        for l in all_period_leads.values():
+            for e in l.employees:
+                if e and e != "Chưa phân công":
+                    emp_set.add(e)
 
-    # Bổ sung nhân viên từ bảng SalesDeal & DealWin để không sót nhân sự
-    deal_emps = db.query(SalesDeal.nv_cs).filter(SalesDeal.nv_cs.isnot(None), SalesDeal.nv_cs != "").distinct().all()
-    for (de,) in deal_emps:
-        for e in split_csv(de):
-            if e and e != "Chưa phân công":
-                emp_set.add(e)
+        # Bổ sung nhân viên từ bảng SalesDeal & DealWin để không sót nhân sự
+        deal_emps = db.query(SalesDeal.nv_cs).filter(SalesDeal.nv_cs.isnot(None), SalesDeal.nv_cs != "").distinct().all()
+        for (de,) in deal_emps:
+            for e in split_csv(de):
+                if e and e != "Chưa phân công":
+                    emp_set.add(e)
 
-    employees_list = sorted(emp_set, key=lambda x: normalize_text(x))
+        employees_list = sorted(emp_set, key=lambda x: normalize_text(x))
 
     # 2. Phân loại Lead của nhân viên được chọn (Nguồn TikTok + Facebook)
     leads = classify_leads(db, start, end, employee=emp_clean) if emp_clean else all_period_leads

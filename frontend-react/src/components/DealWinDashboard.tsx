@@ -39,16 +39,22 @@ import {
   fetchDealWinDetail,
   syncDealsWithLeads,
   isAbortError,
+  getStoredAuth,
   type DealWinItem,
   type DealWinSummary,
   type DealWinOptions
 } from '../services/api';
+import { getTabDataScope } from '../config/permissions';
 import { safeFormatDate } from '../utils/format';
 import { showAppToast } from '../utils/toast';
 import { ErrorBanner } from './ErrorBanner';
 import { AccessibleModal } from './AccessibleModal';
 
 export function DealWinDashboard() {
+  const authUser = getStoredAuth()?.user || null;
+  const isPersonalScope = getTabDataScope(authUser, 'deals') === 'personal';
+  const personalEmployeeName = (authUser?.full_name || authUser?.username || '').trim();
+
   // Preset dates: default to 30 days
   const [startDate, setStartDate] = useState(() => format(subDays(new Date(), 30), 'yyyy-MM-dd'));
   const [endDate, setEndDate] = useState(() => format(new Date(), 'yyyy-MM-dd'));
@@ -56,11 +62,17 @@ export function DealWinDashboard() {
 
   // Filters
   const [onlyStudent, setOnlyStudent] = useState<boolean>(true);
-  const [selectedSale, setSelectedSale] = useState('');
+  const [selectedSale, setSelectedSale] = useState(() => (isPersonalScope ? personalEmployeeName : ''));
   const [selectedPage, setSelectedPage] = useState('');
   const [selectedSource, setSelectedSource] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [activeSearch, setActiveSearch] = useState('');
+
+  useEffect(() => {
+    if (isPersonalScope && personalEmployeeName && selectedSale !== personalEmployeeName) {
+      setSelectedSale(personalEmployeeName);
+    }
+  }, [isPersonalScope, personalEmployeeName, selectedSale]);
 
   // Dropdown options
   const [options, setOptions] = useState<DealWinOptions>({ sales_persons: [], pages: [], sources: [] });
@@ -398,16 +410,22 @@ export function DealWinDashboard() {
           {/* Sale Filter */}
           <div className="flex flex-col gap-1 min-w-[170px]">
             <label className="text-xs font-medium text-[#4B5563]">Nhân viên Sale</label>
-            <select
-              value={selectedSale}
-              onChange={e => setSelectedSale(e.target.value)}
-              className="px-3 py-2 border border-[#E5E7EB] rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#1E5BD6]/20 focus:border-[#1E5BD6] transition-all text-[#111827] cursor-pointer font-medium"
-            >
-              <option value="">Tất cả Sale ({salesPersonsList.length})</option>
-              {salesPersonsList.map(sp => (
-                <option key={sp} value={sp}>{sp}</option>
-              ))}
-            </select>
+            {isPersonalScope ? (
+              <div className="px-3 py-2 border border-[#E5E7EB] bg-slate-50 rounded-xl text-sm text-[#111827] font-semibold truncate" title="Chỉ xem dữ liệu cá nhân">
+                {personalEmployeeName}
+              </div>
+            ) : (
+              <select
+                value={selectedSale}
+                onChange={e => setSelectedSale(e.target.value)}
+                className="px-3 py-2 border border-[#E5E7EB] rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#1E5BD6]/20 focus:border-[#1E5BD6] transition-all text-[#111827] cursor-pointer font-medium"
+              >
+                <option value="">Tất cả Sale ({salesPersonsList.length})</option>
+                {salesPersonsList.map(sp => (
+                  <option key={sp} value={sp}>{sp}</option>
+                ))}
+              </select>
+            )}
           </div>
 
           {/* Page Filter (Zalo Chăm Sóc) */}
@@ -488,16 +506,18 @@ export function DealWinDashboard() {
                 Cập nhật: {format(lastUpdated, 'HH:mm:ss')}
               </span>
             )}
-            <button
-              type="button"
-              onClick={handleSyncPancake}
-              disabled={syncingPancake || loadingSummary || loadingList}
-              className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-xl transition-colors disabled:opacity-50 border border-emerald-200 cursor-pointer"
-              title="Đồng bộ tag 'Đã là học viên' và nhân viên chăm sóc từ Pancake"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${syncingPancake ? 'animate-spin' : ''}`} aria-hidden="true" />
-              <span>{syncingPancake ? 'Đang đồng bộ...' : 'Đồng bộ Pancake'}</span>
-            </button>
+            {!isPersonalScope && (
+              <button
+                type="button"
+                onClick={handleSyncPancake}
+                disabled={syncingPancake || loadingSummary || loadingList}
+                className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-xl transition-colors disabled:opacity-50 border border-emerald-200 cursor-pointer"
+                title="Đồng bộ tag 'Đã là học viên' và nhân viên chăm sóc từ Pancake"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${syncingPancake ? 'animate-spin' : ''}`} aria-hidden="true" />
+                <span>{syncingPancake ? 'Đang đồng bộ...' : 'Đồng bộ Pancake'}</span>
+              </button>
+            )}
             <button
               type="button"
               onClick={handleRefresh}

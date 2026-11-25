@@ -37,8 +37,11 @@ from database.models import (
     Comment,
     SalesDeal,
     DealWin,
+    AppUser,
     get_vn_now,
 )
+from backend.auth import require_admin, require_tab_access
+from backend.rbac_config import get_module_scope, employee_matches_field
 from backend.lead_metrics import classify_leads, normalize_text
 from etl.utils import normalize_phone, resolve_canonical_page_name, build_pancake_url, zalo_page_keys
 
@@ -999,7 +1002,12 @@ def _fetch_live_pancake_notes(page_id_or_name: str, conv_id: str) -> List[Dict[s
     return []
 
 
-def _build_sale_phone_context(db: Session, raw_d: str, phone_filter_fn) -> Tuple[List[str], List[str]]:
+def _build_sale_phone_context(
+    db: Session,
+    raw_d: str,
+    phone_filter_fn,
+    scoped_emp: Optional[str] = None,
+) -> Tuple[List[str], List[str]]:
     """Đọc TOÀN BỘ hội thoại 1-1 trên TẤT CẢ các page (TikTok, FB, Zalo), Note của Admin, Comment và DealWin theo SĐT."""
     blocks: List[str] = []
     tools: List[str] = []
@@ -1014,6 +1022,29 @@ def _build_sale_phone_context(db: Session, raw_d: str, phone_filter_fn) -> Tuple
         )
         .all()
     )
+
+    if scoped_emp and leads:
+        # Cho phép xem nếu khách chưa phân công nhân viên ở bất kỳ page nào hoặc có ít nhất 1 hội thoại gắn với scoped_emp
+        has_own_or_unassigned = any(
+            (not act or not act.assigned_users or not act.assigned_users.strip() or act.assigned_users.strip().lower() == "chưa phân công")
+            or employee_matches_field(act.assigned_users, scoped_emp)
+            for _, act in leads
+        )
+        if not has_own_or_unassigned:
+            dw_own = db.query(DealWin.care_by).filter(phone_filter_fn(DealWin.phone_number, raw_d)).all()
+            sd_own = db.query(SalesDeal.nv_cs).filter(phone_filter_fn(SalesDeal.sdt, raw_d)).all()
+            if any(employee_matches_field(c, scoped_emp) for (c,) in dw_own + sd_own):
+                has_own_or_unassigned = True
+
+        if not has_own_or_unassigned:
+            return (
+                [
+                    f"[GIỚI HẠN PHẠM VI DỮ LIỆU CÁ NHÂN]\n"
+                    f"- Khách hàng có SĐT kết thúc bằng {digit_q} hiện đang thuộc phụ trách riêng của nhân sự khác.\n"
+                    f"- Tài khoản của bạn ({scoped_emp}) chỉ được phép tra cứu chi tiết lịch sử tin nhắn của khách hàng do mình phụ trách hoặc khách chưa phân công."
+                ],
+                [f"Chặn phạm vi dữ liệu SĐT ({digit_q})"],
+            )
 
     # Sắp xếp toàn bộ hồ sơ/hội thoại theo trình tự thời gian từ cũ đến mới
     def _row_sort_key(pair):
@@ -1312,7 +1343,12 @@ def _build_sale_phone_context(db: Session, raw_d: str, phone_filter_fn) -> Tuple
     return blocks, tools
 
 
-def build_live_data_context(db: Session, assistant_id: str, question: str) -> Tuple[str, List[str]]:
+def build_live_data_context(
+    db: Session,
+    assistant_id: str,
+    question: str,
+    scoped_emp: Optional[str] = None,
+) -> Tuple[str, List[str]]:
     """Trích xuất dữ liệu thực tế từ DB theo đúng trợ lý (Sale / Kế toán / Quy trình & SLA) mà không quét bảng thừa."""
     tools_used: List[str] = []
     context_blocks: List[str] = []
@@ -1347,7 +1383,7 @@ def build_live_data_context(db: Session, assistant_id: str, question: str) -> Tu
             try:
                 start_7d = (now_vn - timedelta(days=7)).replace(hour=0, minute=0, second=0, microsecond=0)
                 end_now = now_vn.replace(hour=23, minute=59, second=59, microsecond=999999)
-                leads_map = classify_leads(db, start_7d, end_now)
+                leads_map = classify_leads(db, start_7d, end_now, employee=scoped_emp)
                 new_leads = recontact_leads = new_phone = recontact_phone = 0
                 emp_counts: Dict[str, int] = {}
                 phone_emp_counts: Dict[str, int] = {}
@@ -1381,7 +1417,7 @@ def build_live_data_context(db: Session, assistant_id: str, question: str) -> Tu
                 logger.warning(f"Sale KPI tool error: {e}")
 
         if search_digits:
-            phone_blocks, phone_tools = _build_sale_phone_context(db, search_digits[0], _phone_filter)
+            phone_blocks, phone_tools = _build_sale_phone_context(db, search_digits[0], _phone_filter, scoped_emp=scoped_emp)
             context_blocks.extend(phone_blocks)
             tools_used.extend(phone_tools)
 
@@ -1392,18 +1428,25 @@ def build_live_data_context(db: Session, assistant_id: str, question: str) -> Tu
         )
         if wants_finance_stats:
             try:
-                totals = db.query(
+                sd_base = db.query(SalesDeal)
+                dw_base = db.query(DealWin)
+                if scoped_emp:
+                    sd_base = sd_base.filter(SalesDeal.nv_cs.ilike(f"%{scoped_emp}%"))
+                    dw_base = dw_base.filter(DealWin.care_by.ilike(f"%{scoped_emp}%"))
+
+                totals = sd_base.with_entities(
                     func.count(SalesDeal.id),
                     func.coalesce(func.sum(SalesDeal.tong_tien), 0),
                     func.coalesce(func.sum(SalesDeal.da_thu), 0),
                     func.coalesce(func.sum(SalesDeal.con_no), 0),
                 ).first()
-                deal_win_count = db.query(func.count(DealWin.id)).scalar() or 0
-                debt_count = db.query(func.count(SalesDeal.id)).filter(SalesDeal.con_no > 0).scalar() or 0
+                deal_win_count = dw_base.with_entities(func.count(DealWin.id)).scalar() or 0
+                debt_count = sd_base.filter(SalesDeal.con_no > 0).with_entities(func.count(SalesDeal.id)).scalar() or 0
+                scope_label = f"CỦA CÁ NHÂN {scoped_emp.upper()}" if scoped_emp else "TRÊN HỆ THỐNG"
                 if totals:
                     cnt, tong_tien, da_thu, con_no = totals
                     context_blocks.append(
-                        f"[TỔNG HỢP DOANH THU & CÔNG NỢ TRÊN HỆ THỐNG]\n"
+                        f"[TỔNG HỢP DOANH THU & CÔNG NỢ {scope_label}]\n"
                         f"- Tổng số học viên (Deal Win): {deal_win_count:,} học viên\n"
                         f"- Tổng số bản ghi Nhập Deal (sales_deals): {cnt:,} deal\n"
                         f"- Tổng học phí phải thu: {int(tong_tien):,} VNĐ\n"
@@ -1414,13 +1457,15 @@ def build_live_data_context(db: Session, assistant_id: str, question: str) -> Tu
 
                 if "no" in ascii_q or "chua dong" in ascii_q or "con no" in ascii_q or search_digits:
                     q_deals = db.query(SalesDeal)
+                    if scoped_emp:
+                        q_deals = q_deals.filter(SalesDeal.nv_cs.ilike(f"%{scoped_emp}%"))
                     if search_digits:
                         q_deals = q_deals.filter(_phone_filter(SalesDeal.sdt, search_digits[0]))
                     else:
                         q_deals = q_deals.filter(SalesDeal.con_no > 0)
                     top_deals = q_deals.order_by(desc(SalesDeal.con_no), desc(SalesDeal.id)).limit(8).all()
                     if top_deals:
-                        d_lines = ["[DANH SÁCH DEAL / CÔNG NỢ CHI TIẾT]"]
+                        d_lines = [f"[DANH SÁCH DEAL / CÔNG NỢ CHI TIẾT {scope_label}]"]
                         for d in top_deals:
                             d_lines.append(
                                 f"- Học viên: {d.ho_ten} | SĐT: {d.sdt} | Chương trình: {d.chuong_trinh or 'Chưa rõ'} | "
@@ -1451,9 +1496,23 @@ def build_live_data_context(db: Session, assistant_id: str, question: str) -> Tu
             )
         )
         if wants_dashboard_metrics:
-            dash_blocks, dash_tools = _build_quy_trinh_dashboard_context(db, question, ascii_q, now_vn)
-            context_blocks.extend(dash_blocks)
-            tools_used.extend(dash_tools)
+            if scoped_emp:
+                start_7d = (now_vn - timedelta(days=7)).replace(hour=0, minute=0, second=0, microsecond=0)
+                end_now = now_vn.replace(hour=23, minute=59, second=59, microsecond=999999)
+                emp_leads = classify_leads(db, start_7d, end_now, employee=scoped_emp)
+                n_new = sum(1 for ld in emp_leads.values() if ld.is_new)
+                n_rec = sum(1 for ld in emp_leads.values() if ld.is_recontact)
+                n_ph = sum(1 for ld in emp_leads.values() if ld.has_phone)
+                context_blocks.append(
+                    f"[SỐ LIỆU CÁ NHÂN 7 NGÀY QUA CỦA {scoped_emp.upper()} (Phạm vi dữ liệu cá nhân)]\n"
+                    f"- Tổng Lead phụ trách: {n_new + n_rec} (Mới: {n_new}, Contact lại: {n_rec})\n"
+                    f"- Số Lead có SĐT: {n_ph}"
+                )
+                tools_used.append(f"KPI Cá nhân ({scoped_emp})")
+            else:
+                dash_blocks, dash_tools = _build_quy_trinh_dashboard_context(db, question, ascii_q, now_vn)
+                context_blocks.extend(dash_blocks)
+                tools_used.extend(dash_tools)
 
     return "\n\n".join(context_blocks), tools_used
 
@@ -1603,7 +1662,7 @@ class ApiKeyConfigRequest(BaseModel):
 # ───────────────────────── API Routes ─────────────────────────
 
 
-@router.get("/assistants")
+@router.get("/assistants", dependencies=[Depends(require_tab_access("ai_assistant"))])
 def list_assistants(db: Session = Depends(get_db)):
     try:
         seed_default_knowledge_if_empty(db)
@@ -1639,7 +1698,7 @@ def list_assistants(db: Session = Depends(get_db)):
     }
 
 
-@router.get("/documents")
+@router.get("/documents", dependencies=[Depends(require_tab_access("ai_assistant"))])
 def list_documents(category: Optional[str] = Query(None), db: Session = Depends(get_db)):
     all_chunks = _load_knowledge_cache(db)
     docs_by_id: Dict[str, Dict[str, Any]] = {}
@@ -1662,7 +1721,7 @@ def list_documents(category: Optional[str] = Query(None), db: Session = Depends(
     return {"documents": list(docs_by_id.values())}
 
 
-@router.post("/documents")
+@router.post("/documents", dependencies=[Depends(require_admin)])
 def ingest_document(req: IngestDocumentRequest, db: Session = Depends(get_db)):
     if req.category not in ("sale", "ke_toan", "quy_trinh", "chung"):
         raise HTTPException(status_code=400, detail="Danh mục không hợp lệ (chọn sale, ke_toan, quy_trinh hoặc chung).")
@@ -1675,7 +1734,7 @@ def ingest_document(req: IngestDocumentRequest, db: Session = Depends(get_db)):
     return {"status": "ok", "chunks_added": added, "doc_name": req.doc_name}
 
 
-@router.post("/seed")
+@router.post("/seed", dependencies=[Depends(require_admin)])
 def seed_sample_documents(db: Session = Depends(get_db)):
     existing_names = {c["doc_name"] for c in _load_knowledge_cache(db)}
     to_add = [d for d in DEFAULT_SEED_DOCS if d["doc_name"] not in existing_names]
@@ -1685,7 +1744,7 @@ def seed_sample_documents(db: Session = Depends(get_db)):
     return {"status": "ok", "chunks_added": added, "message": f"Đã nạp thêm {len(to_add)} tài liệu mẫu ({added} đoạn)."}
 
 
-@router.delete("/documents/{doc_id}")
+@router.delete("/documents/{doc_id}", dependencies=[Depends(require_admin)])
 def delete_document(doc_id: str, db: Session = Depends(get_db)):
     deleted = db.query(KnowledgeChunk).filter(KnowledgeChunk.doc_id == doc_id).delete(synchronize_session=False)
     db.commit()
@@ -1693,7 +1752,7 @@ def delete_document(doc_id: str, db: Session = Depends(get_db)):
     return {"status": "ok", "deleted_chunks": deleted}
 
 
-@router.post("/config")
+@router.post("/config", dependencies=[Depends(require_admin)])
 def update_ai_config(req: ApiKeyConfigRequest, db: Session = Depends(get_db)):
     clean_key = req.api_key.strip()
     cfg = db.query(AppConfig).filter(AppConfig.config_key == "GEMINI_API_KEY").first()
@@ -1707,12 +1766,19 @@ def update_ai_config(req: ApiKeyConfigRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/chat")
-def chat_with_assistant(req: ChatRequest, db: Session = Depends(get_db)):
+def chat_with_assistant(
+    req: ChatRequest,
+    current_user: AppUser = Depends(require_tab_access("ai_assistant")),
+    db: Session = Depends(get_db),
+):
     assistant = AI_ASSISTANTS.get(req.assistant_id) or AI_ASSISTANTS["sale"]
     api_key = get_gemini_api_key(db)
 
+    is_personal = get_module_scope(current_user, "ai_assistant") == "personal"
+    scoped_emp = (current_user.full_name or current_user.username).strip() if is_personal else None
+
     # 1. Lấy dữ liệu trực tiếp từ hệ thống (KPI Lead, SĐT đa page + Note Admin, hoặc Công nợ Kế toán)
-    live_data_context, tools_used = build_live_data_context(db, assistant["id"], req.question)
+    live_data_context, tools_used = build_live_data_context(db, assistant["id"], req.question, scoped_emp=scoped_emp)
 
     # 2. Mở rộng câu truy vấn RAG bằng nội dung chẩn đoán nỗi đau / note Admin (nếu có) để bốc trúng kịch bản
     rag_query = req.question
@@ -2042,7 +2108,7 @@ def _trigger_daily_review_bg() -> bool:
     return True
 
 
-@router.get("/daily-review")
+@router.get("/daily-review", dependencies=[Depends(require_tab_access("overview"))])
 def get_daily_review(db: Session = Depends(get_db)):
     """Trả về bản AI Đánh giá hiệu suất hằng ngày mới nhất; tự động kích hoạt tạo mới 1 lần/ngày khi sang ngày mới."""
     now_vn = get_vn_now()
@@ -2065,7 +2131,7 @@ def get_daily_review(db: Session = Depends(get_db)):
     }
 
 
-@router.post("/daily-review/refresh")
+@router.post("/daily-review/refresh", dependencies=[Depends(require_tab_access("overview"))])
 def refresh_daily_review(db: Session = Depends(get_db)):
     """Ép AI đọc lại toàn bộ thông số Dashboard và cập nhật bản đánh giá mới ngay lập tức (dùng cho nút bấm hoặc cron API)."""
     global _DAILY_REVIEW_GENERATING

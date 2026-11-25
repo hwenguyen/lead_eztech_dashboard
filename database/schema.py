@@ -128,6 +128,15 @@ def _add_missing_columns():
             col_type = "JSONB" if engine.dialect.name == "postgresql" else "JSON"
             ddl_statements.append(f"ALTER TABLE btvn_answer_files ADD COLUMN {if_not_exists}queries_json {col_type}")
 
+    if "app_users" in table_names:
+        existing_users = {col["name"] for col in inspector.get_columns("app_users")}
+        if "department" not in existing_users:
+            ddl_statements.append(f"ALTER TABLE app_users ADD COLUMN {if_not_exists}department VARCHAR(100) DEFAULT 'Consultant'")
+            ddl_statements.append("UPDATE app_users SET department = 'Admin' WHERE role = 'admin'")
+        if "is_default_password" not in existing_users:
+            ddl_statements.append(f"ALTER TABLE app_users ADD COLUMN {if_not_exists}is_default_password BOOLEAN DEFAULT TRUE")
+            ddl_statements.append("UPDATE app_users SET is_default_password = FALSE WHERE role = 'admin'")
+
     if "btvn_students" in table_names:
         ddl_statements.append("DROP TABLE IF EXISTS btvn_students")
     if "btvn_classes" in table_names:

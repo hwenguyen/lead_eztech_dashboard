@@ -17,7 +17,7 @@ const NO_CACHE_SUBSTRINGS = [
   '/add-friend/history',
   '/admin/backfill/status',
   '/ai/',
-  '/auth/me',
+  '/auth/',
   '/health',
 ];
 
@@ -126,7 +126,17 @@ apiClient.get = (async (url: string, config?: any): Promise<any> => {
   const paramEntries = Object.entries(config?.params || {}).filter(([_, v]) => v !== undefined && v !== null);
   paramEntries.sort(([a], [b]) => a.localeCompare(b));
   const paramStr = paramEntries.map(([k, v]) => `${k}=${v}`).join('&');
-  const cacheKey = `${url}?${paramStr}`;
+  let userScopePrefix = 'anon';
+  try {
+    const rawU = localStorage.getItem('eztech_auth_user') || sessionStorage.getItem('eztech_auth_user');
+    if (rawU) {
+      const parsedU = JSON.parse(rawU);
+      if (parsedU?.username) userScopePrefix = String(parsedU.username);
+    }
+  } catch {
+    // ignore
+  }
+  const cacheKey = `${userScopePrefix}:${url}?${paramStr}`;
 
   if (shouldSkip) {
     const res = await originalGet(url, config);
@@ -761,7 +771,21 @@ export interface AuthUser {
   username: string;
   full_name?: string;
   role: string;
+  department?: string;
+  is_default_password?: boolean;
+  allowed_tabs?: string[];
+  default_tab?: string;
+  module_scopes?: Record<string, 'all' | 'personal'>;
+  scope_summary?: string;
   last_login_at?: string;
+}
+
+export interface EmployeeLoginOption {
+  id: number;
+  username: string;
+  full_name: string;
+  department: string;
+  role: string;
 }
 
 export interface LoginResponse {
@@ -771,7 +795,22 @@ export interface LoginResponse {
   user: AuthUser;
 }
 
-export const loginApi = async (username: string, password: string, rememberMe: boolean = false): Promise<LoginResponse> => {
+export const fetchLoginEmployees = async (): Promise<EmployeeLoginOption[]> => {
+  const res = await apiClient.get<EmployeeLoginOption[]>('/auth/employees');
+  return res.data;
+};
+
+export const updateStoredUser = (user: AuthUser): void => {
+  if (localStorage.getItem('eztech_auth_token')) {
+    localStorage.setItem('eztech_auth_user', JSON.stringify(user));
+  } else if (sessionStorage.getItem('eztech_auth_token')) {
+    sessionStorage.setItem('eztech_auth_user', JSON.stringify(user));
+  } else {
+    localStorage.setItem('eztech_auth_user', JSON.stringify(user));
+  }
+};
+
+export const loginApi = async (username: string, password: string, rememberMe: boolean = true): Promise<LoginResponse> => {
   const res = await apiClient.post<LoginResponse>('/auth/login', {
     username,
     password,
@@ -779,7 +818,7 @@ export const loginApi = async (username: string, password: string, rememberMe: b
   });
   const token = res.data.access_token;
   const user = res.data.user;
-  // Luôn dọn sạch token cũ ở cả hai storage để token cũ trong localStorage không ghi đè phiên đăng nhập mới
+  clearClientApiCache();
   localStorage.removeItem('eztech_auth_token');
   localStorage.removeItem('eztech_auth_user');
   sessionStorage.removeItem('eztech_auth_token');
@@ -791,6 +830,8 @@ export const loginApi = async (username: string, password: string, rememberMe: b
     sessionStorage.setItem('eztech_auth_token', token);
     sessionStorage.setItem('eztech_auth_user', JSON.stringify(user));
   }
+  // Ghi nhớ nhân viên đăng nhập gần nhất vào localStorage (giữ lại cả sau khi Logout)
+  localStorage.setItem('last_login_employee', user.username);
   return res.data;
 };
 
@@ -799,11 +840,19 @@ export const fetchCurrentUser = async (): Promise<AuthUser> => {
   return res.data;
 };
 
-export const changePasswordApi = async (oldPassword: string, newPassword: string): Promise<{ status: string; message: string }> => {
+export const changePasswordApi = async (
+  oldPassword: string,
+  newPassword: string,
+  confirmPassword?: string
+): Promise<{ status: string; message: string; user?: AuthUser }> => {
   const res = await apiClient.post('/auth/change-password', {
     old_password: oldPassword,
-    new_password: newPassword
+    new_password: newPassword,
+    confirm_password: confirmPassword ?? newPassword,
   });
+  if (res.data?.user) {
+    updateStoredUser(res.data.user);
+  }
   return res.data;
 };
 
@@ -813,11 +862,44 @@ export const logoutApi = async (): Promise<void> => {
   } catch (e) {
     // ignore
   } finally {
+    clearClientApiCache();
     localStorage.removeItem('eztech_auth_token');
     sessionStorage.removeItem('eztech_auth_token');
     localStorage.removeItem('eztech_auth_user');
     sessionStorage.removeItem('eztech_auth_user');
   }
+};
+
+export const fetchAdminUsers = async (): Promise<AuthUser[]> => {
+  const res = await apiClient.get<AuthUser[]>('/auth/users');
+  return res.data;
+};
+
+export const createAdminUser = async (payload: {
+  full_name: string;
+  department: string;
+  password?: string;
+}): Promise<AuthUser> => {
+  const res = await apiClient.post<AuthUser>('/auth/users', payload);
+  return res.data;
+};
+
+export const updateAdminUser = async (
+  userId: number,
+  payload: { full_name?: string; department?: string; reset_password?: boolean }
+): Promise<AuthUser> => {
+  const res = await apiClient.put<AuthUser>(`/auth/users/${userId}`, payload);
+  return res.data;
+};
+
+export const deleteAdminUser = async (userId: number): Promise<{ status: string; message: string }> => {
+  const res = await apiClient.delete(`/auth/users/${userId}`);
+  return res.data;
+};
+
+export const syncAdminUsersFromDb = async (): Promise<{ status: string; added_count: number; message: string }> => {
+  const res = await apiClient.post('/auth/users/sync-from-db');
+  return res.data;
 };
 
 export const getStoredAuth = (): { token: string | null; user: AuthUser | null } => {

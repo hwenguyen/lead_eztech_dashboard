@@ -32,6 +32,7 @@ import {
   type DealAuditLogItem,
   type DealSheetSyncConfig,
 } from '../services/api';
+import { getTabDataScope } from '../config/permissions';
 import { toSafeHttpUrl, copyToClipboard } from '../utils/format';
 import { showAppToast } from '../utils/toast';
 import { AccessibleModal } from './AccessibleModal';
@@ -114,7 +115,8 @@ const resolveMatchingZaloCS = (raw: string | string[] | undefined | null, availa
 
 export function AppScriptTool() {
   const currentUser = getStoredAuth().user;
-  const actorName = currentUser?.username || 'admin';
+  const isPersonalScope = getTabDataScope(currentUser, 'gas_tool') === 'personal';
+  const actorName = (currentUser?.full_name || currentUser?.username || 'admin').trim();
 
   const [subTab, setSubTab] = useState<'deals' | 'debts' | 'lists' | 'logs'>('deals');
   const [loading, setLoading] = useState<boolean>(true);
@@ -1123,18 +1125,20 @@ export function AppScriptTool() {
               )}
             </div>
 
-            <button
-              type="button"
-              aria-pressed={subTab === 'lists'}
-              onClick={() => setSubTab('lists')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                subTab === 'lists'
-                  ? 'bg-white text-navy shadow-sm'
-                  : 'text-slate-600 hover:text-navy'
-              }`}
-            >
-              Danh mục
-            </button>
+            {!isPersonalScope && (
+              <button
+                type="button"
+                aria-pressed={subTab === 'lists'}
+                onClick={() => setSubTab('lists')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                  subTab === 'lists'
+                    ? 'bg-white text-navy shadow-sm'
+                    : 'text-slate-600 hover:text-navy'
+                }`}
+              >
+                Danh mục
+              </button>
+            )}
 
             <button
               type="button"
@@ -1282,29 +1286,40 @@ export function AppScriptTool() {
               </div>
 
               <div className="flex items-center gap-1.5">
-                <select
-                  aria-label="Lọc theo nhân viên chăm sóc"
-                  value={filterSale}
-                  onChange={(e) => setFilterSale(e.target.value)}
-                  className="px-3 py-1.5 text-xs font-medium border border-slate-300 rounded-lg bg-white text-navy focus:outline-none focus:ring-2 focus:ring-eztech/20 focus:border-eztech cursor-pointer min-w-[200px]"
-                >
-                  <option value="">Tất cả NV CS ({distinctSales.length} nhân viên)</option>
-                  {distinctSales.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
-                </select>
-                {filterSale && (
-                  <button
-                    type="button"
-                    onClick={() => setFilterSale('')}
-                    aria-label="Bỏ chọn lọc nhân viên chăm sóc"
-                    className="p-1 text-slate-400 hover:text-slate-600 rounded cursor-pointer"
-                    title="Bỏ chọn lọc NV CS"
+                {isPersonalScope ? (
+                  <div
+                    className="px-3 py-1.5 text-xs font-semibold border border-slate-200 rounded-lg bg-slate-50 text-navy"
+                    title="Tài khoản chỉ xem và thao tác trên dữ liệu cá nhân"
                   >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
+                    NV CS: {actorName}
+                  </div>
+                ) : (
+                  <>
+                    <select
+                      aria-label="Lọc theo nhân viên chăm sóc"
+                      value={filterSale}
+                      onChange={(e) => setFilterSale(e.target.value)}
+                      className="px-3 py-1.5 text-xs font-medium border border-slate-300 rounded-lg bg-white text-navy focus:outline-none focus:ring-2 focus:ring-eztech/20 focus:border-eztech cursor-pointer min-w-[200px]"
+                    >
+                      <option value="">Tất cả NV CS ({distinctSales.length} nhân viên)</option>
+                      {distinctSales.map((s) => (
+                        <option key={s} value={s}>
+                          {s}
+                        </option>
+                      ))}
+                    </select>
+                    {filterSale && (
+                      <button
+                        type="button"
+                        onClick={() => setFilterSale('')}
+                        aria-label="Bỏ chọn lọc nhân viên chăm sóc"
+                        className="p-1 text-slate-400 hover:text-slate-600 rounded cursor-pointer"
+                        title="Bỏ chọn lọc NV CS"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </>
                 )}
               </div>
 
@@ -2384,9 +2399,14 @@ export function AppScriptTool() {
                   id="deal-nvcs"
                   type="text"
                   value={formNvCS}
-                  onChange={(e) => setFormNvCS(e.target.value)}
+                  readOnly={isPersonalScope}
+                  onChange={(e) => {
+                    if (!isPersonalScope) setFormNvCS(e.target.value);
+                  }}
                   placeholder="Tên nhân viên sale..."
-                  className="w-full px-3 py-2 text-xs bg-white text-navy border border-slate-200 rounded-lg"
+                  className={`w-full px-3 py-2 text-xs text-navy border border-slate-200 rounded-lg ${
+                    isPersonalScope ? 'bg-slate-100 font-semibold cursor-not-allowed' : 'bg-white'
+                  }`}
                 />
               </div>
 

@@ -2,9 +2,9 @@ import { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense } fro
 import { format } from 'date-fns';
 import {
   Users, UserPlus, UserCheck, PhoneCall, PhoneForwarded, Percent, Calendar,
-  RefreshCw, LayoutDashboard, Clock, Award, Bot, LogOut, KeyRound, Lock,
+  RefreshCw, LayoutDashboard, Clock, Award, Bot, LogOut, KeyRound,
   Menu, X, Sparkles, Facebook, FileSpreadsheet, Receipt, ExternalLink,
-  Wallet, Database, CheckCircle2
+  Wallet, Database, CheckCircle2, User, ChevronDown
 } from 'lucide-react';
 import { KpiCard } from './components/KpiCard';
 import { TrendChart } from './components/TrendChart';
@@ -15,13 +15,20 @@ import { ThemeToggle } from './components/ThemeToggle';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ErrorBanner } from './components/ErrorBanner';
 import { ToastHost } from './components/ToastHost';
+import { LoginPage } from './components/LoginPage';
 import { getVnTodayStr } from './utils/format';
 import { showAppToast } from './utils/toast';
 import {
   fetchSummary, fetchTrend, fetchLeads, fetchEmployees, fetchPages,
+  fetchCurrentUser, updateStoredUser,
   getStoredAuth, logoutApi, clearClientApiCache, isAbortError,
   type SummaryData, type TrendData, type Lead, type AuthUser, type OverviewCrossFilters
 } from './services/api';
+import {
+  canAccessTab,
+  getEffectivePermissions,
+  type AppTabId,
+} from './config/permissions';
 
 // Code-splitting: tải lười các tab phụ, card AI & modal giúp giảm mạnh bundle JS khởi đầu
 const FacebookDashboard = lazy(() => import('./components/FacebookDashboard').then((m) => ({ default: m.FacebookDashboard })));
@@ -36,7 +43,7 @@ const AiAssistantDashboard = lazy(() => import('./components/AiAssistantDashboar
 const AiDailyReviewCard = lazy(() => import('./components/AiDailyReviewCard').then((m) => ({ default: m.AiDailyReviewCard })));
 const BtvnGraderDashboard = lazy(() => import('./components/BtvnGraderDashboard').then((m) => ({ default: m.BtvnGraderDashboard })));
 const DataExportDashboard = lazy(() => import('./components/DataExportDashboard').then((m) => ({ default: m.DataExportDashboard })));
-const LoginPage = lazy(() => import('./components/LoginPage').then((m) => ({ default: m.LoginPage })));
+const ProfilePage = lazy(() => import('./components/ProfilePage').then((m) => ({ default: m.ProfilePage })));
 const ChangePasswordModal = lazy(() => import('./components/ChangePasswordModal').then((m) => ({ default: m.ChangePasswordModal })));
 
 const INVOICE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbywN2OeDtwsqXNW3Z-2j5KJ147auCNsZF6epEoWxzKK1QLO0JQvYYuXTiJWhXlXBm5h/exec';
@@ -47,25 +54,12 @@ const TAG_PIE_COLOR_MAP: Record<string, string> = {
   'Other': '#F5B400',
 };
 
-type TabId =
-  | 'overview'
-  | 'facebook'
-  | 'tiktok'
-  | 'work_report'
-  | 'remind'
-  | 'deals'
-  | 'bot'
-  | 'data_export'
-  | 'add_friend'
-  | 'gas_tool'
-  | 'invoice'
-  | 'ai_assistant'
-  | 'btvn_grader';
+type TabId = AppTabId | 'profile';
 
 const VALID_TABS = new Set<TabId>([
   'overview', 'facebook', 'tiktok', 'work_report', 'remind',
   'deals', 'bot', 'data_export', 'add_friend', 'gas_tool',
-  'invoice', 'ai_assistant', 'btvn_grader',
+  'invoice', 'ai_assistant', 'btvn_grader', 'profile',
 ]);
 
 const TAB_TITLES: Record<TabId, string> = {
@@ -82,12 +76,24 @@ const TAB_TITLES: Record<TabId, string> = {
   invoice: 'Xuất Hoá Đơn Điện Tử',
   ai_assistant: 'Trợ Lý AI Nội Bộ (RAG + API)',
   btvn_grader: 'Chấm BTVN Power BI / Power Query (Gemini AI)',
+  profile: 'Thông Tin Cá Nhân & Phân Quyền',
 };
 
-function readTabFromHash(): TabId {
-  if (typeof window === 'undefined') return 'overview';
-  const raw = window.location.hash.replace(/^#\/?/, '') as TabId;
-  return VALID_TABS.has(raw) ? raw : 'overview';
+function readTabFromLocation(defaultTab: AppTabId = 'overview'): { tab: TabId; isLoginPath: boolean; isRoot: boolean } {
+  if (typeof window === 'undefined') return { tab: defaultTab, isLoginPath: false, isRoot: true };
+  const cleanPath = window.location.pathname.replace(/^\/+|\/+$/g, '') as string;
+  const cleanHash = window.location.hash.replace(/^#\/?/, '') as string;
+
+  if (cleanPath === 'login' || cleanHash === 'login') {
+    return { tab: defaultTab, isLoginPath: true, isRoot: false };
+  }
+  if (cleanPath && VALID_TABS.has(cleanPath as TabId)) {
+    return { tab: cleanPath as TabId, isLoginPath: false, isRoot: false };
+  }
+  if (cleanHash && VALID_TABS.has(cleanHash as TabId)) {
+    return { tab: cleanHash as TabId, isLoginPath: false, isRoot: false };
+  }
+  return { tab: defaultTab, isLoginPath: false, isRoot: !cleanPath && !cleanHash };
 }
 
 function SidebarTikTokIcon({ className = 'w-4 h-4' }: { className?: string }) {
@@ -128,8 +134,20 @@ function App() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => !!getStoredAuth().token);
   const [showChangePw, setShowChangePw] = useState<boolean>(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
+  const [isProfileMenuOpen, setIsProfileMenuOpen] = useState<boolean>(false);
+  const profileMenuRef = useRef<HTMLDivElement | null>(null);
 
-  const [activeTab, setActiveTabState] = useState<TabId>(readTabFromHash);
+  const userPerms = useMemo(() => getEffectivePermissions(currentUser), [currentUser]);
+
+  const [activeTab, setActiveTabState] = useState<TabId>(() => {
+    const initialUser = getStoredAuth().user;
+    const defTab = getEffectivePermissions(initialUser).defaultTab;
+    const parsed = readTabFromLocation(defTab);
+    if (initialUser && parsed.tab !== 'profile' && !canAccessTab(initialUser, parsed.tab)) {
+      return defTab;
+    }
+    return parsed.tab;
+  });
   const [startDate, setStartDate] = useState(() => getVnTodayStr(-7));
   const [endDate, setEndDate] = useState(() => getVnTodayStr(0));
   const [pageId, setPageId] = useState('');
@@ -207,58 +225,156 @@ function App() {
   }, [pageId, employee]);
 
   const setActiveTab = useCallback((nextTab: TabId) => {
-    setActiveTabState(nextTab);
+    const targetTab: TabId =
+      nextTab !== 'profile' && currentUser && !canAccessTab(currentUser, nextTab)
+        ? userPerms.defaultTab
+        : nextTab;
+    setActiveTabState(targetTab);
+    setIsProfileMenuOpen(false);
     if (typeof window !== 'undefined') {
-      const targetHash = `#${nextTab}`;
-      if (window.location.hash !== targetHash) {
-        window.history.pushState(null, '', targetHash);
+      const targetUrl = `/${targetTab}`;
+      if (window.location.pathname !== targetUrl || window.location.hash) {
+        window.history.pushState(null, '', targetUrl);
       }
     }
-  }, []);
+  }, [currentUser, userPerms.defaultTab]);
 
-  // Đồng bộ URL hash (back/forward & F5 giữ nguyên tab) và cập nhật document.title
+  // Route Guard: chưa đăng nhập -> /login; đã đăng nhập ở /login, / hoặc trang không có quyền -> tự động chuyển về defaultTab
   useEffect(() => {
-    const onHashChange = () => setActiveTabState(readTabFromHash());
-    window.addEventListener('hashchange', onHashChange);
-    return () => window.removeEventListener('hashchange', onHashChange);
-  }, []);
+    if (typeof window === 'undefined') return;
+    if (!isAuthenticated) {
+      if (window.location.pathname !== '/login') {
+        window.history.replaceState(null, '', '/login');
+      }
+      document.title = 'Đăng Nhập Hệ Thống | EzTech Lead Analytics';
+      return;
+    }
+
+    const parsed = readTabFromLocation(userPerms.defaultTab);
+    const isUnauthorized =
+      parsed.tab !== 'profile' && currentUser && !canAccessTab(currentUser, parsed.tab);
+    if (parsed.isLoginPath || parsed.isRoot || isUnauthorized) {
+      const targetTab = userPerms.defaultTab;
+      setActiveTabState(targetTab);
+      window.history.replaceState(null, '', `/${targetTab}`);
+    }
+  }, [isAuthenticated, currentUser, userPerms.defaultTab]);
+
+  // Xác thực & đồng bộ lại thông tin user + quyền mới nhất từ server khi reload trang
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    let cancelled = false;
+    fetchCurrentUser()
+      .then((freshUser) => {
+        if (cancelled) return;
+        setCurrentUser(freshUser);
+        updateStoredUser(freshUser);
+      })
+      .catch(() => {
+        // Nếu 401 thì interceptor đã tự kích hoạt auth_unauthorized
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated]);
+
+  // Đồng bộ URL khi người dùng bấm Back/Forward trên trình duyệt
+  useEffect(() => {
+    const syncFromUrl = () => {
+      if (!isAuthenticated) return;
+      const parsed = readTabFromLocation(userPerms.defaultTab);
+      const isUnauthorized =
+        parsed.tab !== 'profile' && currentUser && !canAccessTab(currentUser, parsed.tab);
+      if (parsed.isLoginPath || isUnauthorized) {
+        window.history.replaceState(null, '', `/${userPerms.defaultTab}`);
+        setActiveTabState(userPerms.defaultTab);
+      } else {
+        setActiveTabState(parsed.tab);
+      }
+    };
+    window.addEventListener('popstate', syncFromUrl);
+    window.addEventListener('hashchange', syncFromUrl);
+    return () => {
+      window.removeEventListener('popstate', syncFromUrl);
+      window.removeEventListener('hashchange', syncFromUrl);
+    };
+  }, [isAuthenticated, currentUser, userPerms.defaultTab]);
+
+  // Đóng dropdown cá nhân góc phải trên khi click ra ngoài
+  useEffect(() => {
+    if (!isProfileMenuOpen) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (profileMenuRef.current && !profileMenuRef.current.contains(e.target as Node)) {
+        setIsProfileMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [isProfileMenuOpen]);
 
   useEffect(() => {
+    if (!isAuthenticated) return;
     document.title = `${TAB_TITLES[activeTab]} | EzTech Lead Analytics`;
-  }, [activeTab]);
+  }, [activeTab, isAuthenticated]);
 
   // Đóng mobile drawer bằng phím Escape
   useEffect(() => {
-    if (!isSidebarOpen) return;
+    if (!isSidebarOpen && !isProfileMenuOpen) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setIsSidebarOpen(false);
+      if (e.key === 'Escape') {
+        setIsSidebarOpen(false);
+        setIsProfileMenuOpen(false);
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [isSidebarOpen]);
+  }, [isSidebarOpen, isProfileMenuOpen]);
 
   useEffect(() => {
     const onUnauthorized = () => {
       setIsAuthenticated(false);
       setCurrentUser(null);
+      setIsProfileMenuOpen(false);
+      pagesLoadedRef.current = false;
+      if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+        window.history.replaceState(null, '', '/login');
+      }
       showAppToast('Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại.', 'warning');
     };
     window.addEventListener('auth_unauthorized', onUnauthorized);
     return () => window.removeEventListener('auth_unauthorized', onUnauthorized);
   }, []);
 
-  const handleLogout = async () => {
-    if (window.confirm('Bạn có chắc chắn muốn đăng xuất không?')) {
-      await logoutApi();
-      setIsAuthenticated(false);
-      setCurrentUser(null);
-      showAppToast('Đã đăng xuất tài khoản.', 'info');
+  const handleLoginSuccess = useCallback((loggedUser: AuthUser) => {
+    const perms = getEffectivePermissions(loggedUser);
+    pagesLoadedRef.current = false;
+    setCurrentUser(loggedUser);
+    setIsAuthenticated(true);
+    setActiveTabState(perms.defaultTab);
+    if (typeof window !== 'undefined') {
+      window.history.replaceState(null, '', `/${perms.defaultTab}`);
     }
+    showAppToast(`Xin chào ${loggedUser.full_name || loggedUser.username}!`, 'success');
+  }, []);
+
+  const handleLogout = async () => {
+    setIsProfileMenuOpen(false);
+    await logoutApi();
+    pagesLoadedRef.current = false;
+    setIsAuthenticated(false);
+    setCurrentUser(null);
+    if (typeof window !== 'undefined') {
+      window.history.replaceState(null, '', '/login');
+    }
+    showAppToast('Đã đăng xuất tài khoản.', 'info');
   };
 
-  // Chỉ tải danh sách pages khi đang ở tab cần dùng (overview hoặc remind)
+  // Chỉ tải danh sách pages khi đã đăng nhập và đang ở tab có quyền cần dùng (overview hoặc remind)
   useEffect(() => {
-    if ((activeTab !== 'overview' && activeTab !== 'remind') || pagesLoadedRef.current) return;
+    if (!isAuthenticated || pagesLoadedRef.current) return;
+    const allowedOverview = activeTab === 'overview' && canAccessTab(currentUser, 'overview');
+    const allowedRemind = activeTab === 'remind' && canAccessTab(currentUser, 'remind');
+    if (!allowedOverview && !allowedRemind) return;
     let cancelled = false;
     fetchPages()
       .then((pgRes) => {
@@ -273,7 +389,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [activeTab]);
+  }, [activeTab, isAuthenticated, currentUser]);
 
   const loadEmployees = useCallback(
     async (opts?: { skipCache?: boolean }) => {
@@ -363,30 +479,32 @@ function App() {
     [startDate, endDate, pageId, employee, crossFilters]
   );
 
-  // Chỉ fetch Tổng quan khi người dùng đang xem tab Tổng quan
+  // Chỉ fetch Tổng quan khi người dùng đã đăng nhập và có quyền xem tab Tổng quan
+  const canViewOverview = isAuthenticated && canAccessTab(currentUser, 'overview');
+
   useEffect(() => {
-    if (activeTab !== 'overview') return;
+    if (activeTab !== 'overview' || !canViewOverview) return;
     loadEmployees();
     return () => {
       employeesAbortRef.current?.abort();
     };
-  }, [activeTab, loadEmployees]);
+  }, [activeTab, canViewOverview, loadEmployees]);
 
   useEffect(() => {
-    if (activeTab !== 'overview') return;
+    if (activeTab !== 'overview' || !canViewOverview) return;
     loadTrendData();
     return () => {
       trendAbortRef.current?.abort();
     };
-  }, [activeTab, loadTrendData]);
+  }, [activeTab, canViewOverview, loadTrendData]);
 
   useEffect(() => {
-    if (activeTab !== 'overview') return;
+    if (activeTab !== 'overview' || !canViewOverview) return;
     loadSummaryAndLeads();
     return () => {
       summaryAbortRef.current?.abort();
     };
-  }, [activeTab, loadSummaryAndLeads]);
+  }, [activeTab, canViewOverview, loadSummaryAndLeads]);
 
   const handleRefreshOverview = () => {
     clearClientApiCache('/metrics/');
@@ -474,6 +592,29 @@ function App() {
   const newPhoneCmp = buildPeriodComparison(newPhoneCount, prevPeriod?.new_phone_leads);
   const recontactPhoneCmp = buildPeriodComparison(recontactPhoneCount, prevPeriod?.recontact_phone_leads);
 
+  const visibleNavItems = useMemo(
+    () => NAV_ITEMS.filter((item) => canAccessTab(currentUser, item.id)),
+    [currentUser]
+  );
+
+  // Luôn ánh xạ về tab hợp lệ nếu activeTab không nằm trong danh sách được cấp quyền
+  const effectiveTab: TabId =
+    activeTab === 'profile' || canAccessTab(currentUser, activeTab)
+      ? activeTab
+      : userPerms.defaultTab;
+
+  // Bảo vệ toàn trang: nếu chưa đăng nhập -> hiển thị ngay trang Login (/login)
+  if (!isAuthenticated || !currentUser) {
+    return (
+      <>
+        <LoginPage onLoginSuccess={handleLoginSuccess} />
+        <ToastHost />
+      </>
+    );
+  }
+
+  const displayName = currentUser.full_name || currentUser.username;
+
   return (
     <div className="min-h-screen bg-bg-page text-foreground flex">
       <a
@@ -530,9 +671,9 @@ function App() {
             Không gian làm việc
           </p>
 
-          {NAV_ITEMS.map((item) => {
+          {visibleNavItems.map((item) => {
             const Icon = item.icon;
-            const isActive = activeTab === item.id;
+            const isActive = effectiveTab === item.id;
             return (
               <button
                 key={item.id}
@@ -573,50 +714,48 @@ function App() {
           })}
         </nav>
 
-        {/* Bottom User Profile Section in Sidebar */}
+        {/* Bottom User Summary in Sidebar */}
         <div className="p-3 border-t border-slate-100 bg-slate-50/50">
-          {isAuthenticated ? (
-            <div className="p-2.5 bg-white border border-slate-200/80 rounded-xl shadow-card space-y-2">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-lg bg-navy text-gold text-xs font-bold flex items-center justify-center uppercase shrink-0">
-                  {(currentUser?.username || 'A').slice(0, 2)}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <span className="block text-xs font-semibold text-navy truncate">
-                    {currentUser?.username || 'admin'}
-                  </span>
-                </div>
-              </div>
-              <div className="flex items-center gap-1.5 pt-1.5 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setShowChangePw(true)}
-                  className="flex-1 py-1.5 px-2 text-[11px] font-medium text-slate-600 hover:text-eztech hover:bg-eztech-light rounded-lg flex items-center justify-center gap-1 transition-colors cursor-pointer"
-                >
-                  <KeyRound className="w-3.5 h-3.5" aria-hidden="true" />
-                  <span>Đổi mật khẩu</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={handleLogout}
-                  aria-label="Đăng xuất"
-                  title="Đăng xuất"
-                  className="py-1.5 px-2 text-[11px] font-medium text-rose-600 hover:bg-rose-50 rounded-lg flex items-center justify-center gap-1 transition-colors cursor-pointer"
-                >
-                  <LogOut className="w-3.5 h-3.5" aria-hidden="true" />
-                </button>
-              </div>
-            </div>
-          ) : (
+          <div className="p-2.5 bg-white border border-slate-200/80 rounded-xl shadow-card space-y-2">
             <button
               type="button"
-              onClick={() => { setActiveTab('bot'); setIsSidebarOpen(false); }}
-              className="w-full py-2 px-3 bg-white hover:bg-eztech-light text-navy hover:text-eztech border border-slate-200/90 hover:border-eztech-border rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition-all shadow-card cursor-pointer"
+              onClick={() => {
+                setActiveTab('profile');
+                setIsSidebarOpen(false);
+              }}
+              className="w-full flex items-center gap-2.5 text-left hover:opacity-90 transition-opacity cursor-pointer"
             >
-              <Lock className="w-3.5 h-3.5 text-eztech" aria-hidden="true" />
-              <span>Đăng nhập Bot</span>
+              <div className="w-8 h-8 rounded-lg bg-navy text-gold text-xs font-bold flex items-center justify-center uppercase shrink-0">
+                {displayName.slice(0, 2)}
+              </div>
+              <div className="flex-1 min-w-0">
+                <span className="block text-xs font-semibold text-navy truncate">{displayName}</span>
+                <span className="block text-[10px] font-medium text-slate-500 truncate">{userPerms.department}</span>
+              </div>
             </button>
-          )}
+            <div className="flex items-center gap-1.5 pt-1.5 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab('profile');
+                  setIsSidebarOpen(false);
+                }}
+                className="flex-1 py-1.5 px-2 text-[11px] font-medium text-slate-600 hover:text-eztech hover:bg-eztech-light rounded-lg flex items-center justify-center gap-1 transition-colors cursor-pointer"
+              >
+                <User className="w-3.5 h-3.5" aria-hidden="true" />
+                <span>Trang cá nhân</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleLogout}
+                aria-label="Đăng xuất"
+                title="Đăng xuất"
+                className="py-1.5 px-2 text-[11px] font-medium text-rose-600 hover:bg-rose-50 rounded-lg flex items-center justify-center gap-1 transition-colors cursor-pointer"
+              >
+                <LogOut className="w-3.5 h-3.5" aria-hidden="true" />
+              </button>
+            </div>
+          </div>
         </div>
       </aside>
 
@@ -637,85 +776,150 @@ function App() {
                 <Menu className="w-5 h-5" aria-hidden="true" />
               </button>
               <div className="flex items-baseline gap-2.5 min-w-0">
-                <h1 key={activeTab} className="ez-title-in text-base sm:text-lg font-bold text-navy tracking-tight truncate">
-                  {TAB_TITLES[activeTab]}
+                <h1 key={effectiveTab} className="ez-title-in text-base sm:text-lg font-bold text-navy tracking-tight truncate">
+                  {TAB_TITLES[effectiveTab]}
                 </h1>
               </div>
             </div>
 
-            {/* Right: Last updated (Overview only), Theme Toggle & Refresh (Overview only) */}
+            {/* Right: Overview refresh + Theme Toggle + User Profile Menu (Top-Right) */}
             <div className="flex items-center gap-2.5 shrink-0">
-              {activeTab === 'overview' && lastUpdated && (
-                <span className="text-[11px] font-mono text-slate-400 hidden sm:inline-block tabular-nums">
+              {activeTab === 'overview' && canViewOverview && lastUpdated && (
+                <span className="text-[11px] font-mono text-slate-400 hidden md:inline-block tabular-nums">
                   Cập nhật {format(lastUpdated, 'HH:mm')}
                 </span>
               )}
               <ThemeToggle />
-              {activeTab === 'overview' && (
+              {activeTab === 'overview' && canViewOverview && (
                 <button
                   type="button"
                   onClick={handleRefreshOverview}
                   disabled={loading}
-                  className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold bg-white hover:bg-brand-50 rounded-xl transition-all border border-slate-200/90 hover:border-brand-300 text-navy hover:text-brand-600 shadow-sm disabled:opacity-50 cursor-pointer active:scale-[0.97]"
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-white hover:bg-brand-50 rounded-xl transition-all border border-slate-200/90 hover:border-brand-300 text-navy hover:text-brand-600 shadow-sm disabled:opacity-50 cursor-pointer active:scale-[0.97]"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 text-brand-500 ${loading ? 'animate-spin' : ''}`} aria-hidden="true" />
                   <span className="hidden sm:inline">Làm mới</span>
                 </button>
               )}
+
+              {/* Cụm Avatar + Tên nhân viên + Badge Phòng ban góc trên bên phải */}
+              <div className="relative" ref={profileMenuRef}>
+                <button
+                  type="button"
+                  onClick={() => setIsProfileMenuOpen((prev) => !prev)}
+                  aria-expanded={isProfileMenuOpen}
+                  aria-haspopup="menu"
+                  className="flex items-center gap-2 pl-2 pr-2.5 py-1.5 bg-white hover:bg-slate-50 border border-slate-200/90 rounded-xl shadow-xs transition-all cursor-pointer"
+                >
+                  <div className="w-7 h-7 rounded-lg gradient-brand text-gold-400 text-[11px] font-bold flex items-center justify-center uppercase shrink-0">
+                    {displayName.slice(0, 2)}
+                  </div>
+                  <div className="hidden sm:flex items-center gap-2 max-w-[220px]">
+                    <span className="text-xs font-semibold text-navy truncate">{displayName}</span>
+                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border shrink-0 ${userPerms.badgeClass}`}>
+                      {userPerms.department}
+                    </span>
+                  </div>
+                  <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform ${isProfileMenuOpen ? 'rotate-180' : ''}`} />
+                </button>
+
+                {isProfileMenuOpen && (
+                  <div
+                    role="menu"
+                    className="absolute right-0 mt-2 w-64 bg-white rounded-2xl border border-slate-200 shadow-2xl py-2 z-50 divide-y divide-slate-100"
+                  >
+                    <div className="px-4 py-2.5">
+                      <p className="text-xs font-bold text-navy truncate">{displayName}</p>
+                      <div className="flex items-center gap-1.5 mt-1">
+                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${userPerms.badgeClass}`}>
+                          {userPerms.department}
+                        </span>
+                        <span className="text-[11px] font-mono text-slate-400">
+                          NV-{String(currentUser.id).padStart(3, '0')}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="py-1">
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => setActiveTab('profile')}
+                        className="w-full px-4 py-2 text-left text-xs font-medium text-slate-700 hover:bg-brand-50 hover:text-brand-600 flex items-center gap-2.5 transition-colors cursor-pointer"
+                      >
+                        <User className="w-4 h-4 text-brand-500" />
+                        <span>Trang cá nhân & Quyền hạn</span>
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setIsProfileMenuOpen(false);
+                          setShowChangePw(true);
+                        }}
+                        className="w-full px-4 py-2 text-left text-xs font-medium text-slate-700 hover:bg-brand-50 hover:text-brand-600 flex items-center gap-2.5 transition-colors cursor-pointer"
+                      >
+                        <KeyRound className="w-4 h-4 text-slate-400" />
+                        <span>Đổi mật khẩu nhanh</span>
+                      </button>
+                    </div>
+
+                    <div className="pt-1">
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={handleLogout}
+                        className="w-full px-4 py-2 text-left text-xs font-semibold text-rose-600 hover:bg-rose-50 flex items-center gap-2.5 transition-colors cursor-pointer"
+                      >
+                        <LogOut className="w-4 h-4" />
+                        <span>Đăng xuất</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </header>
 
         {/* Content Body */}
         <main id="main-content" tabIndex={-1} className="flex-1 px-4 sm:px-6 lg:px-8 py-5 max-w-[1440px] w-full mx-auto focus:outline-none">
-          <div key={activeTab} className="ez-page-stage space-y-4">
-            <ErrorBoundary resetKey={activeTab}>
+          <div key={effectiveTab} className="ez-page-stage space-y-4">
+            <ErrorBoundary resetKey={effectiveTab}>
               <Suspense fallback={<TabLoadingFallback />}>
-                {activeTab === 'facebook' ? (
+                {effectiveTab === 'profile' ? (
+                  <ProfilePage
+                    user={currentUser}
+                    onUserUpdated={(u) => {
+                      setCurrentUser(u);
+                      updateStoredUser(u);
+                    }}
+                    onNavigateTab={(t) => setActiveTab(t)}
+                    onLogout={handleLogout}
+                  />
+                ) : effectiveTab === 'facebook' && canAccessTab(currentUser, 'facebook') ? (
                   <FacebookDashboard />
-                ) : activeTab === 'tiktok' ? (
+                ) : effectiveTab === 'tiktok' && canAccessTab(currentUser, 'tiktok') ? (
                   <TikTokDashboard />
-                ) : activeTab === 'work_report' ? (
+                ) : effectiveTab === 'work_report' && canAccessTab(currentUser, 'work_report') ? (
                   <WorkReportDashboard />
-                ) : activeTab === 'deals' ? (
+                ) : effectiveTab === 'deals' && canAccessTab(currentUser, 'deals') ? (
                   <DealWinDashboard />
-                ) : activeTab === 'remind' ? (
+                ) : effectiveTab === 'remind' && canAccessTab(currentUser, 'remind') ? (
                   <RemindLeadTable pagesList={pagesList} zaloPages={zaloPages} />
-                ) : activeTab === 'bot' ? (
-                  !isAuthenticated ? (
-                    <LoginPage
-                      embedded={true}
-                      onLoginSuccess={(user) => {
-                        setCurrentUser(user);
-                        setIsAuthenticated(true);
-                      }}
-                    />
-                  ) : (
-                    <BulkMessengerDashboard />
-                  )
-                ) : activeTab === 'data_export' ? (
-                  !isAuthenticated ? (
-                    <LoginPage
-                      embedded={true}
-                      title="Xác Thực Quyền Truy Xuất Dữ Liệu"
-                      subtitle="Tính năng Query & Kết xuất Excel từ Database yêu cầu đăng nhập tài khoản quản trị để bảo mật dữ liệu khách hàng."
-                      onLoginSuccess={(user) => {
-                        setCurrentUser(user);
-                        setIsAuthenticated(true);
-                      }}
-                    />
-                  ) : (
-                    <DataExportDashboard />
-                  )
-                ) : activeTab === 'add_friend' ? (
+                ) : effectiveTab === 'bot' && canAccessTab(currentUser, 'bot') ? (
+                  <BulkMessengerDashboard />
+                ) : effectiveTab === 'data_export' && canAccessTab(currentUser, 'data_export') ? (
+                  <DataExportDashboard />
+                ) : effectiveTab === 'add_friend' && canAccessTab(currentUser, 'add_friend') ? (
                   <AutoAddFriendDashboard />
-                ) : activeTab === 'gas_tool' ? (
+                ) : effectiveTab === 'gas_tool' && canAccessTab(currentUser, 'gas_tool') ? (
                   <AppScriptTool />
-                ) : activeTab === 'ai_assistant' ? (
+                ) : effectiveTab === 'ai_assistant' && canAccessTab(currentUser, 'ai_assistant') ? (
                   <AiAssistantDashboard />
-                ) : activeTab === 'btvn_grader' ? (
+                ) : effectiveTab === 'btvn_grader' && canAccessTab(currentUser, 'btvn_grader') ? (
                   <BtvnGraderDashboard />
-                ) : activeTab === 'invoice' ? (
+                ) : effectiveTab === 'invoice' && canAccessTab(currentUser, 'invoice') ? (
                   <div className="bg-white rounded-2xl border border-slate-200/80 shadow-card p-6 sm:p-10 max-w-2xl mx-auto my-8 text-center space-y-5">
                     <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-200/90 text-amber-600 flex items-center justify-center mx-auto shadow-sm">
                       <Receipt className="w-8 h-8" aria-hidden="true" />
@@ -739,7 +943,7 @@ function App() {
                       </a>
                     </div>
                   </div>
-                ) : (
+                ) : effectiveTab === 'overview' && canAccessTab(currentUser, 'overview') ? (
                   <>
                     {/* Compact Inline Filter Toolbar */}
                     <div className="bg-white rounded-2xl border border-slate-200/80 shadow-card px-5 py-3.5 flex flex-wrap items-center justify-between gap-3">
@@ -1124,7 +1328,7 @@ function App() {
                       </>
                     )}
                   </>
-                )}
+                ) : null}
               </Suspense>
             </ErrorBoundary>
           </div>
@@ -1134,7 +1338,14 @@ function App() {
       {/* Modal đổi mật khẩu */}
       {showChangePw && (
         <Suspense fallback={null}>
-          <ChangePasswordModal isOpen={showChangePw} onClose={() => setShowChangePw(false)} />
+          <ChangePasswordModal
+            isOpen={showChangePw}
+            onClose={() => setShowChangePw(false)}
+            onUserUpdated={(u) => {
+              setCurrentUser(u);
+              updateStoredUser(u);
+            }}
+          />
         </Suspense>
       )}
 

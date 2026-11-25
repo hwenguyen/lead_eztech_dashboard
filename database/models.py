@@ -140,7 +140,9 @@ class AppUser(Base):
     password_hash = Column(String, nullable=False)
     salt = Column(String, nullable=False)
     full_name = Column(String, nullable=True)
-    role = Column(String, default="admin", nullable=False)  # admin, manager, viewer
+    department = Column(String, default="Consultant", nullable=False, index=True)  # Admin, Consultant, Marketing, Quản lý lớp học
+    role = Column(String, default="staff", nullable=False)  # admin, staff
+    is_default_password = Column(Boolean, default=True, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
     last_login_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=get_vn_now)

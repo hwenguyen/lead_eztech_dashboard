@@ -12,15 +12,18 @@ import {
   CheckCircle2,
   RefreshCw,
   ExternalLink,
+  Lock,
   X
 } from 'lucide-react';
 import {
   fetchRemindLeads,
   clearClientApiCache,
   isAbortError,
+  getStoredAuth,
   type RemindLeadItem,
   type RemindSummary
 } from '../services/api';
+import { getTabDataScope } from '../config/permissions';
 import { safeFormatDate, toSafeHttpUrl, copyToClipboard } from '../utils/format';
 import { ErrorBanner } from './ErrorBanner';
 
@@ -30,7 +33,11 @@ interface RemindLeadTableProps {
 }
 
 export function RemindLeadTable({ pagesList, zaloPages }: RemindLeadTableProps) {
-  const [employee, setEmployee] = useState('');
+  const authUser = getStoredAuth().user;
+  const isPersonalScope = getTabDataScope(authUser, 'remind') === 'personal';
+  const personalEmployeeName = (authUser?.full_name || authUser?.username || '').trim();
+
+  const [employee, setEmployee] = useState(() => (isPersonalScope ? personalEmployeeName : ''));
   const [pageId, setPageId] = useState('');
   const [tag, setTag] = useState('all');
   const [search, setSearch] = useState('');
@@ -310,17 +317,24 @@ export function RemindLeadTable({ pagesList, zaloPages }: RemindLeadTableProps) 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-3 border-t border-slate-100">
           <div className="flex flex-col gap-1">
             <label htmlFor="remind-emp" className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Nhân Viên Phụ Trách</label>
-            <select
-              id="remind-emp"
-              value={employee}
-              onChange={e => handleFilterChange(setEmployee, e.target.value)}
-              className="px-3 py-1.5 border border-slate-200/90 rounded-lg text-xs font-medium bg-white focus:outline-none focus:ring-2 focus:ring-eztech/15 focus:border-eztech transition-all text-navy cursor-pointer"
-            >
-              <option value="">Tất cả nhân viên</option>
-              {employeesList.map(emp => (
-                <option key={emp} value={emp}>{emp}</option>
-              ))}
-            </select>
+            {isPersonalScope ? (
+              <div className="px-3 py-1.5 border border-slate-200 bg-slate-50 rounded-lg text-xs font-semibold text-navy flex items-center gap-1.5" title="Tài khoản chỉ xem dữ liệu cá nhân">
+                <Lock className="w-3.5 h-3.5 text-eztech shrink-0" />
+                <span className="truncate">{personalEmployeeName}</span>
+              </div>
+            ) : (
+              <select
+                id="remind-emp"
+                value={employee}
+                onChange={e => handleFilterChange(setEmployee, e.target.value)}
+                className="px-3 py-1.5 border border-slate-200/90 rounded-lg text-xs font-medium bg-white focus:outline-none focus:ring-2 focus:ring-eztech/15 focus:border-eztech transition-all text-navy cursor-pointer"
+              >
+                <option value="">Tất cả nhân viên</option>
+                {employeesList.map(emp => (
+                  <option key={emp} value={emp}>{emp}</option>
+                ))}
+              </select>
+            )}
           </div>
 
           <div className="flex flex-col gap-1">

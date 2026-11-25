@@ -1,14 +1,16 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Lock, X, CheckCircle2, AlertCircle } from 'lucide-react';
-import { changePasswordApi } from '../services/api';
+import { changePasswordApi, type AuthUser } from '../services/api';
 import { AccessibleModal } from './AccessibleModal';
+import { showAppToast } from '../utils/toast';
 
 interface ChangePasswordModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onUserUpdated?: (user: AuthUser) => void;
 }
 
-export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({ isOpen, onClose }) => {
+export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({ isOpen, onClose, onUserUpdated }) => {
   const [oldPassword, setOldPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -54,8 +56,8 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({ isOpen
     setErrorMsg(null);
     setSuccessMsg(null);
 
-    if (newPassword.length < 6) {
-      setErrorMsg('Mật khẩu mới phải có ít nhất 6 ký tự.');
+    if (!oldPassword.trim() || !newPassword.trim() || !confirmPassword.trim()) {
+      setErrorMsg('Vui lòng nhập đầy đủ cả 3 trường mật khẩu.');
       return;
     }
 
@@ -66,8 +68,13 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({ isOpen
 
     setLoading(true);
     try {
-      const res = await changePasswordApi(oldPassword, newPassword);
-      setSuccessMsg(res.message || 'Đổi mật khẩu thành công!');
+      const res = await changePasswordApi(oldPassword, newPassword, confirmPassword);
+      const msg = res.message || 'Đổi mật khẩu thành công!';
+      setSuccessMsg(msg);
+      showAppToast(msg, 'success');
+      if (res.user && onUserUpdated) {
+        onUserUpdated(res.user);
+      }
       closeTimerRef.current = window.setTimeout(() => {
         handleClose();
       }, 1500);
@@ -137,7 +144,7 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({ isOpen
 
         <div>
           <label htmlFor="cp-new-password" className="block text-xs font-semibold text-gray-700 mb-1">
-            Mật khẩu mới (tối thiểu 6 ký tự)
+            Mật khẩu mới
           </label>
           <input
             id="cp-new-password"

@@ -5,6 +5,7 @@ import {
   Check,
   Calendar,
   UserCheck,
+  Lock,
   Plus,
   Trash2,
   Award,
@@ -17,8 +18,10 @@ import {
   fetchWorkReport,
   clearClientApiCache,
   isAbortError,
+  getStoredAuth,
   type WorkReportResponse,
 } from '../services/api';
+import { getTabDataScope } from '../config/permissions';
 import { copyToClipboard } from '../utils/format';
 import { ErrorBanner } from './ErrorBanner';
 
@@ -235,6 +238,10 @@ function escapeHtml(str: string): string {
 }
 
 export function WorkReportDashboard() {
+  const authUser = getStoredAuth().user;
+  const isPersonalScope = getTabDataScope(authUser, 'work_report') === 'personal';
+  const personalEmployeeName = (authUser?.full_name || authUser?.username || '').trim();
+
   // Mặc định chọn tuần hiện tại (Thứ 2 -> Hôm nay)
   const [startDate, setStartDate] = useState(() =>
     format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd')
@@ -242,9 +249,16 @@ export function WorkReportDashboard() {
   const [endDate, setEndDate] = useState(() => format(new Date(), 'yyyy-MM-dd'));
   const [activePreset, setActivePreset] = useState<'this_week' | '7d' | 'last_week' | 'month' | 'custom'>('this_week');
   const [selectedEmployee, setSelectedEmployee] = useState<string>(() => {
+    if (isPersonalScope && personalEmployeeName) return personalEmployeeName;
     const saved = safeStorageGet('eztech_work_report_selected_emp');
-    return saved !== null ? saved : 'Nguyen Gia Huy';
+    return saved !== null ? saved : (personalEmployeeName || 'Nguyen Gia Huy');
   });
+
+  useEffect(() => {
+    if (isPersonalScope && personalEmployeeName && selectedEmployee !== personalEmployeeName) {
+      setSelectedEmployee(personalEmployeeName);
+    }
+  }, [isPersonalScope, personalEmployeeName, selectedEmployee]);
 
   const [reportData, setReportData] = useState<WorkReportResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -621,21 +635,31 @@ export function WorkReportDashboard() {
         <div className="flex flex-wrap items-center gap-3">
           {/* Chọn Nhân viên */}
           <div className="flex items-center gap-2 bg-eztech-light/60 border border-eztech-border rounded-lg px-3 py-1.5">
-            <UserCheck className="w-4 h-4 text-eztech shrink-0" />
+            {isPersonalScope ? (
+              <Lock className="w-3.5 h-3.5 text-eztech shrink-0" />
+            ) : (
+              <UserCheck className="w-4 h-4 text-eztech shrink-0" />
+            )}
             <label htmlFor="work-report-emp" className="text-[11px] font-bold uppercase tracking-wider text-navy shrink-0">Nhân sự:</label>
-            <select
-              id="work-report-emp"
-              value={selectedEmployee}
-              onChange={(e) => handleEmployeeChange(e.target.value)}
-              className="bg-transparent text-xs font-bold text-eztech focus:outline-none cursor-pointer pr-2"
-            >
-              <option value="">Tất cả nhân viên</option>
-              {employeeOptions.map((emp) => (
-                <option key={emp} value={emp}>
-                  {emp}
-                </option>
-              ))}
-            </select>
+            {isPersonalScope ? (
+              <span className="text-xs font-bold text-eztech pr-1" title="Phạm vi dữ liệu cá nhân">
+                {personalEmployeeName}
+              </span>
+            ) : (
+              <select
+                id="work-report-emp"
+                value={selectedEmployee}
+                onChange={(e) => handleEmployeeChange(e.target.value)}
+                className="bg-transparent text-xs font-bold text-eztech focus:outline-none cursor-pointer pr-2"
+              >
+                <option value="">Tất cả nhân viên</option>
+                {employeeOptions.map((emp) => (
+                  <option key={emp} value={emp}>
+                    {emp}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
 
           {/* Nút chọn nhanh Tuần */}

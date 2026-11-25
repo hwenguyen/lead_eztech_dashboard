@@ -27,8 +27,10 @@ from sqlalchemy.orm import Session
 from sqlalchemy import desc, asc, func, or_
 
 from database.db import get_db
-from database.models import SalesDeal, DealAuditLog, AppConfig, DealWin, DimLead, FactLeadActivity
+from database.models import SalesDeal, DealAuditLog, AppConfig, DealWin, DimLead, FactLeadActivity, AppUser
 from database.schema import ensure_schema
+from backend.auth import get_current_user
+from backend.rbac_config import get_module_scope, employee_matches_field
 from database.deal_sync import (
     DEFAULT_SOURCE_PAGE,
     _resolve_lead_items,
@@ -1042,13 +1044,47 @@ class SaveListsPayload(BaseModel):
     actor: Optional[str] = "admin"
 
 
+# ───────────────────────── Phân quyền Data Scoping (Deal Entry) ─────────────────────────
+
+def _filter_deals_for_user(deals: List[Dict[str, Any]], user: AppUser) -> List[Dict[str, Any]]:
+    if get_module_scope(user, "gas_tool") != "personal":
+        return deals
+    emp_name = (user.full_name or user.username).strip()
+    extra = {user.username}
+    return [
+        d for d in deals
+        if employee_matches_field(d.get("nvCS"), emp_name, extra)
+        or employee_matches_field(d.get("nguoiNhap"), emp_name, extra)
+    ]
+
+
+def _assert_can_modify_deal_row(db_row: SalesDeal, user: AppUser):
+    if get_module_scope(user, "gas_tool") != "personal":
+        return
+    emp_name = (user.full_name or user.username).strip()
+    extra = {user.username}
+    if not (
+        employee_matches_field(db_row.nv_cs, emp_name, extra)
+        or employee_matches_field(db_row.nguoi_nhap, emp_name, extra)
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Bạn chỉ được phép chỉnh sửa hoặc xóa Deal thuộc phạm vi cá nhân phụ trách.",
+        )
+
+
 # ───────────────────────── API Endpoints ─────────────────────────
 
 @router.get("/init")
-def init_deal_entry(force: bool = Query(False), db: Session = Depends(get_db)):
+def init_deal_entry(
+    force: bool = Query(False),
+    current_user: AppUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     """Khởi tạo dữ liệu cho trang Quản lý Nhập Deal & Công nợ (Tự động nối từ deal_wins + Đọc từ RAM Cache)."""
     lists = read_lists(db, use_cache=not force)
-    deals = get_cached_deals(db, force_refresh=force)
+    all_deals = get_cached_deals(db, force_refresh=force)
+    deals = _filter_deals_for_user(all_deals, current_user)
     debts = build_debt_summary(deals)
 
     return {
@@ -1237,7 +1273,11 @@ def lookup_phone(
 
 
 @router.post("/deals")
-def save_deal(payload: DealSavePayload, db: Session = Depends(get_db)):
+def save_deal(
+    payload: DealSavePayload,
+    current_user: AppUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     """
     Thêm mới hoặc Điền bổ sung / Cập nhật Deal:
     - Lưu đầy đủ thông tin Số tiền thu được, Phải thu, Lớp học, Link nhóm 1-1, Ghi chú...
@@ -1245,6 +1285,8 @@ def save_deal(payload: DealSavePayload, db: Session = Depends(get_db)):
       (`ho_ten`, `sdt`, `email`, `nam_sinh`, `dia_chi`, `linh_vuc`, `chuc_vu`, `ky_vong`, `nv_cs`) về bảng `deal_wins`.
     - Chỉ reconcile đúng SĐT bị ảnh hưởng để tiết kiệm tối đa Egress.
     """
+    is_personal = get_module_scope(current_user, "gas_tool") == "personal"
+    emp_name = (current_user.full_name or current_user.username).strip()
     phone = clean_phone(payload.sdt)
     if not phone:
         raise HTTPException(status_code=400, detail="Số điện thoại không hợp lệ")
@@ -1262,7 +1304,7 @@ def save_deal(payload: DealSavePayload, db: Session = Depends(get_db)):
         tong_tien = da_thu + phai_thu
 
     classes = parse_classes(payload.lop)
-    actor = (payload.actor or "admin").strip()
+    actor = emp_name or (payload.actor or "admin").strip()
     now = get_vn_now()
 
     same_phone_rows = db.query(SalesDeal).filter(SalesDeal.sdt == phone).all()
@@ -1301,6 +1343,7 @@ def save_deal(payload: DealSavePayload, db: Session = Depends(get_db)):
         db_row = db.query(SalesDeal).filter(SalesDeal.deal_uid == payload.id).first()
         if not db_row:
             raise HTTPException(status_code=404, detail="Không tìm thấy deal cần sửa")
+        _assert_can_modify_deal_row(db_row, current_user)
 
         if db_row.sdt:
             affected_phones.add(db_row.sdt)
@@ -1324,7 +1367,10 @@ def save_deal(payload: DealSavePayload, db: Session = Depends(get_db)):
         db_row.chuong_trinh = (payload.chuongTrinh or "").strip()
         db_row.lop = ", ".join(merged_classes)
         db_row.chuc_vu = (payload.chucVu or "").strip()
-        if payload.nvCS is not None and payload.nvCS.strip():
+        if is_personal:
+            if not employee_matches_field(db_row.nv_cs, emp_name, {current_user.username}):
+                db_row.nv_cs = emp_name
+        elif payload.nvCS is not None and payload.nvCS.strip():
             db_row.nv_cs = payload.nvCS.strip()
         db_row.zalo_cs = (payload.zaloCS or "").strip()
         db_row.nguon = nguon_str
@@ -1365,7 +1411,7 @@ def save_deal(payload: DealSavePayload, db: Session = Depends(get_db)):
         )
     else:
         deal_uid = str(uuid.uuid4())
-        nv_cs = (payload.nvCS or "").strip() or actor
+        nv_cs = emp_name if is_personal else ((payload.nvCS or "").strip() or actor)
         db_row = SalesDeal(
             deal_uid=deal_uid,
             ngay_thu=ngay_thu,
@@ -1417,9 +1463,10 @@ def save_deal(payload: DealSavePayload, db: Session = Depends(get_db)):
     if synced:
         db.commit()
 
-    deals = reconcile_phones_and_update_cache(db, affected_phones)
+    all_deals = reconcile_phones_and_update_cache(db, affected_phones)
+    _sync_phones_to_google_sheet_async(db, all_deals, affected_phones, action="upsert_phone")
+    deals = _filter_deals_for_user(all_deals, current_user)
     debts = build_debt_summary(deals)
-    _sync_phones_to_google_sheet_async(db, deals, affected_phones, action="upsert_phone")
     return {
         "ok": True,
         "dealId": deal_uid,
@@ -1430,14 +1477,20 @@ def save_deal(payload: DealSavePayload, db: Session = Depends(get_db)):
 
 
 @router.put("/deals/{deal_id}/classes")
-def update_deal_classes(deal_id: str, payload: SetClassesPayload, db: Session = Depends(get_db)):
+def update_deal_classes(
+    deal_id: str,
+    payload: SetClassesPayload,
+    current_user: AppUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     """Cập nhật nhanh Lớp học cho deal và chỉ đồng bộ các dòng của đúng SĐT đó."""
     db_row = db.query(SalesDeal).filter(SalesDeal.deal_uid == deal_id).first()
     if not db_row:
         raise HTTPException(status_code=404, detail="Không tìm thấy deal")
+    _assert_can_modify_deal_row(db_row, current_user)
 
     classes = parse_classes(payload.lop)
-    actor = (payload.actor or "admin").strip()
+    actor = (current_user.full_name or current_user.username or payload.actor or "admin").strip()
     now = get_vn_now()
     old_classes = parse_classes(db_row.lop)
     phone = db_row.sdt
@@ -1462,19 +1515,27 @@ def update_deal_classes(deal_id: str, payload: SetClassesPayload, db: Session = 
 
     write_audit_log(db, actor, "Sửa lớp", deal_id, {"sdt": phone, "truoc": old_classes, "sau": classes})
 
-    deals = reconcile_phones_and_update_cache(db, {phone})
+    all_deals = reconcile_phones_and_update_cache(db, {phone})
+    _sync_phones_to_google_sheet_async(db, all_deals, {phone}, action="upsert_phone")
+    deals = _filter_deals_for_user(all_deals, current_user)
     debts = build_debt_summary(deals)
-    _sync_phones_to_google_sheet_async(db, deals, {phone}, action="upsert_phone")
     return {"ok": True, "deals": deals, "debts": debts, "lists": lists}
 
 
 @router.delete("/deals/{deal_id}")
-def delete_deal(deal_id: str, actor: str = Query("admin"), db: Session = Depends(get_db)):
+def delete_deal(
+    deal_id: str,
+    actor: str = Query("admin"),
+    current_user: AppUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     """Xoá 1 deal và chỉ tính lại công nợ cho SĐT của deal đó."""
     global _DEALS_CACHE
     db_row = db.query(SalesDeal).filter(SalesDeal.deal_uid == deal_id).first()
     if not db_row:
         raise HTTPException(status_code=404, detail="Không tìm thấy deal")
+    _assert_can_modify_deal_row(db_row, current_user)
+    actor = (current_user.full_name or current_user.username or actor or "admin").strip()
 
     phone = db_row.sdt
     ho_ten = db_row.ho_ten
@@ -1488,43 +1549,61 @@ def delete_deal(deal_id: str, actor: str = Query("admin"), db: Session = Depends
 
     write_audit_log(db, actor, "Xoá deal", deal_id, {"sdt": phone, "hoTen": ho_ten, "daThu": da_thu})
 
-    deals = reconcile_phones_and_update_cache(db, {phone})
+    all_deals = reconcile_phones_and_update_cache(db, {phone})
+    _sync_phones_to_google_sheet_async(db, all_deals, {phone}, action="delete", deal_id=deal_id)
+    deals = _filter_deals_for_user(all_deals, current_user)
     debts = build_debt_summary(deals)
-    _sync_phones_to_google_sheet_async(db, deals, {phone}, action="delete", deal_id=deal_id)
     return {"ok": True, "deals": deals, "debts": debts}
 
 
 @router.put("/lists")
-def save_lists_endpoint(payload: SaveListsPayload, db: Session = Depends(get_db)):
+def save_lists_endpoint(
+    payload: SaveListsPayload,
+    current_user: AppUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     """Lưu danh mục (Zalo chăm sóc, Nguồn, Chương trình học, Lớp học)."""
+    if get_module_scope(current_user, "gas_tool") == "personal":
+        raise HTTPException(status_code=403, detail="Chỉ tài khoản Quản lý lớp học hoặc Admin mới được sửa Danh mục hệ thống.")
+    actor = (current_user.full_name or current_user.username or payload.actor or "admin").strip()
     updated = write_lists(db, payload.lists)
-    write_audit_log(db, payload.actor or "admin", "Sửa danh mục", "", {"keys": list(updated.keys())})
+    write_audit_log(db, actor, "Sửa danh mục", "", {"keys": list(updated.keys())})
     return {"ok": True, "lists": updated}
 
 
 @router.get("/logs")
-def get_deal_logs(limit: int = Query(50, ge=1, le=200), db: Session = Depends(get_db)):
+def get_deal_logs(
+    limit: int = Query(50, ge=1, le=200),
+    current_user: AppUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     """Lấy lịch sử thao tác (đọc từ RAM cache nếu không có log mới)."""
     global _LOGS_CACHE, _LOGS_CACHE_TS
     now_ts = time.time()
+    logs_list = None
     if _LOGS_CACHE is not None and (now_ts - _LOGS_CACHE_TS) < LOGS_CACHE_TTL:
-        return {"ok": True, "logs": _LOGS_CACHE[:limit]}
+        logs_list = _LOGS_CACHE
+    else:
+        rows = db.query(DealAuditLog).order_by(desc(DealAuditLog.id)).limit(100).all()
+        logs_list = [
+            {
+                "id": r.id,
+                "createdAt": format_vn_datetime(r.created_at),
+                "userEmail": r.user_email,
+                "action": r.action,
+                "dealId": r.deal_id,
+                "detail": r.detail,
+            }
+            for r in rows
+        ]
+        with _CACHE_LOCK:
+            _LOGS_CACHE = logs_list
+            _LOGS_CACHE_TS = now_ts
 
-    rows = db.query(DealAuditLog).order_by(desc(DealAuditLog.id)).limit(100).all()
-    logs_list = [
-        {
-            "id": r.id,
-            "createdAt": format_vn_datetime(r.created_at),
-            "userEmail": r.user_email,
-            "action": r.action,
-            "dealId": r.deal_id,
-            "detail": r.detail,
-        }
-        for r in rows
-    ]
-    with _CACHE_LOCK:
-        _LOGS_CACHE = logs_list
-        _LOGS_CACHE_TS = now_ts
+    if get_module_scope(current_user, "gas_tool") == "personal":
+        emp_name = (current_user.full_name or current_user.username).strip()
+        extra = {current_user.username}
+        logs_list = [l for l in logs_list if employee_matches_field(l.get("userEmail"), emp_name, extra)]
 
     return {"ok": True, "logs": logs_list[:limit]}
 
@@ -1690,7 +1769,13 @@ def get_sheet_sync_config(db: Session = Depends(get_db)):
 
 
 @router.put("/sheet-sync/config")
-def save_sheet_sync_config(payload: SheetSyncConfigPayload, db: Session = Depends(get_db)):
+def save_sheet_sync_config(
+    payload: SheetSyncConfigPayload,
+    current_user: AppUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if get_module_scope(current_user, "gas_tool") == "personal":
+        raise HTTPException(status_code=403, detail="Chỉ tài khoản Quản lý lớp học hoặc Admin mới được cấu hình đồng bộ Google Sheet.")
     global _SHEET_CFG_CACHE, _SHEET_CFG_TS
     data = {
         "webhook_url": (payload.webhook_url or "").strip(),
@@ -1718,8 +1803,13 @@ def save_sheet_sync_config(payload: SheetSyncConfigPayload, db: Session = Depend
 
 
 @router.post("/sheet-sync/push-all")
-def push_all_deals_to_google_sheet(db: Session = Depends(get_db)):
+def push_all_deals_to_google_sheet(
+    current_user: AppUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     """Đẩy toàn bộ bảng Deal hiện có trong RAM Cache sang Google Sheet (khởi tạo hoặc đồng bộ lại)."""
+    if get_module_scope(current_user, "gas_tool") == "personal":
+        raise HTTPException(status_code=403, detail="Chỉ tài khoản Quản lý lớp học hoặc Admin mới được đẩy toàn bộ Deal sang Google Sheet.")
     cfg = _read_sheet_sync_config(db)
     webhook_url = (cfg.get("webhook_url") or "").strip()
     if not webhook_url:

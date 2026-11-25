@@ -50,7 +50,19 @@ from etl.utils import (
 logger = logging.getLogger(__name__)
 
 from backend.broadcast import router as broadcast_router, clear_broadcast_cache
-from backend.auth import router as auth_router
+from backend.auth import (
+    router as auth_router,
+    get_current_user,
+    require_admin,
+    require_tab_access,
+    invalidate_employees_auth_cache,
+)
+from backend.rbac_config import (
+    get_module_scope,
+    resolve_scoped_employee,
+    employee_matches_field,
+)
+from database.models import AppUser
 from backend.deal_entry import router as deal_entry_router, invalidate_deal_entry_cache
 from backend.facebook_metrics import router as facebook_router, clear_facebook_cache
 from backend.tiktok_metrics import router as tiktok_router, clear_tiktok_cache
@@ -62,15 +74,15 @@ from backend.btvn_router import router as btvn_router
 
 app = FastAPI(title="Pancake Lead Reporting API")
 app.include_router(auth_router)
-app.include_router(broadcast_router, prefix="/api/broadcast", tags=["Broadcast"])
-app.include_router(add_friend_router, prefix="/api/add-friend", tags=["AutoAddFriend"])
-app.include_router(deal_entry_router)
-app.include_router(facebook_router)
-app.include_router(tiktok_router)
-app.include_router(work_report_router)
+app.include_router(broadcast_router, prefix="/api/broadcast", tags=["Broadcast"], dependencies=[Depends(require_tab_access("bot"))])
+app.include_router(add_friend_router, prefix="/api/add-friend", tags=["AutoAddFriend"], dependencies=[Depends(require_tab_access("add_friend"))])
+app.include_router(deal_entry_router, dependencies=[Depends(require_tab_access("gas_tool"))])
+app.include_router(facebook_router, dependencies=[Depends(require_tab_access("facebook"))])
+app.include_router(tiktok_router, dependencies=[Depends(require_tab_access("tiktok"))])
+app.include_router(work_report_router, dependencies=[Depends(require_tab_access("work_report"))])
 app.include_router(ai_rag_router)
-app.include_router(data_export_router)
-app.include_router(btvn_router)
+app.include_router(data_export_router, dependencies=[Depends(require_tab_access("data_export"))])
+app.include_router(btvn_router, dependencies=[Depends(require_tab_access("btvn_grader"))])
 
 # Cấu hình CORS: Ưu tiên danh sách ALLOWED_ORIGINS từ biến môi trường
 allowed_origins_env = os.getenv("ALLOWED_ORIGINS", "").strip()
@@ -103,7 +115,7 @@ async def add_cache_headers(request: Request, call_next):
         if not any(
             skip in path
             for skip in (
-                "/auth/me",
+                "/auth/",
                 "/broadcast/status",
                 "/broadcast/active",
                 "/admin/backfill/status",
@@ -118,6 +130,7 @@ async def add_cache_headers(request: Request, call_next):
         ):
             if response.status_code == 200:
                 response.headers["Cache-Control"] = "private, max-age=180, stale-while-revalidate=300"
+                response.headers["Vary"] = "Authorization"
     return response
 
 
@@ -494,8 +507,10 @@ def get_summary(
     tag_category: Optional[str] = None,
     has_phone: Optional[bool] = None,
     primary_employee: Optional[str] = None,
+    current_user: AppUser = Depends(require_tab_access("overview")),
     db: Session = Depends(get_db)
 ):
+    employee = resolve_scoped_employee(current_user, "overview", employee)
     start, end = resolve_period(start_date, end_date)
     leads = classify_leads(db, start, end, page_id, employee)
     clean_date, clean_type, clean_tag, clean_has_phone, clean_emp = _normalize_cross_filters(
@@ -598,11 +613,13 @@ def get_trend(
     tag_category: Optional[str] = None,
     has_phone: Optional[bool] = None,
     primary_employee: Optional[str] = None,
+    current_user: AppUser = Depends(require_tab_access("overview")),
     db: Session = Depends(get_db)
 ):
     """Theo ngày. Mới/Contact Lại được phân loại theo CẢ KỲ để cộng dồn khớp KPI:
     lead tạo trong kỳ chỉ được tính ở ngày tạo, kể cả khi nhắn lại vào ngày sau.
     phone_leads = số Lead có SĐT thu được/tương tác trong ngày."""
+    employee = resolve_scoped_employee(current_user, "overview", employee)
     start, end = resolve_period(start_date, end_date)
     leads = classify_leads(db, start, end, page_id, employee)
     _, clean_type, clean_tag, clean_has_phone, clean_emp = _normalize_cross_filters(
@@ -641,8 +658,11 @@ def get_employees(
     start_date: Optional[datetime] = None,
     end_date: Optional[datetime] = None,
     page_id: Optional[str] = None,
+    current_user: AppUser = Depends(require_tab_access("overview")),
     db: Session = Depends(get_db)
 ):
+    if get_module_scope(current_user, "overview") == "personal":
+        return {"data": [(current_user.full_name or current_user.username).strip()]}
     start, end = resolve_period(start_date, end_date)
     leads = classify_leads(db, start, end, page_id=page_id)
     employees = set()
@@ -655,7 +675,7 @@ _PAGES_CACHE_TTL = 3600.0  # 60 phút cache cho danh sách page
 _PAGES_LOCK = threading.Lock()
 
 @app.get("/api/pages/list")
-def get_pages(db: Session = Depends(get_db)):
+def get_pages(_: AppUser = Depends(get_current_user), db: Session = Depends(get_db)):
     with _PAGES_LOCK:
         now = time.time()
         if "data" in _PAGES_CACHE and (now - _PAGES_CACHE.get("time", 0) < _PAGES_CACHE_TTL):
@@ -748,6 +768,7 @@ def clear_cache():
     with _DEAL_CACHE_LOCK:
         _DEAL_CACHE.clear()
     invalidate_deal_entry_cache()
+    invalidate_employees_auth_cache()
     return {"status": "ok", "message": "All metrics, pages, last messages, remind, and deal caches have been cleared."}
 
 @app.post("/api/admin/repair", dependencies=[Depends(verify_admin_secret)])
@@ -762,12 +783,12 @@ class BackfillRequest(BaseModel):
     chunk: Optional[int] = 120
     stop_date: Optional[str] = "2024-01-01"
 
-@app.get("/api/admin/backfill/status")
+@app.get("/api/admin/backfill/status", dependencies=[Depends(require_admin)])
 def get_backfill_status():
     from etl.backfill_history import backfill_manager
     return backfill_manager.get_status()
 
-@app.post("/api/admin/backfill/start")
+@app.post("/api/admin/backfill/start", dependencies=[Depends(require_admin)])
 def start_backfill(req: Optional[BackfillRequest] = None):
     from etl.backfill_history import backfill_manager
     p = req.page if req else ""
@@ -779,7 +800,7 @@ def start_backfill(req: Optional[BackfillRequest] = None):
         raise HTTPException(status_code=400, detail=msg)
     return {"status": "ok", "message": msg}
 
-@app.post("/api/admin/backfill/stop")
+@app.post("/api/admin/backfill/stop", dependencies=[Depends(require_admin)])
 def stop_backfill():
     from etl.backfill_history import backfill_manager
     ok, msg = backfill_manager.stop()
@@ -798,9 +819,11 @@ def list_leads(
     tag_category: Optional[str] = None,
     has_phone: Optional[bool] = None,
     primary_employee: Optional[str] = None,
+    current_user: AppUser = Depends(require_tab_access("overview")),
     db: Session = Depends(get_db)
 ):
     import json
+    employee = resolve_scoped_employee(current_user, "overview", employee)
     start, end = resolve_period(start_date, end_date)
     clean_date, clean_type, clean_tag, clean_has_phone, clean_emp = _normalize_cross_filters(
         selected_date, lead_type, tag_category, has_phone, primary_employee
@@ -924,9 +947,12 @@ def get_remind_leads(
     sort_order: Optional[str] = "asc",
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=100),
+    current_user: AppUser = Depends(require_tab_access("remind")),
     db: Session = Depends(get_db)
 ):
     """Bảng Chăm sóc Lead: lấy lead theo tag (hoặc tất cả lead nếu tag='all'), tính khoảng cách ngày đến tin nhắn cuối và sắp xếp từ thấp nhất lên xa nhất."""
+    is_personal = get_module_scope(current_user, "remind") == "personal"
+    employee = resolve_scoped_employee(current_user, "remind", employee)
     now_vn = datetime.now(VN_TZ).replace(tzinfo=None)
 
     # 1. Cache toàn bộ bảng hoạt động trong RAM (TTL 15 phút) với single-flight lock:
@@ -981,8 +1007,10 @@ def get_remind_leads(
         if normalize_text(emp_clean) in ("chua phan cong", "chưa phân công"):
             rows = [r for r in rows if not r.assigned_users or not r.assigned_users.strip()]
         else:
-            emp_lower = emp_clean.lower()
-            rows = [r for r in rows if r.assigned_users and emp_lower in r.assigned_users.lower()]
+            rows = [
+                r for r in rows
+                if employee_matches_field(r.assigned_users, emp_clean)
+            ]
 
     # Thu thập danh sách nhân viên & toàn bộ thẻ (tags) có trong hệ thống
     all_remind_employees = set()
@@ -998,6 +1026,9 @@ def get_remind_leads(
                 t_clean = t.strip()
                 if t_clean:
                     all_system_tags.add(t_clean)
+
+    if is_personal and employee:
+        all_remind_employees = {employee.strip()}
 
     sorted_tags = sorted(list(all_system_tags))
     if "Remind" in sorted_tags:
@@ -1259,8 +1290,13 @@ async def receive_deal_webhook(request: Request, db: Session = Depends(get_db)):
     }
 
 @app.post("/api/deals/sync-leads")
-def trigger_deal_leads_sync(db: Session = Depends(get_db)):
+def trigger_deal_leads_sync(
+    current_user: AppUser = Depends(require_tab_access("deals")),
+    db: Session = Depends(get_db),
+):
     """Đồng bộ Deal Win với DimLead (map SĐT, kiểm tra tag Đã là học viên, cập nhật nhân viên chăm sóc từ Pancake)."""
+    if get_module_scope(current_user, "deals") == "personal":
+        raise HTTPException(status_code=403, detail="Chỉ tài khoản Quản lý hoặc Admin mới có quyền chạy đồng bộ toàn cục.")
     from database.deal_sync import sync_all_deals_with_dim_leads, normalize_sale_name
     from backend.deal_entry import sync_from_deal_wins
     total, students, updated = sync_all_deals_with_dim_leads(db, full_scan=True)
@@ -1279,18 +1315,27 @@ def trigger_deal_leads_sync(db: Session = Depends(get_db)):
 @app.get("/api/deals/options", response_model=DealWinOptions)
 def get_deals_options(
     only_student: bool = Query(True, description="Chỉ lấy danh sách sale có tag Đã là học viên"),
+    current_user: AppUser = Depends(require_tab_access("deals")),
     db: Session = Depends(get_db)
 ):
     """Lấy danh sách các nhân viên sale và page từ Deal Win để render dropdown filters (có cache 10 phút).
     Luôn lấy logic chuẩn tương đương với 'Đã là học viên' (chỉ lấy các nhân viên chăm sóc từ hội thoại có tag học viên).
     """
     from database.deal_sync import normalize_sale_name
+    is_personal = get_module_scope(current_user, "deals") == "personal"
+    personal_emp = (current_user.full_name or current_user.username).strip()
     cache_key = f"deals_options_{only_student}"
+    cached_res = None
     with _DEAL_CACHE_LOCK:
         if cache_key in _DEAL_CACHE:
             ts, val = _DEAL_CACHE[cache_key]
             if time.time() - ts < 600.0:
-                return val
+                cached_res = val
+
+    if cached_res is not None:
+        if is_personal:
+            return DealWinOptions(sales_persons=[personal_emp], pages=cached_res.pages, sources=cached_res.sources)
+        return cached_res
 
     # Luôn chỉ lấy danh sách nhân viên có học viên chốt (Đã là học viên)
     sales_query = db.query(DealWin.care_by).distinct().filter(
@@ -1335,6 +1380,8 @@ def get_deals_options(
     res = DealWinOptions(sales_persons=sales, pages=pages, sources=sources)
     with _DEAL_CACHE_LOCK:
         _DEAL_CACHE[cache_key] = (time.time(), res)
+    if is_personal:
+        return DealWinOptions(sales_persons=[personal_emp], pages=pages, sources=sources)
     return res
 
 
@@ -1364,11 +1411,14 @@ def get_deals_summary(
     page_id: Optional[str] = None,
     source_page: Optional[str] = None,
     only_student: bool = Query(True, description="Chỉ tính những ai có tag Đã là học viên"),
+    current_user: AppUser = Depends(require_tab_access("deals")),
     db: Session = Depends(get_db)
 ):
     """Thống kê tổng quan Deal Win theo khoảng thời gian - Tối ưu 100% bằng in-memory cache và thống kê sale chuẩn xác."""
+    is_personal = get_module_scope(current_user, "deals") == "personal"
+    sales_person = resolve_scoped_employee(current_user, "deals", sales_person)
     start, end = resolve_period(start_date, end_date)
-    cache_key = f"deals_summary_{start}_{end}_{sales_person}_{page_id}_{source_page}_{only_student}"
+    cache_key = f"deals_summary_{start}_{end}_{sales_person}_{page_id}_{source_page}_{only_student}_{'p' if is_personal else 'a'}"
 
     with _DEAL_CACHE_LOCK:
         if cache_key in _DEAL_CACHE:
@@ -1421,6 +1471,8 @@ def get_deals_summary(
                 sales_counts["Chưa phân công"] = sales_counts.get("Chưa phân công", 0) + 1
             else:
                 for n in names:
+                    if is_personal and sales_person and not employee_matches_field(n, sales_person):
+                        continue
                     sales_counts[n] = sales_counts.get(n, 0) + 1
     sales_stats = dict(sorted(sales_counts.items(), key=lambda item: item[1], reverse=True))
 
@@ -1458,9 +1510,11 @@ def get_deals_list(
     only_student: bool = Query(True, description="Chỉ hiển thị những ai có tag Đã là học viên"),
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=100),
+    current_user: AppUser = Depends(require_tab_access("deals")),
     db: Session = Depends(get_db)
 ):
     """Danh sách Deal Win có phân trang tối ưu - Chỉ fetch các cột cần thiết, KHÔNG tải raw_data JSON để tiết kiệm tối đa Network Transfer."""
+    sales_person = resolve_scoped_employee(current_user, "deals", sales_person)
     start, end = resolve_period(start_date, end_date)
 
     query = db.query(DealWin).filter(DealWin.timestamp.between(start, end))
@@ -1549,11 +1603,19 @@ def get_deals_list(
     )
 
 @app.get("/api/deals/{deal_id}", response_model=DealWinItem)
-def get_deal_detail(deal_id: int, db: Session = Depends(get_db)):
+def get_deal_detail(
+    deal_id: int,
+    current_user: AppUser = Depends(require_tab_access("deals")),
+    db: Session = Depends(get_db),
+):
     """Lấy chi tiết 1 Deal Win (bao gồm cả raw_data) chỉ khi người dùng click xem chi tiết modal."""
     deal = db.query(DealWin).filter(DealWin.id == deal_id).first()
     if not deal:
         raise HTTPException(status_code=404, detail="Deal không tồn tại")
+    if get_module_scope(current_user, "deals") == "personal":
+        emp_name = (current_user.full_name or current_user.username).strip()
+        if not employee_matches_field(deal.care_by, emp_name):
+            raise HTTPException(status_code=403, detail="Bạn chỉ được xem chi tiết Deal thuộc phạm vi cá nhân phụ trách.")
     item = DealWinItem.from_orm(deal)
     item.source_page = item.source_page or DEFAULT_SOURCE_PAGE
     return item
