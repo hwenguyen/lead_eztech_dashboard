@@ -107,7 +107,7 @@ export const DEPARTMENT_PERMISSIONS: Record<DepartmentName, DepartmentPermission
   Consultant: {
     department: 'Consultant',
     allowedTabs: CONSULTANT_TABS,
-    defaultTab: 'work_report',
+    defaultTab: 'bulletin',
     moduleScopes: buildScopeMap(CONSULTANT_TABS, 'personal'),
     scopeSummary: 'Chỉ dữ liệu cá nhân: Chỉ xem, lọc và thao tác trên dữ liệu gắn với chính bạn trên cả 6 trang nghiệp vụ.',
     badgeClass: 'bg-blue-50 text-blue-700 border-blue-200',
@@ -115,7 +115,7 @@ export const DEPARTMENT_PERMISSIONS: Record<DepartmentName, DepartmentPermission
   Marketing: {
     department: 'Marketing',
     allowedTabs: MARKETING_TABS,
-    defaultTab: 'overview',
+    defaultTab: 'bulletin',
     moduleScopes: {
       overview: 'all',
       facebook: 'all',
@@ -128,7 +128,7 @@ export const DEPARTMENT_PERMISSIONS: Record<DepartmentName, DepartmentPermission
   'Quản lý lớp học': {
     department: 'Quản lý lớp học',
     allowedTabs: CLASS_MANAGER_TABS,
-    defaultTab: 'work_report',
+    defaultTab: 'bulletin',
     moduleScopes: buildScopeMap(CLASS_MANAGER_TABS, 'all'),
     scopeSummary: 'Full dữ liệu tất cả nhân viên trên cả 7 trang nghiệp vụ được phân quyền (bao gồm Chấm BTVN AI, hỗ trợ bộ lọc theo từng nhân viên).',
     badgeClass: 'bg-emerald-50 text-emerald-700 border-emerald-200',
@@ -163,7 +163,7 @@ export function getEffectivePermissions(user: AuthUser | null | undefined) {
       department: 'Consultant' as DepartmentName,
       isAdmin: false,
       allowedTabs: [] as AppTabId[],
-      defaultTab: 'work_report' as AppTabId,
+      defaultTab: 'bulletin' as AppTabId,
       moduleScopes: {} as Partial<Record<AppTabId, DataScopeType>>,
       scopeSummary: '',
       badgeClass: DEPARTMENT_PERMISSIONS.Consultant.badgeClass,
@@ -179,10 +179,11 @@ export function getEffectivePermissions(user: AuthUser | null | undefined) {
       ? (user.allowed_tabs.filter((t): t is AppTabId => ALL_APP_TABS.includes(t as AppTabId)))
       : fallback.allowedTabs;
 
-  const defaultTab: AppTabId =
-    user.default_tab && ALL_APP_TABS.includes(user.default_tab as AppTabId)
-      ? (user.default_tab as AppTabId)
-      : fallback.defaultTab;
+  const defaultTab: AppTabId = isAdmin
+    ? (user.default_tab && ALL_APP_TABS.includes(user.default_tab as AppTabId)
+        ? (user.default_tab as AppTabId)
+        : fallback.defaultTab)
+    : 'bulletin';
 
   const moduleScopes: Partial<Record<AppTabId, DataScopeType>> =
     user.module_scopes && Object.keys(user.module_scopes).length > 0

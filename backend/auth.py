@@ -476,7 +476,7 @@ class UserInfoResponse(BaseModel):
     department: str
     is_default_password: bool = False
     allowed_tabs: List[str] = Field(default_factory=list)
-    default_tab: str = "work_report"
+    default_tab: str = "bulletin"
     module_scopes: Dict[str, str] = Field(default_factory=dict)
     scope_summary: str = ""
     last_login_at: Optional[str] = None

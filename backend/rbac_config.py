@@ -91,13 +91,13 @@ DEPARTMENT_MATRIX: Dict[str, Dict[str, Any]] = {
     },
     DEPT_CONSULTANT: {
         "allowed_tabs": CONSULTANT_TABS,
-        "default_tab": "work_report",
+        "default_tab": "bulletin",
         "module_scopes": {tab: "personal" for tab in CONSULTANT_TABS},
         "scope_summary": "Chỉ xem & thao tác trên dữ liệu cá nhân gắn với chính bạn tại tất cả 6 trang nghiệp vụ.",
     },
     DEPT_MARKETING: {
         "allowed_tabs": MARKETING_TABS,
-        "default_tab": "overview",
+        "default_tab": "bulletin",
         "module_scopes": {
             "overview": "all",
             "facebook": "all",
@@ -108,7 +108,7 @@ DEPARTMENT_MATRIX: Dict[str, Dict[str, Any]] = {
     },
     DEPT_CLASS_MANAGER: {
         "allowed_tabs": CLASS_MANAGER_TABS,
-        "default_tab": "work_report",
+        "default_tab": "bulletin",
         "module_scopes": {tab: "all" for tab in CLASS_MANAGER_TABS},
         "scope_summary": "Xem toàn bộ dữ liệu của tất cả nhân viên trên cả 7 trang nghiệp vụ (bao gồm Chấm BTVN AI, hỗ trợ bộ lọc theo từng nhân viên).",
     },
