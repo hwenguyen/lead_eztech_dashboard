@@ -24,3 +24,11 @@ pancake_state.json
 
 # Graphify
 graphify-out/
+
+# Runtime uploads
+uploads/
+
+# Intern datasets & reports (local only)
+data_for_interns/
+DE_BAI_THUC_TAP.md
+BAO_CAO_CASE_*.md
