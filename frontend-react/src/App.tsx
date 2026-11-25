@@ -1,10 +1,11 @@
-import { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense, type ComponentType } from 'react';
 import { format } from 'date-fns';
 import {
   Users, UserPlus, UserCheck, PhoneCall, PhoneForwarded, Percent, Calendar,
   RefreshCw, LayoutDashboard, Clock, Award, Bot, LogOut, KeyRound,
   Menu, X, Sparkles, Facebook, FileSpreadsheet, Receipt, ExternalLink,
-  Wallet, Database, CheckCircle2, User, ChevronDown
+  Wallet, Database, CheckCircle2, User, ChevronDown,
+  BarChart3, Briefcase, Cpu, GraduationCap
 } from 'lucide-react';
 import { KpiCard } from './components/KpiCard';
 import { TrendChart } from './components/TrendChart';
@@ -113,20 +114,73 @@ const TabLoadingFallback = () => (
   </div>
 );
 
-const NAV_ITEMS = [
-  { id: 'overview' as const, label: 'Tổng quan & Chỉ số', icon: LayoutDashboard },
-  { id: 'facebook' as const, label: 'Facebook Analytics', icon: Facebook },
-  { id: 'tiktok' as const, label: 'TikTok Analytics', icon: SidebarTikTokIcon },
-  { id: 'work_report' as const, label: 'Báo cáo công việc', icon: FileSpreadsheet },
-  { id: 'remind' as const, label: 'Chăm sóc Lead', icon: Clock },
-  { id: 'deals' as const, label: 'Deal Win', icon: Award },
-  { id: 'gas_tool' as const, label: 'Nhập Deal & Công Nợ', icon: Wallet },
-  { id: 'invoice' as const, label: 'Xuất hoá đơn', icon: Receipt, url: INVOICE_SCRIPT_URL },
-  { id: 'bot' as const, label: 'Bot Gửi Tin', icon: Bot },
-  { id: 'data_export' as const, label: 'Query & Xuất Excel', icon: Database },
-  { id: 'add_friend' as const, label: 'Kết Bạn Tự Động', icon: UserPlus },
-  { id: 'ai_assistant' as const, label: 'Trợ Lý AI', icon: Sparkles },
-  { id: 'btvn_grader' as const, label: 'Chấm BTVN (AI)', icon: CheckCircle2 },
+type NavGroupId = 'analytics' | 'sales' | 'automation' | 'ai_edu';
+
+interface NavItemConfig {
+  id: AppTabId;
+  label: string;
+  icon: ComponentType<{ className?: string }>;
+  url?: string;
+}
+
+interface NavGroupConfig {
+  id: NavGroupId;
+  label: string;
+  icon: ComponentType<{ className?: string }>;
+  items: NavItemConfig[];
+}
+
+const SIDEBAR_GROUPS_STORAGE_KEY = 'ez_sidebar_open_groups';
+
+const DEFAULT_OPEN_NAV_GROUPS: Record<NavGroupId, boolean> = {
+  analytics: true,
+  sales: true,
+  automation: true,
+  ai_edu: true,
+};
+
+const NAV_GROUPS: NavGroupConfig[] = [
+  {
+    id: 'analytics',
+    label: 'Báo cáo & Phân tích',
+    icon: BarChart3,
+    items: [
+      { id: 'overview', label: 'Tổng quan & Chỉ số', icon: LayoutDashboard },
+      { id: 'facebook', label: 'Facebook Analytics', icon: Facebook },
+      { id: 'tiktok', label: 'TikTok Analytics', icon: SidebarTikTokIcon },
+    ],
+  },
+  {
+    id: 'sales',
+    label: 'Kinh doanh & Học viên',
+    icon: Briefcase,
+    items: [
+      { id: 'work_report', label: 'Báo cáo công việc', icon: FileSpreadsheet },
+      { id: 'remind', label: 'Chăm sóc Lead', icon: Clock },
+      { id: 'deals', label: 'Deal Win', icon: Award },
+      { id: 'gas_tool', label: 'Nhập Deal & Công Nợ', icon: Wallet },
+      { id: 'invoice', label: 'Xuất hoá đơn', icon: Receipt, url: INVOICE_SCRIPT_URL },
+    ],
+  },
+  {
+    id: 'automation',
+    label: 'Tự động hoá & Dữ liệu',
+    icon: Cpu,
+    items: [
+      { id: 'bot', label: 'Bot Gửi Tin', icon: Bot },
+      { id: 'add_friend', label: 'Kết Bạn Tự Động', icon: UserPlus },
+      { id: 'data_export', label: 'Query & Xuất Excel', icon: Database },
+    ],
+  },
+  {
+    id: 'ai_edu',
+    label: 'Trợ lý AI & Đào tạo',
+    icon: GraduationCap,
+    items: [
+      { id: 'ai_assistant', label: 'Trợ Lý AI', icon: Sparkles },
+      { id: 'btvn_grader', label: 'Chấm BTVN (AI)', icon: CheckCircle2 },
+    ],
+  },
 ];
 
 function App() {
@@ -135,6 +189,17 @@ function App() {
   const [showChangePw, setShowChangePw] = useState<boolean>(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState<boolean>(false);
+  const [openNavGroups, setOpenNavGroups] = useState<Record<NavGroupId, boolean>>(() => {
+    try {
+      const saved = localStorage.getItem(SIDEBAR_GROUPS_STORAGE_KEY);
+      if (saved) {
+        return { ...DEFAULT_OPEN_NAV_GROUPS, ...JSON.parse(saved) };
+      }
+    } catch {
+      // Bỏ qua lỗi đọc localStorage nếu bị chặn
+    }
+    return DEFAULT_OPEN_NAV_GROUPS;
+  });
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
 
   const userPerms = useMemo(() => getEffectivePermissions(currentUser), [currentUser]);
@@ -592,8 +657,12 @@ function App() {
   const newPhoneCmp = buildPeriodComparison(newPhoneCount, prevPeriod?.new_phone_leads);
   const recontactPhoneCmp = buildPeriodComparison(recontactPhoneCount, prevPeriod?.recontact_phone_leads);
 
-  const visibleNavItems = useMemo(
-    () => NAV_ITEMS.filter((item) => canAccessTab(currentUser, item.id)),
+  const visibleNavGroups = useMemo(
+    () =>
+      NAV_GROUPS.map((group) => ({
+        ...group,
+        items: group.items.filter((item) => canAccessTab(currentUser, item.id)),
+      })).filter((group) => group.items.length > 0),
     [currentUser]
   );
 
@@ -602,6 +671,34 @@ function App() {
     activeTab === 'profile' || canAccessTab(currentUser, activeTab)
       ? activeTab
       : userPerms.defaultTab;
+
+  const toggleNavGroup = useCallback((groupId: NavGroupId) => {
+    setOpenNavGroups((prev) => {
+      const next = { ...prev, [groupId]: !prev[groupId] };
+      try {
+        localStorage.setItem(SIDEBAR_GROUPS_STORAGE_KEY, JSON.stringify(next));
+      } catch {
+        // Bỏ qua nếu trình duyệt chặn localStorage
+      }
+      return next;
+    });
+  }, []);
+
+  // Tự động mở danh mục chứa trang hiện tại khi chuyển trang bằng URL/phím tắt
+  useEffect(() => {
+    const activeGroup = visibleNavGroups.find((g) => g.items.some((item) => item.id === effectiveTab));
+    if (!activeGroup) return;
+    setOpenNavGroups((prev) => {
+      if (prev[activeGroup.id]) return prev;
+      const next = { ...prev, [activeGroup.id]: true };
+      try {
+        localStorage.setItem(SIDEBAR_GROUPS_STORAGE_KEY, JSON.stringify(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  }, [effectiveTab, visibleNavGroups]);
 
   // Bảo vệ toàn trang: nếu chưa đăng nhập -> hiển thị ngay trang Login (/login)
   if (!isAuthenticated || !currentUser) {
@@ -633,24 +730,24 @@ function App() {
         />
       )}
 
-      {/* 2. Left Sidebar Navigation */}
+      {/* 2. Left Sidebar Navigation (Fixed viewport height, never stretches on long pages) */}
       <aside
         aria-label="Thanh điều hướng chính"
-        className={`fixed inset-y-0 left-0 z-40 w-60 bg-white border-r border-slate-200/80 flex flex-col transition-transform duration-300 ease-in-out lg:static lg:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-40 w-64 h-screen max-h-screen bg-white border-r border-slate-200/80 flex flex-col overflow-hidden transition-transform duration-300 ease-in-out lg:translate-x-0 ${
           isSidebarOpen ? 'translate-x-0 shadow-2xl visible' : '-translate-x-full invisible lg:visible'
         }`}
       >
         {/* Brand / Logo Header */}
-        <div className="h-16 px-4 border-b border-slate-100 flex items-center justify-between bg-white">
-          <div className="flex items-center gap-2.5">
+        <div className="shrink-0 h-16 px-4 border-b border-slate-100 flex items-center justify-between bg-white">
+          <div className="flex items-center gap-2.5 min-w-0">
             <img
               src="/brand_ngang.png"
               alt="EzTech - Giải pháp dữ liệu cho doanh nghiệp"
               width={140}
               height={32}
-              className="h-8 w-auto max-w-[155px] object-contain shrink-0 dark:brightness-125"
+              className="h-8 w-auto max-w-[148px] object-contain shrink-0 dark:brightness-125"
             />
-            <div className="border-l border-slate-200 pl-2">
+            <div className="border-l border-slate-200 pl-2 shrink-0">
               <span className="text-[10px] font-bold text-navy uppercase tracking-wider block leading-tight">CRM</span>
               <span className="text-[9px] text-slate-400 font-medium block">Lead Analytics</span>
             </div>
@@ -659,63 +756,126 @@ function App() {
             type="button"
             onClick={() => setIsSidebarOpen(false)}
             aria-label="Đóng menu điều hướng"
-            className="lg:hidden p-1.5 text-slate-400 hover:text-navy rounded-xl cursor-pointer"
+            className="lg:hidden p-1.5 text-slate-400 hover:text-navy rounded-xl cursor-pointer shrink-0"
           >
             <X className="w-4 h-4" aria-hidden="true" />
           </button>
         </div>
 
-        {/* Navigation Menu */}
-        <nav aria-label="Không gian làm việc" className="flex-1 px-3 py-4 space-y-1 overflow-y-auto custom-scrollbar">
-          <p className="px-3 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400 mb-2">
-            Không gian làm việc
+        {/* Grouped Dropdown Navigation Menu */}
+        <nav aria-label="Không gian làm việc" className="flex-1 min-h-0 px-3 py-3.5 space-y-2 overflow-y-auto custom-scrollbar">
+          <p className="px-2.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">
+            Danh mục chức năng
           </p>
 
-          {visibleNavItems.map((item) => {
-            const Icon = item.icon;
-            const isActive = effectiveTab === item.id;
-            return (
-              <button
-                key={item.id}
-                type="button"
-                aria-current={isActive ? 'page' : undefined}
-                onClick={() => {
-                  if ('url' in item && item.url) {
-                    window.open(item.url, '_blank', 'noopener,noreferrer');
-                  }
-                  setActiveTab(item.id);
-                  setIsSidebarOpen(false);
-                }}
-                className={`group relative w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs transition-all duration-200 cursor-pointer active:scale-[0.985] ${
-                  isActive
-                    ? 'gradient-brand text-white font-semibold shadow-md shadow-brand-500/20'
-                    : 'text-slate-600 font-medium hover:text-navy hover:bg-brand-50'
-                }`}
-              >
-                <div className="flex items-center gap-2.5">
-                  <Icon
-                    aria-hidden="true"
-                    className={`w-4 h-4 transition-all duration-200 group-hover:scale-105 ${
-                      isActive ? 'text-gold-400' : 'text-slate-400 group-hover:text-brand-600'
+          <div className="space-y-1.5">
+            {visibleNavGroups.map((group) => {
+              const GroupIcon = group.icon;
+              const isOpen = !!openNavGroups[group.id];
+              const hasActiveChild = group.items.some((item) => item.id === effectiveTab);
+              const groupPanelId = `sidebar-group-${group.id}`;
+
+              return (
+                <div key={group.id} className="rounded-xl">
+                  <button
+                    type="button"
+                    aria-expanded={isOpen}
+                    aria-controls={groupPanelId}
+                    onClick={() => toggleNavGroup(group.id)}
+                    className={`group w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-xl text-[11px] font-bold uppercase tracking-wider transition-colors duration-150 cursor-pointer ${
+                      hasActiveChild && !isOpen
+                        ? 'bg-eztech-light/70 text-brand-600'
+                        : hasActiveChild
+                        ? 'text-navy hover:bg-slate-100/70'
+                        : 'text-slate-500 hover:text-navy hover:bg-slate-100/70'
                     }`}
-                  />
-                  <span>{item.label}</span>
+                  >
+                    <span className="flex items-center gap-2 min-w-0">
+                      <GroupIcon
+                        aria-hidden="true"
+                        className={`w-3.5 h-3.5 shrink-0 transition-colors ${
+                          hasActiveChild ? 'text-brand-600' : 'text-slate-400 group-hover:text-brand-600'
+                        }`}
+                      />
+                      <span className="truncate">{group.label}</span>
+                    </span>
+                    <span className="flex items-center gap-1.5 shrink-0">
+                      {!isOpen && hasActiveChild && (
+                        <span className="w-1.5 h-1.5 rounded-full bg-gold-500" aria-hidden="true" />
+                      )}
+                      <span className="text-[10px] font-mono font-semibold text-slate-400 px-1.5 py-0.5 rounded-md bg-slate-100">
+                        {group.items.length}
+                      </span>
+                      <ChevronDown
+                        aria-hidden="true"
+                        className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 motion-reduce:transition-none ${
+                          isOpen ? 'rotate-0' : '-rotate-90'
+                        }`}
+                      />
+                    </span>
+                  </button>
+
+                  <div
+                    id={groupPanelId}
+                    className={`grid transition-[grid-template-rows,opacity] duration-200 ease-out motion-reduce:transition-none ${
+                      isOpen ? 'grid-rows-[1fr] opacity-100 mt-1' : 'grid-rows-[0fr] opacity-0 pointer-events-none'
+                    }`}
+                  >
+                    <div className="overflow-hidden">
+                      <div className="ml-3 pl-2.5 border-l border-slate-200/80 space-y-1 py-0.5">
+                        {group.items.map((item) => {
+                          const Icon = item.icon;
+                          const isActive = effectiveTab === item.id;
+                          return (
+                            <button
+                              key={item.id}
+                              type="button"
+                              tabIndex={isOpen ? undefined : -1}
+                              aria-current={isActive ? 'page' : undefined}
+                              onClick={() => {
+                                if (item.url) {
+                                  window.open(item.url, '_blank', 'noopener,noreferrer');
+                                }
+                                setActiveTab(item.id);
+                                setIsSidebarOpen(false);
+                              }}
+                              className={`group relative w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs transition-all duration-200 cursor-pointer active:scale-[0.985] ${
+                                isActive
+                                  ? 'gradient-brand text-white font-semibold shadow-md shadow-brand-500/20'
+                                  : 'text-slate-600 font-medium hover:text-navy hover:bg-brand-50'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2.5 min-w-0">
+                                <Icon
+                                  aria-hidden="true"
+                                  className={`w-4 h-4 shrink-0 transition-all duration-200 group-hover:scale-105 ${
+                                    isActive ? 'text-gold-400' : 'text-slate-400 group-hover:text-brand-600'
+                                  }`}
+                                />
+                                <span className="truncate">{item.label}</span>
+                              </div>
+                              {item.url ? (
+                                <ExternalLink
+                                  aria-hidden="true"
+                                  className={`w-3.5 h-3.5 shrink-0 transition-colors ${isActive ? 'text-gold-400' : 'text-slate-400 group-hover:text-brand-600'}`}
+                                />
+                              ) : (
+                                isActive && <div className="ez-nav-dot w-1.5 h-1.5 rounded-full bg-gold-400 shrink-0" aria-hidden="true" />
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                {'url' in item && item.url ? (
-                  <ExternalLink
-                    aria-hidden="true"
-                    className={`w-3.5 h-3.5 transition-colors ${isActive ? 'text-gold-400' : 'text-slate-400 group-hover:text-brand-600'}`}
-                  />
-                ) : (
-                  isActive && <div className="ez-nav-dot w-1.5 h-1.5 rounded-full bg-gold-400 shrink-0" aria-hidden="true" />
-                )}
-              </button>
-            );
-          })}
+              );
+            })}
+          </div>
         </nav>
 
-        {/* Bottom User Summary in Sidebar */}
-        <div className="p-3 border-t border-slate-100 bg-slate-50/50">
+        {/* Bottom User Summary in Sidebar (Always pinned to viewport bottom) */}
+        <div className="shrink-0 p-3 border-t border-slate-100 bg-slate-50/50">
           <div className="p-2.5 bg-white border border-slate-200/80 rounded-xl shadow-card space-y-2">
             <button
               type="button"
@@ -759,8 +919,8 @@ function App() {
         </div>
       </aside>
 
-      {/* 3. Main Content Area */}
-      <div className="flex-1 min-w-0 flex flex-col min-h-screen">
+      {/* 3. Main Content Area (Offset by fixed sidebar width on desktop) */}
+      <div className="flex-1 min-w-0 flex flex-col min-h-screen lg:pl-64">
         {/* Top Header */}
         <header className="bg-white/90 backdrop-blur-md border-b border-slate-200/80 sticky top-0 z-20 h-16">
           <div className="px-4 sm:px-6 lg:px-8 h-full flex items-center justify-between max-w-[1440px] mx-auto w-full gap-2">
