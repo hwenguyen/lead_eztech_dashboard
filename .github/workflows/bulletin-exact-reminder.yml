@@ -1,0 +1,50 @@
+name: Bulletin Exact-Time Zalo Reminder (Every 15m)
+
+on:
+  schedule:
+    # Chạy mỗi 15 phút trong khung giờ làm việc 08:00 - 21:45 giờ VN (01:00 - 14:45 UTC), Thứ 2 - Thứ 7
+    - cron: '*/15 1-14 * * 1-6'
+  workflow_dispatch:
+
+concurrency:
+  group: bulletin-exact-reminder
+  cancel-in-progress: false
+
+jobs:
+  dispatch-exact:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Kiểm tra mã nguồn
+        uses: actions/checkout@v4
+
+      - name: Cài đặt Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+          cache-dependency-path: 'requirements-etl.txt'
+
+      - name: Cài đặt thư viện
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-etl.txt
+
+      - name: Gửi nhắc hẹn đúng giờ qua Zalo Eztech Consultant
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PANCAKE_API_TOKEN: ${{ secrets.PANCAKE_API_TOKEN }}
+          PANCAKE_API_TOKENS: ${{ secrets.PANCAKE_API_TOKENS }}
+          PANCAKE_PAGES_JSON: ${{ secrets.PANCAKE_PAGES_JSON }}
+          SKIP_ENSURE_SCHEMA: 'true'
+        run: |
+          python - << 'EOF'
+          import json
+          from database.db import SessionLocal
+          from backend.bulletin_notifier import dispatch_due_exact_reminders
+
+          with SessionLocal() as db:
+              res = dispatch_due_exact_reminders(db=db, dry_run=False)
+              print("EXACT:", json.dumps(res, ensure_ascii=False))
+          EOF
