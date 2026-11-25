@@ -139,7 +139,7 @@ class BulletinSystemTests(unittest.TestCase):
         fake_convs = [
             {
                 "id": "pzl_g_764881945463506349_99999",
-                "customers": [{"name": "EzTech - Data & Finance Service"}],
+                "customers": [{"name": "EzTech -Data & Finance Service"}],
             }
         ]
         fake_messages_page = {
@@ -305,7 +305,7 @@ class BulletinSystemTests(unittest.TestCase):
         post = BulletinPost(
             pancake_message_id="msg_ai_1",
             group_conversation_id="pzl_g_test",
-            group_name="EzTech - Data & Finance Service",
+            group_name="EzTech -Data & Finance Service",
             sender_name="Ann",
             boss_key="ann",
             boss_display_name="Ann",

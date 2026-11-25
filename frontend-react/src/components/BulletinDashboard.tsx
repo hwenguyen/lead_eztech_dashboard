@@ -27,6 +27,10 @@ import {
   Sparkles,
   Pencil,
   CornerDownRight,
+  ThumbsUp,
+  Globe,
+  FileText,
+  X,
 } from 'lucide-react';
 import {
   fetchBulletinPosts,
@@ -87,6 +91,34 @@ const BOSS_BADGE_MAP: Record<string, string> = {
   tuan_anh: 'bg-blue-50 text-blue-700 border-blue-200',
   hien_minh: 'bg-amber-50 text-amber-800 border-amber-200',
 };
+
+const BOSS_AVATAR_MAP: Record<string, { initials: string; bg: string; ring: string; shortLabel: string }> = {
+  ann: {
+    initials: 'AN',
+    bg: 'bg-gradient-to-br from-rose-500 to-rose-600 text-white',
+    ring: 'ring-rose-400',
+    shortLabel: 'Ann',
+  },
+  tuan_anh: {
+    initials: 'TA',
+    bg: 'bg-gradient-to-br from-brand-500 to-navy text-white',
+    ring: 'ring-brand-500',
+    shortLabel: 'Tuấn Anh',
+  },
+  hien_minh: {
+    initials: 'HM',
+    bg: 'bg-gradient-to-br from-amber-500 to-gold-600 text-white',
+    ring: 'ring-gold-500',
+    shortLabel: 'Hiền Minhh',
+  },
+};
+
+function getInitials(name?: string | null): string {
+  if (!name) return 'EZ';
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
+}
 
 const PRIORITY_BADGE_MAP: Record<string, { label: string; cls: string }> = {
   low: { label: 'Thấp', cls: 'bg-slate-100 text-slate-600 border-slate-200' },
@@ -828,75 +860,186 @@ export function BulletinDashboard({ onUnreadCountChange }: BulletinDashboardProp
       ? Math.round((checklistSummary.done_items / checklistSummary.total_items) * 100)
       : 0;
 
+  const userDisplayName = currentUser?.full_name || currentUser?.username || 'EzTech';
+  const userInitials = getInitials(userDisplayName);
+
   return (
     <div className="space-y-4">
-      {/* Header Banner */}
-      <div className="bg-white rounded-2xl border border-slate-200/80 shadow-card p-4 sm:p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-        <div className="space-y-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-brand-50 text-brand-700 border border-brand-200 text-xs font-semibold">
-              <Newspaper className="w-3.5 h-3.5" />
-              Bảng Tin EzTech - Data & Finance Service
-            </span>
+      {/* FACEBOOK GROUP COVER HEADER — EzTech Navy/Blue/Gold Identity */}
+      <div className="bg-white rounded-2xl border border-slate-200/80 shadow-card overflow-hidden">
+        {/* Compact Brand Cover Banner */}
+        <div className="relative h-24 sm:h-28 gradient-brand overflow-hidden">
+          <div
+            aria-hidden="true"
+            className="absolute inset-0 opacity-30"
+            style={{
+              backgroundImage:
+                'radial-gradient(circle at 85% 20%, rgba(255, 193, 7, 0.55), transparent 45%), radial-gradient(circle at 15% 90%, rgba(90, 141, 238, 0.5), transparent 50%)',
+            }}
+          />
+          <div className="absolute top-3 right-3 sm:right-5 flex items-center gap-2">
             {unreadCount > 0 ? (
-              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-50 text-amber-800 border border-amber-200 text-xs font-bold tabular-nums">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-gold-500 text-navy text-xs font-bold shadow-sm tabular-nums">
+                <span className="w-2 h-2 rounded-full bg-navy animate-pulse" aria-hidden="true" />
                 {unreadCount} bản tin chưa đọc
               </span>
             ) : (
-              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-semibold">
-                <CheckCircle2 className="w-3.5 h-3.5" />
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/90 text-white text-xs font-semibold shadow-sm">
+                <CheckCircle2 className="w-3.5 h-3.5" aria-hidden="true" />
                 Đã đọc hết bản tin
               </span>
             )}
           </div>
-          <p className="text-xs text-slate-500">
-            Đồng bộ chỉ đạo từ 3 sếp (<strong className="text-navy">Ann</strong>,{' '}
-            <strong className="text-navy">TRẦN HÀ TUẤN ANH</strong>, <strong className="text-navy">Hiền Minhh</strong>) • Nhắc việc Zalo{' '}
-            <strong className="text-navy">Eztech Consultant</strong> lúc <span className="font-mono font-semibold text-navy">11:00 & 15:00</span> và đúng giờ hẹn.
-          </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() => openChecklistModal(null)}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition-all cursor-pointer"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Tạo checklist ngày</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => openReminderModal(null, null)}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-brand-600 hover:bg-brand-700 text-white shadow-xs transition-all cursor-pointer"
-          >
-            <BellRing className="w-3.5 h-3.5" />
-            <span>Tạo nhắc hẹn</span>
-          </button>
-          <button
-            type="button"
-            onClick={handleSyncGroup}
-            disabled={syncingPosts}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-white hover:bg-slate-50 text-navy border border-slate-200 shadow-xs transition-all cursor-pointer disabled:opacity-50"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 text-brand-500 ${syncingPosts ? 'animate-spin' : ''}`} />
-            <span>{syncingPosts ? 'Đang đồng bộ...' : 'Đồng bộ nhóm Zalo'}</span>
-          </button>
+        {/* Group Identity Bar */}
+        <div className="px-4 sm:px-6 pb-3">
+          <div className="flex flex-col md:flex-row md:items-end justify-between gap-3 -mt-7 sm:-mt-8 relative z-10">
+            <div className="flex items-end gap-3.5 min-w-0">
+              <div className="w-16 h-16 sm:w-[72px] sm:h-[72px] rounded-2xl bg-white border-4 border-white shadow-md flex items-center justify-center shrink-0 relative">
+                <div className="w-full h-full rounded-xl gradient-brand flex items-center justify-center text-white">
+                  <Newspaper className="w-7 h-7 sm:w-8 sm:h-8" aria-hidden="true" />
+                </div>
+                <span
+                  aria-hidden="true"
+                  className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-gold-500 border-2 border-white flex items-center justify-center text-navy"
+                >
+                  <Check className="w-3 h-3 stroke-[3]" />
+                </span>
+              </div>
+
+              <div className="pb-0.5 min-w-0">
+                <h2 className="text-lg sm:text-xl font-bold text-navy tracking-tight truncate">
+                  Bảng Tin EzTech -Data & Finance Service
+                </h2>
+                <p className="text-xs text-slate-500 flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5">
+                  <span className="inline-flex items-center gap-1 font-medium text-slate-600">
+                    <Globe className="w-3.5 h-3.5 text-brand-500" aria-hidden="true" />
+                    Nhóm nội bộ Zalo
+                  </span>
+                  <span aria-hidden="true">•</span>
+                  <span className="tabular-nums">{totalAllPosts} bài viết</span>
+                  <span aria-hidden="true">•</span>
+                  <span>
+                    Nhắc việc <span className="font-mono font-semibold text-navy">11:00 & 15:00</span>
+                  </span>
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 pt-1 md:pt-0">
+              <button
+                type="button"
+                onClick={handleSyncGroup}
+                disabled={syncingPosts}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-brand-500 hover:bg-brand-600 text-white shadow-sm transition-all cursor-pointer disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${syncingPosts ? 'animate-spin' : ''}`} aria-hidden="true" />
+                <span>{syncingPosts ? 'Đang đồng bộ...' : 'Đồng bộ nhóm Zalo'}</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Facebook Group Navigation Tabs + Pill Search */}
+          <div className="mt-4 pt-2 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+            <div role="tablist" aria-label="Lọc trạng thái đọc" className="flex items-center gap-1 -mb-3 sm:-mb-3">
+              {([
+                { key: 'all', label: 'Tất cả bài viết', count: totalAllPosts },
+                { key: 'unread', label: 'Chưa đọc', count: unreadCount },
+                { key: 'read', label: 'Đã đọc', count: Math.max(0, totalAllPosts - unreadCount) },
+              ] as const).map((tab) => {
+                const active = readFilter === tab.key;
+                return (
+                  <button
+                    key={tab.key}
+                    role="tab"
+                    aria-selected={active}
+                    type="button"
+                    onClick={() => {
+                      setReadFilter(tab.key);
+                      setPostsPage(1);
+                    }}
+                    className={`relative px-3.5 py-2.5 text-xs font-semibold rounded-t-lg transition-colors cursor-pointer flex items-center gap-1.5 ${
+                      active
+                        ? 'text-brand-600'
+                        : 'text-slate-500 hover:text-navy hover:bg-slate-50'
+                    }`}
+                  >
+                    <span>{tab.label}</span>
+                    <span
+                      className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono tabular-nums ${
+                        active
+                          ? 'bg-brand-50 text-brand-700 font-bold'
+                          : 'bg-slate-100 text-slate-500'
+                      }`}
+                    >
+                      {tab.count}
+                    </span>
+                    {active && (
+                      <span
+                        aria-hidden="true"
+                        className="absolute bottom-0 left-2 right-2 h-[3px] rounded-t-full bg-brand-500"
+                      />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="relative w-full sm:w-64 pb-1 sm:pb-0">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" aria-hidden="true" />
+              <input
+                type="text"
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                placeholder="Tìm trong bảng tin..."
+                className="w-full pl-9 pr-8 py-1.5 rounded-full border border-slate-200 text-xs text-navy bg-slate-100/80 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-400 transition-all"
+              />
+              {searchInput && (
+                <button
+                  type="button"
+                  onClick={() => setSearchInput('')}
+                  aria-label="Xóa từ khóa tìm kiếm"
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 rounded-full text-slate-400 hover:text-navy hover:bg-slate-200/70 cursor-pointer"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+          </div>
         </div>
       </div>
 
       <ErrorBanner message={errorMsg} onRetry={() => loadPosts(postsPage)} />
 
-      {/* Main 2-column layout */}
-      <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 items-start">
-        {/* LEFT COLUMN: BẢNG TIN CHÍNH (7 cols) */}
-        <section className="xl:col-span-7 space-y-3">
-          {/* Filter Toolbar */}
-          <div className="bg-white rounded-2xl border border-slate-200/80 shadow-card p-3.5 space-y-3">
-            <div className="flex flex-wrap items-center gap-1.5">
+      {/* Main 2-column Facebook Feed + Sticky Right Workplace Rail */}
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-5 items-start">
+        {/* LEFT COLUMN: FACEBOOK-STYLE NEWSFEED (7 cols) */}
+        <section className="xl:col-span-7 space-y-4">
+          {/* 1. FACEBOOK STORIES / BOSS HIGHLIGHTS STRIP */}
+          <div className="bg-white rounded-2xl border border-slate-200/80 shadow-card p-3.5">
+            <div className="flex items-center justify-between mb-2.5 px-1">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                Lọc nhanh theo Sếp
+              </span>
+              {bossFilter !== 'all' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBossFilter('all');
+                    setPostsPage(1);
+                  }}
+                  className="text-[11px] font-semibold text-brand-600 hover:underline cursor-pointer"
+                >
+                  Xem tất cả
+                </button>
+              )}
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
               {BOSS_FILTERS.map((b) => {
                 const active = bossFilter === b.key;
                 const count = b.key === 'all' ? totalAllPosts : bossCounts[b.key] || 0;
+                const av = BOSS_AVATAR_MAP[b.key];
                 return (
                   <button
                     key={b.key}
@@ -905,255 +1048,387 @@ export function BulletinDashboard({ onUnreadCountChange }: BulletinDashboardProp
                       setBossFilter(b.key);
                       setPostsPage(1);
                     }}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer flex items-center gap-1.5 ${
+                    className={`group flex items-center gap-2.5 p-2 rounded-xl border text-left transition-all cursor-pointer ${
                       active
-                        ? 'bg-navy text-white border-navy shadow-xs'
-                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                        ? 'bg-brand-50 border-brand-300 ring-1 ring-brand-500/20 shadow-xs'
+                        : 'bg-slate-50/70 border-slate-200/80 hover:bg-slate-100'
                     }`}
                   >
-                    <span>{b.label}</span>
-                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${active ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'}`}>
-                      {count}
-                    </span>
+                    <div
+                      className={`w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold shrink-0 transition-transform duration-200 group-hover:scale-105 ${
+                        av ? av.bg : 'gradient-brand text-white'
+                      } ${active ? 'ring-2 ring-offset-2 ring-brand-500' : 'ring-2 ring-offset-1 ring-slate-200'}`}
+                    >
+                      {av ? av.initials : <Users className="w-4 h-4" aria-hidden="true" />}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className={`text-xs font-bold truncate ${active ? 'text-brand-700' : 'text-navy'}`}>
+                        {av ? av.shortLabel : b.label}
+                      </p>
+                      <p className="text-[11px] text-slate-500 tabular-nums">{count} bài viết</p>
+                    </div>
                   </button>
                 );
               })}
             </div>
+          </div>
 
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="relative flex-1 min-w-[200px]">
-                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                <input
-                  type="text"
-                  value={searchInput}
-                  onChange={(e) => setSearchInput(e.target.value)}
-                  placeholder="Tìm nội dung bản tin từ các sếp..."
-                  className="w-full pl-8 pr-3 py-1.5 rounded-xl border border-slate-200 text-xs bg-slate-50/70 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-400"
-                />
+          {/* 2. FACEBOOK-STYLE QUICK ACTION COMPOSER CARD */}
+          <div className="bg-white rounded-2xl border border-slate-200/80 shadow-card p-3.5 sm:p-4 space-y-3">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full gradient-brand text-white font-bold text-xs flex items-center justify-center shrink-0 shadow-xs">
+                {userInitials}
               </div>
-
-              <div className="inline-flex rounded-xl border border-slate-200 p-0.5 bg-slate-50">
-                {(['all', 'unread', 'read'] as const).map((st) => (
-                  <button
-                    key={st}
-                    type="button"
-                    onClick={() => {
-                      setReadFilter(st);
-                      setPostsPage(1);
-                    }}
-                    className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all cursor-pointer ${
-                      readFilter === st ? 'bg-white text-navy shadow-xs' : 'text-slate-500 hover:text-navy'
-                    }`}
-                  >
-                    {st === 'all' ? 'Tất cả' : st === 'unread' ? 'Chưa đọc' : 'Đã đọc'}
-                  </button>
-                ))}
-              </div>
+              <button
+                type="button"
+                onClick={() => openChecklistModal(null)}
+                className="flex-1 text-left px-4 py-2.5 rounded-full bg-slate-100 hover:bg-slate-200/80 text-xs sm:text-[13px] text-slate-500 transition-colors cursor-pointer"
+              >
+                {userDisplayName} ơi, tạo nhanh checklist công việc hoặc nhắc hẹn hôm nay...
+              </button>
+            </div>
+            <div className="grid grid-cols-3 gap-1 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => openChecklistModal(null)}
+                className="flex items-center justify-center gap-1.5 py-2 px-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 hover:text-navy transition-colors cursor-pointer"
+              >
+                <CheckSquare className="w-4 h-4 text-emerald-600 shrink-0" aria-hidden="true" />
+                <span className="truncate">Checklist ngày</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => openReminderModal(null, null)}
+                className="flex items-center justify-center gap-1.5 py-2 px-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 hover:text-navy transition-colors cursor-pointer"
+              >
+                <BellRing className="w-4 h-4 text-brand-500 shrink-0" aria-hidden="true" />
+                <span className="truncate">Nhắc hẹn Zalo</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleSyncGroup}
+                disabled={syncingPosts}
+                className="flex items-center justify-center gap-1.5 py-2 px-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 hover:text-navy transition-colors cursor-pointer disabled:opacity-50"
+              >
+                <RefreshCw className={`w-4 h-4 text-gold-600 shrink-0 ${syncingPosts ? 'animate-spin' : ''}`} aria-hidden="true" />
+                <span className="truncate">Đồng bộ tin mới</span>
+              </button>
             </div>
           </div>
 
-          {/* Posts Feed */}
+          {/* 3. FACEBOOK NEWSFEED POSTS */}
           {loadingPosts && posts.length === 0 ? (
-            <div className="bg-white rounded-2xl border border-slate-200/80 p-10 text-center text-xs text-slate-400">
-              Đang tải bản tin từ nhóm EzTech - Data & Finance Service...
+            <div className="space-y-3">
+              {[1, 2, 3].map((sk) => (
+                <div key={sk} className="bg-white rounded-2xl border border-slate-200/80 shadow-card p-4 space-y-3 animate-pulse">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-slate-200" />
+                    <div className="space-y-1.5 flex-1">
+                      <div className="h-3.5 bg-slate-200 rounded w-36" />
+                      <div className="h-2.5 bg-slate-100 rounded w-24" />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <div className="h-3 bg-slate-100 rounded w-full" />
+                    <div className="h-3 bg-slate-100 rounded w-5/6" />
+                    <div className="h-3 bg-slate-100 rounded w-2/3" />
+                  </div>
+                </div>
+              ))}
             </div>
           ) : posts.length === 0 ? (
-            <div className="bg-white rounded-2xl border border-slate-200/80 p-10 text-center space-y-2">
-              <Newspaper className="w-9 h-9 text-slate-300 mx-auto" />
-              <p className="text-sm font-semibold text-navy">Chưa có bản tin nào phù hợp</p>
-              <p className="text-xs text-slate-400">
-                Bấm nút <strong>Đồng bộ nhóm Zalo</strong> ở góc trên để kéo tin nhắn mới từ nhóm EzTech - Data & Finance Service.
+            <div className="bg-white rounded-2xl border border-slate-200/80 shadow-card p-10 text-center space-y-2.5">
+              <div className="w-12 h-12 rounded-2xl bg-slate-100 flex items-center justify-center mx-auto text-slate-400">
+                <Newspaper className="w-6 h-6" aria-hidden="true" />
+              </div>
+              <p className="text-sm font-bold text-navy">Chưa có bài viết nào phù hợp</p>
+              <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                Bấm <strong>Đồng bộ nhóm Zalo</strong> để kéo thông báo mới nhất từ nhóm EzTech -Data & Finance Service.
               </p>
             </div>
           ) : (
-            <div className="space-y-3">
+            <div className="space-y-4">
               {posts.map((post) => {
                 const isLong = post.content.length > 420;
                 const isExpanded = !!expandedPostIds[post.id];
                 const displayContent = isLong && !isExpanded ? `${post.content.slice(0, 420)}...` : post.content;
                 const bossBadgeCls = BOSS_BADGE_MAP[post.boss_key] || 'bg-slate-100 text-slate-700 border-slate-200';
+                const bossAvatar = BOSS_AVATAR_MAP[post.boss_key];
+                const authorName = post.sender_name || post.boss_display_name;
+                const imageAttachments = (post.attachments || []).filter((att) => {
+                  const targetUrl = att.url || att.link;
+                  return !!targetUrl && (att.type === 'photo' || att.type === 'image' || /\.(png|jpe?g|webp|gif)(\?|$)/i.test(targetUrl));
+                });
+                const fileAttachments = (post.attachments || []).filter((att) => {
+                  const targetUrl = att.url || att.link;
+                  return !!targetUrl && !(att.type === 'photo' || att.type === 'image' || /\.(png|jpe?g|webp|gif)(\?|$)/i.test(targetUrl));
+                });
 
                 return (
                   <article
                     key={post.id}
-                    className={`bg-white rounded-2xl border transition-all shadow-card p-4 space-y-3 ${
+                    className={`bg-white rounded-2xl border transition-all shadow-card hover:shadow-card-hover overflow-hidden ${
                       post.is_pinned
-                        ? 'border-amber-300 ring-1 ring-amber-200/70'
+                        ? 'border-gold-400/90 ring-1 ring-gold-300/60'
                         : !post.is_read
-                        ? 'border-brand-300/90 bg-brand-50/15'
+                        ? 'border-brand-300/90'
                         : 'border-slate-200/80'
                     }`}
                   >
-                    {/* Post Header */}
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${bossBadgeCls}`}>
-                          {post.sender_name || post.boss_display_name}
-                        </span>
-                        <span className="text-[11px] font-mono text-slate-400">{post.posted_at}</span>
-                        {post.is_pinned && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-bold">
-                            <Pin className="w-3 h-3" /> Đã ghim
-                          </span>
-                        )}
+                    {/* Pinned strip (Facebook Group Pinned Post bar) */}
+                    {post.is_pinned && (
+                      <div className="px-4 py-1.5 bg-gold-50 border-b border-gold-200/80 flex items-center gap-1.5 text-[11px] font-bold text-gold-700">
+                        <Pin className="w-3.5 h-3.5" aria-hidden="true" />
+                        <span>Bài viết đã ghim bởi Quản trị viên</span>
+                      </div>
+                    )}
+
+                    <div className="p-4 pb-2 space-y-3">
+                      {/* Post Author Header */}
+                      <div className="flex items-start justify-between gap-2.5">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="relative shrink-0">
+                            <div
+                              className={`w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold shadow-xs ${
+                                bossAvatar ? bossAvatar.bg : 'gradient-brand text-white'
+                              }`}
+                            >
+                              {bossAvatar ? bossAvatar.initials : getInitials(authorName)}
+                            </div>
+                            {!post.is_read && (
+                              <span
+                                title="Bản tin chưa đọc"
+                                className="absolute -top-0.5 -right-0.5 w-3 h-3 rounded-full bg-brand-500 border-2 border-white"
+                              />
+                            )}
+                          </div>
+
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <h3 className="text-[14px] font-bold text-navy leading-snug truncate">
+                                {authorName}
+                              </h3>
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${bossBadgeCls}`}>
+                                Ban lãnh đạo
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1.5 text-[11px] text-slate-500 mt-0.5">
+                              <span className="font-mono">{post.posted_at}</span>
+                              <span aria-hidden="true">·</span>
+                              <Globe className="w-3 h-3 text-slate-400" aria-hidden="true" />
+                              <span className="truncate">EzTech Group</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1 shrink-0">
+                          {!post.is_read && (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-brand-50 text-brand-700 border border-brand-200 text-[10px] font-bold">
+                              Mới
+                            </span>
+                          )}
+                          {isAdmin && (
+                            <button
+                              type="button"
+                              onClick={() => handleTogglePin(post)}
+                              title={post.is_pinned ? 'Bỏ ghim bài viết' : 'Ghim bài viết lên đầu'}
+                              aria-label={post.is_pinned ? 'Bỏ ghim bài viết' : 'Ghim bài viết lên đầu'}
+                              className={`p-2 rounded-full transition-colors cursor-pointer ${
+                                post.is_pinned
+                                  ? 'bg-gold-50 text-gold-700 hover:bg-gold-100'
+                                  : 'text-slate-400 hover:text-navy hover:bg-slate-100'
+                              }`}
+                            >
+                              <Pin className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
                       </div>
 
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        {isAdmin && (
+                      {/* Post Body Content */}
+                      <div className="text-[14px] leading-[1.6] text-slate-800 whitespace-pre-wrap break-words">
+                        {displayContent}
+                        {isLong && (
                           <button
                             type="button"
-                            onClick={() => handleTogglePin(post)}
-                            title={post.is_pinned ? 'Bỏ ghim' : 'Ghim bản tin'}
-                            className={`p-1.5 rounded-lg border text-xs transition-colors cursor-pointer ${
-                              post.is_pinned
-                                ? 'bg-amber-50 border-amber-200 text-amber-700'
-                                : 'bg-white border-slate-200 text-slate-400 hover:text-navy'
-                            }`}
+                            onClick={() => setExpandedPostIds((prev) => ({ ...prev, [post.id]: !isExpanded }))}
+                            className="ml-1.5 text-[13px] font-bold text-brand-600 hover:underline cursor-pointer"
                           >
-                            <Pin className="w-3.5 h-3.5" />
+                            {isExpanded ? 'Thu gọn' : 'Xem thêm'}
                           </button>
                         )}
-                        <span
-                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold border ${
-                            post.is_read
-                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                              : 'bg-amber-50 text-amber-700 border-amber-200'
+                      </div>
+
+                      {/* Facebook-Style Image Media Grid */}
+                      {imageAttachments.length > 0 && (
+                        <div
+                          className={`grid gap-1.5 pt-1 ${
+                            imageAttachments.length === 1
+                              ? 'grid-cols-1'
+                              : imageAttachments.length === 2
+                              ? 'grid-cols-2'
+                              : 'grid-cols-2 sm:grid-cols-3'
                           }`}
                         >
-                          {post.is_read ? 'Đã đọc' : 'Chưa đọc'}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Content */}
-                    <div className="text-[13px] leading-relaxed text-slate-700 whitespace-pre-wrap break-words">
-                      {displayContent}
-                      {isLong && (
-                        <button
-                          type="button"
-                          onClick={() => setExpandedPostIds((prev) => ({ ...prev, [post.id]: !isExpanded }))}
-                          className="ml-1.5 text-xs font-semibold text-brand-600 hover:underline cursor-pointer"
-                        >
-                          {isExpanded ? 'Thu gọn' : 'Xem thêm'}
-                        </button>
-                      )}
-                    </div>
-
-                    {/* Attachments */}
-                    {post.attachments && post.attachments.length > 0 && (
-                      <div className="flex flex-wrap gap-2 pt-1">
-                        {post.attachments.map((att, idx) => {
-                          const targetUrl = att.url || att.link;
-                          if (!targetUrl) return null;
-                          const isImg = att.type === 'photo' || att.type === 'image' || /\.(png|jpe?g|webp|gif)(\?|$)/i.test(targetUrl);
-                          if (isImg) {
+                          {imageAttachments.map((att, idx) => {
+                            const targetUrl = att.url || att.link || '';
                             return (
-                              <a key={idx} href={targetUrl} target="_blank" rel="noopener noreferrer" className="block">
+                              <a
+                                key={idx}
+                                href={targetUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="group block overflow-hidden rounded-xl border border-slate-200/80 bg-slate-50"
+                              >
                                 <img
                                   src={targetUrl}
-                                  alt={att.title || 'Đính kèm'}
-                                  className="h-24 w-auto rounded-xl border border-slate-200 object-cover hover:opacity-90"
+                                  alt={att.title || 'Ảnh đính kèm'}
+                                  loading="lazy"
+                                  className={`w-full object-cover transition-transform duration-300 group-hover:scale-[1.02] ${
+                                    imageAttachments.length === 1 ? 'max-h-96' : 'h-44 sm:h-48'
+                                  }`}
                                 />
                               </a>
                             );
-                          }
-                          return (
-                            <a
-                              key={idx}
-                              href={targetUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-50 border border-slate-200 text-xs font-medium text-brand-700 hover:bg-brand-50"
+                          })}
+                        </div>
+                      )}
+
+                      {/* Link / Document Attachment Cards */}
+                      {fileAttachments.length > 0 && (
+                        <div className="space-y-1.5 pt-1">
+                          {fileAttachments.map((att, idx) => {
+                            const targetUrl = att.url || att.link || '';
+                            return (
+                              <a
+                                key={idx}
+                                href={targetUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200/80 hover:bg-slate-100 transition-colors group"
+                              >
+                                <div className="w-9 h-9 rounded-lg bg-brand-50 text-brand-600 flex items-center justify-center shrink-0">
+                                  <FileText className="w-4 h-4" aria-hidden="true" />
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-xs font-semibold text-navy truncate group-hover:text-brand-600">
+                                    {att.title || 'Tài liệu đính kèm'}
+                                  </p>
+                                  <p className="text-[11px] text-slate-400 truncate">{targetUrl}</p>
+                                </div>
+                                <ExternalLink className="w-3.5 h-3.5 text-slate-400 shrink-0" aria-hidden="true" />
+                              </a>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {/* Social Stats / Engagement Summary Row */}
+                      <div className="flex flex-wrap items-center justify-between gap-2 pt-2 text-xs text-slate-500">
+                        <div className="flex items-center gap-2">
+                          <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-brand-500 text-white">
+                            <ThumbsUp className="w-2.5 h-2.5" aria-hidden="true" />
+                          </span>
+                          {isAdmin && post.readers && post.readers.length > 0 ? (
+                            <button
+                              type="button"
+                              onClick={() => setOpenReadersPostId((prev) => (prev === post.id ? null : post.id))}
+                              className="inline-flex items-center gap-1 hover:underline hover:text-navy font-medium cursor-pointer"
                             >
-                              <ExternalLink className="w-3.5 h-3.5" />
-                              <span className="truncate max-w-[220px]">{att.title || targetUrl}</span>
-                            </a>
-                          );
-                        })}
-                      </div>
-                    )}
+                              <span>{post.read_count} người đã đọc</span>
+                              {openReadersPostId === post.id ? (
+                                <ChevronUp className="w-3.5 h-3.5" />
+                              ) : (
+                                <ChevronDown className="w-3.5 h-3.5" />
+                              )}
+                            </button>
+                          ) : (
+                            <span>{post.read_count} người đã đọc</span>
+                          )}
+                        </div>
 
-                    {/* Meta & Admin Readers */}
-                    <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-100 text-[11px] text-slate-400">
-                      <div className="flex flex-wrap items-center gap-3">
-                        <span>{post.read_count} lượt đã đọc</span>
-                        {post.my_reminder_count > 0 && (
-                          <span className="text-brand-600 font-medium">{post.my_reminder_count} nhắc hẹn của bạn</span>
-                        )}
-                        {post.my_checklist_count > 0 && (
-                          <span className="text-emerald-600 font-medium">{post.my_checklist_count} checklist của bạn</span>
-                        )}
+                        <div className="flex items-center gap-3 text-[11px]">
+                          {post.my_reminder_count > 0 && (
+                            <span className="inline-flex items-center gap-1 text-brand-600 font-semibold">
+                              <Clock className="w-3 h-3" aria-hidden="true" />
+                              {post.my_reminder_count} nhắc hẹn
+                            </span>
+                          )}
+                          {post.my_checklist_count > 0 && (
+                            <span className="inline-flex items-center gap-1 text-emerald-600 font-semibold">
+                              <CheckSquare className="w-3 h-3" aria-hidden="true" />
+                              {post.my_checklist_count} checklist
+                            </span>
+                          )}
+                        </div>
                       </div>
 
-                      {isAdmin && post.readers && post.readers.length > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => setOpenReadersPostId((prev) => (prev === post.id ? null : post.id))}
-                          className="inline-flex items-center gap-1 text-brand-600 hover:underline font-medium cursor-pointer"
-                        >
-                          <Eye className="w-3 h-3" />
-                          <span>Xem nhân sự đã đọc</span>
-                          {openReadersPostId === post.id ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                        </button>
+                      {/* Admin Readers Drawer */}
+                      {isAdmin && openReadersPostId === post.id && post.readers && (
+                        <div className="bg-slate-50 rounded-xl p-2.5 border border-slate-200/80 space-y-1.5">
+                          <p className="text-[11px] font-semibold text-slate-500 flex items-center gap-1">
+                            <Eye className="w-3 h-3 text-brand-500" aria-hidden="true" />
+                            Nhân sự đã xác nhận đọc:
+                          </p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {post.readers.map((r) => (
+                              <span
+                                key={r.user_id}
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white border border-slate-200 text-[11px] font-medium text-slate-700"
+                                title={`Đọc lúc: ${r.read_at || ''}`}
+                              >
+                                <span className="w-4 h-4 rounded-full bg-emerald-100 text-emerald-700 text-[9px] font-bold flex items-center justify-center">
+                                  {getInitials(r.full_name)}
+                                </span>
+                                {r.full_name}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
                       )}
                     </div>
 
-                    {isAdmin && openReadersPostId === post.id && post.readers && (
-                      <div className="bg-slate-50 rounded-xl p-2.5 border border-slate-200/80 flex flex-wrap gap-1.5">
-                        {post.readers.map((r) => (
-                          <span
-                            key={r.user_id}
-                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-white border border-slate-200 text-[11px] text-slate-700"
-                            title={`Đọc lúc: ${r.read_at || ''}`}
-                          >
-                            <Check className="w-3 h-3 text-emerald-600" />
-                            {r.full_name}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* 3 Option Action Buttons + A2 AI Extract */}
-                    <div className="flex flex-wrap items-center gap-2 pt-1">
+                    {/* Facebook-Style Flat 4-Action Footer Bar */}
+                    <div className="px-2 py-1.5 border-t border-slate-100 grid grid-cols-2 sm:grid-cols-4 gap-1">
                       <button
                         type="button"
                         onClick={() => handleToggleRead(post)}
-                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
+                        className={`flex items-center justify-center gap-1.5 py-2 px-2 rounded-xl text-xs font-semibold transition-colors cursor-pointer ${
                           post.is_read
-                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
-                            : 'bg-white text-navy border-slate-200 hover:bg-brand-50 hover:border-brand-300'
+                            ? 'text-brand-600 bg-brand-50/70 hover:bg-brand-100/70'
+                            : 'text-slate-600 hover:bg-slate-100 hover:text-navy'
                         }`}
                       >
-                        <CheckCircle2 className="w-3.5 h-3.5" />
-                        <span>{post.is_read ? 'Đã đọc' : 'Đánh dấu đã đọc'}</span>
+                        <ThumbsUp className={`w-4 h-4 shrink-0 ${post.is_read ? 'fill-brand-500/20' : ''}`} aria-hidden="true" />
+                        <span className="truncate">{post.is_read ? 'Đã đọc' : 'Đánh dấu đọc'}</span>
                       </button>
 
                       <button
                         type="button"
                         onClick={() => openReminderModal(post, null)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-brand-50/70 hover:bg-brand-100/80 text-brand-700 border border-brand-200 transition-all cursor-pointer"
+                        className="flex items-center justify-center gap-1.5 py-2 px-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 hover:text-brand-600 transition-colors cursor-pointer"
                       >
-                        <Clock className="w-3.5 h-3.5" />
-                        <span>Tạo nhắc hẹn</span>
+                        <Clock className="w-4 h-4 shrink-0" aria-hidden="true" />
+                        <span className="truncate">Nhắc hẹn</span>
                       </button>
 
                       <button
                         type="button"
                         onClick={() => openChecklistModal(post)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-emerald-50/70 hover:bg-emerald-100/80 text-emerald-700 border border-emerald-200 transition-all cursor-pointer"
+                        className="flex items-center justify-center gap-1.5 py-2 px-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 hover:text-emerald-600 transition-colors cursor-pointer"
                       >
-                        <CheckSquare className="w-3.5 h-3.5" />
-                        <span>Tạo checklist công việc</span>
+                        <CheckSquare className="w-4 h-4 shrink-0" aria-hidden="true" />
+                        <span className="truncate">Checklist</span>
                       </button>
 
                       <button
                         type="button"
                         disabled={aiLoadingPostId === post.id}
                         onClick={() => handleAiExtract(post)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 transition-all cursor-pointer disabled:opacity-50 ml-auto"
+                        className="flex items-center justify-center gap-1.5 py-2 px-2 rounded-xl text-xs font-semibold text-purple-700 hover:bg-purple-50 transition-colors cursor-pointer disabled:opacity-50"
                       >
-                        <Sparkles className={`w-3.5 h-3.5 ${aiLoadingPostId === post.id ? 'animate-spin' : ''}`} />
-                        <span>{aiLoadingPostId === post.id ? 'AI đang tách...' : 'AI tách việc'}</span>
+                        <Sparkles className={`w-4 h-4 shrink-0 ${aiLoadingPostId === post.id ? 'animate-spin' : ''}`} aria-hidden="true" />
+                        <span className="truncate">{aiLoadingPostId === post.id ? 'Đang tách...' : 'AI tách việc'}</span>
                       </button>
                     </div>
                   </article>
@@ -1162,16 +1437,16 @@ export function BulletinDashboard({ onUnreadCountChange }: BulletinDashboardProp
 
               {/* Pagination */}
               {totalPages > 1 && (
-                <div className="flex items-center justify-between bg-white rounded-xl border border-slate-200 px-4 py-2.5 text-xs">
+                <div className="flex items-center justify-between bg-white rounded-2xl border border-slate-200/80 shadow-card px-4 py-3 text-xs">
                   <span className="text-slate-500">
-                    Trang <strong>{postsPage}</strong> / {totalPages} ({postsTotal} bản tin)
+                    Trang <strong className="text-navy">{postsPage}</strong> / {totalPages} ({postsTotal} bài viết)
                   </span>
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
                       disabled={postsPage <= 1}
                       onClick={() => setPostsPage((p) => Math.max(1, p - 1))}
-                      className="px-2.5 py-1 rounded-lg border border-slate-200 disabled:opacity-40 cursor-pointer"
+                      className="px-3 py-1.5 rounded-xl border border-slate-200 font-semibold text-navy hover:bg-slate-50 disabled:opacity-40 cursor-pointer transition-colors"
                     >
                       Trước
                     </button>
@@ -1179,7 +1454,7 @@ export function BulletinDashboard({ onUnreadCountChange }: BulletinDashboardProp
                       type="button"
                       disabled={postsPage >= totalPages}
                       onClick={() => setPostsPage((p) => Math.min(totalPages, p + 1))}
-                      className="px-2.5 py-1 rounded-lg border border-slate-200 disabled:opacity-40 cursor-pointer"
+                      className="px-3 py-1.5 rounded-xl border border-slate-200 font-semibold text-navy hover:bg-slate-50 disabled:opacity-40 cursor-pointer transition-colors"
                     >
                       Sau
                     </button>
@@ -1190,55 +1465,88 @@ export function BulletinDashboard({ onUnreadCountChange }: BulletinDashboardProp
           )}
         </section>
 
-        {/* RIGHT COLUMN: CHECKLIST HÀNG NGÀY, NHẮC HẸN & ADMIN ZALO (5 cols) */}
-        <aside className="xl:col-span-5 space-y-3 xl:sticky xl:top-20">
+        {/* RIGHT COLUMN: FACEBOOK-STYLE STICKY WORKPLACE RAIL (5 cols) */}
+        <aside className="xl:col-span-5 space-y-4 xl:sticky xl:top-20">
           <div className="bg-white rounded-2xl border border-slate-200/80 shadow-card overflow-hidden">
-            {/* Sub-tabs Header */}
-            <div className="flex items-center border-b border-slate-200 bg-slate-50/80 p-1.5 gap-1">
-              <button
-                type="button"
-                onClick={() => setWorkTab('checklist')}
-                className={`flex-1 py-2 px-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                  workTab === 'checklist' ? 'bg-white text-navy shadow-xs' : 'text-slate-500 hover:text-navy'
-                }`}
-              >
-                <ListTodo className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Checklist ngày</span>
-                {checklistSummary.total_items > 0 && (
-                  <span className="px-1.5 py-0.2 rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-bold">
-                    {checklistSummary.done_items}/{checklistSummary.total_items}
-                  </span>
-                )}
-              </button>
+            {/* Rail Title + Segmented Underline Tabs */}
+            <div className="px-4 pt-3.5 pb-0 border-b border-slate-100">
+              <div className="flex items-center justify-between gap-2 mb-2.5">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+                  <ListTodo className="w-3.5 h-3.5 text-brand-500" aria-hidden="true" />
+                  <span>Không gian công việc</span>
+                </h3>
+                <span className="text-[11px] font-mono text-slate-400 tabular-nums">
+                  {checklistSummary.done_items}/{checklistSummary.total_items} việc • {reminders.filter((r) => r.status === 'pending').length} hẹn
+                </span>
+              </div>
 
-              <button
-                type="button"
-                onClick={() => setWorkTab('reminders')}
-                className={`flex-1 py-2 px-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                  workTab === 'reminders' ? 'bg-white text-navy shadow-xs' : 'text-slate-500 hover:text-navy'
-                }`}
-              >
-                <Bell className="w-3.5 h-3.5 text-brand-600" />
-                <span>Nhắc hẹn</span>
-                {reminders.filter((r) => r.status === 'pending').length > 0 && (
-                  <span className="px-1.5 py-0.2 rounded-full bg-brand-100 text-brand-700 text-[10px] font-bold">
-                    {reminders.filter((r) => r.status === 'pending').length}
-                  </span>
-                )}
-              </button>
-
-              {isAdmin && (
+              <div role="tablist" aria-label="Công cụ công việc" className="flex items-center gap-1">
                 <button
+                  role="tab"
+                  aria-selected={workTab === 'checklist'}
                   type="button"
-                  onClick={() => setWorkTab('admin')}
-                  className={`flex-1 py-2 px-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                    workTab === 'admin' ? 'bg-white text-navy shadow-xs' : 'text-slate-500 hover:text-navy'
+                  onClick={() => setWorkTab('checklist')}
+                  className={`relative flex-1 py-2.5 px-2 rounded-t-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer ${
+                    workTab === 'checklist'
+                      ? 'text-brand-600'
+                      : 'text-slate-500 hover:text-navy hover:bg-slate-50'
                   }`}
                 >
-                  <Settings className="w-3.5 h-3.5 text-amber-600" />
-                  <span>Zalo & Admin</span>
+                  <ListTodo className="w-3.5 h-3.5 text-emerald-600 shrink-0" aria-hidden="true" />
+                  <span className="truncate">Checklist</span>
+                  {checklistSummary.total_items > 0 && (
+                    <span className="px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-bold font-mono tabular-nums">
+                      {checklistSummary.done_items}/{checklistSummary.total_items}
+                    </span>
+                  )}
+                  {workTab === 'checklist' && (
+                    <span aria-hidden="true" className="absolute bottom-0 left-2 right-2 h-[3px] rounded-t-full bg-brand-500" />
+                  )}
                 </button>
-              )}
+
+                <button
+                  role="tab"
+                  aria-selected={workTab === 'reminders'}
+                  type="button"
+                  onClick={() => setWorkTab('reminders')}
+                  className={`relative flex-1 py-2.5 px-2 rounded-t-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer ${
+                    workTab === 'reminders'
+                      ? 'text-brand-600'
+                      : 'text-slate-500 hover:text-navy hover:bg-slate-50'
+                  }`}
+                >
+                  <Bell className="w-3.5 h-3.5 text-brand-500 shrink-0" aria-hidden="true" />
+                  <span className="truncate">Nhắc hẹn</span>
+                  {reminders.filter((r) => r.status === 'pending').length > 0 && (
+                    <span className="px-1.5 py-0.5 rounded-full bg-brand-50 text-brand-700 text-[10px] font-bold font-mono tabular-nums">
+                      {reminders.filter((r) => r.status === 'pending').length}
+                    </span>
+                  )}
+                  {workTab === 'reminders' && (
+                    <span aria-hidden="true" className="absolute bottom-0 left-2 right-2 h-[3px] rounded-t-full bg-brand-500" />
+                  )}
+                </button>
+
+                {isAdmin && (
+                  <button
+                    role="tab"
+                    aria-selected={workTab === 'admin'}
+                    type="button"
+                    onClick={() => setWorkTab('admin')}
+                    className={`relative flex-1 py-2.5 px-2 rounded-t-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer ${
+                      workTab === 'admin'
+                        ? 'text-brand-600'
+                        : 'text-slate-500 hover:text-navy hover:bg-slate-50'
+                    }`}
+                  >
+                    <Settings className="w-3.5 h-3.5 text-gold-600 shrink-0" aria-hidden="true" />
+                    <span className="truncate">Zalo & Admin</span>
+                    {workTab === 'admin' && (
+                      <span aria-hidden="true" className="absolute bottom-0 left-2 right-2 h-[3px] rounded-t-full bg-brand-500" />
+                    )}
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* Admin Global Staff Filter Bar */}

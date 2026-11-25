@@ -26,7 +26,7 @@ logger = logging.getLogger("BulletinSync")
 
 BULLETIN_CONFIG_KEY = "BULLETIN_SOURCE_CONFIG"
 EZTECH_CONSULTANT_PAGE_ID = "pzl_764881945463506349"
-DEFAULT_GROUP_NAME = "EzTech - Data & Finance Service"
+DEFAULT_GROUP_NAME = "EzTech -Data & Finance Service"
 DEFAULT_MERGE_WINDOW_SEC = 180  # Gom tin liên tiếp của cùng 1 sếp trong 3 phút
 MAX_LAST_SEEN_IDS = 120
 
@@ -246,18 +246,19 @@ def discover_group_conversation(
     client: PancakeClient,
     page_id: str,
     group_name: str,
-    max_convs: int = 100,
+    max_convs: int = 300,
 ) -> Optional[Dict[str, Any]]:
-    """Tìm hội thoại nhóm Zalo (pzl_g_...) khớp với tên nhóm 'EzTech - Data & Finance Service'."""
+    """Tìm hội thoại nhóm Zalo (pzl_g_...) khớp với tên nhóm 'EzTech -Data & Finance Service'."""
     target_nfc = _norm_nfc(group_name)
     target_ascii = _strip_accents(group_name)
+    target_loose = re.sub(r"[\s\-_]+", "", target_ascii)
 
     convs = client.list_page_conversations(
         page_id=page_id,
         max_convs=max_convs,
         include_groups=True,
         only_groups=True,
-        max_api_pages=15,
+        max_api_pages=25,
     )
     exact_match = None
     partial_match = None
@@ -268,10 +269,11 @@ def discover_group_conversation(
             continue
         cn_nfc = _norm_nfc(cname)
         cn_ascii = _strip_accents(cname)
-        if cn_nfc == target_nfc or cn_ascii == target_ascii:
+        cn_loose = re.sub(r"[\s\-_]+", "", cn_ascii)
+        if cn_nfc == target_nfc or cn_ascii == target_ascii or (target_loose and cn_loose == target_loose):
             exact_match = conv
             break
-        if target_ascii and target_ascii in cn_ascii and not partial_match:
+        if target_ascii and (target_ascii in cn_ascii or (target_loose and target_loose in cn_loose)) and not partial_match:
             partial_match = conv
 
     return exact_match or partial_match
