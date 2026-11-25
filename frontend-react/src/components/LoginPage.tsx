@@ -117,31 +117,57 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     return () => document.removeEventListener('mousedown', onOutsideClick);
   }, [selectedEmployee]);
 
-  // Ghim nhân viên đăng nhập gần nhất lên đầu danh sách & lọc không dấu tiếng Việt
-  const filteredEmployees = useMemo(() => {
-    const ordered = [...employees].sort((a, b) => {
-      const aPinned = lastLoginUsername && a.username.toLowerCase() === lastLoginUsername.toLowerCase() ? 0 : 1;
-      const bPinned = lastLoginUsername && b.username.toLowerCase() === lastLoginUsername.toLowerCase() ? 0 : 1;
-      if (aPinned !== bPinned) return aPinned - bPinned;
-      const aAdm = a.role === 'admin' ? 0 : 1;
-      const bAdm = b.role === 'admin' ? 0 : 1;
-      if (aAdm !== bAdm) return aAdm - bAdm;
-      return stripVnAccents(a.full_name).localeCompare(stripVnAccents(b.full_name));
-    });
-
+  // Nhóm nhân viên theo tag (phòng ban): Admin ở trên cùng, các nhóm còn lại sort theo tên tag
+  const { groupedSections, filteredEmployees } = useMemo(() => {
     const q = stripVnAccents(searchText);
-    // Nếu đang mở dropdown nhưng ô text đang giữ nguyên tên người đã chọn thì hiển thị toàn bộ danh sách để đổi nhanh
-    if (!q || (selectedEmployee && stripVnAccents(selectedEmployee.full_name) === q)) {
-      return ordered;
+    const isShowingAll = !q || (selectedEmployee && stripVnAccents(selectedEmployee.full_name) === q);
+
+    const matched = isShowingAll
+      ? employees
+      : employees.filter((emp) => {
+          const hayName = stripVnAccents(emp.full_name);
+          const hayUser = stripVnAccents(emp.username);
+          const hayDept = stripVnAccents(resolveDepartmentName(emp.department, emp.role));
+          return hayName.includes(q) || hayUser.includes(q) || hayDept.includes(q);
+        });
+
+    const groupsMap = new Map<string, EmployeeLoginOption[]>();
+    for (const emp of matched) {
+      const dept = resolveDepartmentName(emp.department, emp.role);
+      const bucket = groupsMap.get(dept) || [];
+      bucket.push(emp);
+      groupsMap.set(dept, bucket);
     }
 
-    return ordered.filter((emp) => {
-      const hayName = stripVnAccents(emp.full_name);
-      const hayUser = stripVnAccents(emp.username);
-      const hayDept = stripVnAccents(emp.department);
-      return hayName.includes(q) || hayUser.includes(q) || hayDept.includes(q);
+    const sortedGroupKeys = Array.from(groupsMap.keys()).sort((a, b) => {
+      if (a === 'Admin' && b !== 'Admin') return -1;
+      if (b === 'Admin' && a !== 'Admin') return 1;
+      return stripVnAccents(a).localeCompare(stripVnAccents(b));
     });
-  }, [employees, searchText, selectedEmployee, lastLoginUsername]);
+
+    const sections: Array<{
+      dept: ReturnType<typeof resolveDepartmentName>;
+      items: Array<{ emp: EmployeeLoginOption; flatIdx: number }>;
+    }> = [];
+    const flat: EmployeeLoginOption[] = [];
+
+    for (const deptKey of sortedGroupKeys) {
+      const list = (groupsMap.get(deptKey) || []).slice().sort((a, b) =>
+        stripVnAccents(a.full_name).localeCompare(stripVnAccents(b.full_name))
+      );
+      const items = list.map((emp) => {
+        const flatIdx = flat.length;
+        flat.push(emp);
+        return { emp, flatIdx };
+      });
+      sections.push({
+        dept: resolveDepartmentName(deptKey, deptKey === 'Admin' ? 'admin' : 'user'),
+        items,
+      });
+    }
+
+    return { groupedSections: sections, filteredEmployees: flat };
+  }, [employees, searchText, selectedEmployee]);
 
   const handleSelectOption = (emp: EmployeeLoginOption) => {
     setSelectedEmployee(emp);
@@ -354,7 +380,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                   <div
                     id="employee-listbox"
                     role="listbox"
-                    className="absolute left-0 right-0 mt-1.5 max-h-64 overflow-y-auto bg-white rounded-2xl border border-gray-200 shadow-2xl z-30 py-1.5 divide-y divide-gray-50 custom-scrollbar"
+                    className="absolute left-0 right-0 mt-1.5 max-h-72 overflow-y-auto bg-white rounded-2xl border border-gray-200 shadow-2xl z-30 pb-1.5 custom-scrollbar"
                   >
                     {loadingEmployees ? (
                       <div className="px-4 py-6 text-center text-xs text-gray-400">
@@ -365,60 +391,80 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                         Không tìm thấy nhân sự phù hợp với "{searchText}"
                       </div>
                     ) : (
-                      filteredEmployees.map((emp, idx) => {
-                        const isSelected = selectedEmployee?.id === emp.id;
-                        const isPinned =
-                          Boolean(lastLoginUsername) &&
-                          emp.username.toLowerCase() === lastLoginUsername.toLowerCase();
-                        const dept = resolveDepartmentName(emp.department, emp.role);
-                        const badgeCls = DEPARTMENT_PERMISSIONS[dept].badgeClass;
-
+                      groupedSections.map((section) => {
+                        const sectionBadgeCls = DEPARTMENT_PERMISSIONS[section.dept].badgeClass;
                         return (
-                          <button
-                            key={emp.id}
-                            type="button"
-                            role="option"
-                            aria-selected={isSelected}
-                            onMouseEnter={() => setHighlightedIdx(idx)}
-                            onClick={() => handleSelectOption(emp)}
-                            className={`w-full px-3.5 py-2.5 text-left flex items-center justify-between gap-2 transition-colors cursor-pointer ${
-                              idx === highlightedIdx
-                                ? 'bg-brand-50/90 text-navy'
-                                : isSelected
-                                ? 'bg-slate-50 text-navy'
-                                : 'text-gray-700 hover:bg-gray-50'
-                            }`}
-                          >
-                            <div className="flex items-center gap-2.5 min-w-0">
-                              <div
-                                className={`w-7 h-7 rounded-lg flex items-center justify-center text-[11px] font-bold uppercase shrink-0 ${
-                                  dept === 'Admin'
-                                    ? 'bg-navy text-gold-400'
-                                    : 'bg-brand-100/80 text-brand-700'
-                                }`}
+                          <div key={section.dept} className="border-b border-gray-100 last:border-b-0">
+                            <div className="sticky top-0 z-10 px-3.5 py-1.5 bg-slate-50/95 backdrop-blur-xs border-b border-gray-100 flex items-center justify-between">
+                              <span
+                                className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${sectionBadgeCls}`}
                               >
-                                {emp.full_name.slice(0, 2)}
-                              </div>
-                              <div className="min-w-0">
-                                <div className="flex items-center gap-1.5">
-                                  <span className="text-xs font-semibold truncate">{emp.full_name}</span>
-                                  {isSelected && <Check className="w-3.5 h-3.5 text-brand-600 shrink-0" />}
-                                </div>
-                                {isPinned && (
-                                  <span className="inline-flex items-center gap-1 text-[10px] text-emerald-600 font-medium">
-                                    <Clock className="w-2.5 h-2.5" />
-                                    Đăng nhập gần nhất
-                                  </span>
-                                )}
-                              </div>
+                                {section.dept}
+                              </span>
+                              <span className="text-[10px] font-medium text-gray-400 tabular-nums">
+                                {section.items.length}
+                              </span>
                             </div>
 
-                            <span
-                              className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border shrink-0 ${badgeCls}`}
-                            >
-                              {dept}
-                            </span>
-                          </button>
+                            <div className="divide-y divide-gray-50">
+                              {section.items.map(({ emp, flatIdx }) => {
+                                const isSelected = selectedEmployee?.id === emp.id;
+                                const isPinned =
+                                  Boolean(lastLoginUsername) &&
+                                  emp.username.toLowerCase() === lastLoginUsername.toLowerCase();
+                                const dept = resolveDepartmentName(emp.department, emp.role);
+                                const badgeCls = DEPARTMENT_PERMISSIONS[dept].badgeClass;
+
+                                return (
+                                  <button
+                                    key={emp.id}
+                                    type="button"
+                                    role="option"
+                                    aria-selected={isSelected}
+                                    onMouseEnter={() => setHighlightedIdx(flatIdx)}
+                                    onClick={() => handleSelectOption(emp)}
+                                    className={`w-full px-3.5 py-2.5 text-left flex items-center justify-between gap-2 transition-colors cursor-pointer ${
+                                      flatIdx === highlightedIdx
+                                        ? 'bg-brand-50/90 text-navy'
+                                        : isSelected
+                                        ? 'bg-slate-50 text-navy'
+                                        : 'text-gray-700 hover:bg-gray-50'
+                                    }`}
+                                  >
+                                    <div className="flex items-center gap-2.5 min-w-0">
+                                      <div
+                                        className={`w-7 h-7 rounded-lg flex items-center justify-center text-[11px] font-bold uppercase shrink-0 ${
+                                          dept === 'Admin'
+                                            ? 'bg-navy text-gold-400'
+                                            : 'bg-brand-100/80 text-brand-700'
+                                        }`}
+                                      >
+                                        {emp.full_name.slice(0, 2)}
+                                      </div>
+                                      <div className="min-w-0">
+                                        <div className="flex items-center gap-1.5">
+                                          <span className="text-xs font-semibold truncate">{emp.full_name}</span>
+                                          {isSelected && <Check className="w-3.5 h-3.5 text-brand-600 shrink-0" />}
+                                        </div>
+                                        {isPinned && (
+                                          <span className="inline-flex items-center gap-1 text-[10px] text-emerald-600 font-medium">
+                                            <Clock className="w-2.5 h-2.5" />
+                                            Đăng nhập gần nhất
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
+
+                                    <span
+                                      className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border shrink-0 ${badgeCls}`}
+                                    >
+                                      {dept}
+                                    </span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
                         );
                       })
                     )}
