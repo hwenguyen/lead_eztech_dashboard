@@ -5,7 +5,7 @@ import {
   RefreshCw, LayoutDashboard, Clock, Award, Bot, LogOut, KeyRound,
   Menu, X, Sparkles, Facebook, FileSpreadsheet, Receipt, ExternalLink,
   Wallet, Database, CheckCircle2, User, ChevronDown,
-  BarChart3, Briefcase, Cpu, GraduationCap
+  BarChart3, Briefcase, Cpu, GraduationCap, Newspaper
 } from 'lucide-react';
 import { KpiCard } from './components/KpiCard';
 import { TrendChart } from './components/TrendChart';
@@ -21,7 +21,7 @@ import { getVnTodayStr } from './utils/format';
 import { showAppToast } from './utils/toast';
 import {
   fetchSummary, fetchTrend, fetchLeads, fetchEmployees, fetchPages,
-  fetchCurrentUser, updateStoredUser,
+  fetchCurrentUser, updateStoredUser, fetchBulletinUnreadCount,
   getStoredAuth, logoutApi, clearClientApiCache, isAbortError,
   type SummaryData, type TrendData, type Lead, type AuthUser, type OverviewCrossFilters
 } from './services/api';
@@ -34,6 +34,7 @@ import {
 // Code-splitting: tải lười các tab phụ, card AI & modal giúp giảm mạnh bundle JS khởi đầu
 const FacebookDashboard = lazy(() => import('./components/FacebookDashboard').then((m) => ({ default: m.FacebookDashboard })));
 const TikTokDashboard = lazy(() => import('./components/TikTokDashboard').then((m) => ({ default: m.TikTokDashboard })));
+const BulletinDashboard = lazy(() => import('./components/BulletinDashboard').then((m) => ({ default: m.BulletinDashboard })));
 const WorkReportDashboard = lazy(() => import('./components/WorkReportDashboard').then((m) => ({ default: m.WorkReportDashboard })));
 const RemindLeadTable = lazy(() => import('./components/RemindLeadTable').then((m) => ({ default: m.RemindLeadTable })));
 const DealWinDashboard = lazy(() => import('./components/DealWinDashboard').then((m) => ({ default: m.DealWinDashboard })));
@@ -58,7 +59,7 @@ const TAG_PIE_COLOR_MAP: Record<string, string> = {
 type TabId = AppTabId | 'profile';
 
 const VALID_TABS = new Set<TabId>([
-  'overview', 'facebook', 'tiktok', 'work_report', 'remind',
+  'overview', 'facebook', 'tiktok', 'bulletin', 'work_report', 'remind',
   'deals', 'bot', 'data_export', 'add_friend', 'gas_tool',
   'invoice', 'ai_assistant', 'btvn_grader', 'profile',
 ]);
@@ -67,6 +68,7 @@ const TAB_TITLES: Record<TabId, string> = {
   overview: 'Tổng quan & Chỉ số',
   facebook: 'Facebook Analytics',
   tiktok: 'TikTok Analytics',
+  bulletin: 'Bảng Tin & Công Việc',
   work_report: 'Báo cáo công việc Tuần',
   remind: 'Chăm sóc Lead (Remind)',
   deals: 'Học viên Chốt (Deal Win)',
@@ -155,6 +157,7 @@ const NAV_GROUPS: NavGroupConfig[] = [
     label: 'Quy trình & Học viên',
     icon: Briefcase,
     items: [
+      { id: 'bulletin', label: 'Bảng Tin & Công Việc', icon: Newspaper },
       { id: 'work_report', label: 'Báo cáo công việc', icon: FileSpreadsheet },
       { id: 'remind', label: 'Chăm sóc Lead', icon: Clock },
       { id: 'deals', label: 'Deal Win', icon: Award },
@@ -188,6 +191,7 @@ function App() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => !!getStoredAuth().token);
   const [showChangePw, setShowChangePw] = useState<boolean>(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
+  const [bulletinUnreadCount, setBulletinUnreadCount] = useState<number>(0);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState<boolean>(false);
   const [openNavGroups, setOpenNavGroups] = useState<Record<NavGroupId, boolean>>(() => {
     try {
@@ -342,6 +346,22 @@ function App() {
       cancelled = true;
     };
   }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (!isAuthenticated || !currentUser || !canAccessTab(currentUser, 'bulletin')) {
+      setBulletinUnreadCount(0);
+      return;
+    }
+    let cancelled = false;
+    fetchBulletinUnreadCount()
+      .then((res) => {
+        if (!cancelled) setBulletinUnreadCount(res.unread_count || 0);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated, currentUser]);
 
   // Đồng bộ URL khi người dùng bấm Back/Forward trên trình duyệt
   useEffect(() => {
@@ -855,6 +875,10 @@ function App() {
                                   aria-hidden="true"
                                   className={`w-3.5 h-3.5 shrink-0 transition-colors ${isActive ? 'text-gold-400' : 'text-slate-400 group-hover:text-brand-600'}`}
                                 />
+                              ) : item.id === 'bulletin' && bulletinUnreadCount > 0 ? (
+                                <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold shrink-0 ${isActive ? 'bg-gold-400 text-navy' : 'bg-amber-100 text-amber-800'}`}>
+                                  {bulletinUnreadCount > 99 ? '99+' : bulletinUnreadCount}
+                                </span>
                               ) : (
                                 isActive && <div className="ez-nav-dot w-1.5 h-1.5 rounded-full bg-gold-400 shrink-0" aria-hidden="true" />
                               )}
@@ -1057,6 +1081,8 @@ function App() {
                   <FacebookDashboard />
                 ) : effectiveTab === 'tiktok' && canAccessTab(currentUser, 'tiktok') ? (
                   <TikTokDashboard />
+                ) : effectiveTab === 'bulletin' && canAccessTab(currentUser, 'bulletin') ? (
+                  <BulletinDashboard onUnreadCountChange={setBulletinUnreadCount} />
                 ) : effectiveTab === 'work_report' && canAccessTab(currentUser, 'work_report') ? (
                   <WorkReportDashboard />
                 ) : effectiveTab === 'deals' && canAccessTab(currentUser, 'deals') ? (

@@ -8,6 +8,7 @@ export type AppTabId =
   | 'overview'
   | 'facebook'
   | 'tiktok'
+  | 'bulletin'
   | 'work_report'
   | 'remind'
   | 'deals'
@@ -25,6 +26,7 @@ export const ALL_APP_TABS: AppTabId[] = [
   'overview',
   'facebook',
   'tiktok',
+  'bulletin',
   'work_report',
   'remind',
   'deals',
@@ -38,6 +40,7 @@ export const ALL_APP_TABS: AppTabId[] = [
 ];
 
 export const CONSULTANT_TABS: AppTabId[] = [
+  'bulletin',
   'work_report',
   'remind',
   'deals',
@@ -63,6 +66,7 @@ export const TAB_LABELS: Record<AppTabId, string> = {
   facebook: 'Facebook Analytics',
   tiktok: 'TikTok Analytics',
   work_report: 'Báo cáo công việc',
+  bulletin: 'Bảng Tin & Công Việc',
   remind: 'Chăm sóc Lead',
   deals: 'Deal Win',
   gas_tool: 'Nhập Deal & Công Nợ',

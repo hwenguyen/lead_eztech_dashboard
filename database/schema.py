@@ -42,6 +42,14 @@ INDEX_DDL = [
     "CREATE INDEX IF NOT EXISTS ix_sales_deals_deal_win_id ON sales_deals (deal_win_id)",
     "CREATE INDEX IF NOT EXISTS ix_knowledge_chunks_doc_id ON knowledge_chunks (doc_id)",
     "CREATE INDEX IF NOT EXISTS ix_knowledge_chunks_category ON knowledge_chunks (category)",
+    "CREATE INDEX IF NOT EXISTS ix_eztech_staff_user_id ON eztech_staff (user_id)",
+    "CREATE INDEX IF NOT EXISTS ix_bulletin_posts_posted_at ON bulletin_posts (posted_at)",
+    "CREATE INDEX IF NOT EXISTS ix_bulletin_posts_boss_key ON bulletin_posts (boss_key)",
+    "CREATE INDEX IF NOT EXISTS ix_bulletin_reads_post_user ON bulletin_reads (post_id, user_id)",
+    "CREATE INDEX IF NOT EXISTS ix_work_reminders_owner_due ON work_reminders (owner_user_id, due_date, status)",
+    "CREATE INDEX IF NOT EXISTS ix_work_reminders_exact ON work_reminders (status, notify_exact_time, remind_at)",
+    "CREATE INDEX IF NOT EXISTS ix_daily_checklists_owner_date ON daily_checklists (owner_user_id, checklist_date)",
+    "CREATE INDEX IF NOT EXISTS ix_zalo_reminder_logs_date_slot ON zalo_reminder_logs (dispatch_date, slot, user_id)",
 ]
 
 
@@ -130,6 +138,32 @@ def _add_missing_columns():
         if "queries_json" not in existing_btvn_ans:
             col_type = "JSONB" if engine.dialect.name == "postgresql" else "JSON"
             ddl_statements.append(f"ALTER TABLE btvn_answer_files ADD COLUMN {if_not_exists}queries_json {col_type}")
+
+    if "bulletin_posts" in table_names:
+        existing_bp = {col["name"] for col in inspector.get_columns("bulletin_posts")}
+        if "merged_message_ids" not in existing_bp:
+            col_type = "JSONB" if engine.dialect.name == "postgresql" else "JSON"
+            ddl_statements.append(f"ALTER TABLE bulletin_posts ADD COLUMN {if_not_exists}merged_message_ids {col_type}")
+
+    if "work_reminders" in table_names:
+        existing_wr = {col["name"] for col in inspector.get_columns("work_reminders")}
+        for col_name, col_type in [
+            ("exact_retry_count", "INTEGER DEFAULT 0 NOT NULL"),
+            ("exact_last_error_at", "TIMESTAMP"),
+            ("recurrence_rule", "VARCHAR(32) DEFAULT 'none' NOT NULL"),
+        ]:
+            if col_name not in existing_wr:
+                ddl_statements.append(f"ALTER TABLE work_reminders ADD COLUMN {if_not_exists}{col_name} {col_type}")
+
+    if "daily_checklists" in table_names:
+        existing_dc = {col["name"] for col in inspector.get_columns("daily_checklists")}
+        if "is_deleted" not in existing_dc:
+            ddl_statements.append(f"ALTER TABLE daily_checklists ADD COLUMN {if_not_exists}is_deleted BOOLEAN DEFAULT FALSE NOT NULL")
+
+    if "daily_checklist_items" in table_names:
+        existing_dci = {col["name"] for col in inspector.get_columns("daily_checklist_items")}
+        if "rolled_over_from_item_id" not in existing_dci:
+            ddl_statements.append(f"ALTER TABLE daily_checklist_items ADD COLUMN {if_not_exists}rolled_over_from_item_id INTEGER")
 
     if "app_users" in table_names:
         existing_users = {col["name"] for col in inspector.get_columns("app_users")}

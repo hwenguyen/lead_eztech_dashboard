@@ -1363,3 +1363,147 @@ class PancakeClient:
             action_label=action or "reply_inbox",
         )
 
+    def list_page_conversations(
+        self,
+        page_id: str,
+        max_convs: int = 300,
+        include_groups: bool = True,
+        only_groups: bool = False,
+        only_personal_zalo: bool = False,
+        max_api_pages: int = 15,
+    ) -> List[Dict[str, Any]]:
+        """Liệt kê hội thoại thô qua Pancake Public API v2 (hỗ trợ cả nhóm pzl_g_ và chat 1-1 pzl_u_)."""
+        ptoken, resolved_page_id, _ = self._get_page_access_token(page_id)
+        if not ptoken:
+            logger.error(f"Không lấy được access token cho Page '{page_id}'.")
+            return []
+
+        active_page_id = resolved_page_id or str(page_id)
+        url_convs = f"https://pages.fm/api/public_api/v2/pages/{active_page_id}/conversations"
+        collected: List[Dict[str, Any]] = []
+        last_id: Optional[str] = None
+        token_refreshed = False
+        api_pages = 0
+
+        while len(collected) < max_convs and api_pages < max_api_pages:
+            api_pages += 1
+            params: Dict[str, Any] = {
+                "page_access_token": ptoken,
+                "order_by": "updated_at",
+            }
+            if last_id:
+                params["last_conversation_id"] = last_id
+
+            try:
+                resp = self.session.get(url_convs, params=params, timeout=30)
+            except Exception as e:
+                logger.warning(f"Lỗi kết nối list_page_conversations ({active_page_id}): {e}")
+                break
+
+            if resp.status_code == 429:
+                time.sleep(5)
+                continue
+            if resp.status_code != 200:
+                logger.warning(f"list_page_conversations HTTP {resp.status_code}: {resp.text[:300]}")
+                break
+
+            data = resp.json()
+            if isinstance(data, dict) and data.get("success") is False:
+                if not token_refreshed and _is_token_error(data):
+                    fresh_tok, fresh_pid, _ = self._get_page_access_token(page_id, force_refresh=True)
+                    token_refreshed = True
+                    if fresh_tok and fresh_tok != ptoken:
+                        ptoken = fresh_tok
+                        if fresh_pid:
+                            active_page_id = fresh_pid
+                            url_convs = f"https://pages.fm/api/public_api/v2/pages/{active_page_id}/conversations"
+                        continue
+                logger.warning(f"Pancake từ chối list_page_conversations ({active_page_id}): {data.get('message')}")
+                break
+
+            convs = data.get("conversations", []) if isinstance(data, dict) else []
+            if not convs:
+                break
+
+            for conv in convs:
+                cid = str(conv.get("id") or "")
+                ctype = str(conv.get("type") or "").upper()
+                if ctype == "COMMENT":
+                    continue
+                is_group = cid.startswith("pzl_g_")
+                if only_groups and not is_group:
+                    continue
+                if not include_groups and is_group:
+                    continue
+                if only_personal_zalo and not cid.startswith("pzl_u_"):
+                    continue
+                collected.append(conv)
+                if len(collected) >= max_convs:
+                    break
+
+            new_last_id = convs[-1].get("id")
+            if not new_last_id or new_last_id == last_id:
+                break
+            last_id = str(new_last_id)
+            time.sleep(0.2)
+
+        return collected
+
+    def fetch_conversation_messages_page(
+        self,
+        page_id: str,
+        conversation_id: str,
+        current_count: int = 0,
+    ) -> Dict[str, Any]:
+        """Lấy 1 trang (30 tin) của hội thoại từ Pancake Public API v1 (hỗ trợ current_count)."""
+        ptoken, resolved_page_id, _ = self._get_page_access_token(page_id, conversation_id=conversation_id)
+        if not ptoken:
+            return {"success": False, "messages": [], "message": f"Thiếu Pancake token cho page '{page_id}'."}
+
+        active_page_id = resolved_page_id or str(page_id)
+        url = f"https://pages.fm/api/public_api/v1/pages/{active_page_id}/conversations/{conversation_id}/messages"
+        token_refreshed = False
+
+        for attempt in range(3):
+            params: Dict[str, Any] = {"page_access_token": ptoken}
+            if current_count > 0:
+                params["current_count"] = current_count
+            try:
+                resp = self.session.get(url, params=params, timeout=30)
+            except Exception as e:
+                if attempt < 2:
+                    time.sleep(2.0 * (attempt + 1))
+                    continue
+                return {"success": False, "messages": [], "message": str(e)}
+
+            if resp.status_code == 429:
+                time.sleep(4.0 * (attempt + 1))
+                continue
+            if resp.status_code >= 500:
+                if attempt < 2:
+                    time.sleep(2.0 * (attempt + 1))
+                    continue
+                return {"success": False, "messages": [], "message": f"HTTP {resp.status_code}"}
+            if resp.status_code != 200:
+                return {"success": False, "messages": [], "message": f"HTTP {resp.status_code}: {resp.text[:300]}"}
+
+            body = resp.json()
+            if isinstance(body, dict) and body.get("success") is False:
+                if not token_refreshed and _is_token_error(body):
+                    fresh_tok, fresh_pid, _ = self._get_page_access_token(
+                        page_id, conversation_id=conversation_id, force_refresh=True
+                    )
+                    token_refreshed = True
+                    if fresh_tok and fresh_tok != ptoken:
+                        ptoken = fresh_tok
+                        if fresh_pid:
+                            active_page_id = fresh_pid
+                            url = f"https://pages.fm/api/public_api/v1/pages/{active_page_id}/conversations/{conversation_id}/messages"
+                        continue
+                return {"success": False, "messages": [], "message": str(body.get("message") or "Pancake API error")}
+
+            return {"success": True, **body} if isinstance(body, dict) else {"success": True, "messages": []}
+
+        return {"success": False, "messages": [], "message": "Quá số lần thử lại khi tải tin nhắn."}
+
+

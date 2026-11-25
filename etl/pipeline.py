@@ -1018,6 +1018,15 @@ def run_etl_pipeline():
     except Exception as sync_err:
         logger.warning(f"[DEAL_WINS] ⚠️ Không thể đồng bộ Deal Win tự động: {sync_err}")
 
+    # Đồng bộ bản tin nhóm Zalo 'EzTech - Data & Finance Service' (tách biệt hoàn toàn khỏi Lead)
+    if os.getenv("ENABLE_BULLETIN_SYNC", "true").strip().lower() in ("true", "1", "yes"):
+        try:
+            from etl.bulletin_sync import sync_bulletin_from_group
+            b_res = sync_bulletin_from_group(max_pages=2)
+            logger.info(f"[BULLETIN] {b_res.get('message')}")
+        except Exception as b_err:
+            logger.warning(f"[BULLETIN] ⚠️ Không thể đồng bộ bản tin nhóm Zalo: {b_err}")
+
     # Xóa cache trên Render API để dashboard nhận dữ liệu mới ngay
     try:
         import requests

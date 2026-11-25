@@ -197,6 +197,10 @@ KNOWN_PAGE_NAMES: Dict[str, str] = {
     "764881945463506349": "Eztech Consultant",
     "pzl_764881945463506349": "Eztech Consultant",
     "pzl_u_764881945463506349": "Eztech Consultant",
+    # 11. Ann (Zalo)
+    "1800700961123909439": "Ann",
+    "pzl_1800700961123909439": "Ann",
+    "pzl_u_1800700961123909439": "Ann",
 }
 
 # Bản đồ ánh xạ từ Tên/ID Page sang Page Slug hiển thị trên Pancake URL (https://pancake.vn/[slug]?c_id=[conversation_id])
@@ -563,6 +567,12 @@ PAGE_NAME_TO_API_ID: Dict[str, str] = {
     "764881945463506349": "pzl_764881945463506349",
     "pzl_764881945463506349": "pzl_764881945463506349",
     "pzl_u_764881945463506349": "pzl_764881945463506349",
+
+    # 11. Ann (Zalo cá nhân)
+    "Ann": "pzl_1800700961123909439",
+    "1800700961123909439": "pzl_1800700961123909439",
+    "pzl_1800700961123909439": "pzl_1800700961123909439",
+    "pzl_u_1800700961123909439": "pzl_1800700961123909439",
 }
 
 

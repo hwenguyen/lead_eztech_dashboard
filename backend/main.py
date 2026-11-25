@@ -71,6 +71,7 @@ from backend.add_friend import router as add_friend_router, clear_add_friend_cac
 from backend.ai_rag import router as ai_rag_router, clear_ai_knowledge_cache
 from backend.data_export import router as data_export_router, clear_data_export_cache
 from backend.btvn_router import router as btvn_router
+from backend.bulletin import router as bulletin_router
 
 app = FastAPI(title="Pancake Lead Reporting API")
 app.include_router(auth_router)
@@ -83,6 +84,7 @@ app.include_router(work_report_router, dependencies=[Depends(require_tab_access(
 app.include_router(ai_rag_router)
 app.include_router(data_export_router, dependencies=[Depends(require_tab_access("data_export"))])
 app.include_router(btvn_router, dependencies=[Depends(require_tab_access("btvn_grader"))])
+app.include_router(bulletin_router)
 
 # Cấu hình CORS: Ưu tiên danh sách ALLOWED_ORIGINS từ biến môi trường
 allowed_origins_env = os.getenv("ALLOWED_ORIGINS", "").strip()
@@ -125,6 +127,7 @@ async def add_cache_headers(request: Request, call_next):
                 "/add-friend/leads-phones",
                 "/add-friend/history",
                 "/ai/",
+                "/bulletin/",
                 "/health",
             )
         ):
@@ -346,6 +349,12 @@ def startup_event():
     if os.getenv("RUN_AUTO_REPAIR", "false").lower() == "force":
         logger.info("RUN_AUTO_REPAIR is force, starting auto_repair_contacted_dates thread...")
         threading.Thread(target=auto_repair_contacted_dates, daemon=True).start()
+
+    try:
+        from backend.bulletin_notifier import start_exact_reminder_worker_if_enabled
+        start_exact_reminder_worker_if_enabled()
+    except Exception as rem_err:
+        logger.warning(f"Could not start exact reminder worker: {rem_err}")
 
 # Tag phân loại lead: khớp CHÍNH XÁC tên tag (không dùng chuỗi con, tránh dính "TikTok HV other"...).
 # Gom cả bộ tag cũ đội sale dùng trước cuối tháng 9/2026.

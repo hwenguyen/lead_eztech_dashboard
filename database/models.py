@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, BigInteger, String, DateTime, JSON, Boolean, ForeignKey, Text
+from sqlalchemy import Column, Integer, BigInteger, String, DateTime, JSON, Boolean, ForeignKey, Text, UniqueConstraint
 from sqlalchemy.orm import relationship
 from database.db import Base
 from datetime import datetime, timezone, timedelta
@@ -277,5 +277,138 @@ class BtvnAnswerFile(Base):
     file_path = Column(String, nullable=False)
     queries_json = Column(JSON, nullable=True)  # Lưu trực tiếp dict {table_name: m_code} trong DB để không mất khi restart server
     created_at = Column(DateTime, default=get_vn_now)
+
+
+class EztechStaff(Base):
+    """Danh bạ nhân sự EzTech & ánh xạ hội thoại Zalo trên page Eztech Consultant."""
+    __tablename__ = "eztech_staff"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("app_users.id", ondelete="SET NULL"), unique=True, nullable=True, index=True)
+    full_name = Column(String, nullable=False, index=True)
+    phone_number = Column(String, nullable=True, index=True)
+    zalo_conversation_id = Column(String, nullable=True, index=True)  # VD: pzl_u_764881945463506349_...
+    zalo_display_name = Column(String, nullable=True)
+    receive_daily_digest = Column(Boolean, default=True, nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=get_vn_now)
+    updated_at = Column(DateTime, default=get_vn_now, onupdate=get_vn_now)
+
+
+class BulletinPost(Base):
+    """Bản tin nội bộ đồng bộ từ nhóm Zalo EzTech - Data & Finance Service (chỉ lấy tin của 3 sếp)."""
+    __tablename__ = "bulletin_posts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    pancake_message_id = Column(String, unique=True, index=True, nullable=False)
+    group_conversation_id = Column(String, index=True, nullable=False)
+    group_name = Column(String, nullable=True)
+    source_page_id = Column(String, nullable=True)
+    sender_id = Column(String, nullable=True, index=True)
+    sender_name = Column(String, nullable=False)
+    boss_key = Column(String, nullable=False, index=True)  # ann, tuan_anh, hien_minh
+    boss_display_name = Column(String, nullable=False)
+    title = Column(String, nullable=True)
+    content = Column(Text, nullable=False)
+    attachments = Column(JSON, nullable=True)  # [{type, url, name, link, title}]
+    merged_message_ids = Column(JSON, nullable=True)  # Danh sách pancake_message_id gộp trong cùng chuỗi tin 3 phút
+    posted_at = Column(DateTime, nullable=False, index=True)
+    is_pinned = Column(Boolean, default=False, nullable=False)
+    raw_payload = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=get_vn_now)
+
+
+class BulletinRead(Base):
+    """Trạng thái Đánh dấu đã đọc bản tin theo từng tài khoản nhân sự."""
+    __tablename__ = "bulletin_reads"
+    __table_args__ = (
+        UniqueConstraint("post_id", "user_id", name="uq_bulletin_reads_post_user"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    post_id = Column(Integer, ForeignKey("bulletin_posts.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("app_users.id", ondelete="CASCADE"), nullable=False, index=True)
+    read_at = Column(DateTime, default=get_vn_now, nullable=False)
+
+
+class WorkReminder(Base):
+    """Nhắc hẹn công việc (riêng tư theo nhân sự; Admin xem toàn bộ)."""
+    __tablename__ = "work_reminders"
+
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String, nullable=False)
+    description = Column(Text, nullable=True)
+    remind_at = Column(DateTime, nullable=False, index=True)  # Giờ VN (UTC+7)
+    due_date = Column(String, nullable=False, index=True)    # YYYY-MM-DD để query nhanh cho digest 11h/15h
+    priority = Column(String, default="normal", nullable=False)  # low, normal, high, urgent
+    status = Column(String, default="pending", nullable=False, index=True)  # pending, completed, snoozed, cancelled
+    completed_at = Column(DateTime, nullable=True)
+    source_post_id = Column(Integer, ForeignKey("bulletin_posts.id", ondelete="SET NULL"), nullable=True, index=True)
+    owner_user_id = Column(Integer, ForeignKey("app_users.id", ondelete="CASCADE"), nullable=False, index=True)
+    created_by_user_id = Column(Integer, ForeignKey("app_users.id", ondelete="SET NULL"), nullable=True)
+    notify_11h = Column(Boolean, default=True, nullable=False)
+    notify_15h = Column(Boolean, default=True, nullable=False)
+    notify_exact_time = Column(Boolean, default=True, nullable=False)
+    exact_notified_at = Column(DateTime, nullable=True, index=True)
+    exact_retry_count = Column(Integer, default=0, nullable=False)
+    exact_last_error_at = Column(DateTime, nullable=True)
+    recurrence_rule = Column(String, default="none", nullable=False)  # none, daily, weekly, monthly
+    created_at = Column(DateTime, default=get_vn_now)
+    updated_at = Column(DateTime, default=get_vn_now, onupdate=get_vn_now)
+
+
+class DailyChecklist(Base):
+    """Checklist công việc hàng ngày (riêng tư theo nhân sự; Admin xem toàn bộ)."""
+    __tablename__ = "daily_checklists"
+
+    id = Column(Integer, primary_key=True, index=True)
+    checklist_date = Column(String, nullable=False, index=True)  # YYYY-MM-DD
+    title = Column(String, nullable=False)
+    owner_user_id = Column(Integer, ForeignKey("app_users.id", ondelete="CASCADE"), nullable=False, index=True)
+    created_by_user_id = Column(Integer, ForeignKey("app_users.id", ondelete="SET NULL"), nullable=True)
+    source_post_id = Column(Integer, ForeignKey("bulletin_posts.id", ondelete="SET NULL"), nullable=True, index=True)
+    is_recurring_daily = Column(Boolean, default=False, nullable=False)
+    recurring_template_id = Column(Integer, nullable=True, index=True)
+    is_deleted = Column(Boolean, default=False, nullable=False, index=True)
+    created_at = Column(DateTime, default=get_vn_now)
+    updated_at = Column(DateTime, default=get_vn_now, onupdate=get_vn_now)
+
+    items = relationship("DailyChecklistItem", back_populates="checklist", cascade="all, delete-orphan", order_by="DailyChecklistItem.sort_order, DailyChecklistItem.id")
+
+
+class DailyChecklistItem(Base):
+    """Từng hạng mục đầu việc trong Checklist hàng ngày."""
+    __tablename__ = "daily_checklist_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    checklist_id = Column(Integer, ForeignKey("daily_checklists.id", ondelete="CASCADE"), nullable=False, index=True)
+    content = Column(Text, nullable=False)
+    is_done = Column(Boolean, default=False, nullable=False, index=True)
+    done_at = Column(DateTime, nullable=True)
+    sort_order = Column(Integer, default=0, nullable=False)
+    note = Column(Text, nullable=True)
+    rolled_over_from_item_id = Column(Integer, nullable=True, index=True)
+    created_at = Column(DateTime, default=get_vn_now)
+
+    checklist = relationship("DailyChecklist", back_populates="items")
+
+
+class ZaloReminderLog(Base):
+    """Nhật ký gửi nhắc việc qua Zalo Eztech Consultant (chống gửi trùng & theo dõi lỗi)."""
+    __tablename__ = "zalo_reminder_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    dispatch_date = Column(String, nullable=False, index=True)  # YYYY-MM-DD
+    slot = Column(String, nullable=False, index=True)           # 11h, 15h, exact, manual
+    user_id = Column(Integer, ForeignKey("app_users.id", ondelete="SET NULL"), nullable=True, index=True)
+    staff_id = Column(Integer, ForeignKey("eztech_staff.id", ondelete="SET NULL"), nullable=True, index=True)
+    reminder_id = Column(Integer, nullable=True, index=True)
+    conversation_id = Column(String, nullable=True)
+    message_text = Column(Text, nullable=False)
+    done_count = Column(Integer, default=0, nullable=False)
+    pending_count = Column(Integer, default=0, nullable=False)
+    status = Column(String, default="SENT", nullable=False, index=True)  # SENT, FAILED, SKIPPED
+    error_message = Column(Text, nullable=True)
+    sent_at = Column(DateTime, default=get_vn_now, index=True)
 
 

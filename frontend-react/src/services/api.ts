@@ -17,6 +17,7 @@ const NO_CACHE_SUBSTRINGS = [
   '/add-friend/history',
   '/admin/backfill/status',
   '/ai/',
+  '/bulletin/',
   '/auth/',
   '/health',
 ];
@@ -1861,5 +1862,395 @@ export const downloadDataExportExcel = async (
 
   return { filename, rowCount, projectedDbCols };
 };
+
+// ==============================================================================
+// BẢNG TIN NỘI BỘ, NHẮC HẸN, CHECKLIST HÀNG NGÀY & ZALO NHẮC VIỆC
+// ==============================================================================
+
+export interface BulletinAttachment {
+  type: string;
+  url?: string | null;
+  link?: string | null;
+  title?: string | null;
+  description?: string | null;
+}
+
+export interface BulletinReaderInfo {
+  user_id: number;
+  full_name: string;
+  read_at: string | null;
+}
+
+export interface BulletinPostItem {
+  id: number;
+  pancake_message_id: string;
+  group_name?: string | null;
+  boss_key: string;
+  boss_display_name: string;
+  sender_name: string;
+  title?: string | null;
+  content: string;
+  attachments: BulletinAttachment[];
+  posted_at: string;
+  is_pinned: boolean;
+  is_read: boolean;
+  read_at?: string | null;
+  read_count: number;
+  my_reminder_count: number;
+  my_checklist_count: number;
+  readers?: BulletinReaderInfo[] | null;
+}
+
+export interface BulletinPostsResponse {
+  total: number;
+  page: number;
+  size: number;
+  total_pages: number;
+  summary: {
+    total_all: number;
+    unread_count: number;
+    boss_counts: Record<string, number>;
+  };
+  items: BulletinPostItem[];
+}
+
+export interface WorkReminderItem {
+  id: number;
+  title: string;
+  description?: string | null;
+  remind_at: string;
+  remind_at_display: string;
+  due_date: string;
+  priority: 'low' | 'normal' | 'high' | 'urgent';
+  recurrence_rule?: 'none' | 'daily' | 'weekly' | 'monthly';
+  status: 'pending' | 'completed' | 'snoozed' | 'cancelled';
+  completed_at?: string | null;
+  source_post_id?: number | null;
+  source_post_title?: string | null;
+  source_post_boss?: string | null;
+  owner_user_id: number;
+  owner_name?: string | null;
+  notify_11h: boolean;
+  notify_15h: boolean;
+  notify_exact_time: boolean;
+  exact_notified_at?: string | null;
+  created_at?: string | null;
+  created_count?: number;
+  next_reminder?: WorkReminderItem | null;
+}
+
+export interface BulletinAiExtractResponse {
+  post_id: number;
+  model: string;
+  summary: string;
+  checklist_title: string;
+  checklist_items: string[];
+  suggested_reminder: {
+    title: string;
+    description: string;
+    remind_at: string;
+    priority: 'low' | 'normal' | 'high' | 'urgent';
+  } | null;
+}
+
+export interface PendingRolloverItem {
+  id: number;
+  content: string;
+  from_date: string;
+  from_checklist_title: string;
+}
+
+export interface DailyChecklistTaskItem {
+  id: number;
+  checklist_id: number;
+  content: string;
+  is_done: boolean;
+  done_at?: string | null;
+  sort_order: number;
+  note?: string | null;
+}
+
+export interface DailyChecklistItemGroup {
+  id: number;
+  checklist_date: string;
+  title: string;
+  owner_user_id: number;
+  owner_name?: string | null;
+  source_post_id?: number | null;
+  source_post_title?: string | null;
+  source_post_boss?: string | null;
+  is_recurring_daily: boolean;
+  recurring_template_id?: number | null;
+  done_count: number;
+  total_count: number;
+  progress_pct: number;
+  items: DailyChecklistTaskItem[];
+  created_at?: string | null;
+}
+
+export interface DailyChecklistsResponse {
+  checklist_date: string;
+  is_admin: boolean;
+  summary: {
+    total_checklists: number;
+    total_items: number;
+    done_items: number;
+    pending_items: number;
+  };
+  items: DailyChecklistItemGroup[];
+}
+
+export interface StaffZaloMapping {
+  user_id: number;
+  username: string;
+  full_name: string;
+  department: string;
+  role: string;
+  staff_id?: number | null;
+  phone_number?: string | null;
+  zalo_conversation_id?: string | null;
+  zalo_display_name?: string | null;
+  receive_daily_digest: boolean;
+  is_active: boolean;
+}
+
+export interface ConsultantZaloContact {
+  conversation_id: string;
+  display_name: string;
+  phone_number?: string | null;
+  updated_at?: string | null;
+}
+
+export interface ZaloReminderLogItem {
+  id: number;
+  dispatch_date: string;
+  slot: string;
+  user_id?: number | null;
+  staff_name: string;
+  conversation_id?: string | null;
+  message_text?: string;
+  done_count: number;
+  pending_count: number;
+  status: string;
+  error_message?: string | null;
+  sent_at?: string | null;
+}
+
+export const fetchBulletinUnreadCount = async (): Promise<{ unread_count: number; total_posts: number }> => {
+  const res = await apiClient.get<{ unread_count: number; total_posts: number }>('/bulletin/unread-count');
+  return res.data;
+};
+
+export const fetchBulletinPosts = async (params: {
+  boss_key?: string;
+  read_status?: string;
+  search?: string;
+  start_date?: string;
+  end_date?: string;
+  page?: number;
+  size?: number;
+}): Promise<BulletinPostsResponse> => {
+  const res = await apiClient.get<BulletinPostsResponse>('/bulletin/posts', { params });
+  return res.data;
+};
+
+export const markBulletinPostRead = async (postId: number): Promise<{ status: string; is_read: boolean }> => {
+  const res = await apiClient.post(`/bulletin/posts/${postId}/read`);
+  return res.data;
+};
+
+export const unmarkBulletinPostRead = async (postId: number): Promise<{ status: string; is_read: boolean }> => {
+  const res = await apiClient.delete(`/bulletin/posts/${postId}/read`);
+  return res.data;
+};
+
+export const togglePinBulletinPost = async (postId: number): Promise<{ status: string; is_pinned: boolean }> => {
+  const res = await apiClient.post(`/bulletin/posts/${postId}/pin`);
+  return res.data;
+};
+
+export const syncBulletinPosts = async (force = false): Promise<{ success: boolean; inserted: number; merged?: number; message: string }> => {
+  const res = await apiClient.post('/bulletin/sync', null, { params: { max_pages: force ? 10 : 3, force } });
+  return res.data;
+};
+
+export const aiExtractBulletinPost = async (postId: number): Promise<BulletinAiExtractResponse> => {
+  const res = await apiClient.post<BulletinAiExtractResponse>(`/bulletin/posts/${postId}/ai-extract`, null, { timeout: 60000 });
+  return res.data;
+};
+
+export const fetchWorkReminders = async (params: {
+  status?: string;
+  due_date?: string;
+  owner_user_id?: number;
+  search?: string;
+}): Promise<{ items: WorkReminderItem[]; total: number; is_admin: boolean }> => {
+  const res = await apiClient.get('/bulletin/reminders', { params });
+  return res.data;
+};
+
+export const createWorkReminder = async (payload: {
+  title: string;
+  description?: string;
+  remind_at: string;
+  priority?: string;
+  recurrence_rule?: string;
+  source_post_id?: number | null;
+  owner_user_id?: number | null;
+  owner_user_ids?: number[] | null;
+  notify_11h?: boolean;
+  notify_15h?: boolean;
+  notify_exact_time?: boolean;
+}): Promise<WorkReminderItem> => {
+  const res = await apiClient.post<WorkReminderItem>('/bulletin/reminders', payload);
+  return res.data;
+};
+
+export const updateWorkReminder = async (
+  id: number,
+  payload: Partial<{
+    title: string;
+    description: string;
+    remind_at: string;
+    priority: string;
+    recurrence_rule: string;
+    status: string;
+    notify_11h: boolean;
+    notify_15h: boolean;
+    notify_exact_time: boolean;
+  }>
+): Promise<WorkReminderItem> => {
+  const res = await apiClient.patch<WorkReminderItem>(`/bulletin/reminders/${id}`, payload);
+  return res.data;
+};
+
+export const deleteWorkReminder = async (id: number): Promise<void> => {
+  await apiClient.delete(`/bulletin/reminders/${id}`);
+};
+
+export const fetchDailyChecklists = async (params: {
+  checklist_date?: string;
+  owner_user_id?: number;
+}): Promise<DailyChecklistsResponse> => {
+  const res = await apiClient.get<DailyChecklistsResponse>('/bulletin/checklists', { params });
+  return res.data;
+};
+
+export const fetchPendingRolloverItems = async (
+  targetDate?: string
+): Promise<{ target_date: string; count: number; items: PendingRolloverItem[] }> => {
+  const res = await apiClient.get('/bulletin/checklists/pending-rollover', {
+    params: targetDate ? { target_date: targetDate } : undefined,
+  });
+  return res.data;
+};
+
+export const rolloverPendingChecklistItems = async (payload: {
+  target_date?: string;
+  item_ids?: number[];
+  title?: string;
+}): Promise<{ status: string; moved_count: number; message: string }> => {
+  const res = await apiClient.post('/bulletin/checklists/rollover', payload);
+  return res.data;
+};
+
+export const createDailyChecklist = async (payload: {
+  title: string;
+  checklist_date?: string;
+  items: string[];
+  source_post_id?: number | null;
+  owner_user_id?: number | null;
+  owner_user_ids?: number[] | null;
+  is_recurring_daily?: boolean;
+}): Promise<DailyChecklistItemGroup & { created_count?: number }> => {
+  const res = await apiClient.post('/bulletin/checklists', payload);
+  return res.data;
+};
+
+export const deleteDailyChecklist = async (checklistId: number): Promise<void> => {
+  await apiClient.delete(`/bulletin/checklists/${checklistId}`);
+};
+
+export const addChecklistTaskItem = async (
+  checklistId: number,
+  content: string
+): Promise<DailyChecklistTaskItem> => {
+  const res = await apiClient.post<DailyChecklistTaskItem>(`/bulletin/checklists/${checklistId}/items`, { content });
+  return res.data;
+};
+
+export const updateChecklistTaskItem = async (
+  itemId: number,
+  payload: Partial<{ content: string; is_done: boolean; note: string }>
+): Promise<DailyChecklistTaskItem> => {
+  const res = await apiClient.patch<DailyChecklistTaskItem>(`/bulletin/checklists/items/${itemId}`, payload);
+  return res.data;
+};
+
+export const deleteChecklistTaskItem = async (itemId: number): Promise<void> => {
+  await apiClient.delete(`/bulletin/checklists/items/${itemId}`);
+};
+
+export const fetchAdminBulletinStaff = async (): Promise<{ items: StaffZaloMapping[] }> => {
+  const res = await apiClient.get('/bulletin/admin/staff');
+  return res.data;
+};
+
+export const updateAdminBulletinStaff = async (
+  userId: number,
+  payload: {
+    full_name?: string;
+    phone_number?: string | null;
+    zalo_conversation_id?: string | null;
+    zalo_display_name?: string | null;
+    receive_daily_digest: boolean;
+    is_active: boolean;
+  }
+): Promise<{ status: string }> => {
+  const res = await apiClient.put(`/bulletin/admin/staff/${userId}`, payload);
+  return res.data;
+};
+
+export const syncConsultantZaloContacts = async (
+  autoApply = true
+): Promise<{ success: boolean; contacts: ConsultantZaloContact[]; auto_matched: number; message: string }> => {
+  const res = await apiClient.post('/bulletin/admin/staff/sync-zalo-contacts', { auto_apply: autoApply, max_convs: 300 });
+  return res.data;
+};
+
+export const testStaffZaloMessage = async (
+  userId: number,
+  message?: string
+): Promise<{ success: boolean; message: string }> => {
+  const res = await apiClient.post(`/bulletin/admin/staff/${userId}/test-zalo`, { message });
+  return res.data;
+};
+
+export const fetchBulletinConfig = async (): Promise<Record<string, any>> => {
+  const res = await apiClient.get('/bulletin/admin/config');
+  return res.data;
+};
+
+export const updateBulletinConfig = async (payload: Record<string, any>): Promise<Record<string, any>> => {
+  const res = await apiClient.put('/bulletin/admin/config', payload);
+  return res.data;
+};
+
+export const dispatchBulletinReminders = async (payload: {
+  slot: '11h' | '15h' | 'exact' | 'manual';
+  target_date?: string;
+  user_id?: number;
+  dry_run?: boolean;
+  force?: boolean;
+}): Promise<any> => {
+  const res = await apiClient.post('/bulletin/admin/dispatch', payload, { timeout: 120000 });
+  return res.data;
+};
+
+export const fetchBulletinZaloLogs = async (limit = 50): Promise<{ items: ZaloReminderLogItem[] }> => {
+  const res = await apiClient.get('/bulletin/admin/logs', { params: { limit } });
+  return res.data;
+};
+
 
 

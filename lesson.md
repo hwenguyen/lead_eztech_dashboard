@@ -25,3 +25,10 @@
 - **PowerShell `python -c` quoting breaks SQL strings**
   - **Cause**: PowerShell interprets nested quotes/identifiers inside `python -c "..."`.
   - **Fix**: Pipe a single-quoted here-string (`@' ... '@ | .\.venv\Scripts\python.exe -`) instead.
+- **Neon Sleep & Egress Protection for Background Workers (Bulletin & Zalo Reminders)**
+  - **Cause**: Polling or exact-time workers waking up every minute will keep Neon Postgres awake 24/7, burning through the 100 CU-hours free quota rapidly.
+  - **Architecture**:
+    - **Fail-closed Cron & Worker**: Cron endpoint (`/api/bulletin/cron/trigger-notifications`) requires an exact bearer token / secret (`CRON_SECRET`), returning 403 on blank or mismatched tokens to avoid waking the DB via malicious bots.
+    - **Exact Reminder Worker**: Only queries DB when active reminders exist, uses `INNER JOIN dim_staff` filtering exclusively for users with a mapped `zalo_conversation_id`, and stops scanning when no pending items remain. Failed sends back off by 15 minutes with a strict 2-attempt retry cap (`exact_retry_count < 2`).
+    - **Group Message Sync Separation**: Bulletin sync (`pzl_g_...`) extracts messages from group chats for designated bosses (`Ann`, `TRẦN HÀ TUẤN ANH`, `Hiền Minhh`), collapsing consecutive boss messages within a 3-minute window into a single post (`merged_message_ids`), completely isolating group chat data from `dim_leads` and `fact_lead_activities`.
+
