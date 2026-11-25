@@ -1098,7 +1098,10 @@ def _build_sale_phone_context(
             .limit(3)
             .all()
         )
-        sd_rows = db.query(SalesDeal).filter(phone_filter_fn(SalesDeal.sdt, raw_d)).limit(3).all()
+        sd_rows = db.query(SalesDeal).filter(
+            or_(SalesDeal.is_deleted == False, SalesDeal.is_deleted.is_(None)),
+            phone_filter_fn(SalesDeal.sdt, raw_d),
+        ).limit(3).all()
         if dw_rows or sd_rows:
             enr_lines = ["[TRẠNG THÁI ĐĂNG KÝ HỌC / DEAL WIN]"]
             for dw in dw_rows:
@@ -1428,7 +1431,7 @@ def build_live_data_context(
         )
         if wants_finance_stats:
             try:
-                sd_base = db.query(SalesDeal)
+                sd_base = db.query(SalesDeal).filter(or_(SalesDeal.is_deleted == False, SalesDeal.is_deleted.is_(None)))
                 dw_base = db.query(DealWin)
                 if scoped_emp:
                     sd_base = sd_base.filter(SalesDeal.nv_cs.ilike(f"%{scoped_emp}%"))
@@ -1456,7 +1459,7 @@ def build_live_data_context(
                     tools_used.append("Tổng hợp Doanh thu & Công nợ (sales_deals)")
 
                 if "no" in ascii_q or "chua dong" in ascii_q or "con no" in ascii_q or search_digits:
-                    q_deals = db.query(SalesDeal)
+                    q_deals = db.query(SalesDeal).filter(or_(SalesDeal.is_deleted == False, SalesDeal.is_deleted.is_(None)))
                     if scoped_emp:
                         q_deals = q_deals.filter(SalesDeal.nv_cs.ilike(f"%{scoped_emp}%"))
                     if search_digits:

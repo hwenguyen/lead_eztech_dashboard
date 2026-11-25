@@ -237,6 +237,7 @@ class SalesDeal(Base):
     thu_no = Column(BigInteger, default=0, nullable=False)                  # Trong đó thu nợ cũ (hệ thống tự tính)
     da_thu_no = Column(BigInteger, default=0, nullable=False)               # Đã thu nợ (hệ thống tự tính)
     con_no = Column(BigInteger, default=0, nullable=False)                  # Còn nợ (hệ thống tự tính)
+    is_deleted = Column(Boolean, default=False, nullable=False, index=True) # Xóa mềm để không đồng bộ lại từ deal_wins
 
 
 class DealAuditLog(Base):

@@ -390,6 +390,11 @@ def _backfill_all_pancake_links(db: Session, rows: List[SalesDeal], force: bool 
     return updated
 
 
+def _active_sales_filter():
+    """Chỉ lấy các dòng SalesDeal chưa bị xoá mềm (giữ lại dòng đã xoá trong DB để không sync lại từ deal_wins)."""
+    return or_(SalesDeal.is_deleted == False, SalesDeal.is_deleted.is_(None))
+
+
 def sync_from_deal_wins(db: Session, force: bool = False, skip_dim_sync: bool = False) -> int:
     """
     Nối trực tiếp dữ liệu học viên từ bảng `deal_wins` sang `sales_deals`:
@@ -449,7 +454,11 @@ def sync_from_deal_wins(db: Session, force: bool = False, skip_dim_sync: bool = 
 
     if force and existing_dw_ids:
         dw_by_id = {r.id: r for r in dw_rows}
-        linked_sales = db.query(SalesDeal).filter(SalesDeal.deal_win_id.isnot(None)).all()
+        linked_sales = (
+            db.query(SalesDeal)
+            .filter(_active_sales_filter(), SalesDeal.deal_win_id.isnot(None))
+            .all()
+        )
         sync_dirty = False
         for sd in linked_sales:
             dw = dw_by_id.get(sd.deal_win_id)
@@ -504,7 +513,7 @@ def sync_from_deal_wins(db: Session, force: bool = False, skip_dim_sync: bool = 
     if phones_to_check:
         existing_phone_lop = (
             db.query(SalesDeal.sdt, SalesDeal.lop)
-            .filter(SalesDeal.sdt.in_(phones_to_check), SalesDeal.lop.isnot(None), SalesDeal.lop != "")
+            .filter(_active_sales_filter(), SalesDeal.sdt.in_(phones_to_check), SalesDeal.lop.isnot(None), SalesDeal.lop != "")
             .all()
         )
         for p_sdt, p_lop in existing_phone_lop:
@@ -826,7 +835,7 @@ def get_cached_deals(db: Session, force_refresh: bool = False) -> List[Dict[str,
     if not force_refresh and _DEALS_CACHE is not None and (now_ts - _DEALS_CACHE_TS) < DEALS_CACHE_TTL:
         return _DEALS_CACHE
 
-    rows = db.query(SalesDeal).order_by(asc(SalesDeal.ngay_thu), asc(SalesDeal.id)).all()
+    rows = db.query(SalesDeal).filter(_active_sales_filter()).order_by(asc(SalesDeal.ngay_thu), asc(SalesDeal.id)).all()
     backfilled = _backfill_all_pancake_links(db, rows, force=force_refresh)
     deals = [model_to_dict(r) for r in rows]
     res = settle_debts(deals)
@@ -882,7 +891,7 @@ def reconcile_phones_and_update_cache(db: Session, phones: Set[str]) -> List[Dic
 
     phone_rows = (
         db.query(SalesDeal)
-        .filter(SalesDeal.sdt.in_(valid_phones))
+        .filter(_active_sales_filter(), SalesDeal.sdt.in_(valid_phones))
         .order_by(asc(SalesDeal.ngay_thu), asc(SalesDeal.id))
         .all()
     )
@@ -1307,7 +1316,7 @@ def save_deal(
     actor = emp_name or (payload.actor or "admin").strip()
     now = get_vn_now()
 
-    same_phone_rows = db.query(SalesDeal).filter(SalesDeal.sdt == phone).all()
+    same_phone_rows = db.query(SalesDeal).filter(_active_sales_filter(), SalesDeal.sdt == phone).all()
     existing_phone_classes: List[str] = []
     for r in same_phone_rows:
         if payload.id and r.deal_uid == payload.id:
@@ -1340,7 +1349,7 @@ def save_deal(
     affected_phones: Set[str] = {phone}
 
     if payload.id:
-        db_row = db.query(SalesDeal).filter(SalesDeal.deal_uid == payload.id).first()
+        db_row = db.query(SalesDeal).filter(_active_sales_filter(), SalesDeal.deal_uid == payload.id).first()
         if not db_row:
             raise HTTPException(status_code=404, detail="Không tìm thấy deal cần sửa")
         _assert_can_modify_deal_row(db_row, current_user)
@@ -1484,7 +1493,7 @@ def update_deal_classes(
     db: Session = Depends(get_db),
 ):
     """Cập nhật nhanh Lớp học cho deal và chỉ đồng bộ các dòng của đúng SĐT đó."""
-    db_row = db.query(SalesDeal).filter(SalesDeal.deal_uid == deal_id).first()
+    db_row = db.query(SalesDeal).filter(_active_sales_filter(), SalesDeal.deal_uid == deal_id).first()
     if not db_row:
         raise HTTPException(status_code=404, detail="Không tìm thấy deal")
     _assert_can_modify_deal_row(db_row, current_user)
@@ -1495,7 +1504,7 @@ def update_deal_classes(
     old_classes = parse_classes(db_row.lop)
     phone = db_row.sdt
 
-    same_phone_rows = db.query(SalesDeal).filter(SalesDeal.sdt == phone).all()
+    same_phone_rows = db.query(SalesDeal).filter(_active_sales_filter(), SalesDeal.sdt == phone).all()
     for r in same_phone_rows:
         r.lop = ", ".join(classes)
         r.nguoi_sua = actor
@@ -1522,6 +1531,66 @@ def update_deal_classes(
     return {"ok": True, "deals": deals, "debts": debts, "lists": lists}
 
 
+class BatchDeleteDealsPayload(BaseModel):
+    deal_ids: List[str] = Field(default_factory=list)
+    actor: Optional[str] = "admin"
+
+
+@router.post("/deals/batch-delete")
+def batch_delete_deals(
+    payload: BatchDeleteDealsPayload,
+    current_user: AppUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Xoá mềm nhiều deal cùng lúc (giữ deal_win_id trong DB để không bị đồng bộ lại)."""
+    global _DEALS_CACHE
+    clean_ids = [str(did).strip() for did in (payload.deal_ids or []) if str(did).strip()]
+    if not clean_ids:
+        raise HTTPException(status_code=400, detail="Chưa chọn dòng nào để xoá.")
+
+    rows = (
+        db.query(SalesDeal)
+        .filter(_active_sales_filter(), SalesDeal.deal_uid.in_(clean_ids))
+        .all()
+    )
+    if not rows:
+        raise HTTPException(status_code=404, detail="Không tìm thấy dòng nào hợp lệ để xoá.")
+
+    for r in rows:
+        _assert_can_modify_deal_row(r, current_user)
+
+    actor = (current_user.full_name or current_user.username or payload.actor or "admin").strip()
+    now = get_vn_now()
+    deleted_ids: Set[str] = set()
+    affected_phones: Set[str] = set()
+    deleted_meta: List[Dict[str, Any]] = []
+
+    for r in rows:
+        r.is_deleted = True
+        r.nguoi_sua = actor
+        r.sua_luc = now
+        deleted_ids.add(r.deal_uid)
+        if r.sdt:
+            affected_phones.add(r.sdt)
+        deleted_meta.append({"id": r.deal_uid, "sdt": r.sdt, "hoTen": r.ho_ten, "daThu": int(r.da_thu or 0)})
+
+    db.commit()
+
+    if _DEALS_CACHE is not None:
+        with _CACHE_LOCK:
+            _DEALS_CACHE = [d for d in _DEALS_CACHE if d.get("id") not in deleted_ids]
+
+    for m in deleted_meta:
+        write_audit_log(db, actor, "Xoá deal", m["id"], {"sdt": m["sdt"], "hoTen": m["hoTen"], "daThu": m["daThu"]})
+
+    all_deals = reconcile_phones_and_update_cache(db, affected_phones)
+    for did in deleted_ids:
+        _sync_phones_to_google_sheet_async(db, all_deals, affected_phones, action="delete", deal_id=did)
+    deals = _filter_deals_for_user(all_deals, current_user)
+    debts = build_debt_summary(deals)
+    return {"ok": True, "deleted_count": len(deleted_ids), "deals": deals, "debts": debts}
+
+
 @router.delete("/deals/{deal_id}")
 def delete_deal(
     deal_id: str,
@@ -1529,9 +1598,9 @@ def delete_deal(
     current_user: AppUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Xoá 1 deal và chỉ tính lại công nợ cho SĐT của deal đó."""
+    """Xoá mềm 1 deal (giữ deal_win_id trong DB để không bị đồng bộ lại từ deal_wins) và tính lại công nợ cho SĐT đó."""
     global _DEALS_CACHE
-    db_row = db.query(SalesDeal).filter(SalesDeal.deal_uid == deal_id).first()
+    db_row = db.query(SalesDeal).filter(_active_sales_filter(), SalesDeal.deal_uid == deal_id).first()
     if not db_row:
         raise HTTPException(status_code=404, detail="Không tìm thấy deal")
     _assert_can_modify_deal_row(db_row, current_user)
@@ -1540,7 +1609,9 @@ def delete_deal(
     phone = db_row.sdt
     ho_ten = db_row.ho_ten
     da_thu = int(db_row.da_thu or 0)
-    db.delete(db_row)
+    db_row.is_deleted = True
+    db_row.nguoi_sua = actor
+    db_row.sua_luc = get_vn_now()
     db.commit()
 
     if _DEALS_CACHE is not None:

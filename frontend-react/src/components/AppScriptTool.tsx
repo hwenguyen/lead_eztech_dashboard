@@ -12,11 +12,14 @@ import {
   FileSpreadsheet,
   ExternalLink,
   Copy,
+  Trash2,
 } from 'lucide-react';
 import {
   fetchDealEntryInit,
   lookupDealPhone,
   saveSalesDeal,
+  deleteSalesDeal,
+  batchDeleteSalesDeals,
   saveDealEntryLists,
   fetchDealEntryLogs,
   fetchDealSheetConfig,
@@ -666,6 +669,60 @@ export function AppScriptTool() {
       }
     }
     window.open('https://pancake.vn', '_blank', 'noopener,noreferrer');
+  };
+
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [batchDeleting, setBatchDeleting] = useState(false);
+
+  const handleDeleteDeal = async (deal: SalesDealRecord) => {
+    const confirmed = window.confirm(
+      `Xoá học viên "${deal.hoTen}" (SĐT: ${deal.sdt || '—'}) khỏi bảng Nhập Deal & DB?\n\nDòng đã xoá sẽ KHÔNG bị tự động đồng bộ lại từ Deal Win.`
+    );
+    if (!confirmed) return;
+    setDeletingId(deal.id);
+    try {
+      const res = await deleteSalesDeal(deal.id, actorName);
+      if (res.ok) {
+        setDeals(res.deals || []);
+        setDebts(res.debts || { items: [], totalPhaiThu: 0, totalDaThuNo: 0, totalConNo: 0, count: 0 });
+        setSelectedRowIds((prev) => {
+          const next = new Set(prev);
+          next.delete(deal.id);
+          return next;
+        });
+        if (editingId === deal.id) {
+          setIsModalOpen(false);
+        }
+        showAppToast(`Đã xoá "${deal.hoTen}" và cập nhật DB.`, 'success');
+      }
+    } catch (err: any) {
+      showAppToast(err?.response?.data?.detail || 'Không thể xoá học viên này.', 'error');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const handleBatchDeleteSelected = async () => {
+    const ids = Array.from(selectedRowIds);
+    if (ids.length === 0 || batchDeleting) return;
+    const confirmed = window.confirm(
+      `Xoá ${ids.length} dòng học viên đã chọn khỏi bảng Nhập Deal & DB?\n\nCác dòng đã xoá sẽ KHÔNG bị tự động đồng bộ lại từ Deal Win.`
+    );
+    if (!confirmed) return;
+    setBatchDeleting(true);
+    try {
+      const res = await batchDeleteSalesDeals(ids, actorName);
+      if (res.ok) {
+        setDeals(res.deals || []);
+        setDebts(res.debts || { items: [], totalPhaiThu: 0, totalDaThuNo: 0, totalConNo: 0, count: 0 });
+        setSelectedRowIds(new Set());
+        showAppToast(`Đã xoá ${res.deleted_count || ids.length} dòng và cập nhật DB.`, 'success');
+      }
+    } catch (err: any) {
+      showAppToast(err?.response?.data?.detail || 'Không thể xoá các dòng đã chọn.', 'error');
+    } finally {
+      setBatchDeleting(false);
+    }
   };
 
   const handleSaveLists = async () => {
@@ -1338,6 +1395,16 @@ export function AppScriptTool() {
                   </button>
                   <button
                     type="button"
+                    disabled={batchDeleting}
+                    onClick={handleBatchDeleteSelected}
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50 rounded-lg shadow-sm transition-colors cursor-pointer"
+                    title="Xoá vĩnh viễn các dòng trùng lặp đã chọn trên DB (không đồng bộ lại từ Deal Win)"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>{batchDeleting ? 'Đang xoá...' : `Xoá ${selectedRowIds.size} dòng`}</span>
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => setSelectedRowIds(new Set())}
                     className="px-2 py-1.5 text-xs text-slate-500 hover:text-slate-700 bg-slate-100 rounded-lg cursor-pointer"
                   >
@@ -1533,6 +1600,16 @@ export function AppScriptTool() {
                                 title="Điền số tiền thu được, lớp học, link nhóm 1-1 và Lưu lên DB"
                               >
                                 {missingMoney ? 'Điền tiền & Lớp' : 'Sửa deal'}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={deletingId === d.id}
+                                onClick={() => handleDeleteDeal(d)}
+                                className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[11px] font-semibold text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded transition-colors cursor-pointer disabled:opacity-50"
+                                title="Xoá dòng học viên trùng lặp này trên DB (sẽ không lấy lại từ Deal Win)"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                                <span>{deletingId === d.id ? '...' : 'Xoá'}</span>
                               </button>
                               {d.conNo > 0 && (
                                 <button
@@ -2613,33 +2690,52 @@ export function AppScriptTool() {
             </div>
           </div>
 
-          <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => setIsModalOpen(false)}
-              className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl"
-            >
-              Huỷ
-            </button>
-            <button
-              type="button"
-              onClick={handleCopyCheckLenh}
-              className={`inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-xl border transition-colors cursor-pointer ${
-                copiedCheckLenh
-                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                  : 'bg-slate-50 hover:bg-slate-100 text-navy border-slate-200'
-              }`}
-            >
-              <Copy className="w-3.5 h-3.5" />
-              <span>{copiedCheckLenh ? 'Đã copy Check lệnh' : 'Copy Check lệnh'}</span>
-            </button>
-            <button
-              type="submit"
-              disabled={saving}
-              className="px-5 py-2 bg-eztech hover:bg-eztech-hover text-white text-xs font-semibold rounded-xl shadow-sm transition-colors cursor-pointer disabled:opacity-50"
-            >
-              {saving ? 'Đang lưu lên DB...' : 'Lưu Thông Tin Lên DB'}
-            </button>
+          <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2">
+            <div>
+              {editingId && (() => {
+                const editingDeal = deals.find((item) => item.id === editingId);
+                if (!editingDeal) return null;
+                return (
+                  <button
+                    type="button"
+                    disabled={deletingId === editingDeal.id}
+                    onClick={() => handleDeleteDeal(editingDeal)}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-xl transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>{deletingId === editingDeal.id ? 'Đang xoá...' : 'Xoá học viên này'}</span>
+                  </button>
+                );
+              })()}
+            </div>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setIsModalOpen(false)}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl"
+              >
+                Huỷ
+              </button>
+              <button
+                type="button"
+                onClick={handleCopyCheckLenh}
+                className={`inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-xl border transition-colors cursor-pointer ${
+                  copiedCheckLenh
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                    : 'bg-slate-50 hover:bg-slate-100 text-navy border-slate-200'
+                }`}
+              >
+                <Copy className="w-3.5 h-3.5" />
+                <span>{copiedCheckLenh ? 'Đã copy Check lệnh' : 'Copy Check lệnh'}</span>
+              </button>
+              <button
+                type="submit"
+                disabled={saving}
+                className="px-5 py-2 bg-eztech hover:bg-eztech-hover text-white text-xs font-semibold rounded-xl shadow-sm transition-colors cursor-pointer disabled:opacity-50"
+              >
+                {saving ? 'Đang lưu lên DB...' : 'Lưu Thông Tin Lên DB'}
+              </button>
+            </div>
           </div>
         </form>
       </AccessibleModal>

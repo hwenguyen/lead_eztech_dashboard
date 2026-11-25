@@ -118,9 +118,12 @@ def _add_missing_columns():
             ("ky_vong", "TEXT"),
             ("is_student", "BOOLEAN DEFAULT TRUE"),
             ("lead_tag", "VARCHAR(255)"),
+            ("is_deleted", "BOOLEAN DEFAULT FALSE"),
         ]:
             if col_name not in existing_sd:
                 ddl_statements.append(f"ALTER TABLE sales_deals ADD COLUMN {if_not_exists}{col_name} {col_type}")
+                if col_name == "is_deleted":
+                    ddl_statements.append("UPDATE sales_deals SET is_deleted = FALSE WHERE is_deleted IS NULL")
 
     if "btvn_answer_files" in table_names:
         existing_btvn_ans = {col["name"] for col in inspector.get_columns("btvn_answer_files")}

@@ -1080,6 +1080,11 @@ export const deleteSalesDeal = async (dealId: string, actor?: string) => {
   return res.data;
 };
 
+export const batchDeleteSalesDeals = async (dealIds: string[], actor?: string) => {
+  const res = await apiClient.post('/deal-entry/deals/batch-delete', { deal_ids: dealIds, actor });
+  return res.data;
+};
+
 export const saveDealEntryLists = async (lists: DealEntryLists, actor?: string) => {
   const res = await apiClient.put('/deal-entry/lists', { lists, actor });
   return res.data;

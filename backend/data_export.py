@@ -293,7 +293,14 @@ def _student_sql_expr():
     )
     in_sales_deals = and_(
         has_phone,
-        exists(select(1).where(SalesDeal.sdt == DimLead.phone_number)),
+        exists(
+            select(1).where(
+                and_(
+                    SalesDeal.sdt == DimLead.phone_number,
+                    or_(SalesDeal.is_deleted == False, SalesDeal.is_deleted.is_(None)),
+                )
+            )
+        ),
     )
     return or_(_has_student_tag(FactLeadActivity.status_tag), other_conv_student, in_deal_wins, in_sales_deals)
 

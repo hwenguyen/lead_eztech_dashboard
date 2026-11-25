@@ -239,7 +239,8 @@ def get_work_report(
     ]
 
     sales_deals_raw = db.query(SalesDeal).filter(
-        SalesDeal.ngay_thu.between(start_ymd, end_ymd)
+        or_(SalesDeal.is_deleted == False, SalesDeal.is_deleted.is_(None)),
+        SalesDeal.ngay_thu.between(start_ymd, end_ymd),
     ).order_by(desc(SalesDeal.ngay_thu)).all()
 
     matched_sales_deals = [
