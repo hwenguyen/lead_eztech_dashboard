@@ -372,6 +372,7 @@ class DailyChecklist(Base):
     source_post_id = Column(Integer, ForeignKey("bulletin_posts.id", ondelete="SET NULL"), nullable=True, index=True)
     is_recurring_daily = Column(Boolean, default=False, nullable=False)
     recurring_template_id = Column(Integer, nullable=True, index=True)
+    admin_note = Column(Text, nullable=True)  # Ghi chú (Note) của Admin dành cho nhân viên
     is_deleted = Column(Boolean, default=False, nullable=False, index=True)
     created_at = Column(DateTime, default=get_vn_now)
     updated_at = Column(DateTime, default=get_vn_now, onupdate=get_vn_now)
@@ -390,6 +391,7 @@ class DailyChecklistItem(Base):
     done_at = Column(DateTime, nullable=True)
     sort_order = Column(Integer, default=0, nullable=False)
     note = Column(Text, nullable=True)
+    is_assigned = Column(Boolean, default=False, nullable=False)  # True nếu Admin giao việc cho nhân viên
     rolled_over_from_item_id = Column(Integer, nullable=True, index=True)
     created_at = Column(DateTime, default=get_vn_now)
 

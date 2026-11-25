@@ -168,11 +168,15 @@ def _add_missing_columns():
         existing_dc = {col["name"] for col in inspector.get_columns("daily_checklists")}
         if "is_deleted" not in existing_dc:
             ddl_statements.append(f"ALTER TABLE daily_checklists ADD COLUMN {if_not_exists}is_deleted BOOLEAN DEFAULT FALSE NOT NULL")
+        if "admin_note" not in existing_dc:
+            ddl_statements.append(f"ALTER TABLE daily_checklists ADD COLUMN {if_not_exists}admin_note TEXT")
 
     if "daily_checklist_items" in table_names:
         existing_dci = {col["name"] for col in inspector.get_columns("daily_checklist_items")}
         if "rolled_over_from_item_id" not in existing_dci:
             ddl_statements.append(f"ALTER TABLE daily_checklist_items ADD COLUMN {if_not_exists}rolled_over_from_item_id INTEGER")
+        if "is_assigned" not in existing_dci:
+            ddl_statements.append(f"ALTER TABLE daily_checklist_items ADD COLUMN {if_not_exists}is_assigned BOOLEAN DEFAULT FALSE NOT NULL")
 
     if "app_users" in table_names:
         existing_users = {col["name"] for col in inspector.get_columns("app_users")}

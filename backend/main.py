@@ -1737,6 +1737,12 @@ def update_deal_win(
         _DEAL_CACHE.clear()
     invalidate_deal_entry_cache()
 
+    if linked_sales:
+        from backend.deal_entry import get_cached_deals, _sync_phones_to_google_sheet_async
+        affected_phones = {sd.sdt for sd in linked_sales if sd.sdt}
+        if affected_phones:
+            _sync_phones_to_google_sheet_async(db, get_cached_deals(db), affected_phones, action="upsert_phone")
+
     item = DealWinItem.from_orm(deal)
     item.source_page = item.source_page or DEFAULT_SOURCE_PAGE
     return item

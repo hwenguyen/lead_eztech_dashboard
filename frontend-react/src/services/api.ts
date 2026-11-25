@@ -1996,6 +1996,7 @@ export interface DailyChecklistTaskItem {
   done_at?: string | null;
   sort_order: number;
   note?: string | null;
+  is_assigned?: boolean;
 }
 
 export interface DailyChecklistItemGroup {
@@ -2009,6 +2010,8 @@ export interface DailyChecklistItemGroup {
   source_post_boss?: string | null;
   is_recurring_daily: boolean;
   recurring_template_id?: number | null;
+  admin_note?: string | null;
+  is_assigned?: boolean;
   done_count: number;
   total_count: number;
   progress_pct: number;
@@ -2205,8 +2208,17 @@ export const createDailyChecklist = async (payload: {
   owner_user_id?: number | null;
   owner_user_ids?: number[] | null;
   is_recurring_daily?: boolean;
+  admin_note?: string | null;
 }): Promise<DailyChecklistItemGroup & { created_count?: number }> => {
   const res = await apiClient.post('/bulletin/checklists', payload);
+  return res.data;
+};
+
+export const updateDailyChecklist = async (
+  checklistId: number,
+  payload: Partial<{ title: string; is_recurring_daily: boolean; admin_note: string }>
+): Promise<DailyChecklistItemGroup> => {
+  const res = await apiClient.patch<DailyChecklistItemGroup>(`/bulletin/checklists/${checklistId}`, payload);
   return res.data;
 };
 

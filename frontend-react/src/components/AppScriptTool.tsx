@@ -1327,7 +1327,7 @@ export function AppScriptTool() {
                   type="button"
                   aria-pressed={completionFilter === 'all'}
                   onClick={() => setCompletionFilter('all')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                     completionFilter === 'all'
                       ? 'bg-navy text-white shadow-sm'
                       : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
@@ -1340,7 +1340,7 @@ export function AppScriptTool() {
                   type="button"
                   aria-pressed={completionFilter === 'incomplete'}
                   onClick={() => setCompletionFilter('incomplete')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                     completionFilter === 'incomplete'
                       ? 'bg-slate-800 text-white shadow-sm'
                       : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
@@ -1353,7 +1353,7 @@ export function AppScriptTool() {
                   type="button"
                   aria-pressed={completionFilter === 'completed'}
                   onClick={() => setCompletionFilter('completed')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                     completionFilter === 'completed'
                       ? 'bg-slate-800 text-white shadow-sm'
                       : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
@@ -1361,40 +1361,140 @@ export function AppScriptTool() {
                 >
                   Đã điền đủ ({countsByCompletion.completed})
                 </button>
+
+                <label
+                  title='Chỉ hiển thị tag "Đã là học viên"'
+                  className="inline-flex items-center gap-1.5 text-xs font-medium text-navy cursor-pointer select-none bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-200 ml-1"
+                >
+                  <input
+                    type="checkbox"
+                    checked={onlyStudentFilter}
+                    onChange={(e) => setOnlyStudentFilter(e.target.checked)}
+                    className="rounded border-slate-300 text-eztech focus:ring-eztech"
+                  />
+                  <span>Đã là học viên</span>
+                </label>
               </div>
 
-              <label className="inline-flex items-center gap-2 text-xs font-medium text-navy cursor-pointer select-none bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200">
-                <input
-                  type="checkbox"
-                  checked={onlyStudentFilter}
-                  onChange={(e) => setOnlyStudentFilter(e.target.checked)}
-                  className="rounded border-slate-300 text-eztech focus:ring-eztech"
-                />
-                <span>Chỉ hiển thị tag "Đã là học viên"</span>
-              </label>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {selectedRowIds.size > 0 && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const selectedDeals = filteredDeals.filter((d) => selectedRowIds.has(d.id));
+                        handleCopyMultipleRows(selectedDeals, false);
+                      }}
+                      className="px-2.5 py-1 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors cursor-pointer"
+                      title="Copy các dòng đã tích chọn để dán (Ctrl+V) vào Google Sheet"
+                    >
+                      Copy ({selectedRowIds.size})
+                    </button>
+                    <button
+                      type="button"
+                      disabled={batchDeleting}
+                      onClick={handleBatchDeleteSelected}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50 rounded-lg shadow-sm transition-colors cursor-pointer"
+                      title="Xoá vĩnh viễn các dòng trùng lặp đã chọn trên DB (không đồng bộ lại từ Deal Win)"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>{batchDeleting ? 'Đang xoá...' : `Xoá (${selectedRowIds.size})`}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedRowIds(new Set())}
+                      className="px-2 py-1 text-xs text-slate-500 hover:text-slate-700 bg-slate-100 rounded-lg cursor-pointer"
+                    >
+                      Bỏ chọn
+                    </button>
+                  </>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => handleCopyMultipleRows(pagedDeals, false)}
+                  className="px-2.5 py-1 text-xs font-medium text-slate-700 hover:text-navy bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg transition-colors cursor-pointer"
+                  title="Copy toàn bộ các dòng trên trang hiện tại để dán vào Google Sheet"
+                >
+                  Copy trang ({pagedDeals.length})
+                </button>
+
+                <button
+                  type="button"
+                  onClick={exportDealsCsv}
+                  className="px-2.5 py-1 text-xs font-medium text-slate-700 hover:text-navy bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg transition-colors cursor-pointer"
+                  title="Xuất file Excel / CSV"
+                >
+                  Xuất CSV
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSheetFeedback(null);
+                    setShowSheetModal(true);
+                  }}
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-lg border transition-colors cursor-pointer ${
+                    sheetCfg.configured && sheetCfg.auto_sync
+                      ? 'text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border-emerald-200'
+                      : 'text-slate-700 bg-slate-50 hover:bg-slate-100 border-slate-200'
+                  }`}
+                  title="Cấu hình & Đồng bộ live lên Google Sheet qua Apps Script"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5" />
+                  <span>Sheet Live</span>
+                  {sheetCfg.configured && sheetCfg.auto_sync && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                  )}
+                </button>
+
+                {safeSheetUrl && (
+                  <a
+                    href={safeSheetUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-eztech hover:bg-eztech-light border border-slate-200 rounded-lg transition-colors"
+                    title="Mở Google Sheet"
+                  >
+                    <span>Mở Sheet</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                )}
+
+                <button
+                  type="button"
+                  disabled={loading}
+                  onClick={() => loadAll(true)}
+                  aria-label="Đồng bộ từ Deal Win và làm mới dữ liệu"
+                  className="p-1.5 text-slate-500 hover:text-eztech bg-slate-50 hover:bg-eztech-light border border-slate-200 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+                  title="Đồng bộ từ Deal Win & Làm mới dữ liệu"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+                </button>
+              </div>
             </div>
 
-            {/* Bộ lọc: Chỉ lọc theo NV CS & Tìm kiếm */}
-            <div className="flex flex-wrap items-center gap-2.5">
-              <div className="relative flex-1 min-w-[240px]">
-                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+            {/* Hàng 2: Tìm kiếm + NV CS + Lọc ngày gọn trên 1 hàng */}
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative flex-1 min-w-[200px]">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                 <input
                   type="text"
                   aria-label="Tìm kiếm học viên, SĐT, lớp học"
-                  placeholder="Tìm SĐT, Họ tên, Email, Chức vụ, Lớp học, Ghi chú..."
+                  placeholder="Tìm SĐT, tên, lớp, ghi chú..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="w-full pl-8 pr-3 py-1.5 text-xs bg-white text-navy border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-eztech/20 focus:border-eztech"
                 />
               </div>
 
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1 shrink-0">
                 {isPersonalScope ? (
                   <div
-                    className="px-3 py-1.5 text-xs font-semibold border border-slate-200 rounded-lg bg-slate-50 text-navy"
+                    className="px-2.5 py-1.5 text-xs font-semibold border border-slate-200 rounded-lg bg-slate-50 text-navy"
                     title="Tài khoản chỉ xem và thao tác trên dữ liệu cá nhân"
                   >
-                    NV CS: {actorName}
+                    NV: {actorName}
                   </div>
                 ) : (
                   <>
@@ -1402,9 +1502,9 @@ export function AppScriptTool() {
                       aria-label="Lọc theo nhân viên chăm sóc"
                       value={filterSale}
                       onChange={(e) => setFilterSale(e.target.value)}
-                      className="px-3 py-1.5 text-xs font-medium border border-slate-300 rounded-lg bg-white text-navy focus:outline-none focus:ring-2 focus:ring-eztech/20 focus:border-eztech cursor-pointer min-w-[200px]"
+                      className="px-2.5 py-1.5 text-xs font-medium border border-slate-200 rounded-lg bg-white text-navy focus:outline-none focus:ring-2 focus:ring-eztech/20 focus:border-eztech cursor-pointer max-w-[180px]"
                     >
-                      <option value="">Tất cả NV CS ({distinctSales.length} nhân viên)</option>
+                      <option value="">Tất cả NV CS ({distinctSales.length})</option>
                       {distinctSales.map((s) => (
                         <option key={s} value={s}>
                           {s}
@@ -1426,35 +1526,35 @@ export function AppScriptTool() {
                 )}
               </div>
 
-              {/* Bộ lọc theo khoảng ngày */}
-              <div className="flex flex-wrap items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1">
+              {/* Bộ lọc theo khoảng ngày gọn */}
+              <div className="flex flex-wrap items-center gap-1 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 shrink-0">
                 <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" aria-hidden="true" />
                 <select
                   aria-label="Chọn trường ngày lọc"
                   value={filterDateField}
                   onChange={(e) => setFilterDateField(e.target.value as 'ngayThu' | 'ngayContact' | 'ngayThuAR')}
-                  className="text-xs font-medium bg-transparent text-navy focus:outline-none cursor-pointer pr-1"
+                  className="text-xs font-medium bg-transparent text-navy focus:outline-none cursor-pointer pr-0.5"
                 >
                   <option value="ngayThu">Ngày thu</option>
-                  <option value="ngayContact">Ngày contact</option>
-                  <option value="ngayThuAR">Ngày thu AR</option>
+                  <option value="ngayContact">Contact</option>
+                  <option value="ngayThuAR">Thu AR</option>
                 </select>
                 <input
                   type="date"
                   aria-label="Từ ngày"
                   value={filterStartDate}
                   onChange={(e) => setFilterStartDate(e.target.value)}
-                  className="px-2 py-1 text-xs bg-white text-navy border border-slate-200 rounded-md focus:outline-none focus:ring-2 focus:ring-eztech/20 focus:border-eztech"
+                  className="w-[114px] px-1.5 py-0.5 text-xs bg-white text-navy border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-eztech/30 focus:border-eztech"
                 />
-                <span className="text-xs text-slate-400">→</span>
+                <span className="text-[11px] text-slate-400">–</span>
                 <input
                   type="date"
                   aria-label="Đến ngày"
                   value={filterEndDate}
                   onChange={(e) => setFilterEndDate(e.target.value)}
-                  className="px-2 py-1 text-xs bg-white text-navy border border-slate-200 rounded-md focus:outline-none focus:ring-2 focus:ring-eztech/20 focus:border-eztech"
+                  className="w-[114px] px-1.5 py-0.5 text-xs bg-white text-navy border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-eztech/30 focus:border-eztech"
                 />
-                <div className="hidden sm:flex items-center gap-1 pl-1 border-l border-slate-200">
+                <div className="hidden md:flex items-center gap-0.5 pl-1 border-l border-slate-200">
                   <button
                     type="button"
                     onClick={() => {
@@ -1462,9 +1562,10 @@ export function AppScriptTool() {
                       setFilterStartDate(format(subDays(today, 7), 'yyyy-MM-dd'));
                       setFilterEndDate(format(today, 'yyyy-MM-dd'));
                     }}
-                    className="px-2 py-0.5 text-[11px] font-medium text-slate-600 hover:text-navy hover:bg-white rounded transition-colors cursor-pointer"
+                    className="px-1.5 py-0.5 text-[11px] font-medium text-slate-600 hover:text-navy hover:bg-white rounded transition-colors cursor-pointer"
+                    title="7 ngày qua"
                   >
-                    7 ngày
+                    7N
                   </button>
                   <button
                     type="button"
@@ -1473,9 +1574,10 @@ export function AppScriptTool() {
                       setFilterStartDate(format(subDays(today, 30), 'yyyy-MM-dd'));
                       setFilterEndDate(format(today, 'yyyy-MM-dd'));
                     }}
-                    className="px-2 py-0.5 text-[11px] font-medium text-slate-600 hover:text-navy hover:bg-white rounded transition-colors cursor-pointer"
+                    className="px-1.5 py-0.5 text-[11px] font-medium text-slate-600 hover:text-navy hover:bg-white rounded transition-colors cursor-pointer"
+                    title="30 ngày qua"
                   >
-                    30 ngày
+                    30N
                   </button>
                   <button
                     type="button"
@@ -1484,9 +1586,10 @@ export function AppScriptTool() {
                       setFilterStartDate(format(startOfMonth(today), 'yyyy-MM-dd'));
                       setFilterEndDate(format(today, 'yyyy-MM-dd'));
                     }}
-                    className="px-2 py-0.5 text-[11px] font-medium text-slate-600 hover:text-navy hover:bg-white rounded transition-colors cursor-pointer"
+                    className="px-1.5 py-0.5 text-[11px] font-medium text-slate-600 hover:text-navy hover:bg-white rounded transition-colors cursor-pointer"
+                    title="Tháng này"
                   >
-                    Tháng này
+                    Tháng
                   </button>
                 </div>
                 {(filterStartDate || filterEndDate) && (
@@ -1504,101 +1607,6 @@ export function AppScriptTool() {
                   </button>
                 )}
               </div>
-
-              {selectedRowIds.size > 0 && (
-                <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const selectedDeals = filteredDeals.filter((d) => selectedRowIds.has(d.id));
-                      handleCopyMultipleRows(selectedDeals, false);
-                    }}
-                    className="px-3 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors cursor-pointer"
-                    title="Copy các dòng đã tích chọn để dán (Ctrl+V) vào Google Sheet"
-                  >
-                    Copy {selectedRowIds.size} dòng đã chọn
-                  </button>
-                  <button
-                    type="button"
-                    disabled={batchDeleting}
-                    onClick={handleBatchDeleteSelected}
-                    className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50 rounded-lg shadow-sm transition-colors cursor-pointer"
-                    title="Xoá vĩnh viễn các dòng trùng lặp đã chọn trên DB (không đồng bộ lại từ Deal Win)"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    <span>{batchDeleting ? 'Đang xoá...' : `Xoá ${selectedRowIds.size} dòng`}</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedRowIds(new Set())}
-                    className="px-2 py-1.5 text-xs text-slate-500 hover:text-slate-700 bg-slate-100 rounded-lg cursor-pointer"
-                  >
-                    Bỏ chọn
-                  </button>
-                </div>
-              )}
-
-              <button
-                type="button"
-                onClick={() => handleCopyMultipleRows(pagedDeals, false)}
-                className="px-3 py-1.5 text-xs font-medium text-slate-700 hover:text-navy bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg transition-colors cursor-pointer"
-                title="Copy toàn bộ các dòng trên trang hiện tại để dán vào Google Sheet"
-              >
-                Copy trang ({pagedDeals.length} dòng)
-              </button>
-
-              <button
-                type="button"
-                onClick={exportDealsCsv}
-                className="px-3 py-1.5 text-xs font-medium text-slate-700 hover:text-navy bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg transition-colors cursor-pointer"
-                title="Xuất file Excel / CSV"
-              >
-                Xuất CSV
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setSheetFeedback(null);
-                  setShowSheetModal(true);
-                }}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors cursor-pointer ${
-                  sheetCfg.configured && sheetCfg.auto_sync
-                    ? 'text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border-emerald-200'
-                    : 'text-slate-700 bg-slate-50 hover:bg-slate-100 border-slate-200'
-                }`}
-                title="Cấu hình & Đồng bộ live lên Google Sheet qua Apps Script"
-              >
-                <FileSpreadsheet className="w-3.5 h-3.5" />
-                <span>Google Sheet Live</span>
-                {sheetCfg.configured && sheetCfg.auto_sync && (
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                )}
-              </button>
-
-              {safeSheetUrl && (
-                <a
-                  href={safeSheetUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-eztech hover:bg-eztech-light border border-slate-200 rounded-lg transition-colors"
-                  title="Mở Google Sheet"
-                >
-                  <span>Mở Sheet</span>
-                  <ExternalLink className="w-3 h-3" />
-                </a>
-              )}
-
-              <button
-                type="button"
-                disabled={loading}
-                onClick={() => loadAll(true)}
-                aria-label="Đồng bộ từ Deal Win và làm mới dữ liệu"
-                className="p-1.5 text-slate-500 hover:text-eztech bg-slate-50 hover:bg-eztech-light border border-slate-200 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
-                title="Đồng bộ từ Deal Win & Làm mới dữ liệu"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-              </button>
             </div>
           </div>
 

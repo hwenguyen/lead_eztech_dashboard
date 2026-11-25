@@ -224,11 +224,13 @@ class ChecklistCreateRequest(BaseModel):
     owner_user_id: Optional[int] = None  # Admin giao cho 1 nhân sự
     owner_user_ids: Optional[List[int]] = None  # Admin giao hàng loạt cho nhiều nhân sự
     is_recurring_daily: bool = False
+    admin_note: Optional[str] = None
 
 
 class ChecklistUpdateRequest(BaseModel):
     title: Optional[str] = Field(default=None, max_length=300)
     is_recurring_daily: Optional[bool] = None
+    admin_note: Optional[str] = None
 
 
 class ChecklistItemCreateRequest(BaseModel):
@@ -964,6 +966,7 @@ def _serialize_checklist(
     owner_name: Optional[str] = None,
     post_info: Optional[Tuple[str, str]] = None,
 ) -> Dict[str, Any]:
+    cl_is_assigned = bool(cl.created_by_user_id is not None and cl.created_by_user_id != cl.owner_user_id)
     items = [
         {
             "id": it.id,
@@ -973,6 +976,7 @@ def _serialize_checklist(
             "done_at": it.done_at.strftime("%Y-%m-%d %H:%M:%S") if it.done_at else None,
             "sort_order": it.sort_order,
             "note": it.note,
+            "is_assigned": bool(getattr(it, "is_assigned", False)) or cl_is_assigned,
         }
         for it in (cl.items or [])
     ]
@@ -989,6 +993,8 @@ def _serialize_checklist(
         "source_post_boss": post_info[1] if post_info else None,
         "is_recurring_daily": bool(cl.is_recurring_daily),
         "recurring_template_id": cl.recurring_template_id,
+        "admin_note": getattr(cl, "admin_note", None),
+        "is_assigned": cl_is_assigned,
         "done_count": done_cnt,
         "total_count": total_cnt,
         "progress_pct": round(done_cnt / total_cnt * 100) if total_cnt > 0 else 0,
@@ -1229,18 +1235,21 @@ def create_checklist(
             created_by_user_id=current_user.id,
             source_post_id=req.source_post_id,
             is_recurring_daily=req.is_recurring_daily,
+            admin_note=(req.admin_note.strip() or None) if (is_adm and req.admin_note) else None,
             is_deleted=False,
             created_at=now_vn,
             updated_at=now_vn,
         )
         db.add(cl)
         db.flush()
+        assigned_flag = oid != current_user.id
         for idx, content in enumerate(clean_items):
             db.add(
                 DailyChecklistItem(
                     checklist_id=cl.id,
                     content=content,
                     is_done=False,
+                    is_assigned=assigned_flag,
                     sort_order=idx,
                     created_at=now_vn,
                 )
@@ -1271,6 +1280,10 @@ def update_checklist(
         cl.title = req.title.strip()
     if req.is_recurring_daily is not None:
         cl.is_recurring_daily = req.is_recurring_daily
+    if req.admin_note is not None:
+        if not _is_admin(current_user):
+            raise HTTPException(status_code=403, detail="Chỉ Admin mới có quyền cập nhật ghi chú cho nhân viên.")
+        cl.admin_note = req.admin_note.strip() or None
     cl.updated_at = get_vn_now()
     db.commit()
     db.refresh(cl)
@@ -1320,10 +1333,12 @@ def add_checklist_item(
         raise HTTPException(status_code=403, detail="Bạn không có quyền thêm việc vào checklist của người khác.")
 
     max_order = db.query(func.max(DailyChecklistItem.sort_order)).filter(DailyChecklistItem.checklist_id == checklist_id).scalar() or 0
+    assigned_flag = current_user.id != cl.owner_user_id
     item = DailyChecklistItem(
         checklist_id=checklist_id,
         content=req.content.strip(),
         is_done=False,
+        is_assigned=assigned_flag,
         sort_order=int(max_order) + 1,
         note=req.note.strip() if req.note else None,
         created_at=get_vn_now(),
@@ -1332,6 +1347,7 @@ def add_checklist_item(
     cl.updated_at = get_vn_now()
     db.commit()
     db.refresh(item)
+    cl_is_assigned = bool(cl.created_by_user_id is not None and cl.created_by_user_id != cl.owner_user_id)
     return {
         "id": item.id,
         "checklist_id": item.checklist_id,
@@ -1340,6 +1356,7 @@ def add_checklist_item(
         "done_at": None,
         "sort_order": item.sort_order,
         "note": item.note,
+        "is_assigned": bool(item.is_assigned) or cl_is_assigned,
     }
 
 
@@ -1371,6 +1388,10 @@ def update_checklist_item(
     item.checklist.updated_at = get_vn_now()
     db.commit()
     db.refresh(item)
+    cl_is_assigned = bool(
+        item.checklist.created_by_user_id is not None
+        and item.checklist.created_by_user_id != item.checklist.owner_user_id
+    )
     return {
         "id": item.id,
         "checklist_id": item.checklist_id,
@@ -1379,6 +1400,7 @@ def update_checklist_item(
         "done_at": item.done_at.strftime("%Y-%m-%d %H:%M:%S") if item.done_at else None,
         "sort_order": item.sort_order,
         "note": item.note,
+        "is_assigned": bool(getattr(item, "is_assigned", False)) or cl_is_assigned,
     }
 
 

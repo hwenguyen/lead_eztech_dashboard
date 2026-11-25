@@ -497,6 +497,9 @@ def sync_from_deal_wins(db: Session, force: bool = False, skip_dim_sync: bool = 
             db.commit()
             with _CACHE_LOCK:
                 _DEALS_CACHE = None
+            updated_phones = {sd.sdt for sd in linked_sales if sd.sdt}
+            if updated_phones:
+                _sync_phones_to_google_sheet_async(db, get_cached_deals(db), updated_phones, action="upsert_phone")
 
     if not new_dw_rows:
         _LAST_SYNCED_DEAL_WIN_ID = max_dw_id
@@ -1742,7 +1745,7 @@ def _read_sheet_sync_config(db: Session) -> Dict[str, Any]:
     cfg_data: Dict[str, Any] = {
         "webhook_url": env_url,
         "sheet_url": "",
-        "only_students": True,
+        "only_students": False,
         "auto_sync": True,
     }
     row = db.query(AppConfig).filter(AppConfig.config_key == CONFIG_KEY_SHEET_SYNC).first()

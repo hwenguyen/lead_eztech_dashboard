@@ -29,6 +29,7 @@ import {
   ThumbsUp,
   Globe,
   FileText,
+  StickyNote,
   X,
 } from 'lucide-react';
 import {
@@ -47,6 +48,7 @@ import {
   fetchPendingRolloverItems,
   rolloverPendingChecklistItems,
   createDailyChecklist,
+  updateDailyChecklist,
   deleteDailyChecklist,
   addChecklistTaskItem,
   updateChecklistTaskItem,
@@ -240,7 +242,13 @@ export function BulletinDashboard({ onUnreadCountChange }: BulletinDashboardProp
   const [clItemsText, setClItemsText] = useState('');
   const [clRecurring, setClRecurring] = useState(false);
   const [clOwnerIds, setClOwnerIds] = useState<number[]>([]);
+  const [clAdminNote, setClAdminNote] = useState('');
   const [savingCl, setSavingCl] = useState(false);
+
+  // Admin inline Note cho nhân viên trên từng checklist
+  const [editingNoteChecklistId, setEditingNoteChecklistId] = useState<number | null>(null);
+  const [editingNoteText, setEditingNoteText] = useState('');
+  const [savingChecklistNote, setSavingChecklistNote] = useState(false);
 
   // A2: AI Extract Modal
   const [aiModalOpen, setAiModalOpen] = useState(false);
@@ -627,6 +635,7 @@ export function BulletinDashboard({ onUnreadCountChange }: BulletinDashboardProp
     setClItemsText(post ? post.title || '' : '');
     setClRecurring(false);
     setClOwnerIds(isAdmin && adminOwnerFilter ? [Number(adminOwnerFilter)] : []);
+    setClAdminNote('');
     setChecklistModalOpen(true);
   };
 
@@ -724,10 +733,12 @@ export function BulletinDashboard({ onUnreadCountChange }: BulletinDashboardProp
         source_post_id: clSourcePost?.id || null,
         owner_user_ids: isAdmin && clOwnerIds.length > 0 ? clOwnerIds : null,
         is_recurring_daily: clRecurring,
+        admin_note: isAdmin && clAdminNote.trim() ? clAdminNote.trim() : null,
       });
       const cnt = res.created_count || 1;
       showAppToast(cnt > 1 ? `Đã phân checklist cho ${cnt} nhân sự` : 'Đã tạo checklist công việc', 'success');
       setChecklistModalOpen(false);
+      setClAdminNote('');
       setChecklistDate(clDateInput);
       setWorkTab('checklist');
       await Promise.all([loadChecklists(), clSourcePost ? loadPosts(postsPage) : Promise.resolve()]);
@@ -735,6 +746,23 @@ export function BulletinDashboard({ onUnreadCountChange }: BulletinDashboardProp
       showAppToast(err?.response?.data?.detail || 'Lỗi khi tạo checklist', 'error');
     } finally {
       setSavingCl(false);
+    }
+  };
+
+  const handleSaveChecklistAdminNote = async (checklistId: number) => {
+    setSavingChecklistNote(true);
+    try {
+      const updated = await updateDailyChecklist(checklistId, { admin_note: editingNoteText.trim() });
+      setChecklists((prev) =>
+        prev.map((cl) => (cl.id === checklistId ? { ...cl, admin_note: updated.admin_note } : cl))
+      );
+      setEditingNoteChecklistId(null);
+      setEditingNoteText('');
+      showAppToast(updated.admin_note ? 'Đã lưu ghi chú cho nhân viên' : 'Đã xóa ghi chú', 'success');
+    } catch (err: any) {
+      showAppToast(err?.response?.data?.detail || 'Không thể lưu ghi chú', 'error');
+    } finally {
+      setSavingChecklistNote(false);
     }
   };
 
@@ -1727,6 +1755,24 @@ export function BulletinDashboard({ onUnreadCountChange }: BulletinDashboardProp
                             </div>
                           </div>
                           <div className="flex items-center gap-1.5 shrink-0">
+                            {isAdmin && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingNoteChecklistId(cl.id);
+                                  setEditingNoteText(cl.admin_note || '');
+                                }}
+                                title={cl.admin_note ? 'Sửa ghi chú cho nhân viên' : 'Thêm ghi chú cho nhân viên'}
+                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-semibold border transition-colors cursor-pointer ${
+                                  cl.admin_note
+                                    ? 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100'
+                                    : 'bg-slate-50 text-slate-500 border-slate-200 hover:text-amber-800 hover:bg-amber-50 hover:border-amber-200'
+                                }`}
+                              >
+                                <StickyNote className="w-3 h-3" aria-hidden="true" />
+                                <span>{cl.admin_note ? 'Sửa note' : '+ Note'}</span>
+                              </button>
+                            )}
                             <span className="text-[11px] font-mono font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">
                               {cl.done_count}/{cl.total_count}
                             </span>
@@ -1740,6 +1786,49 @@ export function BulletinDashboard({ onUnreadCountChange }: BulletinDashboardProp
                             </button>
                           </div>
                         </div>
+
+                        {/* Admin Note cho nhân viên */}
+                        {editingNoteChecklistId === cl.id ? (
+                          <div className="rounded-lg border border-amber-200 bg-amber-50/70 p-2 space-y-1.5">
+                            <textarea
+                              rows={2}
+                              autoFocus
+                              value={editingNoteText}
+                              onChange={(e) => setEditingNoteText(e.target.value)}
+                              placeholder="Nhập ghi chú (Note) của Admin dành cho nhân viên..."
+                              className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-amber-200 bg-white text-navy focus:outline-none focus:ring-2 focus:ring-amber-400/30"
+                            />
+                            <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingNoteChecklistId(null);
+                                  setEditingNoteText('');
+                                }}
+                                disabled={savingChecklistNote}
+                                className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white text-[11px] font-semibold text-slate-600 hover:bg-slate-50 cursor-pointer"
+                              >
+                                Hủy
+                              </button>
+                              <button
+                                type="button"
+                                disabled={savingChecklistNote}
+                                onClick={() => handleSaveChecklistAdminNote(cl.id)}
+                                className="px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-semibold cursor-pointer disabled:opacity-50"
+                              >
+                                {savingChecklistNote ? 'Đang lưu...' : 'Lưu note'}
+                              </button>
+                            </div>
+                          </div>
+                        ) : cl.admin_note ? (
+                          <div className="rounded-lg border border-amber-200/80 bg-amber-50/70 px-2.5 py-2 flex items-start gap-2 text-[11px] text-amber-900">
+                            <StickyNote className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" aria-hidden="true" />
+                            <div className="min-w-0 flex-1 whitespace-pre-wrap break-words leading-relaxed">
+                              <span className="font-bold">Note Admin: </span>
+                              <span>{cl.admin_note}</span>
+                            </div>
+                          </div>
+                        ) : null}
 
                         {/* Items */}
                         <div className="space-y-1.5">
@@ -1778,41 +1867,55 @@ export function BulletinDashboard({ onUnreadCountChange }: BulletinDashboardProp
                                   <button
                                     type="button"
                                     onClick={() => handleToggleChecklistItem(cl.id, item.id, item.is_done)}
-                                    className="flex items-start gap-2 text-left flex-1 cursor-pointer"
+                                    className="flex items-start gap-2 text-left flex-1 min-w-0 cursor-pointer"
                                   >
                                     {item.is_done ? (
                                       <CheckSquare className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
                                     ) : (
                                       <Square className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
                                     )}
-                                    <span
-                                      className={`text-xs leading-snug ${
-                                        item.is_done ? 'line-through text-slate-400' : 'text-slate-700 font-medium'
-                                      }`}
-                                    >
-                                      {item.content}
+                                    <span className="min-w-0 flex-1">
+                                      <span
+                                        className={`text-xs leading-snug break-words ${
+                                          item.is_done ? 'line-through text-slate-400' : 'text-slate-700 font-medium'
+                                        }`}
+                                      >
+                                        {item.content}
+                                      </span>
+                                      {item.note && (
+                                        <span className="block text-[10px] text-slate-400 mt-0.5">
+                                          {item.note}
+                                        </span>
+                                      )}
                                     </span>
                                   </button>
-                                  <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 transition-opacity">
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setEditingItemId(item.id);
-                                        setEditingItemText(item.content);
-                                      }}
-                                      className="p-0.5 text-slate-400 hover:text-brand-600 cursor-pointer"
-                                      title="Sửa đầu việc"
-                                    >
-                                      <Pencil className="w-3 h-3" />
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleDeleteChecklistItem(item.id)}
-                                      className="p-0.5 text-slate-400 hover:text-rose-600 cursor-pointer"
-                                      title="Xóa đầu việc"
-                                    >
-                                      <Trash2 className="w-3 h-3" />
-                                    </button>
+                                  <div className="flex items-center gap-1 shrink-0">
+                                    <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 transition-opacity">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setEditingItemId(item.id);
+                                          setEditingItemText(item.content);
+                                        }}
+                                        className="p-0.5 text-slate-400 hover:text-brand-600 cursor-pointer"
+                                        title="Sửa đầu việc"
+                                      >
+                                        <Pencil className="w-3 h-3" />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleDeleteChecklistItem(item.id)}
+                                        className="p-0.5 text-slate-400 hover:text-rose-600 cursor-pointer"
+                                        title="Xóa đầu việc"
+                                      >
+                                        <Trash2 className="w-3 h-3" />
+                                      </button>
+                                    </div>
+                                    {item.is_assigned && (
+                                      <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-semibold bg-amber-100 text-amber-800 border border-amber-300/90 whitespace-nowrap">
+                                        Task được giao
+                                      </span>
+                                    )}
                                   </div>
                                 </>
                               )}
@@ -2539,6 +2642,21 @@ export function BulletinDashboard({ onUnreadCountChange }: BulletinDashboardProp
           </div>
 
           {renderAdminMultiAssigneePicker(clOwnerIds, setClOwnerIds)}
+
+          {isAdmin && (
+            <div>
+              <label className="block text-xs font-semibold text-navy mb-1">
+                Note cho nhân viên (Admin — tuỳ chọn)
+              </label>
+              <textarea
+                rows={2}
+                value={clAdminNote}
+                onChange={(e) => setClAdminNote(e.target.value)}
+                placeholder="VD: Ưu tiên xử lý xong trước 15h hôm nay và báo lại trên nhóm..."
+                className="w-full px-3 py-2 rounded-xl border border-amber-200 bg-amber-50/40 text-xs focus:outline-none focus:ring-2 focus:ring-amber-400/30"
+              />
+            </div>
+          )}
 
           <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
             <input type="checkbox" checked={clRecurring} onChange={(e) => setClRecurring(e.target.checked)} />
