@@ -57,6 +57,11 @@ MARKETING_TABS: List[str] = [
     *CONSULTANT_TABS,
 ]
 
+CLASS_MANAGER_TABS: List[str] = [
+    *CONSULTANT_TABS,
+    "btvn_grader",
+]
+
 TAB_DISPLAY_NAMES: Dict[str, str] = {
     "overview": "Tổng quan & Chỉ số",
     "facebook": "Facebook Analytics",
@@ -99,10 +104,10 @@ DEPARTMENT_MATRIX: Dict[str, Dict[str, Any]] = {
         "scope_summary": "Xem toàn bộ dữ liệu tại các trang Marketing (Tổng quan, Facebook, TikTok); chỉ xem dữ liệu cá nhân tại 6 trang nghiệp vụ Consultant.",
     },
     DEPT_CLASS_MANAGER: {
-        "allowed_tabs": CONSULTANT_TABS,
+        "allowed_tabs": CLASS_MANAGER_TABS,
         "default_tab": "work_report",
-        "module_scopes": {tab: "all" for tab in CONSULTANT_TABS},
-        "scope_summary": "Xem toàn bộ dữ liệu của tất cả nhân viên trên cả 6 trang nghiệp vụ (hỗ trợ bộ lọc theo từng nhân viên).",
+        "module_scopes": {tab: "all" for tab in CLASS_MANAGER_TABS},
+        "scope_summary": "Xem toàn bộ dữ liệu của tất cả nhân viên trên cả 7 trang nghiệp vụ (bao gồm Chấm BTVN AI, hỗ trợ bộ lọc theo từng nhân viên).",
     },
 }
 

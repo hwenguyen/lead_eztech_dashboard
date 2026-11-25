@@ -53,6 +53,11 @@ export const MARKETING_TABS: AppTabId[] = [
   ...CONSULTANT_TABS,
 ];
 
+export const CLASS_MANAGER_TABS: AppTabId[] = [
+  ...CONSULTANT_TABS,
+  'btvn_grader',
+];
+
 export const TAB_LABELS: Record<AppTabId, string> = {
   overview: 'Tổng quan & Chỉ số',
   facebook: 'Facebook Analytics',
@@ -118,10 +123,10 @@ export const DEPARTMENT_PERMISSIONS: Record<DepartmentName, DepartmentPermission
   },
   'Quản lý lớp học': {
     department: 'Quản lý lớp học',
-    allowedTabs: CONSULTANT_TABS,
+    allowedTabs: CLASS_MANAGER_TABS,
     defaultTab: 'work_report',
-    moduleScopes: buildScopeMap(CONSULTANT_TABS, 'all'),
-    scopeSummary: 'Full dữ liệu tất cả nhân viên trên cả 6 trang nghiệp vụ được phân quyền (hỗ trợ bộ lọc theo từng nhân viên).',
+    moduleScopes: buildScopeMap(CLASS_MANAGER_TABS, 'all'),
+    scopeSummary: 'Full dữ liệu tất cả nhân viên trên cả 7 trang nghiệp vụ được phân quyền (bao gồm Chấm BTVN AI, hỗ trợ bộ lọc theo từng nhân viên).',
     badgeClass: 'bg-emerald-50 text-emerald-700 border-emerald-200',
   },
 };
