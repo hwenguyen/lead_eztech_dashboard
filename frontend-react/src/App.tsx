@@ -763,11 +763,7 @@ function App() {
         </div>
 
         {/* Grouped Dropdown Navigation Menu */}
-        <nav aria-label="Không gian làm việc" className="flex-1 min-h-0 px-3 py-3.5 space-y-2 overflow-y-auto custom-scrollbar">
-          <p className="px-2.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">
-            Danh mục chức năng
-          </p>
-
+        <nav aria-label="Không gian làm việc" className="flex-1 min-h-0 px-3 py-3 overflow-y-auto custom-scrollbar">
           <div className="space-y-1.5">
             {visibleNavGroups.map((group) => {
               const GroupIcon = group.icon;
