@@ -352,6 +352,8 @@ function App() {
       setBulletinUnreadCount(0);
       return;
     }
+    // Nếu đang ở sẵn tab Bảng Tin thì BulletinDashboard đã trả unread_count trong /posts, không cần gọi lặp lại
+    if (activeTab === 'bulletin') return;
     let cancelled = false;
     fetchBulletinUnreadCount()
       .then((res) => {
@@ -361,7 +363,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [isAuthenticated, currentUser]);
+  }, [isAuthenticated, currentUser, activeTab]);
 
   // Đồng bộ URL khi người dùng bấm Back/Forward trên trình duyệt
   useEffect(() => {
@@ -609,6 +611,7 @@ function App() {
       try {
         const ldRes = await fetchLeads(pageId, employee, startDate, endDate, newPage, pageSize, crossFilters, {
           signal: controller.signal,
+          skipCache: true,
         });
         if (controller.signal.aborted) return;
         setLeads(ldRes.data);

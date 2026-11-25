@@ -911,7 +911,7 @@ export function DealWinDashboard() {
 
           <div className="flex items-center gap-2">
             <button
-              onClick={() => loadListData(page - 1)}
+              onClick={() => loadListData(page - 1, true)}
               disabled={page <= 1 || loadingList}
               className="px-3 py-1.5 rounded-lg border border-[#E5E7EB] hover:bg-gray-50 disabled:opacity-40 transition-colors font-medium"
             >
@@ -921,7 +921,7 @@ export function DealWinDashboard() {
               {page} / {totalPages || 1}
             </span>
             <button
-              onClick={() => loadListData(page + 1)}
+              onClick={() => loadListData(page + 1, true)}
               disabled={page >= totalPages || loadingList}
               className="px-3 py-1.5 rounded-lg border border-[#E5E7EB] hover:bg-gray-50 disabled:opacity-40 transition-colors font-medium"
             >

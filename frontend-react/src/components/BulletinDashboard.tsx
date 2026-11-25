@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Bell,
   BellRing,
@@ -33,6 +33,7 @@ import {
 } from 'lucide-react';
 import {
   fetchBulletinPosts,
+  fetchBulletinPostReaders,
   markBulletinPostRead,
   unmarkBulletinPostRead,
   togglePinBulletinPost,
@@ -59,7 +60,9 @@ import {
   dispatchBulletinReminders,
   fetchBulletinZaloLogs,
   getStoredAuth,
+  isAbortError,
   type BulletinPostItem,
+  type BulletinReaderInfo,
   type BulletinAiExtractResponse,
   type WorkReminderItem,
   type DailyChecklistItemGroup,
@@ -175,6 +178,13 @@ export function BulletinDashboard({ onUnreadCountChange }: BulletinDashboardProp
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [expandedPostIds, setExpandedPostIds] = useState<Record<number, boolean>>({});
   const [openReadersPostId, setOpenReadersPostId] = useState<number | null>(null);
+  const [postReadersMap, setPostReadersMap] = useState<Record<number, BulletinReaderInfo[]>>({});
+  const [loadingReadersPostId, setLoadingReadersPostId] = useState<number | null>(null);
+
+  const postsAbortRef = useRef<AbortController | null>(null);
+  const feedSectionRef = useRef<HTMLElement | null>(null);
+  const adminStaffLoadedRef = useRef(false);
+  const POSTS_PAGE_SIZE = 10;
 
   // Right panel sub-tabs
   const [workTab, setWorkTab] = useState<'checklist' | 'reminders' | 'admin'>('checklist');
@@ -246,26 +256,36 @@ export function BulletinDashboard({ onUnreadCountChange }: BulletinDashboardProp
   const [aiOwnerIds, setAiOwnerIds] = useState<number[]>([]);
   const [savingAi, setSavingAi] = useState(false);
 
-  // Fix #6: Debounce search 350ms để tiết kiệm Neon Egress
+  // Fix #6: Debounce search 350ms (chỉ chạy khi giá trị tìm kiếm thực sự thay đổi, tránh double-fetch khi mới mở trang)
   useEffect(() => {
+    const trimmed = searchInput.trim();
+    if (trimmed === debouncedSearch) return;
     const timer = window.setTimeout(() => {
-      setDebouncedSearch(searchInput.trim());
+      setDebouncedSearch(trimmed);
       setPostsPage(1);
     }, 350);
     return () => window.clearTimeout(timer);
-  }, [searchInput]);
+  }, [searchInput, debouncedSearch]);
 
   const loadPosts = useCallback(async (targetPage = postsPage) => {
+    postsAbortRef.current?.abort();
+    const controller = new AbortController();
+    postsAbortRef.current = controller;
+
     setLoadingPosts(true);
     setErrorMsg(null);
     try {
-      const data = await fetchBulletinPosts({
-        boss_key: bossFilter,
-        read_status: readFilter,
-        search: debouncedSearch || undefined,
-        page: targetPage,
-        size: 15,
-      });
+      const data = await fetchBulletinPosts(
+        {
+          boss_key: bossFilter,
+          read_status: readFilter,
+          search: debouncedSearch || undefined,
+          page: targetPage,
+          size: POSTS_PAGE_SIZE,
+        },
+        { signal: controller.signal }
+      );
+      if (controller.signal.aborted) return;
       setPosts(data.items || []);
       setPostsTotal(data.total || 0);
       setTotalAllPosts(data.summary?.total_all ?? data.total ?? 0);
@@ -274,11 +294,56 @@ export function BulletinDashboard({ onUnreadCountChange }: BulletinDashboardProp
       setBossCounts(data.summary?.boss_counts || {});
       onUnreadCountChange?.(data.summary?.unread_count ?? 0);
     } catch (err: any) {
+      if (isAbortError(err) || controller.signal.aborted) return;
       setErrorMsg(err?.response?.data?.detail || 'Không thể tải danh sách bản tin.');
     } finally {
-      setLoadingPosts(false);
+      if (postsAbortRef.current === controller) {
+        setLoadingPosts(false);
+      }
     }
   }, [bossFilter, readFilter, debouncedSearch, postsPage, onUnreadCountChange]);
+
+  const handleChangePostsPage = useCallback((nextPage: number) => {
+    setPostsPage((prev) => {
+      const clamped = Math.max(1, Math.min(totalPages, nextPage));
+      if (clamped !== prev) {
+        setOpenReadersPostId(null);
+        window.requestAnimationFrame(() => {
+          feedSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+      }
+      return clamped;
+    });
+  }, [totalPages]);
+
+  const handleToggleReaders = async (postId: number) => {
+    if (openReadersPostId === postId) {
+      setOpenReadersPostId(null);
+      return;
+    }
+    setOpenReadersPostId(postId);
+    if (!isAdmin || postReadersMap[postId]) return;
+    setLoadingReadersPostId(postId);
+    try {
+      const res = await fetchBulletinPostReaders(postId);
+      setPostReadersMap((prev) => ({ ...prev, [postId]: res.items || [] }));
+    } catch (err: any) {
+      showAppToast(err?.response?.data?.detail || 'Không thể tải danh sách người đã đọc', 'error');
+    } finally {
+      setLoadingReadersPostId(null);
+    }
+  };
+
+  const ensureStaffListLoaded = useCallback(async () => {
+    if (!isAdmin || adminStaffLoadedRef.current) return;
+    try {
+      const staffRes = await fetchAdminBulletinStaff();
+      adminStaffLoadedRef.current = true;
+      setStaffList(staffRes.items || []);
+    } catch {
+      // ignore lazy staff load error
+    }
+  }, [isAdmin]);
 
   const loadChecklists = useCallback(async () => {
     setLoadingChecklists(true);
@@ -333,6 +398,7 @@ export function BulletinDashboard({ onUnreadCountChange }: BulletinDashboardProp
         fetchBulletinZaloLogs(40),
         fetchBulletinConfig(),
       ]);
+      adminStaffLoadedRef.current = true;
       setStaffList(staffRes.items || []);
       setZaloLogs(logsRes.items || []);
       setSourceConfig(cfgRes || null);
@@ -341,22 +407,33 @@ export function BulletinDashboard({ onUnreadCountChange }: BulletinDashboardProp
     }
   }, [isAdmin]);
 
+  // Chỉ tải trang hiện tại của Bảng Tin (hủy request cũ khi bấm sang trang)
   useEffect(() => {
     loadPosts(postsPage);
+    return () => {
+      postsAbortRef.current?.abort();
+    };
   }, [loadPosts, postsPage]);
 
+  // Lazy-load đúng tab công việc đang mở (mặc định chỉ load Checklist khi mới vào; sang tab Nhắc hẹn / Quản trị mới load phần đó)
   useEffect(() => {
-    loadChecklists();
-    loadRollover();
-  }, [loadChecklists, loadRollover]);
+    if (workTab === 'checklist') {
+      loadChecklists();
+      loadRollover();
+    }
+  }, [workTab, loadChecklists, loadRollover]);
 
   useEffect(() => {
-    loadReminders();
-  }, [loadReminders]);
+    if (workTab === 'reminders') {
+      loadReminders();
+    }
+  }, [workTab, loadReminders]);
 
   useEffect(() => {
-    loadAdminStaffAndLogs();
-  }, [loadAdminStaffAndLogs]);
+    if (workTab === 'admin') {
+      loadAdminStaffAndLogs();
+    }
+  }, [workTab, loadAdminStaffAndLogs]);
 
   const handleSyncGroup = async () => {
     setSyncingPosts(true);
@@ -415,6 +492,7 @@ export function BulletinDashboard({ onUnreadCountChange }: BulletinDashboardProp
 
   // A2: AI Tách việc từ bản tin
   const handleAiExtract = async (post: BulletinPostItem) => {
+    ensureStaffListLoaded();
     setAiLoadingPostId(post.id);
     try {
       const res = await aiExtractBulletinPost(post.id);
@@ -512,6 +590,7 @@ export function BulletinDashboard({ onUnreadCountChange }: BulletinDashboardProp
 
   // Reminder Modal open (Create or Edit)
   const openReminderModal = (post?: BulletinPostItem | null, existingRem?: WorkReminderItem | null) => {
+    ensureStaffListLoaded();
     if (existingRem) {
       setEditingReminderId(existingRem.id);
       setRemSourcePost(null);
@@ -541,6 +620,7 @@ export function BulletinDashboard({ onUnreadCountChange }: BulletinDashboardProp
   };
 
   const openChecklistModal = (post?: BulletinPostItem | null) => {
+    ensureStaffListLoaded();
     setClSourcePost(post || null);
     setClTitle(post ? `Việc từ bản tin (${post.boss_display_name})` : 'Checklist công việc hôm nay');
     setClDateInput(checklistDate || getVnTodayStr(0));
@@ -971,7 +1051,7 @@ export function BulletinDashboard({ onUnreadCountChange }: BulletinDashboardProp
       {/* Main 2-column Facebook Feed + Sticky Right Workplace Rail */}
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-5 items-start">
         {/* LEFT COLUMN: FACEBOOK-STYLE NEWSFEED (7 cols) */}
-        <section className="xl:col-span-7 space-y-4">
+        <section ref={feedSectionRef} className="xl:col-span-7 space-y-4">
           {/* 1. FACEBOOK STORIES / BOSS HIGHLIGHTS STRIP */}
           <div className="bg-white rounded-2xl border border-slate-200/80 shadow-card p-3.5">
             <div className="flex items-center justify-between mb-2.5 px-1">
@@ -1285,10 +1365,10 @@ export function BulletinDashboard({ onUnreadCountChange }: BulletinDashboardProp
                           <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-brand-500 text-white">
                             <ThumbsUp className="w-2.5 h-2.5" aria-hidden="true" />
                           </span>
-                          {isAdmin && post.readers && post.readers.length > 0 ? (
+                          {isAdmin && post.read_count > 0 ? (
                             <button
                               type="button"
-                              onClick={() => setOpenReadersPostId((prev) => (prev === post.id ? null : post.id))}
+                              onClick={() => handleToggleReaders(post.id)}
                               className="inline-flex items-center gap-1 hover:underline hover:text-navy font-medium cursor-pointer"
                             >
                               <span>{post.read_count} người đã đọc</span>
@@ -1319,27 +1399,31 @@ export function BulletinDashboard({ onUnreadCountChange }: BulletinDashboardProp
                         </div>
                       </div>
 
-                      {/* Admin Readers Drawer */}
-                      {isAdmin && openReadersPostId === post.id && post.readers && (
+                      {/* Admin Readers Drawer (lazy-loaded on click) */}
+                      {isAdmin && openReadersPostId === post.id && (
                         <div className="bg-slate-50 rounded-xl p-2.5 border border-slate-200/80 space-y-1.5">
                           <p className="text-[11px] font-semibold text-slate-500 flex items-center gap-1">
                             <Eye className="w-3 h-3 text-brand-500" aria-hidden="true" />
                             Nhân sự đã xác nhận đọc:
                           </p>
-                          <div className="flex flex-wrap gap-1.5">
-                            {post.readers.map((r) => (
-                              <span
-                                key={r.user_id}
-                                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white border border-slate-200 text-[11px] font-medium text-slate-700"
-                                title={`Đọc lúc: ${r.read_at || ''}`}
-                              >
-                                <span className="w-4 h-4 rounded-full bg-emerald-100 text-emerald-700 text-[9px] font-bold flex items-center justify-center">
-                                  {getInitials(r.full_name)}
+                          {loadingReadersPostId === post.id ? (
+                            <p className="text-[11px] text-slate-400">Đang tải danh sách...</p>
+                          ) : (
+                            <div className="flex flex-wrap gap-1.5">
+                              {(postReadersMap[post.id] || post.readers || []).map((r) => (
+                                <span
+                                  key={r.user_id}
+                                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white border border-slate-200 text-[11px] font-medium text-slate-700"
+                                  title={`Đọc lúc: ${r.read_at || ''}`}
+                                >
+                                  <span className="w-4 h-4 rounded-full bg-emerald-100 text-emerald-700 text-[9px] font-bold flex items-center justify-center">
+                                    {getInitials(r.full_name)}
+                                  </span>
+                                  {r.full_name}
                                 </span>
-                                {r.full_name}
-                              </span>
-                            ))}
-                          </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
@@ -1393,23 +1477,46 @@ export function BulletinDashboard({ onUnreadCountChange }: BulletinDashboardProp
 
               {/* Pagination */}
               {totalPages > 1 && (
-                <div className="flex items-center justify-between bg-white rounded-2xl border border-slate-200/80 shadow-card px-4 py-3 text-xs">
-                  <span className="text-slate-500">
+                <div className="flex flex-wrap items-center justify-between gap-2 bg-white rounded-2xl border border-slate-200/80 shadow-card px-4 py-3 text-xs">
+                  <span className="text-slate-500 tabular-nums">
                     Trang <strong className="text-navy">{postsPage}</strong> / {totalPages} ({postsTotal} bài viết)
                   </span>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5 flex-wrap">
                     <button
                       type="button"
-                      disabled={postsPage <= 1}
-                      onClick={() => setPostsPage((p) => Math.max(1, p - 1))}
+                      disabled={postsPage <= 1 || loadingPosts}
+                      onClick={() => handleChangePostsPage(postsPage - 1)}
                       className="px-3 py-1.5 rounded-xl border border-slate-200 font-semibold text-navy hover:bg-slate-50 disabled:opacity-40 cursor-pointer transition-colors"
                     >
                       Trước
                     </button>
+                    {Array.from({ length: totalPages }, (_, i) => i + 1)
+                      .filter((p) => p === 1 || p === totalPages || Math.abs(p - postsPage) <= 1)
+                      .map((p, idx, arr) => {
+                        const prevPage = arr[idx - 1];
+                        const showEllipsis = prevPage !== undefined && p - prevPage > 1;
+                        return (
+                          <span key={p} className="inline-flex items-center gap-1">
+                            {showEllipsis && <span className="px-1 text-slate-400">...</span>}
+                            <button
+                              type="button"
+                              disabled={loadingPosts}
+                              onClick={() => handleChangePostsPage(p)}
+                              className={`min-w-[30px] h-7 px-2 rounded-lg font-semibold tabular-nums transition-colors cursor-pointer ${
+                                p === postsPage
+                                  ? 'bg-brand-500 text-white shadow-xs'
+                                  : 'border border-slate-200 text-navy hover:bg-slate-50'
+                              }`}
+                            >
+                              {p}
+                            </button>
+                          </span>
+                        );
+                      })}
                     <button
                       type="button"
-                      disabled={postsPage >= totalPages}
-                      onClick={() => setPostsPage((p) => Math.min(totalPages, p + 1))}
+                      disabled={postsPage >= totalPages || loadingPosts}
+                      onClick={() => handleChangePostsPage(postsPage + 1)}
                       className="px-3 py-1.5 rounded-xl border border-slate-200 font-semibold text-navy hover:bg-slate-50 disabled:opacity-40 cursor-pointer transition-colors"
                     >
                       Sau

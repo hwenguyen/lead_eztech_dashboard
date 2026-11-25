@@ -2041,16 +2041,31 @@ export const fetchBulletinUnreadCount = async (): Promise<{ unread_count: number
   return res.data;
 };
 
-export const fetchBulletinPosts = async (params: {
-  boss_key?: string;
-  read_status?: string;
-  search?: string;
-  start_date?: string;
-  end_date?: string;
-  page?: number;
-  size?: number;
-}): Promise<BulletinPostsResponse> => {
-  const res = await apiClient.get<BulletinPostsResponse>('/bulletin/posts', { params });
+export const fetchBulletinPosts = async (
+  params: {
+    boss_key?: string;
+    read_status?: string;
+    search?: string;
+    start_date?: string;
+    end_date?: string;
+    page?: number;
+    size?: number;
+  },
+  options?: RequestOptions
+): Promise<BulletinPostsResponse> => {
+  const res = await apiClient.get<BulletinPostsResponse>('/bulletin/posts', {
+    params,
+    signal: options?.signal,
+  });
+  return res.data;
+};
+
+export const fetchBulletinPostReaders = async (
+  postId: number
+): Promise<{ post_id: number; items: BulletinReaderInfo[] }> => {
+  const res = await apiClient.get<{ post_id: number; items: BulletinReaderInfo[] }>(
+    `/bulletin/posts/${postId}/readers`
+  );
   return res.data;
 };
 

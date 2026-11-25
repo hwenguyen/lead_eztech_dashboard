@@ -45,7 +45,7 @@ export function RemindLeadTable({ pagesList, zaloPages }: RemindLeadTableProps) 
   const [daysBucket, setDaysBucket] = useState('all');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(20);
+  const [pageSize, setPageSize] = useState(15);
 
   const [items, setItems] = useState<RemindLeadItem[]>([]);
   const [total, setTotal] = useState(0);
@@ -615,7 +615,10 @@ export function RemindLeadTable({ pagesList, zaloPages }: RemindLeadTableProps) 
               <button
                 type="button"
                 disabled={page <= 1 || loading}
-                onClick={() => setPage(p => Math.max(1, p - 1))}
+                onClick={() => {
+                  skipCacheNextRef.current = true;
+                  setPage(p => Math.max(1, p - 1));
+                }}
                 className="px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-navy disabled:opacity-40 disabled:pointer-events-none hover:border-eztech/40 hover:text-eztech transition-colors"
               >
                 Trước
@@ -626,7 +629,10 @@ export function RemindLeadTable({ pagesList, zaloPages }: RemindLeadTableProps) 
               <button
                 type="button"
                 disabled={page >= safeTotalPages || loading}
-                onClick={() => setPage(p => Math.min(safeTotalPages, p + 1))}
+                onClick={() => {
+                  skipCacheNextRef.current = true;
+                  setPage(p => Math.min(safeTotalPages, p + 1));
+                }}
                 className="px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-navy disabled:opacity-40 disabled:pointer-events-none hover:border-eztech/40 hover:text-eztech transition-colors"
               >
                 Sau

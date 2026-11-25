@@ -21,7 +21,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from dateutil.relativedelta import relativedelta
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
-from sqlalchemy import desc, exists, func, or_
+from sqlalchemy import case, desc, exists, func, or_
 from sqlalchemy.orm import Session, joinedload, load_only
 
 from backend.auth import require_admin, require_tab_access
@@ -65,12 +65,34 @@ _SYNC_COOLDOWN_SEC = 20.0
 _META_CACHE_LOCK = threading.Lock()
 _POST_STATS_CACHE: Optional[Tuple[float, Dict[str, Any]]] = None
 _POST_STATS_TTL = 300.0
+_USER_READ_COUNT_CACHE: Dict[int, Tuple[float, int]] = {}
+_USER_READ_COUNT_TTL = 60.0
 
 
 def clear_bulletin_meta_cache():
     global _POST_STATS_CACHE
     with _META_CACHE_LOCK:
         _POST_STATS_CACHE = None
+        _USER_READ_COUNT_CACHE.clear()
+
+
+def _invalidate_user_read_count(user_id: int):
+    with _META_CACHE_LOCK:
+        _USER_READ_COUNT_CACHE.pop(user_id, None)
+
+
+def _get_cached_user_read_count(db: Session, user_id: int) -> int:
+    now_ts = time.time()
+    with _META_CACHE_LOCK:
+        cached = _USER_READ_COUNT_CACHE.get(user_id)
+        if cached and (now_ts - cached[0] < _USER_READ_COUNT_TTL):
+            return cached[1]
+    cnt = int(db.query(func.count(BulletinRead.id)).filter(BulletinRead.user_id == user_id).scalar() or 0)
+    with _META_CACHE_LOCK:
+        if len(_USER_READ_COUNT_CACHE) > 200:
+            _USER_READ_COUNT_CACHE.clear()
+        _USER_READ_COUNT_CACHE[user_id] = (now_ts, cnt)
+    return cnt
 
 
 def _get_cached_post_stats(db: Session) -> Dict[str, Any]:
@@ -270,19 +292,10 @@ def get_unread_count(
     current_user: AppUser = Depends(require_tab_access("bulletin")),
     db: Session = Depends(get_db),
 ):
-    """Đếm nhanh số bản tin chưa đọc (1 câu SQL EXISTS duy nhất + dùng cache RAM cho total_posts)."""
+    """Đếm nhanh số bản tin chưa đọc (tận dụng cache RAM stats + user_read_count)."""
     stats = _get_cached_post_stats(db)
-    unread = (
-        db.query(func.count(BulletinPost.id))
-        .filter(
-            ~exists().where(
-                (BulletinRead.post_id == BulletinPost.id)
-                & (BulletinRead.user_id == current_user.id)
-            )
-        )
-        .scalar()
-        or 0
-    )
+    total_read = _get_cached_user_read_count(db, current_user.id)
+    unread = max(0, int(stats["total_all"]) - int(total_read))
     return {"unread_count": int(unread), "total_posts": int(stats["total_all"])}
 
 
@@ -357,40 +370,23 @@ def list_bulletin_posts(
     post_ids = [p.id for p in posts]
     my_reads_map: Dict[int, datetime] = {}
     read_counts_map: Dict[int, int] = {}
-    readers_map: Dict[int, List[Dict[str, Any]]] = {}
     my_rem_counts: Dict[int, int] = {}
     my_cl_counts: Dict[int, int] = {}
 
     if post_ids:
-        for r_pid, r_at in (
-            db.query(BulletinRead.post_id, BulletinRead.read_at)
-            .filter(BulletinRead.post_id.in_(post_ids), BulletinRead.user_id == current_user.id)
-            .all()
-        ):
-            my_reads_map[r_pid] = r_at
-
-        for r_pid, cnt in (
-            db.query(BulletinRead.post_id, func.count(BulletinRead.id))
+        for r_pid, cnt, my_at in (
+            db.query(
+                BulletinRead.post_id,
+                func.count(BulletinRead.id),
+                func.max(case((BulletinRead.user_id == current_user.id, BulletinRead.read_at), else_=None)),
+            )
             .filter(BulletinRead.post_id.in_(post_ids))
             .group_by(BulletinRead.post_id)
             .all()
         ):
             read_counts_map[r_pid] = int(cnt)
-
-        if is_adm:
-            reader_rows = (
-                db.query(BulletinRead.post_id, BulletinRead.user_id, AppUser.full_name, AppUser.username, BulletinRead.read_at)
-                .join(AppUser, BulletinRead.user_id == AppUser.id)
-                .filter(BulletinRead.post_id.in_(post_ids))
-                .order_by(desc(BulletinRead.read_at))
-                .all()
-            )
-            for r_pid, r_uid, r_name, r_uname, r_at in reader_rows:
-                readers_map.setdefault(r_pid, []).append({
-                    "user_id": r_uid,
-                    "full_name": (r_name or r_uname).strip(),
-                    "read_at": r_at.strftime("%Y-%m-%d %H:%M:%S") if r_at else None,
-                })
+            if my_at is not None:
+                my_reads_map[r_pid] = my_at
 
         for sp_id, cnt in (
             db.query(WorkReminder.source_post_id, func.count(WorkReminder.id))
@@ -417,9 +413,9 @@ def list_bulletin_posts(
             if sp_id:
                 my_cl_counts[sp_id] = int(cnt)
 
-    # Dùng in-memory TTL cache cho total_all & boss_counts (0 query Neon lặp lại)
+    # Dùng in-memory TTL cache cho total_all, boss_counts & user_read_count
     stats = _get_cached_post_stats(db)
-    total_read = db.query(func.count(BulletinRead.id)).filter(BulletinRead.user_id == current_user.id).scalar() or 0
+    total_read = _get_cached_user_read_count(db, current_user.id)
 
     items = []
     for p in posts:
@@ -441,7 +437,7 @@ def list_bulletin_posts(
             "read_count": read_counts_map.get(p.id, 0),
             "my_reminder_count": my_rem_counts.get(p.id, 0),
             "my_checklist_count": my_cl_counts.get(p.id, 0),
-            "readers": readers_map.get(p.id, []) if is_adm else None,
+            "readers": None,
         })
 
     return {
@@ -478,12 +474,40 @@ def mark_post_read(
         db.add(existing)
         db.commit()
         db.refresh(existing)
+        _invalidate_user_read_count(current_user.id)
 
     return {
         "status": "ok",
         "post_id": post_id,
         "is_read": True,
         "read_at": existing.read_at.strftime("%Y-%m-%d %H:%M:%S"),
+    }
+
+
+@router.get("/posts/{post_id}/readers")
+def get_post_readers(
+    post_id: int,
+    _: AppUser = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Tải danh sách nhân sự đã đọc của 1 bản tin cụ thể khi Admin bấm mở (tối ưu tốc độ trang đầu)."""
+    rows = (
+        db.query(BulletinRead.user_id, AppUser.full_name, AppUser.username, BulletinRead.read_at)
+        .join(AppUser, BulletinRead.user_id == AppUser.id)
+        .filter(BulletinRead.post_id == post_id)
+        .order_by(desc(BulletinRead.read_at))
+        .all()
+    )
+    return {
+        "post_id": post_id,
+        "items": [
+            {
+                "user_id": r_uid,
+                "full_name": (r_name or r_uname).strip(),
+                "read_at": r_at.strftime("%Y-%m-%d %H:%M:%S") if r_at else None,
+            }
+            for r_uid, r_name, r_uname, r_at in rows
+        ],
     }
 
 
@@ -501,6 +525,7 @@ def unmark_post_read(
     if existing:
         db.delete(existing)
         db.commit()
+        _invalidate_user_read_count(current_user.id)
     return {"status": "ok", "post_id": post_id, "is_read": False}
 
 
