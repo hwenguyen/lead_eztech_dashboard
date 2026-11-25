@@ -109,21 +109,41 @@ def save_bulletin_source_config(db: Session, cfg: Dict[str, Any]) -> Dict[str, A
     return cfg
 
 
-def extract_conversation_name(conv: Dict[str, Any]) -> str:
-    """Trích xuất tên hiển thị của cuộc hội thoại / nhóm Zalo từ Pancake conversation object."""
+def extract_conversation_name_candidates(conv: Dict[str, Any]) -> List[str]:
+    """Trích xuất tất cả tên ứng viên của cuộc hội thoại / nhóm Zalo (ưu tiên conv['from']['name'] vì đây là tên nhóm mới nhất)."""
+    names: List[str] = []
+    conv_from = conv.get("from")
+    if isinstance(conv_from, dict):
+        fname = conv_from.get("name")
+        if isinstance(fname, str) and fname.strip():
+            names.append(fname.strip())
     for key in ("name", "title", "group_name", "conversation_name"):
         val = conv.get(key)
-        if isinstance(val, str) and val.strip():
-            return val.strip()
+        if isinstance(val, str) and val.strip() and val.strip() not in names:
+            names.append(val.strip())
     customers = conv.get("customers") or []
-    if isinstance(customers, list) and customers:
-        first_c = customers[0]
-        if isinstance(first_c, dict) and first_c.get("name"):
-            return str(first_c["name"]).strip()
+    if isinstance(customers, list):
+        for cust in customers:
+            if isinstance(cust, dict) and cust.get("is_group_customer") and cust.get("name"):
+                cn = str(cust["name"]).strip()
+                if cn and cn not in names:
+                    names.append(cn)
+        if customers and isinstance(customers[0], dict) and customers[0].get("name"):
+            cn = str(customers[0]["name"]).strip()
+            if cn and cn not in names:
+                names.append(cn)
     page_cust = conv.get("page_customer")
     if isinstance(page_cust, dict) and page_cust.get("name"):
-        return str(page_cust["name"]).strip()
-    return ""
+        cn = str(page_cust["name"]).strip()
+        if cn and cn not in names:
+            names.append(cn)
+    return names
+
+
+def extract_conversation_name(conv: Dict[str, Any]) -> str:
+    """Trích xuất tên hiển thị của cuộc hội thoại / nhóm Zalo từ Pancake conversation object."""
+    candidates = extract_conversation_name_candidates(conv)
+    return candidates[0] if candidates else ""
 
 
 def _extract_sender_candidates(msg: Dict[str, Any]) -> Tuple[str, List[str]]:
@@ -264,17 +284,20 @@ def discover_group_conversation(
     partial_match = None
 
     for conv in convs:
-        cname = extract_conversation_name(conv)
-        if not cname:
+        candidates = extract_conversation_name_candidates(conv)
+        if not candidates:
             continue
-        cn_nfc = _norm_nfc(cname)
-        cn_ascii = _strip_accents(cname)
-        cn_loose = re.sub(r"[\s\-_]+", "", cn_ascii)
-        if cn_nfc == target_nfc or cn_ascii == target_ascii or (target_loose and cn_loose == target_loose):
-            exact_match = conv
+        for cname in candidates:
+            cn_nfc = _norm_nfc(cname)
+            cn_ascii = _strip_accents(cname)
+            cn_loose = re.sub(r"[\s\-_]+", "", cn_ascii)
+            if cn_nfc == target_nfc or cn_ascii == target_ascii or (target_loose and cn_loose == target_loose):
+                exact_match = conv
+                break
+            if target_ascii and (target_ascii in cn_ascii or (target_loose and target_loose in cn_loose)) and not partial_match:
+                partial_match = conv
+        if exact_match:
             break
-        if target_ascii and (target_ascii in cn_ascii or (target_loose and target_loose in cn_loose)) and not partial_match:
-            partial_match = conv
 
     return exact_match or partial_match
 
