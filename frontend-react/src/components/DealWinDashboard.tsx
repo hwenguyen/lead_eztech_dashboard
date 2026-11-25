@@ -1277,52 +1277,63 @@ export function DealWinDashboard() {
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-navy mb-1">Sale chăm sóc (Care by)</label>
-                  <input
-                    type="text"
-                    list="dealwin-sales-datalist"
-                    value={editForm.care_by || ''}
+                  <select
+                    value={editForm.care_by || 'Chưa phân công'}
                     onChange={(e) => setEditForm((f) => ({ ...f, care_by: e.target.value }))}
-                    placeholder="Nhập hoặc chọn tên Sale..."
-                    className="w-full px-3 py-2 border border-[#E5E7EB] rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#1E5BD6]/20 focus:border-[#1E5BD6]"
-                  />
-                  <datalist id="dealwin-sales-datalist">
-                    <option value="Chưa phân công" />
+                    className="w-full px-3 py-2 border border-[#E5E7EB] rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#1E5BD6]/20 focus:border-[#1E5BD6] cursor-pointer"
+                  >
+                    <option value="Chưa phân công">Chưa phân công</option>
+                    {editForm.care_by &&
+                      editForm.care_by !== 'Chưa phân công' &&
+                      !salesPersonsList.includes(editForm.care_by) && (
+                        <option value={editForm.care_by}>{editForm.care_by}</option>
+                      )}
                     {salesPersonsList.map((sp) => (
-                      <option key={sp} value={sp} />
+                      <option key={sp} value={sp}>
+                        {sp}
+                      </option>
                     ))}
-                  </datalist>
+                  </select>
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-navy mb-1">Page Zalo CS</label>
-                  <input
-                    type="text"
-                    list="dealwin-pages-datalist"
+                  <select
                     value={editForm.page_id || ''}
                     onChange={(e) => setEditForm((f) => ({ ...f, page_id: e.target.value }))}
-                    placeholder="VD: Eztech Consultant..."
-                    className="w-full px-3 py-2 border border-[#E5E7EB] rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#1E5BD6]/20 focus:border-[#1E5BD6]"
-                  />
-                  <datalist id="dealwin-pages-datalist">
+                    className="w-full px-3 py-2 border border-[#E5E7EB] rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#1E5BD6]/20 focus:border-[#1E5BD6] cursor-pointer"
+                  >
+                    <option value="">— Chưa xác định —</option>
+                    {editForm.page_id && !(options.pages || []).includes(editForm.page_id) && (
+                      <option value={editForm.page_id}>{editForm.page_id}</option>
+                    )}
                     {(options.pages || []).map((pg) => (
-                      <option key={pg} value={pg} />
+                      <option key={pg} value={pg}>
+                        {pg}
+                      </option>
                     ))}
-                  </datalist>
+                  </select>
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-navy mb-1">Nguồn</label>
-                  <input
-                    type="text"
-                    list="dealwin-sources-datalist"
-                    value={editForm.source_page || ''}
+                  <select
+                    value={editForm.source_page || 'Other/ Web'}
                     onChange={(e) => setEditForm((f) => ({ ...f, source_page: e.target.value }))}
-                    placeholder="Other/ Web hoặc tên Fanpage/TikTok..."
-                    className="w-full px-3 py-2 border border-[#E5E7EB] rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#1E5BD6]/20 focus:border-[#1E5BD6]"
-                  />
-                  <datalist id="dealwin-sources-datalist">
+                    className="w-full px-3 py-2 border border-[#E5E7EB] rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#1E5BD6]/20 focus:border-[#1E5BD6] cursor-pointer"
+                  >
+                    {!(options.sources || []).includes('Other/ Web') && (
+                      <option value="Other/ Web">Other/ Web</option>
+                    )}
+                    {editForm.source_page &&
+                      editForm.source_page !== 'Other/ Web' &&
+                      !(options.sources || []).includes(editForm.source_page) && (
+                        <option value={editForm.source_page}>{editForm.source_page}</option>
+                      )}
                     {(options.sources || []).map((src) => (
-                      <option key={src} value={src} />
+                      <option key={src} value={src}>
+                        {src}
+                      </option>
                     ))}
-                  </datalist>
+                  </select>
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-navy mb-1">Tags Pancake</label>
