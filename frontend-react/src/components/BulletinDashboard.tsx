@@ -3,7 +3,6 @@ import {
   Bell,
   BellRing,
   Check,
-  CheckCircle2,
   CheckSquare,
   Square,
   Clock,
@@ -892,29 +891,11 @@ export function BulletinDashboard({ onUnreadCountChange }: BulletinDashboardProp
                     <Globe className="w-3.5 h-3.5 text-brand-500" aria-hidden="true" />
                     Nhóm nội bộ Zalo
                   </span>
-                  <span aria-hidden="true">•</span>
-                  <span className="tabular-nums">{totalAllPosts} bài viết</span>
-                  <span aria-hidden="true">•</span>
-                  <span>
-                    Nhắc việc <span className="font-mono font-semibold text-navy">11:00 & 15:00</span>
-                  </span>
                 </p>
               </div>
             </div>
 
             <div className="flex flex-wrap items-center gap-2 shrink-0">
-              {unreadCount > 0 ? (
-                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-gold-500 text-navy text-xs font-bold shadow-xs tabular-nums">
-                  <span className="w-2 h-2 rounded-full bg-navy animate-pulse" aria-hidden="true" />
-                  {unreadCount} bản tin chưa đọc
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-semibold">
-                  <CheckCircle2 className="w-3.5 h-3.5" aria-hidden="true" />
-                  Đã đọc hết bản tin
-                </span>
-              )}
-
               <button
                 type="button"
                 onClick={handleSyncGroup}
