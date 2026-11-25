@@ -20,6 +20,7 @@ import {
   saveSalesDeal,
   deleteSalesDeal,
   batchDeleteSalesDeals,
+  fetchLoginEmployees,
   saveDealEntryLists,
   fetchDealEntryLogs,
   fetchDealSheetConfig,
@@ -152,6 +153,25 @@ export function AppScriptTool() {
     'Hoàn học phí',
   ]);
   const [logs, setLogs] = useState<DealAuditLogItem[]>([]);
+  const [staffOptions, setStaffOptions] = useState<string[]>([]);
+
+  useEffect(() => {
+    fetchLoginEmployees()
+      .then((emps) => {
+        const names = Array.from(
+          new Set(
+            emps
+              .filter((e) => e.department !== 'Admin')
+              .map((e) => (e.full_name || '').trim())
+              .filter(Boolean)
+          )
+        ).sort((a, b) => a.localeCompare(b, 'vi'));
+        setStaffOptions(names);
+      })
+      .catch(() => {
+        // fallback: danh sách rỗng vẫn cho phép giữ/chọn tên hiện tại
+      });
+  }, []);
 
   // Bộ lọc bảng Deals: Chỉ lọc theo NV CS & Tìm kiếm
   const [completionFilter, setCompletionFilter] = useState<'all' | 'incomplete' | 'completed'>('all');
@@ -2102,9 +2122,9 @@ export function AppScriptTool() {
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         labelledBy="deal-entry-modal-title"
-        contentClassName="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-3xl w-full overflow-hidden my-8"
+        contentClassName="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-3xl w-full max-h-[92vh] flex flex-col overflow-hidden my-auto"
       >
-        <div className="px-5 py-3.5 bg-navy text-white flex items-center justify-between">
+        <div className="shrink-0 px-5 py-3.5 bg-navy text-white flex items-center justify-between">
           <h3 id="deal-entry-modal-title" className="text-sm font-bold">
             {editingId
               ? `Điền Bổ Sung / Cập Nhật Học Viên ${editingDealWinId ? `(Deal Win #${editingDealWinId})` : ''}`
@@ -2122,7 +2142,7 @@ export function AppScriptTool() {
           </button>
         </div>
 
-        <form onSubmit={handleSubmitDeal} className="p-5 space-y-4 max-h-[84vh] overflow-y-auto">
+        <form onSubmit={handleSubmitDeal} className="p-5 space-y-4 flex-1 min-h-0 overflow-y-auto custom-scrollbar">
           {/* Cảnh báo công nợ hoặc Gợi ý tự động từ Pancake khi nhập SĐT */}
           {phoneLookup?.found && !editingId && !isCollectDebtMode && (
             <div className="space-y-2">
@@ -2472,19 +2492,27 @@ export function AppScriptTool() {
                 <label htmlFor="deal-nvcs" className="block text-[11px] font-semibold text-navy mb-1">
                   NV chăm sóc (Sale)
                 </label>
-                <input
+                <select
                   id="deal-nvcs"
-                  type="text"
                   value={formNvCS}
-                  readOnly={isPersonalScope}
-                  onChange={(e) => {
-                    if (!isPersonalScope) setFormNvCS(e.target.value);
-                  }}
-                  placeholder="Tên nhân viên sale..."
-                  className={`w-full px-3 py-2 text-xs text-navy border border-slate-200 rounded-lg ${
-                    isPersonalScope ? 'bg-slate-100 font-semibold cursor-not-allowed' : 'bg-white'
-                  }`}
-                />
+                  onChange={(e) => setFormNvCS(e.target.value)}
+                  className="w-full px-3 py-2 text-xs bg-white text-navy border border-slate-200 rounded-lg focus:outline-none focus:border-eztech cursor-pointer"
+                >
+                  <option value="">-- Chọn nhân viên chăm sóc --</option>
+                  {formNvCS && !staffOptions.includes(formNvCS) && (
+                    <option value={formNvCS}>{formNvCS}</option>
+                  )}
+                  {staffOptions.map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+                {isPersonalScope && formNvCS && formNvCS.trim().toLowerCase() !== actorName.toLowerCase() && (
+                  <p className="mt-1 text-[11px] text-amber-600 font-medium">
+                    Sau khi lưu, học viên này sẽ tự động chuyển sang danh sách của <strong>{formNvCS}</strong>.
+                  </p>
+                )}
               </div>
 
               <div className="relative" ref={nguonRef}>

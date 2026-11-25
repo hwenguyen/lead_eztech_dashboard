@@ -470,7 +470,8 @@ def sync_from_deal_wins(db: Session, force: bool = False, skip_dim_sync: bool = 
             new_nguon = (dw.source_page or "").strip() or DEFAULT_SOURCE_PAGE
             new_is_student = bool(dw.is_student) if dw.is_student is not None else True
             new_tag = (dw.lead_tag or "").strip()
-            if (sd.nv_cs or "") != new_nv:
+            # Không ghi đè NV chăm sóc nếu nhân viên đã chủ động sửa/chuyển giao trên bảng Nhập Deal
+            if new_nv and (not (sd.nv_cs or "").strip() or not (sd.nguoi_sua or "").strip()) and (sd.nv_cs or "") != new_nv:
                 sd.nv_cs = new_nv
                 sync_dirty = True
             cur_nguon = (sd.nguon or "").strip()
@@ -1055,6 +1056,12 @@ class SaveListsPayload(BaseModel):
 
 # ───────────────────────── Phân quyền Data Scoping (Deal Entry) ─────────────────────────
 
+def _row_belongs_to_user(nv_cs: Optional[str], nguoi_nhap: Optional[str], emp_name: str, extra: Set[str]) -> bool:
+    if (nv_cs or "").strip():
+        return employee_matches_field(nv_cs, emp_name, extra)
+    return employee_matches_field(nguoi_nhap, emp_name, extra)
+
+
 def _filter_deals_for_user(deals: List[Dict[str, Any]], user: AppUser) -> List[Dict[str, Any]]:
     if get_module_scope(user, "gas_tool") != "personal":
         return deals
@@ -1062,8 +1069,7 @@ def _filter_deals_for_user(deals: List[Dict[str, Any]], user: AppUser) -> List[D
     extra = {user.username}
     return [
         d for d in deals
-        if employee_matches_field(d.get("nvCS"), emp_name, extra)
-        or employee_matches_field(d.get("nguoiNhap"), emp_name, extra)
+        if _row_belongs_to_user(d.get("nvCS"), d.get("nguoiNhap"), emp_name, extra)
     ]
 
 
@@ -1072,10 +1078,7 @@ def _assert_can_modify_deal_row(db_row: SalesDeal, user: AppUser):
         return
     emp_name = (user.full_name or user.username).strip()
     extra = {user.username}
-    if not (
-        employee_matches_field(db_row.nv_cs, emp_name, extra)
-        or employee_matches_field(db_row.nguoi_nhap, emp_name, extra)
-    ):
+    if not _row_belongs_to_user(db_row.nv_cs, db_row.nguoi_nhap, emp_name, extra):
         raise HTTPException(
             status_code=403,
             detail="Bạn chỉ được phép chỉnh sửa hoặc xóa Deal thuộc phạm vi cá nhân phụ trách.",
@@ -1376,11 +1379,10 @@ def save_deal(
         db_row.chuong_trinh = (payload.chuongTrinh or "").strip()
         db_row.lop = ", ".join(merged_classes)
         db_row.chuc_vu = (payload.chucVu or "").strip()
-        if is_personal:
-            if not employee_matches_field(db_row.nv_cs, emp_name, {current_user.username}):
-                db_row.nv_cs = emp_name
-        elif payload.nvCS is not None and payload.nvCS.strip():
+        if payload.nvCS is not None and payload.nvCS.strip():
             db_row.nv_cs = payload.nvCS.strip()
+        elif is_personal and not (db_row.nv_cs or "").strip():
+            db_row.nv_cs = emp_name
         db_row.zalo_cs = (payload.zaloCS or "").strip()
         db_row.nguon = nguon_str
         db_row.da_thu = da_thu
@@ -1420,7 +1422,7 @@ def save_deal(
         )
     else:
         deal_uid = str(uuid.uuid4())
-        nv_cs = emp_name if is_personal else ((payload.nvCS or "").strip() or actor)
+        nv_cs = (payload.nvCS or "").strip() or (emp_name if is_personal else actor)
         db_row = SalesDeal(
             deal_uid=deal_uid,
             ngay_thu=ngay_thu,
