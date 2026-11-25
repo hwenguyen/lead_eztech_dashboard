@@ -865,50 +865,25 @@ export function BulletinDashboard({ onUnreadCountChange }: BulletinDashboardProp
 
   return (
     <div className="space-y-4">
-      {/* FACEBOOK GROUP COVER HEADER — EzTech Navy/Blue/Gold Identity */}
+      {/* FACEBOOK GROUP HEADER — Clean EzTech Card Surface (no cover overlap) */}
       <div className="bg-white rounded-2xl border border-slate-200/80 shadow-card overflow-hidden">
-        {/* Compact Brand Cover Banner */}
-        <div className="relative h-24 sm:h-28 gradient-brand overflow-hidden">
-          <div
-            aria-hidden="true"
-            className="absolute inset-0 opacity-30"
-            style={{
-              backgroundImage:
-                'radial-gradient(circle at 85% 20%, rgba(255, 193, 7, 0.55), transparent 45%), radial-gradient(circle at 15% 90%, rgba(90, 141, 238, 0.5), transparent 50%)',
-            }}
-          />
-          <div className="absolute top-3 right-3 sm:right-5 flex items-center gap-2">
-            {unreadCount > 0 ? (
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-gold-500 text-navy text-xs font-bold shadow-sm tabular-nums">
-                <span className="w-2 h-2 rounded-full bg-navy animate-pulse" aria-hidden="true" />
-                {unreadCount} bản tin chưa đọc
-              </span>
-            ) : (
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/90 text-white text-xs font-semibold shadow-sm">
-                <CheckCircle2 className="w-3.5 h-3.5" aria-hidden="true" />
-                Đã đọc hết bản tin
-              </span>
-            )}
-          </div>
-        </div>
-
         {/* Group Identity Bar */}
-        <div className="px-4 sm:px-6 pb-3">
-          <div className="flex flex-col md:flex-row md:items-end justify-between gap-3 -mt-7 sm:-mt-8 relative z-10">
-            <div className="flex items-end gap-3.5 min-w-0">
-              <div className="w-16 h-16 sm:w-[72px] sm:h-[72px] rounded-2xl bg-white border-4 border-white shadow-md flex items-center justify-center shrink-0 relative">
-                <div className="w-full h-full rounded-xl gradient-brand flex items-center justify-center text-white">
-                  <Newspaper className="w-7 h-7 sm:w-8 sm:h-8" aria-hidden="true" />
+        <div className="px-4 sm:px-6 pt-4 sm:pt-5 pb-3">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div className="flex items-center gap-3.5 min-w-0">
+              <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-brand-50 border border-brand-100 flex items-center justify-center shrink-0 relative">
+                <div className="w-full h-full rounded-2xl gradient-brand flex items-center justify-center text-white shadow-xs">
+                  <Newspaper className="w-6 h-6 sm:w-7 sm:h-7" aria-hidden="true" />
                 </div>
                 <span
                   aria-hidden="true"
                   className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-gold-500 border-2 border-white flex items-center justify-center text-navy"
                 >
-                  <Check className="w-3 h-3 stroke-[3]" />
+                  <Check className="w-2.5 h-2.5 stroke-[3]" />
                 </span>
               </div>
 
-              <div className="pb-0.5 min-w-0">
+              <div className="min-w-0">
                 <h2 className="text-lg sm:text-xl font-bold text-navy tracking-tight truncate">
                   Bảng Tin EzTech -Data & Finance Service
                 </h2>
@@ -927,7 +902,19 @@ export function BulletinDashboard({ onUnreadCountChange }: BulletinDashboardProp
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2 pt-1 md:pt-0">
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              {unreadCount > 0 ? (
+                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-gold-500 text-navy text-xs font-bold shadow-xs tabular-nums">
+                  <span className="w-2 h-2 rounded-full bg-navy animate-pulse" aria-hidden="true" />
+                  {unreadCount} bản tin chưa đọc
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-semibold">
+                  <CheckCircle2 className="w-3.5 h-3.5" aria-hidden="true" />
+                  Đã đọc hết bản tin
+                </span>
+              )}
+
               <button
                 type="button"
                 onClick={handleSyncGroup}
