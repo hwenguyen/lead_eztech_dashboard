@@ -196,7 +196,7 @@ def _format_digest_message(
     ]
     footer = [
         "",
-        f"👉 Cập nhật tiến độ tại: {dashboard_url}/bulletin",
+        f"👉 Cập nhật tiến độ tại: {dashboard_url}/#/bulletin",
     ]
 
     budget = MAX_ZALO_MSG_CHARS - sum(len(x) + 1 for x in header + footer) - 120
@@ -574,7 +574,7 @@ def dispatch_due_exact_reminders(
                 ).first()
                 if post:
                     msg_lines.append(f"• Từ bản tin ({post.boss_display_name}): {post.title}")
-            msg_lines.append(f"👉 Cập nhật tại: {dashboard_url}/bulletin")
+            msg_lines.append(f"👉 Cập nhật tại: {dashboard_url}/#/bulletin")
             msg_text = "\n".join(msg_lines)[:MAX_ZALO_MSG_CHARS]
 
             if dry_run:
@@ -656,7 +656,7 @@ def send_test_zalo_to_staff(db: Session, user_id: int, custom_message: Optional[
     msg_text = (custom_message or "").strip() or (
         f"[EzTech Test Nhắc Việc]\n"
         f"Chào {staff_name}, đây là tin nhắn kiểm tra kết nối nhắc hẹn & checklist từ Zalo Eztech Consultant.\n"
-        f"👉 Truy cập Bảng tin: {get_dashboard_base_url(db)}/bulletin"
+        f"👉 Truy cập Bảng tin: {get_dashboard_base_url(db)}/#/bulletin"
     )
     page_token = get_token_for_page(EZTECH_CONSULTANT_PAGE_ID)
     client = PancakeClient(api_token=page_token)

@@ -82,19 +82,28 @@ const TAB_TITLES: Record<TabId, string> = {
   profile: 'Thông Tin Cá Nhân & Phân Quyền',
 };
 
+function buildTabUrl(slug: string): string {
+  const clean = slug.replace(/^\/+|\/+$/g, '');
+  return `/#/${clean}`;
+}
+
 function readTabFromLocation(defaultTab: AppTabId = 'overview'): { tab: TabId; isLoginPath: boolean; isRoot: boolean } {
   if (typeof window === 'undefined') return { tab: defaultTab, isLoginPath: false, isRoot: true };
+  const cleanHash = window.location.hash.replace(/^#\/?/, '').replace(/\/+$/, '') as string;
   const cleanPath = window.location.pathname.replace(/^\/+|\/+$/g, '') as string;
-  const cleanHash = window.location.hash.replace(/^#\/?/, '') as string;
+  const queryTab = new URLSearchParams(window.location.search).get('tab')?.trim() || '';
 
-  if (cleanPath === 'login' || cleanHash === 'login') {
+  if (cleanHash === 'login' || cleanPath === 'login') {
     return { tab: defaultTab, isLoginPath: true, isRoot: false };
+  }
+  if (cleanHash && VALID_TABS.has(cleanHash as TabId)) {
+    return { tab: cleanHash as TabId, isLoginPath: false, isRoot: false };
   }
   if (cleanPath && VALID_TABS.has(cleanPath as TabId)) {
     return { tab: cleanPath as TabId, isLoginPath: false, isRoot: false };
   }
-  if (cleanHash && VALID_TABS.has(cleanHash as TabId)) {
-    return { tab: cleanHash as TabId, isLoginPath: false, isRoot: false };
+  if (queryTab && VALID_TABS.has(queryTab as TabId)) {
+    return { tab: queryTab as TabId, isLoginPath: false, isRoot: false };
   }
   return { tab: defaultTab, isLoginPath: false, isRoot: !cleanPath && !cleanHash };
 }
@@ -301,19 +310,19 @@ function App() {
     setActiveTabState(targetTab);
     setIsProfileMenuOpen(false);
     if (typeof window !== 'undefined') {
-      const targetUrl = `/${targetTab}`;
-      if (window.location.pathname !== targetUrl || window.location.hash) {
+      const targetUrl = buildTabUrl(targetTab);
+      if (window.location.pathname !== '/' || window.location.hash !== `#/${targetTab}`) {
         window.history.pushState(null, '', targetUrl);
       }
     }
   }, [currentUser, userPerms.defaultTab]);
 
-  // Route Guard: chưa đăng nhập -> /login; đã đăng nhập ở /login, / hoặc trang không có quyền -> tự động chuyển về defaultTab
+  // Route Guard: chưa đăng nhập -> /#/login; đã đăng nhập ở /#/login, / hoặc trang không có quyền -> tự động chuyển về defaultTab (giữ pathname luôn ở / để F5 không bị 404)
   useEffect(() => {
     if (typeof window === 'undefined') return;
     if (!isAuthenticated) {
-      if (window.location.pathname !== '/login') {
-        window.history.replaceState(null, '', '/login');
+      if (window.location.pathname !== '/' || window.location.hash !== '#/login') {
+        window.history.replaceState(null, '', buildTabUrl('login'));
       }
       document.title = 'Đăng Nhập Hệ Thống | EzTech Lead Analytics';
       return;
@@ -325,7 +334,9 @@ function App() {
     if (parsed.isLoginPath || parsed.isRoot || isUnauthorized) {
       const targetTab = userPerms.defaultTab;
       setActiveTabState(targetTab);
-      window.history.replaceState(null, '', `/${targetTab}`);
+      window.history.replaceState(null, '', buildTabUrl(targetTab));
+    } else if (window.location.pathname !== '/' || window.location.hash !== `#/${parsed.tab}`) {
+      window.history.replaceState(null, '', buildTabUrl(parsed.tab));
     }
   }, [isAuthenticated, currentUser, userPerms.defaultTab]);
 
@@ -373,7 +384,7 @@ function App() {
       const isUnauthorized =
         parsed.tab !== 'profile' && currentUser && !canAccessTab(currentUser, parsed.tab);
       if (parsed.isLoginPath || isUnauthorized) {
-        window.history.replaceState(null, '', `/${userPerms.defaultTab}`);
+        window.history.replaceState(null, '', buildTabUrl(userPerms.defaultTab));
         setActiveTabState(userPerms.defaultTab);
       } else {
         setActiveTabState(parsed.tab);
@@ -423,8 +434,8 @@ function App() {
       setCurrentUser(null);
       setIsProfileMenuOpen(false);
       pagesLoadedRef.current = false;
-      if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
-        window.history.replaceState(null, '', '/login');
+      if (typeof window !== 'undefined' && (window.location.pathname !== '/' || window.location.hash !== '#/login')) {
+        window.history.replaceState(null, '', buildTabUrl('login'));
       }
       showAppToast('Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại.', 'warning');
     };
@@ -439,7 +450,7 @@ function App() {
     setIsAuthenticated(true);
     setActiveTabState(perms.defaultTab);
     if (typeof window !== 'undefined') {
-      window.history.replaceState(null, '', `/${perms.defaultTab}`);
+      window.history.replaceState(null, '', buildTabUrl(perms.defaultTab));
     }
     showAppToast(`Xin chào ${loggedUser.full_name || loggedUser.username}!`, 'success');
   }, []);
@@ -451,7 +462,7 @@ function App() {
     setIsAuthenticated(false);
     setCurrentUser(null);
     if (typeof window !== 'undefined') {
-      window.history.replaceState(null, '', '/login');
+      window.history.replaceState(null, '', buildTabUrl('login'));
     }
     showAppToast('Đã đăng xuất tài khoản.', 'info');
   };
