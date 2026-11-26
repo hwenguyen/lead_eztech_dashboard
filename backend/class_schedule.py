@@ -81,6 +81,30 @@ def _parse_date_str(val: str) -> Optional[str]:
     return None
 
 
+def _parse_first_date_in_text(val: str) -> Optional[str]:
+    """Lấy ngày đầu tiên (buổi 1 khai giảng) trong chuỗi kiểu '21/12/2026 và 23/12/2026' hoặc '26/12 và 2/1/2027'."""
+    exact = _parse_date_str(val)
+    if exact:
+        return exact
+    s = (val or "").strip()
+    if not s:
+        return None
+    m_short = re.match(r"^\s*(\d{1,2})[/-](\d{1,2})(?![/-]\d|\d)", s)
+    if m_short:
+        d, m = int(m_short.group(1)), int(m_short.group(2))
+        if 1 <= m <= 12 and 1 <= d <= 31:
+            y_match = re.search(r"(\d{4})", s)
+            year = int(y_match.group(1)) if y_match else get_vn_now().year
+            # VD: "26/12 và 2/1/2027" -> tháng 12 thuộc năm trước (2026)
+            if y_match and m == 12 and re.search(r"\b\d{1,2}[/-]1[/-]" + str(year), s):
+                year -= 1
+            return f"{year:04d}-{m:02d}-{d:02d}"
+    m_full = re.search(r"(\d{4}-\d{1,2}-\d{1,2}|\d{1,2}[/-]\d{1,2}[/-]\d{4})", s)
+    if m_full:
+        return _parse_date_str(m_full.group(1))
+    return None
+
+
 def _infer_course_meta(header_text: str) -> Tuple[str, str, str]:
     """Trích (course_code, course_type, course_name) từ tiêu đề block."""
     clean = re.sub(r"\s+", " ", (header_text or "").strip())
@@ -291,7 +315,7 @@ def parse_class_schedule_rows(rows: List[List[str]]) -> List[Dict[str, Any]]:
                     note = (r[8] if len(r) > 8 else "").strip()
 
                     if c_code and c_code not in courses_with_sessions:
-                        iso_date = _parse_date_str(raw_open) or _parse_date_str(alt_date)
+                        iso_date = _parse_first_date_in_text(raw_open) or _parse_first_date_in_text(alt_date)
                         if iso_date:
                             dedup_key = (c_code, iso_date, "Dự kiến khai giảng")
                             if dedup_key not in seen_keys:

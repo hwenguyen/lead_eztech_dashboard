@@ -26,6 +26,7 @@ Giảng viên,a Tuấn Anh,a Tuấn Anh,a Hiếu,,,,,,,,,,,,,
 STT,Khoá học,Mã lớp,Dự kiến khai giảng,Thứ học,Số buổi,Giảng viên,Trạng thái,Note
 2,Power BI,PBIK64,2026-12-02,Thứ 2 - Thứ 4,,,Fixed,"lớp K54, K58, K59 lên"
 3,Power Query,PBIK65,21/12/2026 và 23/12/2026,Thứ 2 - Thứ 4,2026-12-23,,Dự kiến,sau lớp K62
+4,Power BI,PBIK66,26/12 và 2/1/2027,Thứ 7,2026-01-02,,Dự kiến,sau lớp K61
 """
 
 
@@ -40,8 +41,8 @@ def test_build_google_sheet_csv_url():
 
 def test_parse_class_schedule_csv():
     events = parse_class_schedule_csv(SAMPLE_CSV)
-    # 2 sessions from PBIK48 + 3 sessions from PBIK63 + 2 planned (PBIK64, PBIK65)
-    assert len(events) == 7, f"Expected 7 events, got {len(events)}: {events}"
+    # 2 sessions from PBIK48 + 3 sessions from PBIK63 + 3 planned (PBIK64, PBIK65, PBIK66)
+    assert len(events) == 8, f"Expected 8 events, got {len(events)}: {events}"
 
     nov26 = [e for e in events if e["date"] == "2026-11-26"][0]
     assert nov26["course_code"] == "PBIK63"
@@ -53,7 +54,11 @@ def test_parse_class_schedule_csv():
 
     pbik65 = [e for e in events if e["course_code"] == "PBIK65"][0]
     assert pbik65["is_planned"] is True
-    assert pbik65["date"] == "2026-12-23"
+    assert pbik65["date"] == "2026-12-21"
+
+    pbik66 = [e for e in events if e["course_code"] == "PBIK66"][0]
+    assert pbik66["is_planned"] is True
+    assert pbik66["date"] == "2026-12-26"
 
 
 def test_parse_class_schedule_xlsx():
