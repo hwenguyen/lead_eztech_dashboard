@@ -345,6 +345,18 @@ def startup_event():
     except Exception as e:
         logger.error(f"Error ensuring database schema on startup: {e}")
 
+    # Nạp sẵn _DEALS_CACHE ở luồng nền lúc server vừa khởi động để mở trang Nhập Deal không bị khựng 5-7s
+    def _warmup_deals_cache_bg():
+        try:
+            from backend.deal_entry import get_cached_deals
+            with SessionLocal() as warm_db:
+                get_cached_deals(warm_db)
+        except Exception as w_err:
+            logger.warning(f"Background warmup deals cache skipped: {w_err}")
+
+    if os.getenv("SKIP_WARMUP_CACHE", "").strip().lower() not in ("true", "1", "yes"):
+        threading.Thread(target=_warmup_deals_cache_bg, daemon=True).start()
+
     # Ngăn chặn tự động tải toàn bộ bảng raw_conversations khi Render khởi động lại (bảo vệ băng thông Neon).
     # Chỉ chạy khi đặt RUN_AUTO_REPAIR="force" hoặc gọi trực tiếp qua API /api/admin/repair
     if os.getenv("RUN_AUTO_REPAIR", "false").lower() == "force":

@@ -607,6 +607,33 @@ export function AppScriptTool() {
     setNewNguonInput('');
   };
 
+  const applyDealMutationResponse = (res: any) => {
+    if (res?.incremental) {
+      const affectedPhoneSet = new Set<string>(res.updatedPhones || []);
+      const deletedIdSet = new Set<string>(res.deletedIds || []);
+      if (res.dealId && (!res.updatedDeals || !res.updatedDeals.some((u: SalesDealRecord) => u.id === res.dealId))) {
+        deletedIdSet.add(res.dealId);
+      }
+      setDeals((prev) => {
+        const kept = prev.filter(
+          (item) => !deletedIdSet.has(item.id) && !(item.sdt && affectedPhoneSet.has(item.sdt))
+        );
+        const merged = [...(res.updatedDeals || []), ...kept];
+        merged.sort((a, b) => (b.ngayThu || '').localeCompare(a.ngayThu || ''));
+        return merged;
+      });
+    } else if (Array.isArray(res?.deals)) {
+      setDeals(res.deals);
+    }
+    if (res?.debts) {
+      setDebts(res.debts);
+    }
+    if (res?.lists) {
+      setLists(res.lists);
+      setDraftLists(res.lists);
+    }
+  };
+
   const handleSubmitDeal = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formSdt.trim() || !formHoTen.trim()) {
@@ -643,12 +670,7 @@ export function AppScriptTool() {
         actor: actorName,
       });
       if (res.ok) {
-        setDeals(res.deals || []);
-        setDebts(res.debts);
-        if (res.lists) {
-          setLists(res.lists);
-          setDraftLists(res.lists);
-        }
+        applyDealMutationResponse(res);
         setIsModalOpen(false);
         showAppToast('Đã lưu học phí và thông tin học viên lên Database thành công!', 'success');
       }
@@ -707,8 +729,7 @@ export function AppScriptTool() {
     try {
       const res = await deleteSalesDeal(deal.id, actorName);
       if (res.ok) {
-        setDeals(res.deals || []);
-        setDebts(res.debts || { items: [], totalPhaiThu: 0, totalDaThuNo: 0, totalConNo: 0, count: 0 });
+        applyDealMutationResponse(res);
         setSelectedRowIds((prev) => {
           const next = new Set(prev);
           next.delete(deal.id);
@@ -737,8 +758,7 @@ export function AppScriptTool() {
     try {
       const res = await batchDeleteSalesDeals(ids, actorName);
       if (res.ok) {
-        setDeals(res.deals || []);
-        setDebts(res.debts || { items: [], totalPhaiThu: 0, totalDaThuNo: 0, totalConNo: 0, count: 0 });
+        applyDealMutationResponse(res);
         setSelectedRowIds(new Set());
         showAppToast(`Đã xoá ${res.deleted_count || ids.length} dòng và cập nhật DB.`, 'success');
       }

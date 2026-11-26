@@ -15,16 +15,27 @@ if DATABASE_URL.startswith("postgres://"):
 if DATABASE_URL.startswith("postgresql://") and not DATABASE_URL.startswith("postgresql+psycopg2://"):
     DATABASE_URL = "postgresql+psycopg2://" + DATABASE_URL[len("postgresql://"):]
 
-# Đối với SQLite cần thêm check_same_thread=False
-connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
+# Đối với SQLite cần thêm check_same_thread=False; Postgres dùng TCP keepalive tránh treo socket khi vượt idle
+connect_args = (
+    {"check_same_thread": False}
+    if DATABASE_URL.startswith("sqlite")
+    else {
+        "keepalives": 1,
+        "keepalives_idle": 30,
+        "keepalives_interval": 10,
+        "keepalives_count": 5,
+        "connect_timeout": 10,
+    }
+)
 
 engine = create_engine(
     DATABASE_URL,
     connect_args=connect_args,
     pool_pre_ping=True,   # Kiểm tra kết nối trước khi dùng
-    pool_recycle=300,     # Tái tạo kết nối sau 5 phút (cho phép Neon scale-to-zero khi không dùng)
-    pool_size=2,          # Giữ tối đa 2 kết nối thường trực để Neon dễ dàng ngủ
-    max_overflow=10,
+    pool_recycle=240,     # Đóng kết nối nhàn rỗi sau 4 phút để Neon tự ngủ sau 5 phút không dùng
+    pool_size=3,          # Đủ cho 3 API song song lúc mở Deal Win / Nhập Deal mà không phải tạo thêm overflow
+    max_overflow=5,
+    pool_timeout=15,
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 

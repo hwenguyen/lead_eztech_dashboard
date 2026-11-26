@@ -18,7 +18,11 @@ const NO_CACHE_SUBSTRINGS = [
   '/admin/backfill/status',
   '/ai/',
   '/bulletin/',
-  '/auth/',
+  '/auth/me',
+  '/auth/login',
+  '/auth/logout',
+  '/auth/users',
+  '/auth/change-password',
   '/health',
 ];
 
@@ -36,15 +40,14 @@ export const clearClientApiCache = (urlPrefix?: string) => {
     _CLIENT_CACHE.clear();
   } else {
     for (const k of Array.from(_CLIENT_CACHE.keys())) {
-      if (k.startsWith(urlPrefix)) _CLIENT_CACHE.delete(k);
+      if (k.includes(urlPrefix)) _CLIENT_CACHE.delete(k);
     }
   }
   try {
     const keysToRemove: string[] = [];
-    const targetPrefix = urlPrefix ? SESSION_CACHE_PREFIX + urlPrefix : SESSION_CACHE_PREFIX;
     for (let i = 0; i < sessionStorage.length; i++) {
       const k = sessionStorage.key(i);
-      if (k && k.startsWith(targetPrefix)) {
+      if (k && k.startsWith(SESSION_CACHE_PREFIX) && (!urlPrefix || k.includes(urlPrefix))) {
         keysToRemove.push(k);
       }
     }
@@ -1095,22 +1098,22 @@ export const lookupDealPhone = async (sdt: string, excludeId?: string, opts?: Re
 };
 
 export const saveSalesDeal = async (payload: Partial<SalesDealRecord> & { actor?: string }) => {
-  const res = await apiClient.post('/deal-entry/deals', payload);
+  const res = await apiClient.post('/deal-entry/deals', payload, { params: { compact: true } });
   return res.data;
 };
 
 export const updateSalesDealClasses = async (dealId: string, lop: string[], actor?: string) => {
-  const res = await apiClient.put(`/deal-entry/deals/${dealId}/classes`, { lop, actor });
+  const res = await apiClient.put(`/deal-entry/deals/${dealId}/classes`, { lop, actor }, { params: { compact: true } });
   return res.data;
 };
 
 export const deleteSalesDeal = async (dealId: string, actor?: string) => {
-  const res = await apiClient.delete(`/deal-entry/deals/${dealId}`, { params: { actor } });
+  const res = await apiClient.delete(`/deal-entry/deals/${dealId}`, { params: { actor, compact: true } });
   return res.data;
 };
 
 export const batchDeleteSalesDeals = async (dealIds: string[], actor?: string) => {
-  const res = await apiClient.post('/deal-entry/deals/batch-delete', { deal_ids: dealIds, actor });
+  const res = await apiClient.post('/deal-entry/deals/batch-delete', { deal_ids: dealIds, actor }, { params: { compact: true } });
   return res.data;
 };
 
