@@ -14,7 +14,7 @@ import time
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-import httpx
+import requests
 from openpyxl import load_workbook
 from sqlalchemy.orm import Session
 
@@ -394,16 +394,16 @@ def sync_class_schedule(
         if not export_url:
             raise ValueError("Chưa cấu hình URL Google Apps Script / Google Sheet hoặc nội dung CSV.")
         try:
-            with httpx.Client(timeout=20.0, follow_redirects=True) as client:
-                resp = client.get(export_url)
-                resp.raise_for_status()
-                content_type = (resp.headers.get("content-type") or "").lower()
-                if "text/html" in content_type and "accounts.google.com" in str(resp.url):
-                    raise ValueError(
-                        "URL bị chặn đăng nhập Google. Nếu Sheet đang Private, hãy dùng Google Apps Script Web App (Execute as: Me, Who has access: Anyone)."
-                    )
-                raw_csv = resp.text
-        except httpx.HTTPError as exc:
+            resp = requests.get(export_url, timeout=20, allow_redirects=True)
+            resp.raise_for_status()
+            content_type = (resp.headers.get("content-type") or "").lower()
+            if "text/html" in content_type and "accounts.google.com" in str(resp.url):
+                raise ValueError(
+                    "URL bị chặn đăng nhập Google. Nếu Sheet đang Private, hãy dùng Google Apps Script Web App (Execute as: Me, Who has access: Anyone)."
+                )
+            resp.encoding = resp.encoding or "utf-8"
+            raw_csv = resp.text
+        except requests.RequestException as exc:
             raise ValueError(f"Không tải được dữ liệu từ Google Sheet / Apps Script: {exc}") from exc
 
     events = parse_class_schedule_csv(raw_csv)
