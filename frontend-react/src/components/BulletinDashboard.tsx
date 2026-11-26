@@ -186,6 +186,7 @@ export function BulletinDashboard({ onUnreadCountChange }: BulletinDashboardProp
 
   const postsAbortRef = useRef<AbortController | null>(null);
   const feedSectionRef = useRef<HTMLElement | null>(null);
+  const workspaceRef = useRef<HTMLDivElement | null>(null);
   const adminStaffLoadedRef = useRef(false);
   const POSTS_PAGE_SIZE = 10;
 
@@ -1577,7 +1578,7 @@ export function BulletinDashboard({ onUnreadCountChange }: BulletinDashboardProp
 
         {/* RIGHT COLUMN: WORKPLACE RAIL + FULL MONTH CALENDAR (5 cols) */}
         <aside className="xl:col-span-5 space-y-4">
-          <div className="bg-white rounded-2xl border border-slate-200/80 shadow-card overflow-hidden">
+          <div ref={workspaceRef} className="bg-white rounded-2xl border border-slate-200/80 shadow-card overflow-hidden scroll-mt-20">
             {/* Rail Title + Segmented Underline Tabs */}
             <div className="px-4 pt-3.5 pb-0 border-b border-slate-100">
               <div className="flex items-center justify-between gap-2 mb-2.5">
@@ -2451,6 +2452,9 @@ export function BulletinDashboard({ onUnreadCountChange }: BulletinDashboardProp
             onSelectChecklistDate={(dateStr) => {
               setChecklistDate(dateStr);
               setWorkTab('checklist');
+              requestAnimationFrame(() => {
+                workspaceRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              });
             }}
             onReminderMutated={() => {
               loadReminders();
