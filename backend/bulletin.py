@@ -19,12 +19,18 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 from dateutil.relativedelta import relativedelta
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
 from pydantic import BaseModel, Field
 from sqlalchemy import case, desc, exists, func, or_
 from sqlalchemy.orm import Session, joinedload, load_only
 
 from backend.auth import require_admin, require_tab_access
+from backend.class_schedule import (
+    get_class_schedule_data,
+    sync_class_schedule,
+    sync_class_schedule_from_file,
+    trigger_background_auto_sync_if_due,
+)
 from backend.bulletin_notifier import (
     dispatch_daily_digest,
     dispatch_due_exact_reminders,
@@ -33,7 +39,7 @@ from backend.bulletin_notifier import (
     send_test_zalo_to_staff,
 )
 from backend.rbac_config import get_user_permissions, strip_vn_accents
-from database.db import get_db
+from database.db import SessionLocal, get_db
 from database.models import (
     AppUser,
     BulletinPost,
@@ -743,6 +749,8 @@ def _serialize_reminder(
 def list_reminders(
     status_filter: Optional[str] = Query(default="all", alias="status"),
     due_date: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
     source_post_id: Optional[int] = None,
     owner_user_id: Optional[int] = None,
     search: Optional[str] = None,
@@ -763,6 +771,10 @@ def list_reminders(
         query = query.filter(WorkReminder.status == status_filter)
     if due_date and due_date.strip():
         query = query.filter(WorkReminder.due_date == due_date.strip())
+    if date_from and date_from.strip():
+        query = query.filter(WorkReminder.due_date >= date_from.strip())
+    if date_to and date_to.strip():
+        query = query.filter(WorkReminder.due_date <= date_to.strip())
     if source_post_id is not None:
         query = query.filter(WorkReminder.source_post_id == source_post_id)
     if search and search.strip():
@@ -1121,6 +1133,135 @@ def rollover_pending_items(
         "moved_count": len(rows),
         "checklist": _serialize_checklist(cl_loaded, owner_name=(current_user.full_name or current_user.username).strip()),
         "message": f"Đã chuyển tiếp {len(rows)} việc chưa xong sang ngày {t_dt.strftime('%d/%m')}.",
+    }
+
+
+@router.get("/checklists/month-summary")
+def get_checklists_month_summary(
+    date_from: str = Query(..., min_length=10, max_length=10),
+    date_to: str = Query(..., min_length=10, max_length=10),
+    owner_user_id: Optional[int] = None,
+    current_user: AppUser = Depends(require_tab_access("bulletin")),
+    db: Session = Depends(get_db),
+):
+    """Tổng hợp số đầu việc checklist theo từng ngày trong tháng để hiển thị trên Lịch."""
+    is_adm = _is_admin(current_user)
+    query = (
+        db.query(
+            DailyChecklist.checklist_date,
+            func.count(DailyChecklistItem.id).label("total_items"),
+            func.sum(case((DailyChecklistItem.is_done == True, 1), else_=0)).label("done_items"),
+        )
+        .join(DailyChecklistItem, DailyChecklistItem.checklist_id == DailyChecklist.id)
+        .filter(
+            DailyChecklist.is_deleted == False,
+            DailyChecklist.checklist_date >= date_from.strip(),
+            DailyChecklist.checklist_date <= date_to.strip(),
+        )
+    )
+    if not is_adm:
+        query = query.filter(DailyChecklist.owner_user_id == current_user.id)
+    elif owner_user_id is not None:
+        query = query.filter(DailyChecklist.owner_user_id == owner_user_id)
+
+    rows = query.group_by(DailyChecklist.checklist_date).all()
+    days = {
+        d: {"total_items": int(t or 0), "done_items": int(done or 0)}
+        for d, t, done in rows
+        if d
+    }
+    return {"days": days}
+
+
+class ClassScheduleSyncIn(BaseModel):
+    sheet_url: Optional[str] = None
+    csv_text: Optional[str] = None
+    auto_sync_enabled: Optional[bool] = None
+    sync_interval_minutes: Optional[int] = None
+
+
+@router.get("/class-schedule")
+def get_class_schedule(
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    current_user: AppUser = Depends(require_tab_access("bulletin")),
+    db: Session = Depends(get_db),
+):
+    data = get_class_schedule_data(db)
+    # Nếu đã quá chu kỳ auto-sync, tự động làm mới ngầm ở background thread
+    trigger_background_auto_sync_if_due(SessionLocal)
+
+    events = data.get("events") or []
+    if date_from and date_from.strip():
+        df = date_from.strip()
+        events = [e for e in events if (e.get("date") or "") >= df]
+    if date_to and date_to.strip():
+        dt = date_to.strip()
+        events = [e for e in events if (e.get("date") or "") <= dt]
+    is_adm = _is_admin(current_user)
+    return {
+        "sheet_url": (data.get("sheet_url") or "") if is_adm else "",
+        "auto_sync_enabled": bool(data.get("auto_sync_enabled", True)),
+        "sync_interval_minutes": int(data.get("sync_interval_minutes") or 15),
+        "last_synced_at": data.get("last_synced_at"),
+        "events": events,
+        "total": len(events),
+    }
+
+
+@router.post("/class-schedule/sync")
+def post_sync_class_schedule(
+    body: ClassScheduleSyncIn,
+    current_user: AppUser = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    try:
+        updated = sync_class_schedule(
+            db,
+            sheet_url=body.sheet_url,
+            csv_text=body.csv_text,
+            auto_sync_enabled=body.auto_sync_enabled,
+            sync_interval_minutes=body.sync_interval_minutes,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    events = updated.get("events") or []
+    return {
+        "success": True,
+        "sheet_url": updated.get("sheet_url") or "",
+        "auto_sync_enabled": bool(updated.get("auto_sync_enabled", True)),
+        "sync_interval_minutes": int(updated.get("sync_interval_minutes") or 15),
+        "last_synced_at": updated.get("last_synced_at"),
+        "events": events,
+        "total": len(events),
+    }
+
+
+@router.post("/class-schedule/upload")
+async def post_upload_class_schedule(
+    file: UploadFile = File(...),
+    current_user: AppUser = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Admin upload trực tiếp file .xlsx hoặc .csv xuất từ Google Sheet Private."""
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="File trống.")
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File vượt quá giới hạn 10MB.")
+    try:
+        updated = sync_class_schedule_from_file(db, file.filename or "schedule.xlsx", content)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    events = updated.get("events") or []
+    return {
+        "success": True,
+        "sheet_url": updated.get("sheet_url") or "",
+        "last_synced_at": updated.get("last_synced_at"),
+        "events": events,
+        "total": len(events),
     }
 
 

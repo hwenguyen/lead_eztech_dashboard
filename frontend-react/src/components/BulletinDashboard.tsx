@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { BulletinCalendarBlock } from './BulletinCalendarBlock';
 import {
   Bell,
   BellRing,
@@ -190,6 +191,7 @@ export function BulletinDashboard({ onUnreadCountChange }: BulletinDashboardProp
 
   // Right panel sub-tabs
   const [workTab, setWorkTab] = useState<'checklist' | 'reminders' | 'admin'>('checklist');
+  const [calendarRefreshTick, setCalendarRefreshTick] = useState(0);
 
   // Checklist state
   const [checklistDate, setChecklistDate] = useState(() => getVnTodayStr(0));
@@ -597,7 +599,11 @@ export function BulletinDashboard({ onUnreadCountChange }: BulletinDashboardProp
   };
 
   // Reminder Modal open (Create or Edit)
-  const openReminderModal = (post?: BulletinPostItem | null, existingRem?: WorkReminderItem | null) => {
+  const openReminderModal = (
+    post?: BulletinPostItem | null,
+    existingRem?: WorkReminderItem | null,
+    defaultDateStr?: string
+  ) => {
     ensureStaffListLoaded();
     if (existingRem) {
       setEditingReminderId(existingRem.id);
@@ -616,7 +622,7 @@ export function BulletinDashboard({ onUnreadCountChange }: BulletinDashboardProp
       setRemSourcePost(post || null);
       setRemTitle(post ? `Theo dõi: ${post.title || 'Bản tin sếp ' + post.boss_display_name}` : '');
       setRemDesc(post ? post.content.slice(0, 300) : '');
-      setRemAt(getDefaultRemindAt(60));
+      setRemAt(defaultDateStr ? `${defaultDateStr}T09:00` : getDefaultRemindAt(60));
       setRemPriority('normal');
       setRemRecurrence('none');
       setRemOwnerIds(isAdmin && adminOwnerFilter ? [Number(adminOwnerFilter)] : []);
@@ -674,6 +680,7 @@ export function BulletinDashboard({ onUnreadCountChange }: BulletinDashboardProp
       }
       setReminderModalOpen(false);
       setWorkTab('reminders');
+      setCalendarRefreshTick((t) => t + 1);
       await Promise.all([loadReminders(), remSourcePost ? loadPosts(postsPage) : Promise.resolve()]);
     } catch (err: any) {
       showAppToast(err?.response?.data?.detail || 'Lỗi khi lưu nhắc hẹn', 'error');
@@ -1558,8 +1565,8 @@ export function BulletinDashboard({ onUnreadCountChange }: BulletinDashboardProp
           )}
         </section>
 
-        {/* RIGHT COLUMN: FACEBOOK-STYLE STICKY WORKPLACE RAIL (5 cols) */}
-        <aside className="xl:col-span-5 space-y-4 xl:sticky xl:top-20">
+        {/* RIGHT COLUMN: WORKPLACE RAIL + FULL MONTH CALENDAR (5 cols) */}
+        <aside className="xl:col-span-5 space-y-4">
           <div className="bg-white rounded-2xl border border-slate-200/80 shadow-card overflow-hidden">
             {/* Rail Title + Segmented Underline Tabs */}
             <div className="px-4 pt-3.5 pb-0 border-b border-slate-100">
@@ -2423,6 +2430,23 @@ export function BulletinDashboard({ onUnreadCountChange }: BulletinDashboardProp
               </div>
             )}
           </div>
+
+          <BulletinCalendarBlock
+            isAdmin={isAdmin}
+            adminOwnerFilter={adminOwnerFilter}
+            todayStr={todayStr}
+            refreshTrigger={calendarRefreshTick}
+            onCreateReminderForDate={(dateStr) => openReminderModal(null, null, dateStr)}
+            onEditReminder={(rem) => openReminderModal(null, rem)}
+            onSelectChecklistDate={(dateStr) => {
+              setChecklistDate(dateStr);
+              setWorkTab('checklist');
+            }}
+            onReminderMutated={() => {
+              loadReminders();
+              setCalendarRefreshTick((t) => t + 1);
+            }}
+          />
         </aside>
       </div>
 

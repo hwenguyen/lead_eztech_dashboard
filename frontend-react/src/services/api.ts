@@ -2132,6 +2132,8 @@ export const aiExtractBulletinPost = async (postId: number): Promise<BulletinAiE
 export const fetchWorkReminders = async (params: {
   status?: string;
   due_date?: string;
+  date_from?: string;
+  date_to?: string;
   owner_user_id?: number;
   search?: string;
 }): Promise<{ items: WorkReminderItem[]; total: number; is_admin: boolean }> => {
@@ -2183,6 +2185,70 @@ export const fetchDailyChecklists = async (params: {
   owner_user_id?: number;
 }): Promise<DailyChecklistsResponse> => {
   const res = await apiClient.get<DailyChecklistsResponse>('/bulletin/checklists', { params });
+  return res.data;
+};
+
+export interface ClassScheduleEvent {
+  id: string;
+  date: string;
+  time_range: string;
+  course_code: string;
+  course_type: string;
+  course_name: string;
+  session_label: string;
+  schedule_days: string;
+  status: string;
+  instructor: string;
+  assistants: string[];
+  note: string;
+  is_planned: boolean;
+}
+
+export interface ClassScheduleResponse {
+  sheet_url: string;
+  auto_sync_enabled?: boolean;
+  sync_interval_minutes?: number;
+  last_synced_at: string | null;
+  events: ClassScheduleEvent[];
+  total: number;
+}
+
+export const fetchChecklistsMonthSummary = async (params: {
+  date_from: string;
+  date_to: string;
+  owner_user_id?: number;
+}): Promise<{ days: Record<string, { total_items: number; done_items: number }> }> => {
+  const res = await apiClient.get('/bulletin/checklists/month-summary', { params });
+  return res.data;
+};
+
+export const fetchClassSchedule = async (params?: {
+  date_from?: string;
+  date_to?: string;
+}): Promise<ClassScheduleResponse> => {
+  const res = await apiClient.get<ClassScheduleResponse>('/bulletin/class-schedule', { params });
+  return res.data;
+};
+
+export const syncClassSchedule = async (payload: {
+  sheet_url?: string;
+  csv_text?: string;
+  auto_sync_enabled?: boolean;
+  sync_interval_minutes?: number;
+}): Promise<ClassScheduleResponse & { success: boolean }> => {
+  const res = await apiClient.post('/bulletin/class-schedule/sync', payload, { timeout: 30000 });
+  return res.data;
+};
+
+export const uploadClassScheduleFile = async (
+  file: File
+): Promise<ClassScheduleResponse & { success: boolean }> => {
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await apiClient.post('/bulletin/class-schedule/upload', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 30000,
+  });
   return res.data;
 };
 

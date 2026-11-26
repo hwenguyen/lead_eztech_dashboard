@@ -756,6 +756,11 @@ def start_exact_reminder_worker_if_enabled():
                             _EXACT_CACHE_INITIALIZED = True
             except Exception as exc:
                 logger.debug(f"Exact reminder worker tick error: {exc}")
+            try:
+                from backend.class_schedule import trigger_background_auto_sync_if_due
+                trigger_background_auto_sync_if_due(SessionLocal)
+            except Exception:
+                pass
             time.sleep(60)
 
     t = threading.Thread(target=_loop, daemon=True, name="ExactReminderWorker")
