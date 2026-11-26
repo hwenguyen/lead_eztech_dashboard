@@ -691,8 +691,38 @@ function App() {
   };
 
   const totalLeadsCmp = buildPeriodComparison(totalLeadsCount, prevPeriod?.total_leads);
+  const newLeadsCmp = buildPeriodComparison(newLeadsCount, prevPeriod?.new_leads);
+  const recontactLeadsCmp = buildPeriodComparison(recontactLeadsCount, prevPeriod?.recontact_leads);
   const newPhoneCmp = buildPeriodComparison(newPhoneCount, prevPeriod?.new_phone_leads);
   const recontactPhoneCmp = buildPeriodComparison(recontactPhoneCount, prevPeriod?.recontact_phone_leads);
+
+  const currPhoneRate = newLeadsCount > 0 ? (newPhoneCount / newLeadsCount) * 100 : 0;
+  const prevPhoneRate = prevPeriod
+    ? prevPeriod.new_leads > 0
+      ? (prevPeriod.new_phone_leads / prevPeriod.new_leads) * 100
+      : 0
+    : undefined;
+  const phoneRateCmp = (() => {
+    if (prevPhoneRate === undefined || !prevPeriod) {
+      return {
+        trend: undefined as number | undefined,
+        subtitle: 'So với kỳ trước: —',
+        subtitleTone: 'neutral' as const,
+        detail: '',
+      };
+    }
+    const delta = currPhoneRate - prevPhoneRate;
+    const trend = prevPhoneRate > 0 ? ((currPhoneRate - prevPhoneRate) / prevPhoneRate) * 100 : currPhoneRate === 0 ? 0 : undefined;
+    const signedDelta = delta > 0 ? `+${delta.toFixed(1)}%` : delta < 0 ? `${delta.toFixed(1)}%` : '0.0%';
+    const subtitleTone: 'neutral' | 'positive' | 'negative' =
+      delta > 0.05 ? 'positive' : delta < -0.05 ? 'negative' : 'neutral';
+    return {
+      trend,
+      subtitle: `${signedDelta} so với kỳ trước`,
+      subtitleTone,
+      detail: `Kỳ trước${prevRangeLabel ? ` (${prevRangeLabel})` : ''}: ${prevPhoneRate.toFixed(1)}% (${prevPeriod.new_phone_leads.toLocaleString()}/${prevPeriod.new_leads.toLocaleString()}) → ${currPhoneRate.toFixed(1)}% (${newPhoneCount.toLocaleString()}/${newLeadsCount.toLocaleString()})`,
+    };
+  })();
 
   const visibleNavGroups = useMemo(
     () =>
@@ -1334,7 +1364,9 @@ function App() {
                           <KpiCard
                             title="Lead Mới"
                             value={newLeadsCount.toLocaleString()}
-                            subtitle={`${pct(newLeadsCount, totalLeadsCount)}% tổng lead`}
+                            subtitle={newLeadsCmp.subtitle}
+                            subtitleTone={newLeadsCmp.subtitleTone}
+                            trend={newLeadsCmp.trend}
                             icon={<UserPlus className="w-4 h-4" />}
                             color="blue"
                             active={selectedLeadType === 'new' && !onlyPhone}
@@ -1346,12 +1378,18 @@ function App() {
                                 setOnlyPhone(false);
                               }
                             }}
-                            tooltip="Nhấn để lọc chỉ Lead Mới"
+                            tooltip={
+                              newLeadsCmp.detail
+                                ? `${newLeadsCmp.detail} • Nhấn để lọc chỉ Lead Mới`
+                                : 'Nhấn để lọc chỉ Lead Mới'
+                            }
                           />
                           <KpiCard
                             title="Lead Contact Lại"
                             value={recontactLeadsCount.toLocaleString()}
-                            subtitle={`${pct(recontactLeadsCount, totalLeadsCount)}% tổng lead`}
+                            subtitle={recontactLeadsCmp.subtitle}
+                            subtitleTone={recontactLeadsCmp.subtitleTone}
+                            trend={recontactLeadsCmp.trend}
                             icon={<UserCheck className="w-4 h-4" />}
                             color="blue"
                             active={selectedLeadType === 'recontact' && !onlyPhone}
@@ -1363,7 +1401,11 @@ function App() {
                                 setOnlyPhone(false);
                               }
                             }}
-                            tooltip="Nhấn để lọc chỉ Lead Contact Lại"
+                            tooltip={
+                              recontactLeadsCmp.detail
+                                ? `${recontactLeadsCmp.detail} • Nhấn để lọc chỉ Lead Contact Lại`
+                                : 'Nhấn để lọc chỉ Lead Contact Lại'
+                            }
                           />
                           <KpiCard
                             title="SĐT Mới"
@@ -1416,11 +1458,17 @@ function App() {
                           <KpiCard
                             title="SĐT / Tạo mới"
                             value={`${pct(newPhoneCount, newLeadsCount)}%`}
-                            subtitle={`${newPhoneCount.toLocaleString()} / ${newLeadsCount.toLocaleString()} lead mới`}
+                            subtitle={phoneRateCmp.subtitle}
+                            subtitleTone={phoneRateCmp.subtitleTone}
+                            trend={phoneRateCmp.trend}
                             icon={<Percent className="w-4 h-4" />}
                             color="gold"
                             highlight={true}
-                            tooltip="Tỉ lệ chuyển đổi SĐT trên tổng Lead Mới trong phạm vi đang lọc"
+                            tooltip={
+                              phoneRateCmp.detail
+                                ? `${phoneRateCmp.detail} • Tỉ lệ chuyển đổi SĐT trên tổng Lead Mới`
+                                : 'Tỉ lệ chuyển đổi SĐT trên tổng Lead Mới trong phạm vi đang lọc'
+                            }
                           />
                         </div>
 
