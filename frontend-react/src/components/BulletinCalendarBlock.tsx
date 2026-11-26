@@ -349,13 +349,19 @@ export function BulletinCalendarBlock({
   };
 
   const APPS_SCRIPT_SNIPPET = `function doGet(e) {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Lịch quản lý lớp học")
-    || SpreadsheetApp.getActiveSpreadsheet().getSheets()[0];
-  var data = sheet.getDataRange().getDisplayValues();
-  var csv = data.map(function(row) {
-    return row.map(function(c) {
-      return '"' + String(c).replace(/"/g, '""') + '"';
-    }).join(',');
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var targets = ["Lịch QL lớp", "Lịch dự kiến khai giảng"];
+  var sheets = ss.getSheets().filter(function(s) {
+    var n = s.getName().trim().toLowerCase();
+    return targets.some(function(t) { return n === t.toLowerCase(); }) || n.includes("lịch ql lớp") || n.includes("lịch quản lý lớp");
+  });
+  if (!sheets.length) sheets = [ss.getSheets()[0]];
+  var csv = sheets.map(function(sheet) {
+    return sheet.getDataRange().getDisplayValues().map(function(row) {
+      return row.map(function(c) {
+        return '"' + String(c).replace(/"/g, '""') + '"';
+      }).join(',');
+    }).join('\\n');
   }).join('\\n');
   return ContentService.createTextOutput(csv).setMimeType(ContentService.MimeType.CSV);
 }`;

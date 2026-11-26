@@ -194,7 +194,7 @@ def parse_class_schedule_rows(rows: List[List[str]]) -> List[Dict[str, Any]]:
 
                 if r1.upper().startswith("LỊCH QUẢN LÝ LỚP HỌC") or r0.upper().startswith("LỊCH QUẢN LÝ LỚP HỌC"):
                     break
-                if r0.upper() == "STT" and "KHOÁ HỌC" in r1.upper():
+                if r0.upper() == "STT" and ("KHOÁ HỌC" in r1.upper() or "KHÓA HỌC" in r1.upper()):
                     break
                 if r0.upper().startswith("KỊCH BẢN CHĂM SÓC"):
                     break
@@ -273,7 +273,7 @@ def parse_class_schedule_rows(rows: List[List[str]]) -> List[Dict[str, Any]]:
             continue
 
         # Nhận diện bảng Dự kiến khai giảng: STT,Khoá học,Mã lớp,Dự kiến khai giảng,...
-        if c0.upper() == "STT" and "KHOÁ HỌC" in c1.upper():
+        if c0.upper() == "STT" and ("KHOÁ HỌC" in c1.upper() or "KHÓA HỌC" in c1.upper()):
             j = i + 1
             while j < n:
                 r = rows[j]
