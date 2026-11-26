@@ -335,12 +335,14 @@ export function AppScriptTool() {
 
   useEffect(() => {
     loadAll(false);
-    fetchDealSheetConfig()
-      .then((cfg) => {
-        if (cfg) setSheetCfg((prev) => ({ ...prev, ...cfg }));
-      })
-      .catch(() => {});
-  }, []);
+    if (!isPersonalScope) {
+      fetchDealSheetConfig()
+        .then((cfg) => {
+          if (cfg) setSheetCfg((prev) => ({ ...prev, ...cfg }));
+        })
+        .catch(() => {});
+    }
+  }, [isPersonalScope]);
 
   useEffect(() => {
     if (subTab === 'logs') {
@@ -1448,27 +1450,29 @@ export function AppScriptTool() {
                   Xuất CSV
                 </button>
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSheetFeedback(null);
-                    setShowSheetModal(true);
-                  }}
-                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-lg border transition-colors cursor-pointer ${
-                    sheetCfg.configured && sheetCfg.auto_sync
-                      ? 'text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border-emerald-200'
-                      : 'text-slate-700 bg-slate-50 hover:bg-slate-100 border-slate-200'
-                  }`}
-                  title="Cấu hình & Đồng bộ live lên Google Sheet qua Apps Script"
-                >
-                  <FileSpreadsheet className="w-3.5 h-3.5" />
-                  <span>Sheet Live</span>
-                  {sheetCfg.configured && sheetCfg.auto_sync && (
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                  )}
-                </button>
+                {!isPersonalScope && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSheetFeedback(null);
+                      setShowSheetModal(true);
+                    }}
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-lg border transition-colors cursor-pointer ${
+                      sheetCfg.configured && sheetCfg.auto_sync
+                        ? 'text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border-emerald-200'
+                        : 'text-slate-700 bg-slate-50 hover:bg-slate-100 border-slate-200'
+                    }`}
+                    title="Cấu hình & Đồng bộ live lên Google Sheet qua Apps Script"
+                  >
+                    <FileSpreadsheet className="w-3.5 h-3.5" />
+                    <span>Sheet Live</span>
+                    {sheetCfg.configured && sheetCfg.auto_sync && (
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                    )}
+                  </button>
+                )}
 
-                {safeSheetUrl && (
+                {!isPersonalScope && safeSheetUrl && (
                   <a
                     href={safeSheetUrl}
                     target="_blank"

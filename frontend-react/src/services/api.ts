@@ -2386,4 +2386,49 @@ export const fetchBulletinZaloLogs = async (limit = 50): Promise<{ items: ZaloRe
 };
 
 
+// ==========================================
+// CLASS LIST (Danh sách lớp học)
+// ==========================================
+export interface ClassStudentItem {
+  id: string;
+  hoTen: string;
+  sdt: string;
+  linkPancake: string;
+  linkSupport: string;
+  lop: string[];
+  nvCS: string;
+}
+
+export interface ClassListResponse {
+  ok: boolean;
+  classes: string[];
+  class_counts: Record<string, number>;
+  unassigned_class_count: number;
+  staff_list: string[];
+  total: number;
+  students: ClassStudentItem[];
+}
+
+export const fetchClassListStudents = async (
+  params?: {
+    class_name?: string;
+    staff?: string;
+    search?: string;
+    force?: boolean;
+  },
+  opts?: RequestOptions
+): Promise<ClassListResponse> => {
+  const query: Record<string, any> = {};
+  if (params?.class_name) query.class_name = params.class_name;
+  if (params?.staff) query.staff = params.staff;
+  if (params?.search) query.search = params.search;
+  if (params?.force) query.force = true;
+  const res = await apiClient.get<ClassListResponse>('/class-list/students', {
+    params: query,
+    ...(opts || {}),
+  } as any);
+  return res.data;
+};
+
+
 

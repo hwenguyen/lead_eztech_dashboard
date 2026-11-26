@@ -30,6 +30,7 @@ ALL_TABS: List[str] = [
     "remind",
     "deals",
     "gas_tool",
+    "class_list",
     "invoice",
     "bot",
     "data_export",
@@ -61,6 +62,7 @@ MARKETING_TABS: List[str] = [
 
 CLASS_MANAGER_TABS: List[str] = [
     *CONSULTANT_TABS,
+    "class_list",
     "btvn_grader",
 ]
 
@@ -73,6 +75,7 @@ TAB_DISPLAY_NAMES: Dict[str, str] = {
     "remind": "Chăm sóc Lead",
     "deals": "Deal Win",
     "gas_tool": "Nhập Deal & Công Nợ",
+    "class_list": "Danh sách lớp học",
     "invoice": "Xuất hoá đơn",
     "bot": "Bot Gửi Tin",
     "data_export": "Query & Xuất Excel",
@@ -87,7 +90,7 @@ DEPARTMENT_MATRIX: Dict[str, Dict[str, Any]] = {
         "allowed_tabs": ALL_TABS,
         "default_tab": "overview",
         "module_scopes": {tab: "all" for tab in ALL_TABS},
-        "scope_summary": "Toàn quyền hệ thống (Admin): Truy cập đầy đủ 13 chức năng và xem toàn bộ dữ liệu tất cả nhân viên.",
+        "scope_summary": "Toàn quyền hệ thống (Admin): Truy cập đầy đủ các chức năng và xem toàn bộ dữ liệu tất cả nhân viên.",
     },
     DEPT_CONSULTANT: {
         "allowed_tabs": CONSULTANT_TABS,
@@ -116,8 +119,9 @@ DEPARTMENT_MATRIX: Dict[str, Dict[str, Any]] = {
         "module_scopes": {
             **{tab: "all" for tab in CLASS_MANAGER_TABS},
             "work_report": "personal",
+            "gas_tool": "personal",
         },
-        "scope_summary": "Xem toàn bộ dữ liệu của tất cả nhân viên trên các trang nghiệp vụ được phân quyền (bao gồm Chấm BTVN AI); riêng Báo cáo công việc chỉ xem số liệu cá nhân.",
+        "scope_summary": "Xem toàn bộ dữ liệu trên các trang nghiệp vụ được phân quyền (bao gồm Danh sách lớp học & Chấm BTVN AI); riêng Báo cáo công việc và Nhập Deal & Công nợ chỉ xem & thao tác dữ liệu cá nhân.",
     },
 }
 

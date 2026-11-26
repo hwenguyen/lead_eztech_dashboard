@@ -1243,18 +1243,19 @@ def _lookup_pancake_lightweight(db: Session, phone: str) -> Dict[str, Any]:
 def lookup_phone(
     sdt: str = Query(..., description="Số điện thoại cần tra cứu"),
     exclude_id: Optional[str] = None,
+    current_user: AppUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
     Tra cứu SĐT siêu tốc và tiết kiệm Egress:
-    - Phần lịch sử Deal & Công nợ đọc 100% từ _DEALS_CACHE trong RAM (0 câu query DB).
+    - Phần lịch sử Deal & Công nợ đọc 100% từ _DEALS_CACHE trong RAM (0 câu query DB), lọc theo phạm vi quyền user.
     - Phần Pancake dùng _lookup_pancake_lightweight (Index Scan + RAM Cache).
     """
     phone = clean_phone(sdt)
     if not phone or len(phone) < 9:
         return {"ok": True, "found": False}
 
-    deals = get_cached_deals(db)
+    deals = _filter_deals_for_user(get_cached_deals(db), current_user)
     hit = None
     debt = 0
     since = ""
@@ -1756,7 +1757,7 @@ def save_lists_endpoint(
 ):
     """Lưu danh mục (Zalo chăm sóc, Nguồn, Chương trình học, Lớp học)."""
     if get_module_scope(current_user, "gas_tool") == "personal":
-        raise HTTPException(status_code=403, detail="Chỉ tài khoản Quản lý lớp học hoặc Admin mới được sửa Danh mục hệ thống.")
+        raise HTTPException(status_code=403, detail="Chỉ tài khoản Admin mới được sửa Danh mục hệ thống.")
     actor = (current_user.full_name or current_user.username or payload.actor or "admin").strip()
     updated = write_lists(db, payload.lists)
     write_audit_log(db, actor, "Sửa danh mục", "", {"keys": list(updated.keys())})
@@ -1967,7 +1968,7 @@ def save_sheet_sync_config(
     db: Session = Depends(get_db),
 ):
     if get_module_scope(current_user, "gas_tool") == "personal":
-        raise HTTPException(status_code=403, detail="Chỉ tài khoản Quản lý lớp học hoặc Admin mới được cấu hình đồng bộ Google Sheet.")
+        raise HTTPException(status_code=403, detail="Chỉ tài khoản Admin mới được cấu hình đồng bộ Google Sheet.")
     global _SHEET_CFG_CACHE, _SHEET_CFG_TS
     data = {
         "webhook_url": (payload.webhook_url or "").strip(),
@@ -2001,7 +2002,7 @@ def push_all_deals_to_google_sheet(
 ):
     """Đẩy toàn bộ bảng Deal hiện có trong RAM Cache sang Google Sheet (khởi tạo hoặc đồng bộ lại)."""
     if get_module_scope(current_user, "gas_tool") == "personal":
-        raise HTTPException(status_code=403, detail="Chỉ tài khoản Quản lý lớp học hoặc Admin mới được đẩy toàn bộ Deal sang Google Sheet.")
+        raise HTTPException(status_code=403, detail="Chỉ tài khoản Admin mới được đẩy toàn bộ Deal sang Google Sheet.")
     cfg = _read_sheet_sync_config(db)
     webhook_url = (cfg.get("webhook_url") or "").strip()
     if not webhook_url:

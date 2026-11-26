@@ -73,12 +73,14 @@ from backend.ai_rag import router as ai_rag_router, clear_ai_knowledge_cache
 from backend.data_export import router as data_export_router, clear_data_export_cache
 from backend.btvn_router import router as btvn_router
 from backend.bulletin import router as bulletin_router
+from backend.class_list import router as class_list_router
 
 app = FastAPI(title="Pancake Lead Reporting API")
 app.include_router(auth_router)
 app.include_router(broadcast_router, prefix="/api/broadcast", tags=["Broadcast"], dependencies=[Depends(require_tab_access("bot"))])
 app.include_router(add_friend_router, prefix="/api/add-friend", tags=["AutoAddFriend"], dependencies=[Depends(require_tab_access("add_friend"))])
 app.include_router(deal_entry_router, dependencies=[Depends(require_tab_access("gas_tool"))])
+app.include_router(class_list_router, dependencies=[Depends(require_tab_access("class_list"))])
 app.include_router(facebook_router, dependencies=[Depends(require_tab_access("facebook"))])
 app.include_router(tiktok_router, dependencies=[Depends(require_tab_access("tiktok"))])
 app.include_router(work_report_router, dependencies=[Depends(require_tab_access("work_report"))])

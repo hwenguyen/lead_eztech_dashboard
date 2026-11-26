@@ -16,6 +16,7 @@ export type AppTabId =
   | 'data_export'
   | 'add_friend'
   | 'gas_tool'
+  | 'class_list'
   | 'invoice'
   | 'ai_assistant'
   | 'btvn_grader';
@@ -31,6 +32,7 @@ export const ALL_APP_TABS: AppTabId[] = [
   'remind',
   'deals',
   'gas_tool',
+  'class_list',
   'invoice',
   'bot',
   'data_export',
@@ -58,6 +60,7 @@ export const MARKETING_TABS: AppTabId[] = [
 
 export const CLASS_MANAGER_TABS: AppTabId[] = [
   ...CONSULTANT_TABS,
+  'class_list',
   'btvn_grader',
 ];
 
@@ -70,6 +73,7 @@ export const TAB_LABELS: Record<AppTabId, string> = {
   remind: 'Chăm sóc Lead',
   deals: 'Deal Win',
   gas_tool: 'Nhập Deal & Công Nợ',
+  class_list: 'Danh sách lớp học',
   invoice: 'Xuất hoá đơn',
   bot: 'Bot Gửi Tin',
   data_export: 'Query & Xuất Excel',
@@ -136,8 +140,9 @@ export const DEPARTMENT_PERMISSIONS: Record<DepartmentName, DepartmentPermission
     moduleScopes: {
       ...buildScopeMap(CLASS_MANAGER_TABS, 'all'),
       work_report: 'personal',
+      gas_tool: 'personal',
     },
-    scopeSummary: 'Full dữ liệu tất cả nhân viên trên các trang nghiệp vụ được phân quyền (bao gồm Chấm BTVN AI); riêng Báo cáo công việc chỉ xem số liệu cá nhân.',
+    scopeSummary: 'Full dữ liệu trên các trang nghiệp vụ được phân quyền (bao gồm Danh sách lớp học & Chấm BTVN AI); riêng Báo cáo công việc và Nhập Deal & Công nợ chỉ xem & thao tác dữ liệu cá nhân.',
     badgeClass: 'bg-emerald-50 text-emerald-700 border-emerald-200',
   },
 };

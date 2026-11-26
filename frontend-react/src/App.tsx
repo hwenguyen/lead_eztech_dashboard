@@ -5,7 +5,7 @@ import {
   RefreshCw, LayoutDashboard, Clock, Award, Bot, LogOut, KeyRound,
   Menu, X, Sparkles, Facebook, FileSpreadsheet, Receipt, ExternalLink,
   Wallet, Database, CheckCircle2, User, ChevronDown,
-  BarChart3, Briefcase, Cpu, GraduationCap, Newspaper
+  BarChart3, Briefcase, Cpu, GraduationCap, Newspaper, BookOpen
 } from 'lucide-react';
 import { KpiCard } from './components/KpiCard';
 import { TrendChart } from './components/TrendChart';
@@ -41,6 +41,7 @@ const DealWinDashboard = lazy(() => import('./components/DealWinDashboard').then
 const BulkMessengerDashboard = lazy(() => import('./components/BulkMessengerDashboard').then((m) => ({ default: m.BulkMessengerDashboard })));
 const AutoAddFriendDashboard = lazy(() => import('./components/AutoAddFriendDashboard').then((m) => ({ default: m.AutoAddFriendDashboard })));
 const AppScriptTool = lazy(() => import('./components/AppScriptTool').then((m) => ({ default: m.AppScriptTool })));
+const ClassListDashboard = lazy(() => import('./components/ClassListDashboard').then((m) => ({ default: m.ClassListDashboard })));
 const AiAssistantDashboard = lazy(() => import('./components/AiAssistantDashboard').then((m) => ({ default: m.AiAssistantDashboard })));
 const AiDailyReviewCard = lazy(() => import('./components/AiDailyReviewCard').then((m) => ({ default: m.AiDailyReviewCard })));
 const BtvnGraderDashboard = lazy(() => import('./components/BtvnGraderDashboard').then((m) => ({ default: m.BtvnGraderDashboard })));
@@ -60,7 +61,7 @@ type TabId = AppTabId | 'profile';
 
 const VALID_TABS = new Set<TabId>([
   'overview', 'facebook', 'tiktok', 'bulletin', 'work_report', 'remind',
-  'deals', 'bot', 'data_export', 'add_friend', 'gas_tool',
+  'deals', 'bot', 'data_export', 'add_friend', 'gas_tool', 'class_list',
   'invoice', 'ai_assistant', 'btvn_grader', 'profile',
 ]);
 
@@ -76,6 +77,7 @@ const TAB_TITLES: Record<TabId, string> = {
   data_export: 'Query & Kết Xuất Dữ Liệu Excel',
   add_friend: 'Kết Bạn Zalo Tự Động (Pancake)',
   gas_tool: 'Nhập Deal & Quản lý Công Nợ',
+  class_list: 'Danh sách lớp học',
   invoice: 'Xuất Hoá Đơn Điện Tử',
   ai_assistant: 'Trợ Lý AI Nội Bộ (RAG + API)',
   btvn_grader: 'Chấm BTVN Power BI / Power Query (Gemini AI)',
@@ -171,6 +173,7 @@ const NAV_GROUPS: NavGroupConfig[] = [
       { id: 'remind', label: 'Chăm sóc Lead', icon: Clock },
       { id: 'deals', label: 'Deal Win', icon: Award },
       { id: 'gas_tool', label: 'Nhập Deal & Công Nợ', icon: Wallet },
+      { id: 'class_list', label: 'Danh sách lớp học', icon: BookOpen },
       { id: 'invoice', label: 'Xuất hoá đơn', icon: Receipt, url: INVOICE_SCRIPT_URL },
     ],
   },
@@ -1111,6 +1114,8 @@ function App() {
                   <AutoAddFriendDashboard />
                 ) : effectiveTab === 'gas_tool' && canAccessTab(currentUser, 'gas_tool') ? (
                   <AppScriptTool />
+                ) : effectiveTab === 'class_list' && canAccessTab(currentUser, 'class_list') ? (
+                  <ClassListDashboard />
                 ) : effectiveTab === 'ai_assistant' && canAccessTab(currentUser, 'ai_assistant') ? (
                   <AiAssistantDashboard />
                 ) : effectiveTab === 'btvn_grader' && canAccessTab(currentUser, 'btvn_grader') ? (
