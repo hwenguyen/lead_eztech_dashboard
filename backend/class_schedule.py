@@ -277,6 +277,13 @@ def parse_class_schedule_rows(rows: List[List[str]]) -> List[Dict[str, Any]]:
                     seen_keys.add(dedup_key)
                     courses_with_sessions.add(course_code)
 
+                    is_buoi_1 = bool(re.fullmatch(r"buổi\s*1", session_label.strip(), re.IGNORECASE))
+                    raw_status = block_status or "Đang học"
+                    if raw_status.lower() == "khai giảng" and not is_buoi_1:
+                        session_status = "Đang học"
+                    else:
+                        session_status = raw_status
+
                     events.append({
                         "id": f"cls_{course_code}_{iso_date}_{col}",
                         "date": iso_date,
@@ -286,7 +293,7 @@ def parse_class_schedule_rows(rows: List[List[str]]) -> List[Dict[str, Any]]:
                         "course_name": course_name,
                         "session_label": session_label,
                         "schedule_days": schedule_days,
-                        "status": block_status or "Đang học",
+                        "status": session_status,
                         "instructor": instructor,
                         "assistants": assistants,
                         "note": ", ".join(notes),
