@@ -113,8 +113,11 @@ DEPARTMENT_MATRIX: Dict[str, Dict[str, Any]] = {
     DEPT_CLASS_MANAGER: {
         "allowed_tabs": CLASS_MANAGER_TABS,
         "default_tab": "bulletin",
-        "module_scopes": {tab: "all" for tab in CLASS_MANAGER_TABS},
-        "scope_summary": "Xem toàn bộ dữ liệu của tất cả nhân viên trên cả 7 trang nghiệp vụ (bao gồm Chấm BTVN AI, hỗ trợ bộ lọc theo từng nhân viên).",
+        "module_scopes": {
+            **{tab: "all" for tab in CLASS_MANAGER_TABS},
+            "work_report": "personal",
+        },
+        "scope_summary": "Xem toàn bộ dữ liệu của tất cả nhân viên trên các trang nghiệp vụ được phân quyền (bao gồm Chấm BTVN AI); riêng Báo cáo công việc chỉ xem số liệu cá nhân.",
     },
 }
 

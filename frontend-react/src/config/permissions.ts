@@ -133,8 +133,11 @@ export const DEPARTMENT_PERMISSIONS: Record<DepartmentName, DepartmentPermission
     department: 'Quản lý lớp học',
     allowedTabs: CLASS_MANAGER_TABS,
     defaultTab: 'bulletin',
-    moduleScopes: buildScopeMap(CLASS_MANAGER_TABS, 'all'),
-    scopeSummary: 'Full dữ liệu tất cả nhân viên trên cả 7 trang nghiệp vụ được phân quyền (bao gồm Chấm BTVN AI, hỗ trợ bộ lọc theo từng nhân viên).',
+    moduleScopes: {
+      ...buildScopeMap(CLASS_MANAGER_TABS, 'all'),
+      work_report: 'personal',
+    },
+    scopeSummary: 'Full dữ liệu tất cả nhân viên trên các trang nghiệp vụ được phân quyền (bao gồm Chấm BTVN AI); riêng Báo cáo công việc chỉ xem số liệu cá nhân.',
     badgeClass: 'bg-emerald-50 text-emerald-700 border-emerald-200',
   },
 };
