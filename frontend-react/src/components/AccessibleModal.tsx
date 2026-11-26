@@ -65,7 +65,7 @@ export function AccessibleModal({
 
   return (
     <div
-      className={overlayClassName}
+      className={`!m-0 ${overlayClassName}`}
       onMouseDown={(e) => {
         if (closeOnBackdrop && e.target === e.currentTarget) {
           onClose();

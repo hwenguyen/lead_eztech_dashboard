@@ -1147,6 +1147,10 @@ html .hover\:text-purple-800:hover {
 .ez-kpi-grid > *:nth-child(n+7) { animation-delay: 220ms; }
 
 /* Unified Modal & Overlay transitions across all pages */
+/* Prevent parent Tailwind space-y-* utilities from pushing fixed inset-0 overlays downward */
+.fixed.inset-0 {
+  margin: 0 !important;
+}
 .fixed.inset-0.z-50,
 .fixed.inset-0.z-30 {
   animation: ez-backdrop-in var(--ez-dur-fast) ease-out backwards;
