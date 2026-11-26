@@ -22,6 +22,7 @@ from dateutil.relativedelta import relativedelta
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
 from pydantic import BaseModel, Field
 from sqlalchemy import case, desc, exists, func, or_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, load_only
 
 from backend.auth import require_admin, require_tab_access
@@ -512,17 +513,38 @@ def mark_all_posts_read(
         query = query.filter(BulletinPost.boss_key == boss_key.strip().lower())
 
     unread_ids = [pid for (pid,) in query.all()]
+    marked = 0
     if unread_ids:
         now_vn = get_vn_now()
-        db.bulk_save_objects(
-            [
-                BulletinRead(post_id=pid, user_id=current_user.id, read_at=now_vn)
-                for pid in unread_ids
-            ]
-        )
-        db.commit()
+        try:
+            db.bulk_save_objects(
+                [
+                    BulletinRead(post_id=pid, user_id=current_user.id, read_at=now_vn)
+                    for pid in unread_ids
+                ]
+            )
+            db.commit()
+            marked = len(unread_ids)
+        except IntegrityError:
+            db.rollback()
+            existing_ids = {
+                pid
+                for (pid,) in db.query(BulletinRead.post_id)
+                .filter(BulletinRead.user_id == current_user.id, BulletinRead.post_id.in_(unread_ids))
+                .all()
+            }
+            remaining = [pid for pid in unread_ids if pid not in existing_ids]
+            if remaining:
+                db.bulk_save_objects(
+                    [
+                        BulletinRead(post_id=pid, user_id=current_user.id, read_at=now_vn)
+                        for pid in remaining
+                    ]
+                )
+                db.commit()
+            marked = len(remaining)
         _invalidate_user_read_count(current_user.id)
-    return {"status": "ok", "marked_count": len(unread_ids)}
+    return {"status": "ok", "marked_count": marked}
 
 
 @router.post("/posts/{post_id}/read")

@@ -2502,7 +2502,10 @@ export function BulletinDashboard({ onUnreadCountChange }: BulletinDashboardProp
                 workspaceRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
               });
             }}
-            onReminderMutated={() => {
+            onReminderMutated={(deltaPending) => {
+              if (typeof deltaPending === 'number') {
+                setPendingRemindersCount((c) => Math.max(0, c + deltaPending));
+              }
               loadReminders();
               setCalendarRefreshTick((t) => t + 1);
             }}

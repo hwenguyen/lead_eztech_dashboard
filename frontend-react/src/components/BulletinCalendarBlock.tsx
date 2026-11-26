@@ -51,7 +51,7 @@ interface BulletinCalendarBlockProps {
   onCreateReminderForDate: (dateStr: string) => void;
   onEditReminder: (rem: WorkReminderItem) => void;
   onSelectChecklistDate: (dateStr: string) => void;
-  onReminderMutated: () => void;
+  onReminderMutated: (deltaPending?: number) => void;
 }
 
 type EventTypeFilter = 'all' | 'reminders' | 'classes' | 'checklists';
@@ -216,16 +216,21 @@ export function BulletinCalendarBlock({
 
   const filteredReminders = useMemo(() => {
     if (typeFilter === 'classes' || typeFilter === 'checklists') return [];
+    const personKw = personFilter !== 'all' ? personFilter.toLowerCase() : '';
     return monthReminders.filter((r) => {
       if (statusFilter === 'active' && r.status === 'completed') return false;
       if (statusFilter === 'done' && r.status !== 'completed') return false;
+      if (personKw) {
+        const owner = (r.owner_name || '').toLowerCase();
+        if (!owner.includes(personKw)) return false;
+      }
       if (kw) {
         const hay = `${r.title} ${r.description || ''} ${r.owner_name || ''}`.toLowerCase();
         if (!hay.includes(kw)) return false;
       }
       return true;
     });
-  }, [monthReminders, typeFilter, statusFilter, kw]);
+  }, [monthReminders, typeFilter, statusFilter, personFilter, kw]);
 
   const filteredClasses = useMemo(() => {
     if (typeFilter === 'reminders' || typeFilter === 'checklists') return [];
@@ -298,7 +303,7 @@ export function BulletinCalendarBlock({
     try {
       await updateWorkReminder(r.id, { status: nextStatus });
       showAppToast(nextStatus === 'completed' ? 'Đã hoàn thành nhắc hẹn' : 'Đã mở lại nhắc hẹn', 'success');
-      onReminderMutated();
+      onReminderMutated(nextStatus === 'completed' ? -1 : 1);
       await loadCalendarData();
     } catch (err: any) {
       showAppToast(err?.response?.data?.detail || 'Lỗi cập nhật nhắc hẹn', 'error');
