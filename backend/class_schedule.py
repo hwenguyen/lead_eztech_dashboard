@@ -401,8 +401,7 @@ def sync_class_schedule(
                 raise ValueError(
                     "URL bị chặn đăng nhập Google. Nếu Sheet đang Private, hãy dùng Google Apps Script Web App (Execute as: Me, Who has access: Anyone)."
                 )
-            resp.encoding = resp.encoding or "utf-8"
-            raw_csv = resp.text
+            raw_csv = resp.content.decode("utf-8-sig", errors="replace")
         except requests.RequestException as exc:
             raise ValueError(f"Không tải được dữ liệu từ Google Sheet / Apps Script: {exc}") from exc
 
