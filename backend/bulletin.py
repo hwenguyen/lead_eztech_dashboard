@@ -1947,6 +1947,7 @@ def admin_list_zalo_logs(
 def cron_dispatch_digest(
     slot: str = Query(default="11h", description="11h hoặc 15h"),
     sync_first: bool = Query(default=True),
+    verbose: bool = Query(default=False),
     db: Session = Depends(get_db),
 ):
     """Endpoint để GitHub Actions / Cronjob ngoài gọi lúc 11:00 và 15:00 giờ VN."""
@@ -1955,17 +1956,26 @@ def cron_dispatch_digest(
         clear_bulletin_meta_cache()
     digest_res = dispatch_daily_digest(db=db, slot=slot, dry_run=False, force=False)
     exact_res = dispatch_due_exact_reminders(db=db, dry_run=False)
+    if verbose:
+        return {
+            "status": "ok",
+            "sync": sync_res,
+            "digest": digest_res,
+            "exact": exact_res,
+        }
     return {
         "status": "ok",
-        "sync": sync_res,
-        "digest": digest_res,
-        "exact": exact_res,
+        "slot": slot,
+        "synced": (sync_res or {}).get("inserted", 0) if isinstance(sync_res, dict) else 0,
+        "digest_sent": (digest_res or {}).get("sent", 0) if isinstance(digest_res, dict) else 0,
+        "exact_sent": (exact_res or {}).get("sent", 0) if isinstance(exact_res, dict) else 0,
     }
 
 
 @router.post("/cron/tick", dependencies=[Depends(_verify_cron_secret)])
 def cron_tick_exact_reminders(
     sync_posts: bool = Query(default=False),
+    verbose: bool = Query(default=False),
     db: Session = Depends(get_db),
 ):
     """Endpoint để cronjob định kỳ kiểm tra các nhắc hẹn đúng giờ (exact_time)."""
@@ -1973,8 +1983,14 @@ def cron_tick_exact_reminders(
     if sync_res and (sync_res.get("inserted") or sync_res.get("merged")):
         clear_bulletin_meta_cache()
     exact_res = dispatch_due_exact_reminders(db=db, dry_run=False)
+    if verbose:
+        return {
+            "status": "ok",
+            "sync": sync_res,
+            "exact": exact_res,
+        }
     return {
         "status": "ok",
-        "sync": sync_res,
-        "exact": exact_res,
+        "synced": (sync_res or {}).get("inserted", 0) if isinstance(sync_res, dict) else 0,
+        "exact_sent": (exact_res or {}).get("sent", 0) if isinstance(exact_res, dict) else 0,
     }
