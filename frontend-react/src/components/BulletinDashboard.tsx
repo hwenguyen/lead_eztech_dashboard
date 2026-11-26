@@ -577,6 +577,7 @@ export function BulletinDashboard({ onUnreadCountChange }: BulletinDashboardProp
       setAiModalOpen(false);
       setChecklistDate(today);
       await Promise.all([loadChecklists(), loadReminders(), loadPosts(postsPage)]);
+      setCalendarRefreshTick((t) => t + 1);
     } catch (err: any) {
       showAppToast(err?.response?.data?.detail || 'Lỗi khi lưu kết quả AI', 'error');
     } finally {
@@ -591,6 +592,7 @@ export function BulletinDashboard({ onUnreadCountChange }: BulletinDashboardProp
       const res = await rolloverPendingChecklistItems({ target_date: checklistDate });
       showAppToast(res.message || 'Đã chuyển tiếp việc chưa xong sang hôm nay', 'success');
       await Promise.all([loadChecklists(), loadRollover()]);
+      setCalendarRefreshTick((t) => t + 1);
     } catch (err: any) {
       showAppToast(err?.response?.data?.detail || 'Không thể chuyển tiếp đầu việc', 'error');
     } finally {
@@ -694,6 +696,7 @@ export function BulletinDashboard({ onUnreadCountChange }: BulletinDashboardProp
       await updateWorkReminder(rem.id, { remind_at: nextTime, status: 'pending' });
       showAppToast(`Đã hoãn nhắc hẹn sang ${label}`, 'info');
       await loadReminders();
+      setCalendarRefreshTick((t) => t + 1);
     } catch (err: any) {
       showAppToast(err?.response?.data?.detail || 'Không thể hoãn nhắc hẹn', 'error');
     }
@@ -709,6 +712,7 @@ export function BulletinDashboard({ onUnreadCountChange }: BulletinDashboardProp
         showAppToast(nextStatus === 'completed' ? 'Đã hoàn thành nhắc hẹn' : 'Đã mở lại nhắc hẹn', 'success');
       }
       await loadReminders();
+      setCalendarRefreshTick((t) => t + 1);
     } catch (err: any) {
       showAppToast(err?.response?.data?.detail || 'Không thể cập nhật nhắc hẹn', 'error');
     }
@@ -718,6 +722,7 @@ export function BulletinDashboard({ onUnreadCountChange }: BulletinDashboardProp
     try {
       await deleteWorkReminder(remId);
       setReminders((prev) => prev.filter((r) => r.id !== remId));
+      setCalendarRefreshTick((t) => t + 1);
       showAppToast('Đã xóa nhắc hẹn', 'info');
     } catch (err: any) {
       showAppToast(err?.response?.data?.detail || 'Không thể xóa nhắc hẹn', 'error');
@@ -749,6 +754,7 @@ export function BulletinDashboard({ onUnreadCountChange }: BulletinDashboardProp
       setChecklistDate(clDateInput);
       setWorkTab('checklist');
       await Promise.all([loadChecklists(), clSourcePost ? loadPosts(postsPage) : Promise.resolve()]);
+      setCalendarRefreshTick((t) => t + 1);
     } catch (err: any) {
       showAppToast(err?.response?.data?.detail || 'Lỗi khi tạo checklist', 'error');
     } finally {
@@ -792,6 +798,7 @@ export function BulletinDashboard({ onUnreadCountChange }: BulletinDashboardProp
     try {
       await updateChecklistTaskItem(itemId, { is_done: !currentDone });
       await loadChecklists();
+      setCalendarRefreshTick((t) => t + 1);
     } catch (err: any) {
       showAppToast(err?.response?.data?.detail || 'Không thể cập nhật hạng mục', 'error');
       await loadChecklists();
@@ -821,6 +828,7 @@ export function BulletinDashboard({ onUnreadCountChange }: BulletinDashboardProp
       await addChecklistTaskItem(checklistId, content);
       setInlineItemInputs((prev) => ({ ...prev, [checklistId]: '' }));
       await loadChecklists();
+      setCalendarRefreshTick((t) => t + 1);
     } catch (err: any) {
       showAppToast(err?.response?.data?.detail || 'Không thể thêm đầu việc', 'error');
     }
@@ -830,6 +838,7 @@ export function BulletinDashboard({ onUnreadCountChange }: BulletinDashboardProp
     try {
       await deleteChecklistTaskItem(itemId);
       await loadChecklists();
+      setCalendarRefreshTick((t) => t + 1);
     } catch (err: any) {
       showAppToast(err?.response?.data?.detail || 'Không thể xóa đầu việc', 'error');
     }
@@ -839,6 +848,7 @@ export function BulletinDashboard({ onUnreadCountChange }: BulletinDashboardProp
     try {
       await deleteDailyChecklist(checklistId);
       setChecklists((prev) => prev.filter((c) => c.id !== checklistId));
+      setCalendarRefreshTick((t) => t + 1);
       showAppToast('Đã xóa checklist', 'info');
     } catch (err: any) {
       showAppToast(err?.response?.data?.detail || 'Không thể xóa checklist', 'error');
