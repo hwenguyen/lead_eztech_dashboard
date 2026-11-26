@@ -307,8 +307,8 @@ def _resolve_pancake_info_batch(
         has_assigned = 1 if normalize_sale_name(assigned_users) else 0
         # Chỉ lấy hội thoại thuộc kênh có số lượng tin nhắn nhiều nhất
         score = (
-            has_assigned,
             int(msg_count or 0),
+            has_assigned,
             1 if conv_id else 0,
             1 if "học viên" in tag_lower else 0,
         )
@@ -376,7 +376,7 @@ def _backfill_all_pancake_links(db: Session, rows: List[SalesDeal], force: bool 
         l_info = lead_info_map.get(lid, {})
         p_info = phone_info_map.get(c_p, {})
 
-        best_zalo = p_info.get("zalo") or l_info.get("zalo") or ""
+        best_zalo = l_info.get("zalo") or p_info.get("zalo") or ""
         best_contact = p_info.get("ngay_contact") or l_info.get("ngay_contact") or ""
 
         if best_zalo and r.zalo != best_zalo:

@@ -2,12 +2,14 @@
 import re
 from datetime import datetime, timedelta
 from typing import Optional, Tuple, Iterable, Set, List, Dict, Any
-from sqlalchemy import or_
+from sqlalchemy import or_, func
 from sqlalchemy.orm import Session, defer
 from database.models import DealWin, DimLead, FactLeadActivity
-from etl.utils import VN_TZ, resolve_canonical_page_name, is_zalo_channel
+from etl.utils import VN_TZ, COMPANY_PHONE_NUMBERS, resolve_canonical_page_name, is_zalo_channel
 
 DEFAULT_SOURCE_PAGE = "Other/ Web"
+_IGNORED_MATCH_NAMES = {"", "unknown", "học viên", "hoc vien"}
+_MAX_SINGLE_WORD_NAME_FREQ = 5
 
 def normalize_sale_name(raw: Optional[str]) -> Optional[str]:
     """
@@ -183,43 +185,228 @@ def _resolve_lead_items(items: List[Dict[str, Any]]) -> Tuple[Optional[int], boo
     return best_lead_id, is_student, assigned_user, combined_tags, best_page, source_page
 
 
-def find_lead_info_by_phone(phone: Optional[str], db: Session) -> Tuple[Optional[int], bool, Optional[str], Optional[str], Optional[str], str]:
+def _clean_match_name(raw: Optional[str]) -> Optional[str]:
+    if not raw:
+        return None
+    s = " ".join(str(raw).strip().lower().split())
+    if len(s) < 2 or s in _IGNORED_MATCH_NAMES:
+        return None
+    return s
+
+
+def _is_within_deal_window(
+    deal_ts: Optional[datetime],
+    first_created_at: Optional[datetime],
+    updated_at: Optional[datetime],
+) -> bool:
+    if not deal_ts:
+        return True
+    ts = deal_ts.replace(tzinfo=None) if getattr(deal_ts, "tzinfo", None) else deal_ts
+    if updated_at:
+        u = updated_at.replace(tzinfo=None) if getattr(updated_at, "tzinfo", None) else updated_at
+        if (ts - timedelta(days=60)) <= u <= (ts + timedelta(days=45)):
+            return True
+    if first_created_at:
+        f = first_created_at.replace(tzinfo=None) if getattr(first_created_at, "tzinfo", None) else first_created_at
+        if (ts - timedelta(days=180)) <= f <= (ts + timedelta(days=14)):
+            return True
+    return False
+
+
+def _find_missing_phone_zalo_students(
+    db: Session,
+    deal_specs: List[Dict[str, Any]],
+) -> Dict[Any, List[Dict[str, Any]]]:
     """
-    Tìm thông tin DimLead và FactLeadActivity theo SĐT.
+    Bù liên kết cho các hội thoại Zalo cá nhân ('Đã là học viên') bị thiếu SĐT hoặc dính SĐT hotline nội bộ:
+    - Khớp theo tên chính xác (từ DealWin.full_name hoặc DimLead.name đã khớp SĐT ở kênh khác).
+    - Chỉ chấp nhận tên 1 từ nếu là biệt danh hiếm (tổng số dòng trong dim_leads <= 5) để tránh trùng tên phổ biến (Dung, Trang, Hương...).
+    - Không bao giờ ghép thêm trên cùng 1 Page Zalo mà SĐT đó đã có hội thoại.
+    - Nếu cùng 1 Page Zalo có > 1 học viên trùng tên khớp vào cùng 1 deal, bỏ qua trang đó để tránh đoán nhầm.
+    """
+    if not deal_specs:
+        return {}
+
+    all_names: Set[str] = set()
+    single_word_names: Set[str] = set()
+    for spec in deal_specs:
+        for nm in spec["names"]:
+            all_names.add(nm)
+            if " " not in nm:
+                single_word_names.add(nm)
+
+    if not all_names:
+        return {}
+
+    # Kiểm tra độ hiếm của tên 1 từ trên toàn bảng dim_leads
+    allowed_single_words: Set[str] = set()
+    if single_word_names:
+        sw_list = list(single_word_names)
+        for i in range(0, len(sw_list), 500):
+            chunk = sw_list[i:i + 500]
+            freq_rows = (
+                db.query(func.lower(func.trim(DimLead.name)), func.count(DimLead.id))
+                .filter(func.lower(func.trim(DimLead.name)).in_(chunk))
+                .group_by(func.lower(func.trim(DimLead.name)))
+                .all()
+            )
+            for lname, cnt in freq_rows:
+                if lname and int(cnt or 0) <= _MAX_SINGLE_WORD_NAME_FREQ:
+                    allowed_single_words.add(lname)
+
+    valid_names = {nm for nm in all_names if (" " in nm) or (nm in allowed_single_words)}
+    if not valid_names:
+        return {}
+
+    company_phones = list(COMPANY_PHONE_NUMBERS)
+    candidates_by_name: Dict[str, List[Dict[str, Any]]] = {}
+    name_list = list(valid_names)
+    for i in range(0, len(name_list), 500):
+        chunk = name_list[i:i + 500]
+        rows = (
+            db.query(
+                DimLead.id,
+                DimLead.name,
+                DimLead.page_id,
+                DimLead.first_created_at,
+                FactLeadActivity.conversation_id,
+                FactLeadActivity.status_tag,
+                FactLeadActivity.assigned_users,
+                FactLeadActivity.message_count,
+                FactLeadActivity.updated_at,
+            )
+            .join(FactLeadActivity, FactLeadActivity.lead_id == DimLead.id)
+            .filter(
+                func.lower(func.trim(DimLead.name)).in_(chunk),
+                FactLeadActivity.conversation_id.like("pzl_u_%"),
+                or_(
+                    DimLead.phone_number.is_(None),
+                    DimLead.phone_number == "",
+                    DimLead.phone_number.in_(company_phones),
+                ),
+                FactLeadActivity.status_tag.isnot(None),
+            )
+            .all()
+        )
+        for lid, dname, pg, first_dt, conv_id, status_tag, assigned, msg_cnt, upd_dt in rows:
+            if "học viên" not in (status_tag or "").lower():
+                continue
+            lname = _clean_match_name(dname)
+            if not lname:
+                continue
+            candidates_by_name.setdefault(lname, []).append({
+                "lead_id": lid,
+                "page_id": resolve_canonical_page_name(pg, fallback=pg) if pg else "",
+                "conversation_id": conv_id or "",
+                "status_tag": (status_tag or "").strip(),
+                "assigned": (assigned or "").strip(),
+                "message_count": int(msg_cnt or 0),
+                "first_created_at": first_dt,
+                "updated_at": upd_dt,
+            })
+
+    if not candidates_by_name:
+        return {}
+
+    result: Dict[Any, List[Dict[str, Any]]] = {}
+    for spec in deal_specs:
+        key = spec["key"]
+        existing_zalo_pages: Set[str] = spec["existing_zalo_pages"]
+        existing_lead_ids: Set[int] = spec["existing_lead_ids"]
+        deal_ts: Optional[datetime] = spec.get("timestamp")
+
+        by_page: Dict[str, List[Dict[str, Any]]] = {}
+        seen_lids: Set[int] = set(existing_lead_ids)
+        for nm in spec["names"]:
+            if nm not in valid_names:
+                continue
+            for cand in candidates_by_name.get(nm, []):
+                lid = cand["lead_id"]
+                pg = cand["page_id"]
+                if lid in seen_lids or not pg or pg in existing_zalo_pages:
+                    continue
+                if not _is_within_deal_window(deal_ts, cand["first_created_at"], cand["updated_at"]):
+                    continue
+                seen_lids.add(lid)
+                by_page.setdefault(pg, []).append(cand)
+
+        matched: List[Dict[str, Any]] = []
+        for pg, pg_cands in by_page.items():
+            # Chỉ ghép khi trang Zalo đó có đúng 1 học viên trùng tên (tránh đoán nhầm giữa 2 người trùng tên)
+            if len(pg_cands) == 1:
+                matched.append(pg_cands[0])
+        if matched:
+            result[key] = matched
+
+    return result
+
+
+def find_lead_info_by_phone(
+    phone: Optional[str],
+    db: Session,
+    full_name: Optional[str] = None,
+    deal_timestamp: Optional[datetime] = None,
+) -> Tuple[Optional[int], bool, Optional[str], Optional[str], Optional[str], str]:
+    """
+    Tìm thông tin DimLead và FactLeadActivity theo SĐT (có bù liên kết an toàn với hội thoại Zalo
+    'Đã là học viên' bị thiếu SĐT / dính hotline nội bộ).
     Trả về: (dim_lead_id, is_student, care_by, lead_tag, page_id, source_page)
     """
-    if not phone or not str(phone).strip():
-        return None, False, None, None, None, DEFAULT_SOURCE_PAGE
+    clean_phone = str(phone).strip() if phone and str(phone).strip() else ""
+    items: List[Dict[str, Any]] = []
+    candidate_names: Set[str] = set()
+    fn_clean = _clean_match_name(full_name)
+    if fn_clean:
+        candidate_names.add(fn_clean)
 
-    clean_phone = str(phone).strip()
-    rows = db.query(
-        DimLead.id,
-        DimLead.page_id,
-        FactLeadActivity.conversation_id,
-        FactLeadActivity.status_tag,
-        FactLeadActivity.assigned_users,
-        FactLeadActivity.message_count
-    ).join(
-        FactLeadActivity, FactLeadActivity.lead_id == DimLead.id
-    ).filter(
-        DimLead.phone_number == clean_phone,
-        ~FactLeadActivity.conversation_id.like("pzl_g_%")
-    ).all()
+    if clean_phone:
+        rows = db.query(
+            DimLead.id,
+            DimLead.name,
+            DimLead.page_id,
+            FactLeadActivity.conversation_id,
+            FactLeadActivity.status_tag,
+            FactLeadActivity.assigned_users,
+            FactLeadActivity.message_count
+        ).join(
+            FactLeadActivity, FactLeadActivity.lead_id == DimLead.id
+        ).filter(
+            DimLead.phone_number == clean_phone,
+            ~FactLeadActivity.conversation_id.like("pzl_g_%")
+        ).all()
 
-    if not rows:
-        return None, False, None, None, None, DEFAULT_SOURCE_PAGE
+        for lid, dname, pg, conv_id, status_tag, assigned_users, msg_cnt in rows:
+            canon_pg = resolve_canonical_page_name(pg, fallback=pg) if pg else ''
+            items.append({
+                'lead_id': lid,
+                'page_id': canon_pg,
+                'conversation_id': conv_id or '',
+                'status_tag': (status_tag or '').strip(),
+                'assigned': (assigned_users or '').strip(),
+                'message_count': int(msg_cnt or 0),
+            })
+            dn_clean = _clean_match_name(dname)
+            if dn_clean:
+                candidate_names.add(dn_clean)
 
-    items = [
-        {
-            'lead_id': lid,
-            'page_id': resolve_canonical_page_name(pg, fallback=pg) if pg else '',
-            'conversation_id': conv_id or '',
-            'status_tag': (status_tag or '').strip(),
-            'assigned': (assigned_users or '').strip(),
-            'message_count': int(msg_cnt or 0),
+    if candidate_names:
+        existing_zalo_pages = {
+            it['page_id'] for it in items
+            if it.get('page_id') and is_zalo_channel(it.get('page_id'), it.get('conversation_id'))
         }
-        for lid, pg, conv_id, status_tag, assigned_users, msg_cnt in rows
-    ]
+        extra = _find_missing_phone_zalo_students(db, [{
+            "key": "single",
+            "names": candidate_names,
+            "existing_zalo_pages": existing_zalo_pages,
+            "existing_lead_ids": {it["lead_id"] for it in items},
+            "timestamp": deal_timestamp,
+        }])
+        if extra.get("single"):
+            items.extend(extra["single"])
+
+    if not items:
+        return None, False, None, None, None, DEFAULT_SOURCE_PAGE
+
     return _resolve_lead_items(items)
 
 
@@ -265,7 +452,8 @@ def sync_all_deals_with_dim_leads(
         return 0, 0, 0
 
     deal_phones = list({d.phone_number for d in deals if d.phone_number and d.phone_number.strip()})
-    lead_map = {}
+    lead_map: Dict[str, List[Dict[str, Any]]] = {}
+    lead_names_by_phone: Dict[str, Set[str]] = {}
 
     if deal_phones:
         # Chia chunk 500 SĐT để dùng index ix_dim_leads_phone_number cực nhanh
@@ -274,6 +462,7 @@ def sync_all_deals_with_dim_leads(
             leads = db.query(
                 DimLead.id,
                 DimLead.phone_number,
+                DimLead.name,
                 DimLead.page_id,
                 FactLeadActivity.conversation_id,
                 FactLeadActivity.status_tag,
@@ -286,7 +475,7 @@ def sync_all_deals_with_dim_leads(
                 ~FactLeadActivity.conversation_id.like("pzl_g_%")
             ).all()
 
-            for lid, phone, pg, conv_id, status_tag, assigned, msg_cnt in leads:
+            for lid, phone, dname, pg, conv_id, status_tag, assigned, msg_cnt in leads:
                 if phone not in lead_map:
                     lead_map[phone] = []
                 lead_map[phone].append({
@@ -297,6 +486,33 @@ def sync_all_deals_with_dim_leads(
                     'assigned': (assigned or '').strip(),
                     'message_count': int(msg_cnt or 0),
                 })
+                dn_clean = _clean_match_name(dname)
+                if dn_clean:
+                    lead_names_by_phone.setdefault(phone, set()).add(dn_clean)
+
+    # Bù liên kết an toàn với các hội thoại Zalo 'Đã là học viên' bị thiếu SĐT / dính hotline nội bộ
+    deal_specs: List[Dict[str, Any]] = []
+    for d in deals:
+        phone = d.phone_number
+        base_items = lead_map.get(phone) or []
+        names: Set[str] = set(lead_names_by_phone.get(phone, set()))
+        fn_clean = _clean_match_name(d.full_name)
+        if fn_clean:
+            names.add(fn_clean)
+        if not names:
+            continue
+        existing_zalo_pages = {
+            it['page_id'] for it in base_items
+            if it.get('page_id') and is_zalo_channel(it.get('page_id'), it.get('conversation_id'))
+        }
+        deal_specs.append({
+            "key": d.id,
+            "names": names,
+            "existing_zalo_pages": existing_zalo_pages,
+            "existing_lead_ids": {it['lead_id'] for it in base_items},
+            "timestamp": d.timestamp,
+        })
+    extra_zalo_by_deal = _find_missing_phone_zalo_students(db, deal_specs)
 
     student_count = 0
     care_by_updated = 0
@@ -304,7 +520,9 @@ def sync_all_deals_with_dim_leads(
 
     for d in deals:
         phone = d.phone_number
-        items = lead_map.get(phone)
+        base_items = lead_map.get(phone) or []
+        extra_items = extra_zalo_by_deal.get(d.id) or []
+        items = base_items + extra_items if extra_items else base_items
         if items:
             new_lead_id, new_is_student, new_care, new_tag, new_page_id, new_source_page = _resolve_lead_items(items)
             if d.dim_lead_id != new_lead_id:

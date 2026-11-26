@@ -12,6 +12,18 @@ PHONE_CANDIDATE_REGEX = re.compile(r"(?<!\d)(?:\+?84|0)(?:[\s.\-]?\d){9}(?!\d)")
 VN_MOBILE_REGEX = re.compile(r"^0(3[2-9]|5[689]|7[06-9]|8[1-9]|9\d)\d{7}$")
 # Ngày giờ kiểu "09-10-2026 08:30" cũng đủ 10 chữ số → không được nhận nhầm là SĐT
 DATE_LIKE_REGEX = re.compile(r"^\d{1,2}[.\-]\d{1,2}[.\-](19|20)\d{2}")
+# SĐT Zalo / Hotline nội bộ của Eztech — không bao giờ được gán làm SĐT khách hàng
+COMPANY_PHONE_NUMBERS: Set[str] = {
+    "0377024368",  # Eztech Phân Tích Dữ Liệu
+    "0898276368",  # Hiền Minh Eztech
+    "0389528224",  # Tuấn Anh Data
+    "0989279368",  # Hotline / Zalo Eztech
+}
+
+
+def is_company_phone(raw: Any) -> bool:
+    norm = normalize_phone(raw)
+    return bool(norm and norm in COMPANY_PHONE_NUMBERS)
 
 
 def parse_pancake_date(date_val: Any) -> Optional[datetime]:
@@ -91,7 +103,7 @@ def parse_deal_date(date_val: Any) -> Optional[datetime]:
         return None
 
 def extract_phone_number(text: str) -> Optional[str]:
-    """Tìm SĐT di động VN trong text, trả về dạng chuẩn 0xxxxxxxxx."""
+    """Tìm SĐT di động VN trong text, trả về dạng chuẩn 0xxxxxxxxx (bỏ qua hotline nội bộ)."""
     if not text:
         return None
     for match in PHONE_CANDIDATE_REGEX.finditer(text):
@@ -100,7 +112,7 @@ def extract_phone_number(text: str) -> Optional[str]:
         digits = re.sub(r"\D", "", match.group(0))
         if digits.startswith("84"):
             digits = "0" + digits[2:]
-        if VN_MOBILE_REGEX.match(digits):
+        if VN_MOBILE_REGEX.match(digits) and digits not in COMPANY_PHONE_NUMBERS:
             return digits
     return None
 
@@ -136,6 +148,8 @@ def resolve_phone(raw_data: Dict[str, Any]) -> Tuple[Optional[str], Optional[dat
     """
     hits = customer_phone_hits(raw_data.get("messages"))
     phone = normalize_phone(raw_data.get("phone_number"))
+    if phone in COMPANY_PHONE_NUMBERS:
+        phone = None
     phone_at = None
     if phone:
         dates = [dt for dt, hit_phone in hits if hit_phone == phone and dt]

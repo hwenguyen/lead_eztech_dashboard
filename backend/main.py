@@ -1242,8 +1242,10 @@ async def receive_deal_webhook(request: Request, db: Session = Depends(get_db)):
         if sheet_row_id:
             sheet_row_id = str(sheet_row_id).strip()
 
-        # Map với DimLead và Pancake qua SĐT
-        dim_lead_id, is_student, pancake_care, lead_tag, page_id, source_page = find_lead_info_by_phone(phone, db)
+        # Map với DimLead và Pancake qua SĐT (kèm fallback tên khi Zalo học viên bị thiếu SĐT)
+        dim_lead_id, is_student, pancake_care, lead_tag, page_id, source_page = find_lead_info_by_phone(
+            phone, db, full_name=full_name, deal_timestamp=submitted_at
+        )
         from database.deal_sync import normalize_sale_name
         final_care_by = pancake_care or normalize_sale_name(care_by) or "Chưa phân công"
 

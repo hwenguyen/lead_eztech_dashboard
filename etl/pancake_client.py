@@ -20,6 +20,7 @@ from etl.utils import (
     clean_html,
     normalize_phone,
     extract_phone_number,
+    is_company_phone,
     build_post_url,
     resolve_api_page_id,
     get_candidate_api_page_ids,
@@ -548,13 +549,32 @@ class PancakeClient:
             else:
                 assigned_users = None
 
-            # Tìm SĐT trực tiếp từ đối tượng conversation nếu Pancake đã thu thập
+            # Tìm SĐT trực tiếp từ đối tượng conversation / customer / page_customer (bỏ qua hotline nội bộ)
             phone = None
+            phone_candidates = []
             recent_phones = conv.get('recent_phone_numbers', [])
-            if recent_phones and isinstance(recent_phones, list):
-                phone = recent_phones[0].get('phone_number')
-            if not phone and customers and isinstance(customers, list):
-                phone = customers[0].get('phone_number')
+            if isinstance(recent_phones, list):
+                for rp in recent_phones:
+                    if isinstance(rp, dict) and rp.get('phone_number'):
+                        phone_candidates.append(rp.get('phone_number'))
+                    elif isinstance(rp, str) and rp.strip():
+                        phone_candidates.append(rp.strip())
+            if isinstance(customers, list) and customers:
+                c0 = customers[0] if isinstance(customers[0], dict) else {}
+                if c0.get('phone_number'):
+                    phone_candidates.append(c0.get('phone_number'))
+                if isinstance(c0.get('phone_numbers'), list):
+                    phone_candidates.extend(c0.get('phone_numbers'))
+            page_cust = conv.get('page_customer') if isinstance(conv.get('page_customer'), dict) else {}
+            if page_cust.get('phone_number'):
+                phone_candidates.append(page_cust.get('phone_number'))
+            if isinstance(page_cust.get('phone_numbers'), list):
+                phone_candidates.extend(page_cust.get('phone_numbers'))
+            for cand in phone_candidates:
+                norm_cand = normalize_phone(cand)
+                if norm_cand and not is_company_phone(norm_cand):
+                    phone = cand
+                    break
 
             messages_data = messages_by_conv.get(conv_id, [])
             formatted_msgs = []
