@@ -37,6 +37,7 @@ import {
   fetchBulletinPosts,
   fetchBulletinPostReaders,
   markBulletinPostRead,
+  markAllBulletinPostsRead,
   unmarkBulletinPostRead,
   togglePinBulletinPost,
   syncBulletinPosts,
@@ -193,6 +194,8 @@ export function BulletinDashboard({ onUnreadCountChange }: BulletinDashboardProp
   // Right panel sub-tabs
   const [workTab, setWorkTab] = useState<'checklist' | 'reminders' | 'admin'>('checklist');
   const [calendarRefreshTick, setCalendarRefreshTick] = useState(0);
+  const [pendingRemindersCount, setPendingRemindersCount] = useState(0);
+  const [markingAllRead, setMarkingAllRead] = useState(false);
 
   // Checklist state
   const [checklistDate, setChecklistDate] = useState(() => getVnTodayStr(0));
@@ -365,6 +368,9 @@ export function BulletinDashboard({ onUnreadCountChange }: BulletinDashboardProp
       });
       setChecklists(data.items || []);
       setChecklistSummary(data.summary || { total_items: 0, done_items: 0, pending_items: 0 });
+      if (typeof data.pending_reminders_count === 'number') {
+        setPendingRemindersCount(data.pending_reminders_count);
+      }
     } catch (err: any) {
       showAppToast(err?.response?.data?.detail || 'Lỗi tải checklist hàng ngày', 'error');
     } finally {
@@ -393,7 +399,11 @@ export function BulletinDashboard({ onUnreadCountChange }: BulletinDashboardProp
         status: reminderStatusFilter,
         owner_user_id: isAdmin && adminOwnerFilter ? Number(adminOwnerFilter) : undefined,
       });
-      setReminders(data.items || []);
+      const items = data.items || [];
+      setReminders(items);
+      if (reminderStatusFilter === 'pending' || reminderStatusFilter === 'all') {
+        setPendingRemindersCount(items.filter((r) => r.status === 'pending').length);
+      }
     } catch (err: any) {
       showAppToast(err?.response?.data?.detail || 'Lỗi tải danh sách nhắc hẹn', 'error');
     } finally {
@@ -461,6 +471,23 @@ export function BulletinDashboard({ onUnreadCountChange }: BulletinDashboardProp
       showAppToast(err?.response?.data?.detail || 'Lỗi đồng bộ bản tin từ Zalo', 'error');
     } finally {
       setSyncingPosts(false);
+    }
+  };
+
+  const handleMarkAllRead = async () => {
+    if (unreadCount <= 0 || markingAllRead) return;
+    const scopeLabel = bossFilter === 'all' ? 'toàn bộ bảng tin' : 'tất cả bài viết của sếp đang lọc';
+    if (!window.confirm(`Đánh dấu đã đọc ${scopeLabel}?`)) return;
+    setMarkingAllRead(true);
+    try {
+      const res = await markAllBulletinPostsRead(bossFilter);
+      showAppToast(`Đã đánh dấu đã đọc ${res.marked_count} bài viết`, 'success');
+      await loadPosts(1);
+      setPostsPage(1);
+    } catch (err: any) {
+      showAppToast(err?.response?.data?.detail || 'Không thể đánh dấu tất cả đã đọc', 'error');
+    } finally {
+      setMarkingAllRead(false);
     }
   };
 
@@ -722,7 +749,11 @@ export function BulletinDashboard({ onUnreadCountChange }: BulletinDashboardProp
   const handleDeleteReminder = async (remId: number) => {
     try {
       await deleteWorkReminder(remId);
+      const deletedRem = reminders.find((r) => r.id === remId);
       setReminders((prev) => prev.filter((r) => r.id !== remId));
+      if (deletedRem?.status === 'pending') {
+        setPendingRemindersCount((c) => Math.max(0, c - 1));
+      }
       setCalendarRefreshTick((t) => t + 1);
       showAppToast('Đã xóa nhắc hẹn', 'info');
     } catch (err: any) {
@@ -1070,25 +1101,40 @@ export function BulletinDashboard({ onUnreadCountChange }: BulletinDashboardProp
               })}
             </div>
 
-            <div className="relative w-full sm:w-64 pb-1 sm:pb-0">
-              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" aria-hidden="true" />
-              <input
-                type="text"
-                value={searchInput}
-                onChange={(e) => setSearchInput(e.target.value)}
-                placeholder="Tìm trong bảng tin..."
-                className="w-full pl-9 pr-8 py-1.5 rounded-full border border-slate-200 text-xs text-navy bg-slate-100/80 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-400 transition-all"
-              />
-              {searchInput && (
+            <div className="flex items-center gap-2 w-full sm:w-auto pb-1 sm:pb-0">
+              {unreadCount > 0 && (
                 <button
                   type="button"
-                  onClick={() => setSearchInput('')}
-                  aria-label="Xóa từ khóa tìm kiếm"
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 rounded-full text-slate-400 hover:text-navy hover:bg-slate-200/70 cursor-pointer"
+                  onClick={handleMarkAllRead}
+                  disabled={markingAllRead}
+                  className="px-2.5 py-1.5 rounded-full border border-brand-200 bg-brand-50/80 hover:bg-brand-100 text-[11px] font-semibold text-brand-700 flex items-center gap-1 shrink-0 transition-colors cursor-pointer disabled:opacity-50"
+                  title="Đánh dấu tất cả bài viết chưa đọc là đã đọc"
                 >
-                  <X className="w-3 h-3" />
+                  <Check className="w-3.5 h-3.5" />
+                  <span>{markingAllRead ? 'Đang xử lý...' : 'Đánh dấu tất cả đã đọc'}</span>
                 </button>
               )}
+
+              <div className="relative flex-1 sm:w-60">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" aria-hidden="true" />
+                <input
+                  type="text"
+                  value={searchInput}
+                  onChange={(e) => setSearchInput(e.target.value)}
+                  placeholder="Tìm trong bảng tin..."
+                  className="w-full pl-9 pr-8 py-1.5 rounded-full border border-slate-200 text-xs text-navy bg-slate-100/80 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-400 transition-all"
+                />
+                {searchInput && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchInput('')}
+                    aria-label="Xóa từ khóa tìm kiếm"
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 rounded-full text-slate-400 hover:text-navy hover:bg-slate-200/70 cursor-pointer"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -1587,7 +1633,7 @@ export function BulletinDashboard({ onUnreadCountChange }: BulletinDashboardProp
                   <span>Không gian công việc</span>
                 </h3>
                 <span className="text-[11px] font-mono text-slate-400 tabular-nums">
-                  {checklistSummary.done_items}/{checklistSummary.total_items} việc • {reminders.filter((r) => r.status === 'pending').length} hẹn
+                  {checklistSummary.done_items}/{checklistSummary.total_items} việc • {pendingRemindersCount} hẹn
                 </span>
               </div>
 
@@ -1628,9 +1674,9 @@ export function BulletinDashboard({ onUnreadCountChange }: BulletinDashboardProp
                 >
                   <Bell className="w-3.5 h-3.5 text-brand-500 shrink-0" aria-hidden="true" />
                   <span className="truncate">Nhắc hẹn</span>
-                  {reminders.filter((r) => r.status === 'pending').length > 0 && (
+                  {pendingRemindersCount > 0 && (
                     <span className="px-1.5 py-0.5 rounded-full bg-brand-50 text-brand-700 text-[10px] font-bold font-mono tabular-nums">
-                      {reminders.filter((r) => r.status === 'pending').length}
+                      {pendingRemindersCount}
                     </span>
                   )}
                   {workTab === 'reminders' && (

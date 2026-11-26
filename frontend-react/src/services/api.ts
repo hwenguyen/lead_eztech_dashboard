@@ -2026,6 +2026,7 @@ export interface DailyChecklistItemGroup {
 export interface DailyChecklistsResponse {
   checklist_date: string;
   is_admin: boolean;
+  pending_reminders_count?: number;
   summary: {
     total_checklists: number;
     total_items: number;
@@ -2106,6 +2107,13 @@ export const fetchBulletinPostReaders = async (
 
 export const markBulletinPostRead = async (postId: number): Promise<{ status: string; is_read: boolean }> => {
   const res = await apiClient.post(`/bulletin/posts/${postId}/read`);
+  return res.data;
+};
+
+export const markAllBulletinPostsRead = async (
+  bossKey = 'all'
+): Promise<{ status: string; marked_count: number }> => {
+  const res = await apiClient.post('/bulletin/posts/read-all', null, { params: { boss_key: bossKey } });
   return res.data;
 };
 

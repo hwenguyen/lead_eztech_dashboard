@@ -135,6 +135,7 @@ export function BulletinCalendarBlock({
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [searchText, setSearchText] = useState('');
   const [courseTypeFilter, setCourseTypeFilter] = useState<string>('all');
+  const [personFilter, setPersonFilter] = useState<string>('all');
 
   // Data
   const [monthReminders, setMonthReminders] = useState<WorkReminderItem[]>([]);
@@ -233,13 +234,20 @@ export function BulletinCalendarBlock({
       if (statusFilter === 'active' && done) return false;
       if (statusFilter === 'done' && !done) return false;
       if (courseTypeFilter !== 'all' && ev.course_type !== courseTypeFilter) return false;
+      if (
+        personFilter !== 'all' &&
+        ev.instructor !== personFilter &&
+        !ev.assistants.includes(personFilter)
+      ) {
+        return false;
+      }
       if (kw) {
         const hay = `${ev.course_code} ${ev.course_name} ${ev.session_label} ${ev.instructor} ${ev.assistants.join(' ')} ${ev.note}`.toLowerCase();
         if (!hay.includes(kw)) return false;
       }
       return true;
     });
-  }, [classEvents, typeFilter, statusFilter, courseTypeFilter, kw]);
+  }, [classEvents, typeFilter, statusFilter, courseTypeFilter, personFilter, kw]);
 
   // Group by date YYYY-MM-DD
   const eventsByDate = useMemo(() => {
@@ -265,6 +273,21 @@ export function BulletinCalendarBlock({
       if (c.course_type) set.add(c.course_type);
     });
     return Array.from(set).sort();
+  }, [classEvents]);
+
+  const { instructors, assistants } = useMemo(() => {
+    const instSet = new Set<string>();
+    const asstSet = new Set<string>();
+    classEvents.forEach((c) => {
+      if (c.instructor) instSet.add(c.instructor);
+      c.assistants.forEach((a) => {
+        if (a) asstSet.add(a);
+      });
+    });
+    return {
+      instructors: Array.from(instSet).sort((a, b) => a.localeCompare(b, 'vi')),
+      assistants: Array.from(asstSet).sort((a, b) => a.localeCompare(b, 'vi')),
+    };
   }, [classEvents]);
 
   const selectedDayData = eventsByDate[selectedDate] || { reminders: [], classes: [] };
@@ -366,7 +389,12 @@ export function BulletinCalendarBlock({
   return ContentService.createTextOutput(csv).setMimeType(ContentService.MimeType.CSV);
 }`;
 
-  const hasActiveFilters = typeFilter !== 'all' || statusFilter !== 'all' || courseTypeFilter !== 'all' || kw !== '';
+  const hasActiveFilters =
+    typeFilter !== 'all' ||
+    statusFilter !== 'all' ||
+    courseTypeFilter !== 'all' ||
+    personFilter !== 'all' ||
+    kw !== '';
 
   return (
     <div className="bg-white rounded-2xl border border-slate-200/80 shadow-card overflow-hidden">
@@ -490,6 +518,7 @@ export function BulletinCalendarBlock({
                   setTypeFilter('all');
                   setStatusFilter('all');
                   setCourseTypeFilter('all');
+                  setPersonFilter('all');
                   setSearchText('');
                 }}
                 className="ml-auto text-[11px] font-medium text-rose-600 hover:underline flex items-center gap-0.5 cursor-pointer"
@@ -501,15 +530,44 @@ export function BulletinCalendarBlock({
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-12 gap-1.5">
-            <div className="sm:col-span-6 relative">
+            <div className="sm:col-span-4 relative">
               <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
                 value={searchText}
                 onChange={(e) => setSearchText(e.target.value)}
-                placeholder="Lọc lớp (PBIK63), GV, trợ giảng, hẹn..."
+                placeholder="Tìm lớp, nội dung..."
                 className="w-full pl-7 pr-2.5 py-1 text-[11px] bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-500"
               />
+            </div>
+
+            <div className="sm:col-span-3">
+              <select
+                value={personFilter}
+                onChange={(e) => setPersonFilter(e.target.value)}
+                aria-label="Lọc giảng viên hoặc trợ giảng"
+                className="w-full text-[11px] bg-white border border-slate-200 rounded-lg px-2 py-1 text-navy focus:outline-none"
+              >
+                <option value="all">Mọi GV / Trợ giảng</option>
+                {instructors.length > 0 && (
+                  <optgroup label="Giảng viên">
+                    {instructors.map((gv) => (
+                      <option key={`gv_${gv}`} value={gv}>
+                        GV: {gv}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                {assistants.length > 0 && (
+                  <optgroup label="Trợ giảng / Support">
+                    {assistants.map((tg) => (
+                      <option key={`tg_${tg}`} value={tg}>
+                        {tg}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+              </select>
             </div>
 
             <div className="sm:col-span-3">
@@ -525,14 +583,14 @@ export function BulletinCalendarBlock({
               </select>
             </div>
 
-            <div className="sm:col-span-3">
+            <div className="sm:col-span-2">
               <select
                 value={courseTypeFilter}
                 onChange={(e) => setCourseTypeFilter(e.target.value)}
                 aria-label="Lọc loại khóa học"
                 className="w-full text-[11px] bg-white border border-slate-200 rounded-lg px-2 py-1 text-navy focus:outline-none"
               >
-                <option value="all">Mọi khóa</option>
+                <option value="all">Khóa</option>
                 {courseTypes.map((ct) => (
                   <option key={ct} value={ct}>
                     {ct}

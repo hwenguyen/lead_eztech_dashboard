@@ -758,7 +758,9 @@ def start_exact_reminder_worker_if_enabled():
                 logger.debug(f"Exact reminder worker tick error: {exc}")
             try:
                 from backend.class_schedule import trigger_background_auto_sync_if_due
+                from backend.bulletin import trigger_bulletin_auto_sync_if_due
                 trigger_background_auto_sync_if_due(SessionLocal)
+                trigger_bulletin_auto_sync_if_due()
             except Exception:
                 pass
             time.sleep(60)

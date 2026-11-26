@@ -66,6 +66,38 @@ router = APIRouter(prefix="/api/bulletin", tags=["Bulletin"])
 _SYNC_LOCK = threading.Lock()
 _LAST_SYNC_AT = 0.0
 _SYNC_COOLDOWN_SEC = 20.0
+_POST_AUTO_SYNC_INTERVAL_SEC = 600.0  # Tự động đồng bộ tin mới mỗi 10 phút
+_LAST_POST_AUTO_SYNC_AT = 0.0
+_POST_AUTO_SYNC_RUNNING = False
+
+
+def trigger_bulletin_auto_sync_if_due() -> None:
+    """Tự động đồng bộ tin mới từ nhóm Zalo ở background thread nếu đã quá 10 phút."""
+    global _LAST_POST_AUTO_SYNC_AT, _POST_AUTO_SYNC_RUNNING, _LAST_SYNC_AT
+    now_ts = time.time()
+    with _SYNC_LOCK:
+        if _POST_AUTO_SYNC_RUNNING:
+            return
+        if now_ts - max(_LAST_POST_AUTO_SYNC_AT, _LAST_SYNC_AT) < _POST_AUTO_SYNC_INTERVAL_SEC:
+            return
+        _POST_AUTO_SYNC_AT = now_ts
+        _POST_AUTO_SYNC_RUNNING = True
+
+    def _run():
+        global _POST_AUTO_SYNC_RUNNING, _LAST_SYNC_AT
+        try:
+            with SessionLocal() as db:
+                res = sync_bulletin_from_group(db=db, max_pages=1, force_full=False)
+                if res.get("inserted") or res.get("merged"):
+                    clear_bulletin_meta_cache()
+                _LAST_SYNC_AT = time.time()
+        except Exception as exc:
+            logger.debug(f"Auto-sync bulletin posts error: {exc}")
+        finally:
+            with _SYNC_LOCK:
+                _POST_AUTO_SYNC_RUNNING = False
+
+    threading.Thread(target=_run, daemon=True, name="BulletinPostsAutoSync").start()
 
 # In-memory TTL cache tối ưu Neon Egress cho thống kê tổng quan bản tin (5 phút)
 _META_CACHE_LOCK = threading.Lock()
@@ -320,6 +352,8 @@ def list_bulletin_posts(
     db: Session = Depends(get_db),
 ):
     """Lấy danh sách bản tin từ nhóm EzTech - Data & Finance Service (Column Projection, tối ưu Neon Egress)."""
+    if page == 1 and not search and read_status in ("all", "unread", None):
+        trigger_bulletin_auto_sync_if_due()
     is_adm = _is_admin(current_user)
     query = db.query(BulletinPost).options(
         load_only(
@@ -460,6 +494,35 @@ def list_bulletin_posts(
         },
         "items": items,
     }
+
+
+@router.post("/posts/read-all")
+def mark_all_posts_read(
+    boss_key: Optional[str] = Query(default="all"),
+    current_user: AppUser = Depends(require_tab_access("bulletin")),
+    db: Session = Depends(get_db),
+):
+    """Đánh dấu tất cả bản tin (hoặc theo 1 sếp) là đã đọc cho user hiện tại."""
+    read_exists = exists().where(
+        (BulletinRead.post_id == BulletinPost.id)
+        & (BulletinRead.user_id == current_user.id)
+    )
+    query = db.query(BulletinPost.id).filter(~read_exists)
+    if boss_key and boss_key.strip().lower() not in ("all", ""):
+        query = query.filter(BulletinPost.boss_key == boss_key.strip().lower())
+
+    unread_ids = [pid for (pid,) in query.all()]
+    if unread_ids:
+        now_vn = get_vn_now()
+        db.bulk_save_objects(
+            [
+                BulletinRead(post_id=pid, user_id=current_user.id, read_at=now_vn)
+                for pid in unread_ids
+            ]
+        )
+        db.commit()
+        _invalidate_user_read_count(current_user.id)
+    return {"status": "ok", "marked_count": len(unread_ids)}
 
 
 @router.post("/posts/{post_id}/read")
@@ -1324,9 +1387,18 @@ def list_checklists(
     ]
     total_items = sum(c["total_count"] for c in serialized)
     done_items = sum(c["done_count"] for c in serialized)
+
+    rem_count_q = db.query(func.count(WorkReminder.id)).filter(WorkReminder.status == "pending")
+    if not is_adm:
+        rem_count_q = rem_count_q.filter(WorkReminder.owner_user_id == current_user.id)
+    elif owner_user_id is not None:
+        rem_count_q = rem_count_q.filter(WorkReminder.owner_user_id == owner_user_id)
+    pending_reminders_count = int(rem_count_q.scalar() or 0)
+
     return {
         "checklist_date": target_date,
         "is_admin": is_adm,
+        "pending_reminders_count": pending_reminders_count,
         "summary": {
             "total_checklists": len(serialized),
             "total_items": total_items,
