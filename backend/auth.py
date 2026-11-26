@@ -54,17 +54,26 @@ def get_vn_now():
     return datetime.now(VN_TZ).replace(tzinfo=None)
 
 
-# Khóa bí mật JWT (Ưu tiên lấy từ biến môi trường JWT_SECRET_KEY)
-JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "eztech_lead_dashboard_jwt_secret_key_2026_super_secure_salt")
+# Khóa bí mật JWT (bắt buộc cấu hình qua biến môi trường JWT_SECRET_KEY trên production)
+_IS_PROD = bool(os.getenv("RENDER")) or os.getenv("ENV", "").strip().lower() in ("prod", "production")
+_ENV_JWT_SECRET = os.getenv("JWT_SECRET_KEY", "").strip()
+if _ENV_JWT_SECRET:
+    JWT_SECRET_KEY = _ENV_JWT_SECRET
+elif _IS_PROD:
+    raise RuntimeError("Thiếu biến môi trường JWT_SECRET_KEY trên môi trường production.")
+else:
+    JWT_SECRET_KEY = secrets.token_hex(32)
+    logger.warning("JWT_SECRET_KEY chưa được cấu hình — đang dùng khóa tạm ngẫu nhiên cho môi trường dev.")
+
 JWT_ALGORITHM = "HS256"
 DEFAULT_ACCESS_TOKEN_EXPIRE_HOURS = 24
 REMEMBER_ME_EXPIRE_DAYS = 30
 DEFAULT_STAFF_PASSWORD = "1"
 INITIAL_SEED_CONFIG_KEY = "RBAC_INITIAL_SEED_V1"
 
-# Tài khoản Admin mặc định cấu hình qua env
+# Tài khoản Admin mặc định cấu hình qua biến môi trường (không hardcode mật khẩu trong source)
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin").strip().lower()
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "eztech@2026").strip()
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "").strip()
 
 # Cache RAM cho danh sách nhân viên trên màn hình Login (0 Neon Egress khi mở trang Login)
 _EMP_LIST_LOCK = threading.Lock()
@@ -160,31 +169,81 @@ def verify_jwt_token(token: str) -> Optional[Dict[str, Any]]:
 
 
 # ==============================================================================
-# 3. CHỐNG TẤN CÔNG DÒ MẬT KHẨU (BRUTE-FORCE & RATE LIMITING)
+# 3. CHỐNG TẤN CÔNG DÒ MẬT KHẨU (BRUTE-FORCE & RATE LIMITING — PERSISTENT DB)
 # ==============================================================================
 _FAILED_ATTEMPTS: Dict[str, list] = {}
+_RL_WINDOW_SECONDS = 600
+_RL_MAX_ATTEMPTS = 8
 
 
-def check_rate_limit_lockout(key: str) -> Tuple[bool, int]:
+def _rl_config_key(key: str) -> str:
+    return "AUTH_RL:" + hashlib.sha256(key.encode("utf-8")).hexdigest()[:32]
+
+
+def _get_client_ip(request: Request) -> str:
+    xff = (request.headers.get("x-forwarded-for") or "").strip()
+    if xff:
+        return xff.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+def check_rate_limit_lockout(key: str, db: Optional[Session] = None) -> Tuple[bool, int]:
     now = time.time()
-    attempts = [t for t in _FAILED_ATTEMPTS.get(key, []) if now - t < 600]
-    _FAILED_ATTEMPTS[key] = attempts
+    attempts: List[float] = []
+    if db is not None:
+        cfg = db.query(AppConfig).filter(AppConfig.config_key == _rl_config_key(key)).first()
+        if cfg and cfg.config_value:
+            try:
+                raw = json.loads(cfg.config_value)
+                attempts = [float(t) for t in raw.get("attempts", []) if now - float(t) < _RL_WINDOW_SECONDS]
+            except Exception:
+                attempts = []
+        if cfg and not attempts:
+            db.delete(cfg)
+            db.commit()
+    else:
+        attempts = [t for t in _FAILED_ATTEMPTS.get(key, []) if now - t < _RL_WINDOW_SECONDS]
+        _FAILED_ATTEMPTS[key] = attempts
 
-    if len(attempts) >= 8:
-        remaining = int(600 - (now - attempts[-1]))
+    if len(attempts) >= _RL_MAX_ATTEMPTS:
+        remaining = int(_RL_WINDOW_SECONDS - (now - attempts[-1]))
         return True, max(1, remaining)
     return False, 0
 
 
-def record_failed_attempt(key: str):
+def record_failed_attempt(key: str, db: Optional[Session] = None):
     now = time.time()
-    attempts = _FAILED_ATTEMPTS.get(key, [])
-    attempts.append(now)
-    _FAILED_ATTEMPTS[key] = attempts
+    if db is not None:
+        ckey = _rl_config_key(key)
+        cfg = db.query(AppConfig).filter(AppConfig.config_key == ckey).first()
+        attempts: List[float] = []
+        if cfg and cfg.config_value:
+            try:
+                raw = json.loads(cfg.config_value)
+                attempts = [float(t) for t in raw.get("attempts", []) if now - float(t) < _RL_WINDOW_SECONDS]
+            except Exception:
+                attempts = []
+        attempts.append(now)
+        payload = json.dumps({"attempts": attempts})
+        if cfg:
+            cfg.config_value = payload
+            cfg.updated_at = get_vn_now()
+        else:
+            db.add(AppConfig(config_key=ckey, config_value=payload, updated_at=get_vn_now()))
+        db.commit()
+    else:
+        attempts = [t for t in _FAILED_ATTEMPTS.get(key, []) if now - t < _RL_WINDOW_SECONDS]
+        attempts.append(now)
+        _FAILED_ATTEMPTS[key] = attempts
 
 
-def clear_failed_attempts(key: str):
+def clear_failed_attempts(key: str, db: Optional[Session] = None):
     _FAILED_ATTEMPTS.pop(key, None)
+    if db is not None:
+        cfg = db.query(AppConfig).filter(AppConfig.config_key == _rl_config_key(key)).first()
+        if cfg:
+            db.delete(cfg)
+            db.commit()
 
 
 # ==============================================================================
@@ -342,22 +401,27 @@ def init_default_admin(db: Session):
     try:
         admin_user = db.query(AppUser).filter(AppUser.username == ADMIN_USERNAME).first()
         if not admin_user:
-            pw_hash, salt = hash_password(ADMIN_PASSWORD)
-            admin_user = AppUser(
-                username=ADMIN_USERNAME,
-                password_hash=pw_hash,
-                salt=salt,
-                full_name="Admin EzTech",
-                department=DEPT_ADMIN,
-                role="admin",
-                is_default_password=False,
-                is_active=True,
-                created_at=get_vn_now(),
-            )
-            db.add(admin_user)
-            db.commit()
-            invalidate_employees_auth_cache()
-            logger.info(f"Đã khởi tạo tài khoản quản trị '{ADMIN_USERNAME}'.")
+            if not ADMIN_PASSWORD:
+                logger.error(
+                    f"Không thể khởi tạo tài khoản quản trị '{ADMIN_USERNAME}' vì thiếu biến môi trường ADMIN_PASSWORD."
+                )
+            else:
+                pw_hash, salt = hash_password(ADMIN_PASSWORD)
+                admin_user = AppUser(
+                    username=ADMIN_USERNAME,
+                    password_hash=pw_hash,
+                    salt=salt,
+                    full_name="Admin EzTech",
+                    department=DEPT_ADMIN,
+                    role="admin",
+                    is_default_password=False,
+                    is_active=True,
+                    created_at=get_vn_now(),
+                )
+                db.add(admin_user)
+                db.commit()
+                invalidate_employees_auth_cache()
+                logger.info(f"Đã khởi tạo tài khoản quản trị '{ADMIN_USERNAME}'.")
         else:
             changed = False
             if admin_user.role != "admin":
@@ -581,10 +645,10 @@ def login(req: LoginRequest, request: Request, db: Session = Depends(get_db)):
             detail="Vui lòng chọn nhân viên và nhập mật khẩu.",
         )
 
-    client_ip = request.client.host if request.client else "unknown"
+    client_ip = _get_client_ip(request)
     lock_key = f"{client_ip}:{raw_ident.lower()}"
 
-    is_locked, remaining_sec = check_rate_limit_lockout(lock_key)
+    is_locked, remaining_sec = check_rate_limit_lockout(lock_key, db)
     if is_locked:
         mins = max(1, remaining_sec // 60)
         raise HTTPException(
@@ -606,7 +670,7 @@ def login(req: LoginRequest, request: Request, db: Session = Depends(get_db)):
                 break
 
     if not user or not verify_password(req.password, user.salt, user.password_hash):
-        record_failed_attempt(lock_key)
+        record_failed_attempt(lock_key, db)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Mật khẩu không chính xác hoặc tài khoản không tồn tại.",
@@ -618,7 +682,7 @@ def login(req: LoginRequest, request: Request, db: Session = Depends(get_db)):
             detail="Tài khoản của bạn đã bị ngừng kích hoạt.",
         )
 
-    clear_failed_attempts(lock_key)
+    clear_failed_attempts(lock_key, db)
     user.last_login_at = get_vn_now()
     db.commit()
 

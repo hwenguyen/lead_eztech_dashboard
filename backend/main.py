@@ -89,25 +89,29 @@ app.include_router(data_export_router, dependencies=[Depends(require_tab_access(
 app.include_router(btvn_router, dependencies=[Depends(require_tab_access("btvn_grader"))])
 app.include_router(bulletin_router)
 
-# Cấu hình CORS: Ưu tiên danh sách ALLOWED_ORIGINS từ biến môi trường
+# Cấu hình CORS: Bắt buộc dùng danh sách ALLOWED_ORIGINS cụ thể (không bao giờ mở wildcard '*')
 allowed_origins_env = os.getenv("ALLOWED_ORIGINS", "").strip()
 if allowed_origins_env:
-    allowed_origins = [orig.strip() for orig in allowed_origins_env.split(",") if orig.strip()]
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=allowed_origins,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+    allowed_origins = [orig.strip() for orig in allowed_origins_env.split(",") if orig.strip() and orig.strip() != "*"]
 else:
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=False,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+    allowed_origins = [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ]
+    render_url = os.getenv("RENDER_EXTERNAL_URL", "").strip().rstrip("/")
+    if render_url:
+        allowed_origins.append(render_url)
+    logger.warning("ALLOWED_ORIGINS chưa được cấu hình — chỉ cho phép origin local dev (không mở '*').")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Bật nén GZip cho mọi phản hồi API >= 1KB (giảm 70-85% băng thông mạng truyền tải về client)
 app.add_middleware(GZipMiddleware, minimum_size=1000)
