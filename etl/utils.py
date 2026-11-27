@@ -118,11 +118,13 @@ def extract_phone_number(text: str) -> Optional[str]:
 
 
 def normalize_phone(raw: Any) -> Optional[str]:
-    """Chuẩn hoá SĐT về chuỗi chỉ gồm chữ số, đầu số quốc tế 84 → 0 (vd +84912345678 → 0912345678)."""
+    """Chuẩn hoá SĐT về chuỗi chỉ gồm chữ số, đầu số quốc tế 84 → 0, bù số 0 đầu nếu bị Google Sheet cắt mất."""
     digits = re.sub(r"\D", "", str(raw or ""))
     if digits.startswith("84") and len(digits) in (11, 12):
         rest = digits[2:]
         digits = rest if rest.startswith("0") else "0" + rest
+    elif len(digits) == 9 and VN_MOBILE_REGEX.match("0" + digits):
+        digits = "0" + digits
     return digits if 8 <= len(digits) <= 15 else None
 
 

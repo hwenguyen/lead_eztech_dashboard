@@ -204,10 +204,119 @@ def test_missing_phone_zalo_student_fallback_and_collision_guards():
         db.close()
 
 
+def test_multiword_zalo_name_collision_and_coassigned_care_by_resolution():
+    db = _make_session()
+    try:
+        # 1. Multi-word collision ("Phan Lan"):
+        # Học viên cũ tháng 8 có Zalo thiếu SĐT (57 tin, Trần Đạt, updated_at mới do backfill),
+        # Học viên mới tháng 11 ("0985368357") đã có Zalo 54 tin với Khuất Cường -> PHẢI lấy Khuất Cường, không bị trộn sang Trần Đạt.
+        db.add_all([
+            DimLead(id=30, customer_id="pl_aug_phone", name="Phan Lan", phone_number="0917954559",
+                    page_id="Eztech Phân Tích Dữ Liệu", first_created_at=datetime(2026, 8, 13, 15, 0)),
+            DimLead(id=31, customer_id="pl_aug_nophone", name="Phan Lan", phone_number=None,
+                    page_id="Hiền Minh Eztech", first_created_at=datetime(2026, 8, 23, 22, 0)),
+            DimLead(id=32, customer_id="pl_nov", name="Phan Lan", phone_number="0985368357",
+                    page_id="Eztech Phân Tích Dữ Liệu", first_created_at=datetime(2026, 10, 30, 15, 57)),
+        ])
+        db.add_all([
+            FactLeadActivity(
+                lead_id=31, conversation_id="pzl_u_131986891507252646_31",
+                status_tag="Đã là học viên,Công Nợ", assigned_users="Trần Đạt", message_count=57,
+                tag_timeline=[{"tag": "Đã là học viên", "action": "add", "tagged_at": "2026-08-23 22:07:55", "editor": "Trần Đạt"}],
+                updated_at=datetime(2026, 11, 10, 10, 0),
+            ),
+            FactLeadActivity(
+                lead_id=32, conversation_id="pzl_u_629476615535063343_32",
+                status_tag="Đã là học viên,Mess FB", assigned_users="Khuất Cường", message_count=54,
+                tag_timeline=[{"tag": "Đã là học viên", "action": "add", "tagged_at": "2026-11-26 17:27:20", "editor": "Khuất Cường"}],
+                updated_at=datetime(2026, 11, 26, 18, 0),
+            ),
+        ])
+
+        # 2. Co-assigned "Anh Trinh, Hồng Minh" + "Trần, Nguyen Gia Huy" + "Hiền Minh Lý, Nguyễn Thị Thanh Mai" (tag_timeline tie-break)
+        db.add_all([
+            DimLead(id=40, customer_id="co40", name="Tư Vương", phone_number="0979240119",
+                    page_id="Hiền Minh Eztech", first_created_at=datetime(2026, 11, 25, 14, 30)),
+            DimLead(id=41, customer_id="co41", name="Khanhhq", phone_number="898502253",  # sẽ khớp SĐT mất số 0 đầu
+                    page_id="Tuấn Anh Data", first_created_at=datetime(2026, 11, 15, 10, 0)),
+        ])
+        # Lưu SĐT chuẩn có số 0 trong DimLead để test bù số 0 đầu từ DealWin ("898502253" -> "0898502253")
+        db.query(DimLead).filter_by(id=41).update({"phone_number": "0898502253"})
+        db.add_all([
+            FactLeadActivity(
+                lead_id=40, conversation_id="pzl_u_131986891507252646_40",
+                status_tag="Đã là học viên,Công Nợ",
+                assigned_users="Hiền Minh Lý, Nguyễn Thị Thanh Mai",
+                message_count=58,
+                tag_timeline=[
+                    {"tag": "Có thông tin", "action": "add", "tagged_at": "2026-11-25 14:34:36", "editor": "Hiền Minh Lý"},
+                    {"tag": "Đồng ý học", "action": "add", "tagged_at": "2026-11-25 15:13:18", "editor": "Nguyễn Thị Thanh Mai"},
+                    {"tag": "Đã là học viên", "action": "add", "tagged_at": "2026-11-26 10:04:12", "editor": "Nguyễn Thị Thanh Mai"},
+                ],
+            ),
+            FactLeadActivity(
+                lead_id=41, conversation_id="pzl_u_788602135347404973_41",
+                status_tag="Đã là học viên",
+                assigned_users="Anh Trinh, Trần, Liên Vũ",
+                message_count=91,
+            ),
+        ])
+
+        dw_phan_lan = DealWin(id=201, full_name="Phan Lan", phone_number="0985368357",
+                              timestamp=datetime(2026, 11, 26, 17, 17, 49))
+        dw_tu_vuong = DealWin(id=202, full_name="Vương Thị Tư", phone_number="0979240119",
+                              timestamp=datetime(2026, 11, 26, 10, 5, 50))
+        dw_no_zero = DealWin(id=203, full_name="Trần Thị Mỹ Huyền", phone_number="898502253",
+                             timestamp=datetime(2026, 11, 15, 10, 37, 38))
+        db.add_all([dw_phan_lan, dw_tu_vuong, dw_no_zero])
+        db.commit()
+
+        sync_all_deals_with_dim_leads(db, full_scan=True)
+        db.refresh(dw_phan_lan)
+        db.refresh(dw_tu_vuong)
+        db.refresh(dw_no_zero)
+
+        # Phan Lan: giữ đúng Khuất Cường / Eztech Phân Tích Dữ Liệu (lead 32), không bốc nhầm lead 31 của tháng 8
+        assert dw_phan_lan.dim_lead_id == 32
+        assert dw_phan_lan.page_id == "Eztech Phân Tích Dữ Liệu"
+        assert dw_phan_lan.care_by == "Khuất Cường"
+
+        # Vương Thị Tư: phân xử giữa Hiền Minh Lý và Nguyễn Thị Thanh Mai dựa vào thời điểm gắn tag chốt mới nhất
+        assert dw_tu_vuong.care_by == "Nguyễn Thị Thanh Mai"
+
+        # Bù số 0 đầu SĐT ("898502253" -> "0898502253") và ưu tiên "Anh Trinh" khi có Anh Trinh cùng nhân viên khác
+        assert dw_no_zero.phone_number == "0898502253"
+        assert dw_no_zero.dim_lead_id == 41
+        assert dw_no_zero.care_by == "Anh Trinh"
+
+        # Giữ nguyên nhân viên "Trần" và chỉ lấy đoạn hội thoại nhiều tin nhắn nhất làm đoạn chính (không cộng dồn nhiều page)
+        from database.deal_sync import normalize_sale_name, pick_best_assigned_user
+        assert normalize_sale_name("Trần") == "Trần"
+        assert pick_best_assigned_user([
+            {"lead_id": 1, "page_id": "Tuấn Anh Data", "conversation_id": "pzl_u_1_1", "assigned": "Trần", "message_count": 40, "status_tag": "Đã là học viên"},
+            {"lead_id": 2, "page_id": "Eztech Consultant", "conversation_id": "pzl_u_2_2", "assigned": "Linh Bùi", "message_count": 25, "status_tag": ""},
+            {"lead_id": 3, "page_id": "Anh Kế toán làm Data (Facebook)", "conversation_id": "514400205095512_3", "assigned": "Linh Bùi", "message_count": 25, "status_tag": ""},
+        ]) == "Trần"
+        # Nhiều sale trên cùng đoạn hội thoại chính -> ưu tiên sale nhắn nhiều nhất rồi mới đến thời điểm gắn tag
+        assert pick_best_assigned_user([{
+            "lead_id": 9, "page_id": "Hiền Minh Eztech", "conversation_id": "pzl_u_1319_9",
+            "assigned": "Linh Bùi, Bảo Ngọc", "message_count": 50, "status_tag": "Đã là học viên",
+            "messages": [
+                {"role": "Admin", "sender_name": "Bảo Ngọc"},
+                {"role": "Admin", "sender_name": "Bảo Ngọc"},
+                {"role": "Admin", "sender_name": "Linh Bùi"},
+            ],
+            "tag_timeline": [{"tag": "Đã là học viên", "action": "add", "tagged_at": "2026-11-26 10:00:00", "editor": "Linh Bùi"}],
+        }]) == "Bảo Ngọc"
+    finally:
+        db.close()
+
+
 if __name__ == "__main__":
     test_only_fb_or_tiktok_returns_no_zalo_care_page()
     test_picks_highest_msg_zalo_and_highest_msg_source()
     test_only_zalo_or_empty_defaults_source_to_other_web()
     test_company_hotlines_are_ignored()
     test_missing_phone_zalo_student_fallback_and_collision_guards()
+    test_multiword_zalo_name_collision_and_coassigned_care_by_resolution()
     print("OK")
