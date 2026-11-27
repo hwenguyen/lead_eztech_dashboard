@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from typing import Optional, Tuple, Iterable, Set, List, Dict, Any
 from sqlalchemy import or_, func
 from sqlalchemy.orm import Session, defer
-from database.models import DealWin, DimLead, FactLeadActivity
+from database.models import DealWin, DimLead, FactLeadActivity, RawConversation
 from etl.utils import (
     VN_TZ,
     COMPANY_PHONE_NUMBERS,
@@ -197,7 +197,7 @@ def _extract_source_sale_hints(items: List[Dict[str, Any]]) -> Set[str]:
     return hints
 
 
-def pick_best_assigned_user(items: List[Dict[str, Any]]) -> Optional[str]:
+def pick_best_assigned_user(items: List[Dict[str, Any]], db: Optional[Session] = None) -> Optional[str]:
     """
     Chọn nhân viên phụ trách (care_by) CHỈ từ đoạn hội thoại chính có số lượng tin nhắn nhiều nhất
     (loại bỏ việc gộp/cộng dồn nhiều page khi 1 SĐT nhắn ở nhiều page):
@@ -228,7 +228,17 @@ def pick_best_assigned_user(items: List[Dict[str, Any]]) -> Optional[str]:
         if _PRIORITY_DEAL_OWNER in emps:
             return _PRIORITY_DEAL_OWNER
 
-        msg_counts = _count_admin_messages_by_sale(main_conv.get("messages"))
+        msgs = main_conv.get("messages")
+        if msgs is None and db is not None and main_conv.get("conversation_id"):
+            raw_row = (
+                db.query(RawConversation.payload)
+                .filter(RawConversation.pancake_id == main_conv["conversation_id"])
+                .first()
+            )
+            if raw_row and isinstance(raw_row[0], dict):
+                msgs = raw_row[0].get("messages")
+
+        msg_counts = _count_admin_messages_by_sale(msgs)
         tag_times = _extract_tag_editor_latest_times(main_conv.get("tag_timeline"))
         return max(
             emps,
@@ -250,7 +260,10 @@ def pick_best_assigned_user(items: List[Dict[str, Any]]) -> Optional[str]:
     return None
 
 
-def _resolve_lead_items(items: List[Dict[str, Any]]) -> Tuple[Optional[int], bool, Optional[str], Optional[str], Optional[str], str]:
+def _resolve_lead_items(
+    items: List[Dict[str, Any]],
+    db: Optional[Session] = None,
+) -> Tuple[Optional[int], bool, Optional[str], Optional[str], Optional[str], str]:
     """
     Tổng hợp danh sách hội thoại của 1 SĐT:
     - Trả về: (dim_lead_id, is_student, care_by, lead_tag, page_id, source_page)
@@ -304,7 +317,7 @@ def _resolve_lead_items(items: List[Dict[str, Any]]) -> Tuple[Optional[int], boo
             source_msgs[pg] = source_msgs.get(pg, 0) + int(it.get('message_count') or 0)
     source_page = max(source_msgs.items(), key=lambda kv: kv[1])[0] if source_msgs else DEFAULT_SOURCE_PAGE
 
-    assigned_user = pick_best_assigned_user(items)
+    assigned_user = pick_best_assigned_user(items, db=db)
 
     return best_lead_id, is_student, assigned_user, combined_tags, best_page, source_page
 
@@ -632,7 +645,7 @@ def find_lead_info_by_phone(
     if not items:
         return None, False, None, None, None, DEFAULT_SOURCE_PAGE
 
-    return _resolve_lead_items(items)
+    return _resolve_lead_items(items, db=db)
 
 
 def sync_all_deals_with_dim_leads(
@@ -775,7 +788,7 @@ def sync_all_deals_with_dim_leads(
         extra_items = extra_zalo_by_deal.get(d.id) or []
         items = base_items + extra_items if extra_items else base_items
         if items:
-            new_lead_id, new_is_student, new_care, new_tag, new_page_id, new_source_page = _resolve_lead_items(items)
+            new_lead_id, new_is_student, new_care, new_tag, new_page_id, new_source_page = _resolve_lead_items(items, db=db)
             if d.dim_lead_id != new_lead_id:
                 d.dim_lead_id = new_lead_id
                 has_changes = True

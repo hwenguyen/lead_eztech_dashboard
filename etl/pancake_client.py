@@ -599,7 +599,7 @@ class PancakeClient:
                         "message": m.get("message"),
                         "inserted_at": m.get("inserted_at"),
                         "role": role,
-                        "sender_name": m_from.get('name') or m_from.get('username') or m_from.get('admin_name') or "Unknown"
+                        "sender_name": m_from.get('admin_name') or m.get('admin_name') or m_from.get('name') or m_from.get('username') or "Unknown"
                     })
             
             # Trích xuất ghi chú của Admin/Sale trên Pancake (từ page_customer.notes, conv.notes hoặc endpoint /messages)
