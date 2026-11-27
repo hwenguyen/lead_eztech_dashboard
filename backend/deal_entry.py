@@ -1126,16 +1126,79 @@ TUAN_ANH_PAGE_ID = "pzl_788602135347404973"
 TUAN_ANH_PAGE_NAME = "Tuấn Anh Data"
 
 
+def _fetch_page_customers_phone_map(
+    client: Any,
+    page_id: str,
+    days_back: int = 30,
+    max_pages: int = 5,
+) -> Dict[str, str]:
+    """Lấy map (id / customer_id / psid) -> phone từ Pancake page_customers (không tải tin nhắn)."""
+    out: Dict[str, str] = {}
+    try:
+        ptok, resolved_pid, _ = client._get_page_access_token(page_id)
+        if not ptok:
+            return out
+        active_pid = resolved_pid or page_id
+        now_ts = int(time.time())
+        since_ts = now_ts - max(1, days_back) * 86400
+        url = f"https://pages.fm/api/public_api/v1/pages/{active_pid}/page_customers"
+
+        for page_num in range(1, max_pages + 1):
+            resp = client.session.get(
+                url,
+                params={
+                    "page_access_token": ptok,
+                    "since": since_ts,
+                    "until": now_ts,
+                    "page_number": page_num,
+                    "page_size": 100,
+                },
+                timeout=20,
+            )
+            if resp.status_code != 200:
+                break
+            data = resp.json()
+            if not isinstance(data, dict) or data.get("success") is False:
+                break
+            custs = data.get("customers") or []
+            if not custs:
+                break
+            for cu in custs:
+                if not isinstance(cu, dict):
+                    continue
+                phones = cu.get("phone_numbers") or []
+                clean_p = ""
+                for p in phones:
+                    cp = clean_phone(p)
+                    if cp:
+                        clean_p = cp
+                        break
+                if not clean_p:
+                    continue
+                for key_name in ("id", "customer_id", "psid"):
+                    k = str(cu.get(key_name) or "").strip()
+                    if k:
+                        out[k] = clean_p
+            if len(custs) < 100:
+                break
+            time.sleep(0.1)
+    except Exception as e:
+        logger.warning(f"_fetch_page_customers_phone_map ({page_id}) bỏ qua do lỗi: {e}")
+    return out
+
+
 def sync_tuan_anh_support_groups(
     db: Session,
     max_convs: int = 250,
     max_api_pages: int = 8,
+    customer_days_back: int = 30,
+    customer_max_pages: int = 5,
 ) -> int:
     """
     Quét nhẹ metadata các nhóm Zalo hỗ trợ 1-1 (pzl_g_) trên trang Tuấn Anh Data
     (KHÔNG tải tin nhắn, KHÔNG lưu raw_conversations) và tự động điền link Pancake
     vào `sales_deals.nhom_cs` cho những dòng đang trống.
-    - Khớp chính xác theo danh sách thành viên (DimLead.customer_id) + recent_phone_numbers.
+    - Khớp chính xác theo danh sách thành viên (DimLead.customer_id + Pancake page_customers psid/id) & recent_phone_numbers.
     - Tuyệt đối KHÔNG ghi đè nếu `nhom_cs` đã có dữ liệu do nhân viên tự nhập.
     """
     global _DEALS_CACHE
@@ -1172,8 +1235,11 @@ def sync_tuan_anh_support_groups(
         all_cust_ids: Set[str] = set()
         for cv in convs:
             for cu in (cv.get("customers") or []):
-                if isinstance(cu, dict) and cu.get("id") and not cu.get("is_group_customer"):
-                    all_cust_ids.add(str(cu["id"]))
+                if isinstance(cu, dict) and not cu.get("is_group_customer"):
+                    if cu.get("id"):
+                        all_cust_ids.add(str(cu["id"]))
+                    if cu.get("fb_id"):
+                        all_cust_ids.add(str(cu["fb_id"]))
 
         cid_to_phone: Dict[str, str] = {}
         if all_cust_ids:
@@ -1190,6 +1256,13 @@ def sync_tuan_anh_support_groups(
                 cp = clean_phone(l_phone)
                 if l_cid and cp:
                     cid_to_phone[str(l_cid)] = cp
+
+        # Bổ sung map từ Pancake page_customers (có cả psid pzl_u_... và SĐT lưu trên CRM Pancake)
+        pc_map = _fetch_page_customers_phone_map(
+            client, TUAN_ANH_PAGE_ID, days_back=customer_days_back, max_pages=customer_max_pages
+        )
+        for k, v in pc_map.items():
+            cid_to_phone.setdefault(k, v)
 
         updated_count = 0
         for cv in convs:
@@ -1217,10 +1290,11 @@ def sync_tuan_anh_support_groups(
 
             matched_phones: Set[str] = set()
             for cu in members:
-                cu_id = str(cu.get("id") or "")
-                p = cid_to_phone.get(cu_id)
-                if p and p in missing_by_phone:
-                    matched_phones.add(p)
+                for k_field in ("id", "fb_id"):
+                    val = str(cu.get(k_field) or "").strip()
+                    p = cid_to_phone.get(val) if val else None
+                    if p and p in missing_by_phone:
+                        matched_phones.add(p)
 
             for rp in (cv.get("recent_phone_numbers") or []):
                 raw_p = rp.get("phone_number") if isinstance(rp, dict) else rp
