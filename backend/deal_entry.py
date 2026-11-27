@@ -1122,6 +1122,138 @@ def _assert_can_modify_deal_row(db_row: SalesDeal, user: AppUser):
 
 # ───────────────────────── API Endpoints ─────────────────────────
 
+TUAN_ANH_PAGE_ID = "pzl_788602135347404973"
+TUAN_ANH_PAGE_NAME = "Tuấn Anh Data"
+
+
+def sync_tuan_anh_support_groups(
+    db: Session,
+    max_convs: int = 250,
+    max_api_pages: int = 8,
+) -> int:
+    """
+    Quét nhẹ metadata các nhóm Zalo hỗ trợ 1-1 (pzl_g_) trên trang Tuấn Anh Data
+    (KHÔNG tải tin nhắn, KHÔNG lưu raw_conversations) và tự động điền link Pancake
+    vào `sales_deals.nhom_cs` cho những dòng đang trống.
+    - Khớp chính xác theo danh sách thành viên (DimLead.customer_id) + recent_phone_numbers.
+    - Tuyệt đối KHÔNG ghi đè nếu `nhom_cs` đã có dữ liệu do nhân viên tự nhập.
+    """
+    global _DEALS_CACHE
+    try:
+        missing_rows = (
+            db.query(SalesDeal)
+            .filter(
+                _active_sales_filter(),
+                or_(SalesDeal.nhom_cs.is_(None), func.trim(SalesDeal.nhom_cs) == ""),
+            )
+            .all()
+        )
+        missing_by_phone: Dict[str, List[SalesDeal]] = {}
+        for r in missing_rows:
+            cp = clean_phone(r.sdt)
+            if cp:
+                missing_by_phone.setdefault(cp, []).append(r)
+
+        if not missing_by_phone:
+            return 0
+
+        from etl.pancake_client import PancakeClient
+        client = PancakeClient()
+        convs = client.list_page_conversations(
+            TUAN_ANH_PAGE_ID,
+            max_convs=max_convs,
+            max_api_pages=max_api_pages,
+            include_groups=True,
+            only_groups=True,
+        )
+        if not convs:
+            return 0
+
+        all_cust_ids: Set[str] = set()
+        for cv in convs:
+            for cu in (cv.get("customers") or []):
+                if isinstance(cu, dict) and cu.get("id") and not cu.get("is_group_customer"):
+                    all_cust_ids.add(str(cu["id"]))
+
+        cid_to_phone: Dict[str, str] = {}
+        if all_cust_ids:
+            lead_rows = (
+                db.query(DimLead.customer_id, DimLead.phone_number)
+                .filter(
+                    DimLead.customer_id.in_(list(all_cust_ids)),
+                    DimLead.phone_number.isnot(None),
+                    DimLead.phone_number != "",
+                )
+                .all()
+            )
+            for l_cid, l_phone in lead_rows:
+                cp = clean_phone(l_phone)
+                if l_cid and cp:
+                    cid_to_phone[str(l_cid)] = cp
+
+        updated_count = 0
+        for cv in convs:
+            if not missing_by_phone:
+                break
+            cid = str(cv.get("id") or "").strip()
+            if not cid.startswith("pzl_g_"):
+                continue
+
+            customers = [cu for cu in (cv.get("customers") or []) if isinstance(cu, dict)]
+            members = [cu for cu in customers if not cu.get("is_group_customer")]
+            # Nhóm lớp học đông (>6 thành viên) hoặc nhóm nội bộ không phải nhóm support 1-1
+            if len(members) > 6:
+                continue
+
+            grp_name = next(
+                (str(cu.get("name") or "") for cu in customers if cu.get("is_group_customer")),
+                "",
+            ).strip()
+            grp_low = grp_name.lower()
+            if any(bad in grp_low for bad in ("intern", "nội bộ", "noi bo", "tuyển dụng")):
+                continue
+            if re.match(r"^(pbi|df|db|pq|ai)k\d+", grp_low) and "w " not in grp_low and "with " not in grp_low:
+                continue
+
+            matched_phones: Set[str] = set()
+            for cu in members:
+                cu_id = str(cu.get("id") or "")
+                p = cid_to_phone.get(cu_id)
+                if p and p in missing_by_phone:
+                    matched_phones.add(p)
+
+            for rp in (cv.get("recent_phone_numbers") or []):
+                raw_p = rp.get("phone_number") if isinstance(rp, dict) else rp
+                cp = clean_phone(raw_p)
+                if cp and cp in missing_by_phone:
+                    matched_phones.add(cp)
+
+            # Chỉ gán khi khớp đúng 1 học viên duy nhất trong sales_deals
+            if len(matched_phones) != 1:
+                continue
+
+            target_phone = next(iter(matched_phones))
+            group_url = build_pancake_url(conversation_id=cid, page_name_or_id=TUAN_ANH_PAGE_NAME)
+            if not group_url:
+                continue
+
+            for row in missing_by_phone.pop(target_phone, []):
+                if not (row.nhom_cs or "").strip():
+                    row.nhom_cs = group_url
+                    updated_count += 1
+
+        if updated_count > 0:
+            db.commit()
+            with _CACHE_LOCK:
+                _DEALS_CACHE = None
+            logger.info(f"Đã tự động điền link Nhóm CS 1-1 Tuấn Anh Data cho {updated_count} dòng Deal.")
+
+        return updated_count
+    except Exception as e:
+        logger.warning(f"sync_tuan_anh_support_groups bỏ qua do lỗi: {e}")
+        return 0
+
+
 @router.get("/init")
 def init_deal_entry(
     force: bool = Query(False),
@@ -1129,6 +1261,8 @@ def init_deal_entry(
     db: Session = Depends(get_db),
 ):
     """Khởi tạo dữ liệu cho trang Quản lý Nhập Deal & Công nợ (Tự động nối từ deal_wins + Đọc từ RAM Cache)."""
+    if force:
+        sync_tuan_anh_support_groups(db, max_convs=250, max_api_pages=8)
     lists = read_lists(db, use_cache=not force)
     all_deals = get_cached_deals(db, force_refresh=force)
     deals = _filter_deals_for_user(all_deals, current_user)

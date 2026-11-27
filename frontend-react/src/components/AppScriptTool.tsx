@@ -1840,24 +1840,40 @@ export function AppScriptTool() {
                           </td>
 
                           {/* Nhóm 1-1 */}
-                          <td className="py-2 px-2.5 border-r border-slate-200/70 whitespace-nowrap align-middle max-w-[150px] truncate">
+                          <td className="py-2 px-2.5 border-r border-slate-200/70 whitespace-nowrap align-middle max-w-[190px]">
                             {(() => {
                               if (!d.nhomCS) return <span className="text-slate-300">—</span>;
                               const safeNhomHref = toSafeHref(d.nhomCS);
                               if (safeNhomHref) {
+                                const isPancakeGroup = safeNhomHref.includes('pancake.vn/');
                                 return (
-                                  <a
-                                    href={safeNhomHref}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="text-eztech hover:underline font-medium"
-                                    title={d.nhomCS}
-                                  >
-                                    {d.nhomCS}
-                                  </a>
+                                  <div className="flex items-center gap-1.5">
+                                    <a
+                                      href={safeNhomHref}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="px-2 py-0.5 text-[11px] font-medium text-eztech bg-eztech-light hover:bg-blue-100 border border-blue-200 rounded transition-colors select-none shrink-0"
+                                      title={`Mở nhóm CS 1-1: ${d.nhomCS}`}
+                                    >
+                                      {isPancakeGroup ? 'Mở Nhóm 1-1 ↗' : 'Mở link ↗'}
+                                    </a>
+                                    <a
+                                      href={safeNhomHref}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-[11px] font-mono text-slate-500 hover:text-eztech hover:underline truncate max-w-[95px]"
+                                      title={d.nhomCS}
+                                    >
+                                      {d.nhomCS}
+                                    </a>
+                                  </div>
                                 );
                               }
-                              return <span className="text-navy font-medium">{d.nhomCS}</span>;
+                              return (
+                                <span className="text-navy font-medium block truncate max-w-[170px]" title={d.nhomCS}>
+                                  {d.nhomCS}
+                                </span>
+                              );
                             })()}
                           </td>
 
