@@ -48,6 +48,7 @@ def _aggregate_students_from_deals(deals: List[Dict[str, Any]]) -> List[Dict[str
         nv_cs = str(d.get("nvCS") or "").strip()
 
         existing = by_key.get(key)
+        d_date = (str(d.get("ngayThu") or ""), int(d.get("_sort_id") or 0))
         if existing is None:
             by_key[key] = {
                 "id": key,
@@ -57,6 +58,7 @@ def _aggregate_students_from_deals(deals: List[Dict[str, Any]]) -> List[Dict[str
                 "linkSupport": link_support,
                 "lop": list(lop_list),
                 "nvCS": nv_cs,
+                "_earliest_date": d_date,
             }
             order.append(key)
         else:
@@ -70,10 +72,16 @@ def _aggregate_students_from_deals(deals: List[Dict[str, Any]]) -> List[Dict[str
             if link_support and not existing["linkSupport"]:
                 existing["linkSupport"] = link_support
             if lop_list:
-                existing["lop"] = merge_classes(existing["lop"], lop_list)
+                if d_date < existing["_earliest_date"]:
+                    existing["lop"] = merge_classes(lop_list, existing["lop"])
+                    existing["_earliest_date"] = d_date
+                else:
+                    existing["lop"] = merge_classes(existing["lop"], lop_list)
             if nv_cs and not existing["nvCS"]:
                 existing["nvCS"] = nv_cs
 
+    for item in by_key.values():
+        item.pop("_earliest_date", None)
     return [by_key[k] for k in order]
 
 

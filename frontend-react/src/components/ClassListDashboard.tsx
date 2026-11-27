@@ -30,6 +30,56 @@ const formatShortLink = (raw: string): string => {
   return `${s.slice(0, 20)}…${s.slice(-10)}`;
 };
 
+const splitClassPrefixNum = (cls: string): { prefix: string; num: number } | null => {
+  const m = cls.trim().match(/^(.*?)(\d+)\s*$/);
+  if (!m) return null;
+  return { prefix: m[1].trim().toLowerCase(), num: parseInt(m[2], 10) };
+};
+
+const sortClassesChronologically = (classes: string[]): string[] => {
+  if (classes.length <= 1) return classes;
+  const result = [...classes];
+  // Sắp xếp tự nhiên theo số khóa cho các lớp cùng tiền tố (vd: K62, K61 -> K61, K62)
+  for (let i = 0; i < result.length; i++) {
+    for (let j = i + 1; j < result.length; j++) {
+      const a = splitClassPrefixNum(result[i]);
+      const b = splitClassPrefixNum(result[j]);
+      if (a && b && a.prefix === b.prefix && a.num > b.num) {
+        [result[i], result[j]] = [result[j], result[i]];
+      }
+    }
+  }
+  return result;
+};
+
+const getStudentTypeInfo = (
+  lop: string[],
+  selectedClass: string
+): { isOld: boolean; label: string; fromClasses: string[] } => {
+  const ordered = sortClassesChronologically(lop);
+  if (ordered.length <= 1) {
+    return { isOld: false, label: 'Học viên mới', fromClasses: [] };
+  }
+  if (selectedClass && selectedClass !== '__NONE__') {
+    const idx = ordered.indexOf(selectedClass);
+    if (idx > 0) {
+      const prev = ordered.slice(0, idx);
+      return {
+        isOld: true,
+        label: `Học viên cũ (Từ ${prev.join(', ')})`,
+        fromClasses: prev,
+      };
+    }
+    return { isOld: false, label: 'Học viên mới', fromClasses: [] };
+  }
+  const prev = ordered.slice(0, -1);
+  return {
+    isOld: true,
+    label: `Học viên cũ (Từ ${prev.join(', ')})`,
+    fromClasses: prev,
+  };
+};
+
 export function ClassListDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -417,7 +467,7 @@ export function ClassListDashboard() {
         </div>
       </div>
 
-      {/* Bảng 6 cột danh sách học viên */}
+      {/* Bảng 7 cột danh sách học viên */}
       <div className="bg-white rounded-2xl border border-slate-200/80 shadow-card overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
@@ -428,13 +478,14 @@ export function ClassListDashboard() {
                 <th className="py-3 px-4">Link Pancake</th>
                 <th className="py-3 px-4">Link Support 1-1</th>
                 <th className="py-3 px-4">Lớp đang học</th>
+                <th className="py-3 px-4">Học viên</th>
                 <th className="py-3 px-4">Nhân viên chăm sóc</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-xs">
               {loading && students.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-16 text-center text-slate-400">
+                  <td colSpan={7} className="py-16 text-center text-slate-400">
                     <div className="inline-flex flex-col items-center gap-2">
                       <div className="animate-spin rounded-full h-6 w-6 border-2 border-slate-200 border-t-eztech" />
                       <span>Đang tải danh sách lớp học...</span>
@@ -443,7 +494,7 @@ export function ClassListDashboard() {
                 </tr>
               ) : pagedStudents.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-14 text-center text-slate-400">
+                  <td colSpan={7} className="py-14 text-center text-slate-400">
                     Không có học viên nào khớp với bộ lọc hiện tại.
                   </td>
                 </tr>
@@ -454,6 +505,7 @@ export function ClassListDashboard() {
                   const phoneCopied = copiedKey === `phone:${st.id}`;
                   const pancakeCopied = copiedKey === `pancake:${st.id}`;
                   const supportCopied = copiedKey === `support:${st.id}`;
+                  const studentType = getStudentTypeInfo(st.lop, selectedClass);
 
                   return (
                     <tr key={st.id} className="hover:bg-slate-50/70 transition-colors">
@@ -585,7 +637,23 @@ export function ClassListDashboard() {
                         )}
                       </td>
 
-                      {/* 6. Nhân viên chăm sóc */}
+                      {/* 6. Học viên (Mới / Cũ từ K...) */}
+                      <td className="py-3 px-4 whitespace-nowrap">
+                        {studentType.isOld ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-800 border border-amber-200">
+                            <span>Học viên cũ</span>
+                            <span className="font-normal text-amber-700">
+                              (Từ {studentType.fromClasses.join(', ')})
+                            </span>
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                            Học viên mới
+                          </span>
+                        )}
+                      </td>
+
+                      {/* 7. Nhân viên chăm sóc */}
                       <td className="py-3 px-4 text-slate-700 whitespace-nowrap">
                         {st.nvCS || <span className="text-slate-400">-</span>}
                       </td>
