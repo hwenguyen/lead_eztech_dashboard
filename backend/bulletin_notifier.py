@@ -756,13 +756,9 @@ def start_exact_reminder_worker_if_enabled():
                             _EXACT_CACHE_INITIALIZED = True
             except Exception as exc:
                 logger.debug(f"Exact reminder worker tick error: {exc}")
-            try:
-                from backend.class_schedule import trigger_background_auto_sync_if_due
-                from backend.bulletin import trigger_bulletin_auto_sync_if_due
-                trigger_background_auto_sync_if_due(SessionLocal)
-                trigger_bulletin_auto_sync_if_due()
-            except Exception:
-                pass
+            # Không tự động gọi auto-sync bản tin (10p) / lịch lớp (15p) ở luồng nền 24/7
+            # vì sẽ đánh thức Neon Postgres liên tục cả ngày lẫn đêm (~4.3 CU-hrs/ngày).
+            # Cả 2 auto-sync đã tự chạy on-demand khi có nhân viên thực sự mở trang Bảng tin / Lịch lớp.
             time.sleep(60)
 
     t = threading.Thread(target=_loop, daemon=True, name="ExactReminderWorker")
