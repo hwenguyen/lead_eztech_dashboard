@@ -841,7 +841,7 @@ export function TikTokDashboard() {
               onClick={async () => {
                 setSyncingViews(true);
                 try {
-                  const res = await syncTikTokViews(30, 25, pageId || undefined);
+                  const res = await syncTikTokViews(30, 60, pageId || undefined);
                   showAppToast(res.message || 'Đã cập nhật lượt xem TikTok!', 'success');
                   await loadMetrics(true);
                 } catch (err: any) {

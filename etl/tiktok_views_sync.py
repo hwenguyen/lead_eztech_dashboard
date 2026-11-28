@@ -109,6 +109,7 @@ def sync_tiktok_video_views(
     query = db.query(Post).options(defer(Post.payload)).filter(
         Post.platform == "tiktok",
         Post.inserted_at >= cutoff,
+        or_(Post.type.is_(None), Post.type != "livestream"),
     )
     if page_id and page_id.strip():
         clean_pid = page_id.strip()
@@ -121,10 +122,10 @@ def sync_tiktok_video_views(
             )
         )
 
-    # Ưu tiên video chưa có view (view_count IS NULL hoặc = 0), rồi tới video cập nhật lâu nhất
+    # Ưu tiên video chưa có view (view_count IS NULL hoặc = 0), ưu tiên bài nhiều comment & mới nhất
     zero_first = case((or_(Post.view_count.is_(None), Post.view_count == 0), 0), else_=1)
     candidates = (
-        query.order_by(zero_first.asc(), Post.updated_at.asc().nullsfirst(), desc(Post.inserted_at))
+        query.order_by(zero_first.asc(), desc(Post.comment_count), desc(Post.inserted_at))
         .limit(max(1, min(int(max_videos), 100)))
         .all()
     )

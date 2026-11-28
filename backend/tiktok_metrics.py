@@ -502,13 +502,13 @@ def get_tiktok_metrics(
 @router.post("/sync-views")
 def trigger_sync_tiktok_views(
     days_back: int = Query(30, ge=1, le=180),
-    max_videos: int = Query(25, ge=1, le=60),
+    max_videos: int = Query(60, ge=1, le=100),
     page_id: Optional[str] = Query(None),
     db: Session = Depends(get_db),
 ):
     """Gọi TikTok API ngoài (TikWM / RapidAPI) cập nhật lượt view thật cho các video TikTok gần đây."""
     from etl.tiktok_views_sync import sync_tiktok_video_views
-    res = sync_tiktok_video_views(db, days_back=days_back, max_videos=max_videos, delay_sec=1.05, page_id=page_id)
+    res = sync_tiktok_video_views(db, days_back=days_back, max_videos=max_videos, delay_sec=0.5, page_id=page_id)
     clear_tiktok_cache()
     return {"status": "ok", **res}
 
