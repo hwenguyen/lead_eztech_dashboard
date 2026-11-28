@@ -409,6 +409,7 @@
 :where(html) .bg-slate-50\/70,
 :where(html) .bg-slate-50\/80,
 :where(html) .bg-slate-50\/90,
+:where(html) .bg-slate-50\/95,
 html .even\:bg-slate-50\/40:nth-child(even),
 :where(html) .bg-gray-50,
 :where(html) .bg-gray-50\/80,
@@ -417,6 +418,8 @@ html .even\:bg-slate-50\/40:nth-child(even),
 }
 
 :where(html) .bg-slate-100,
+:where(html) .bg-slate-100\/70,
+:where(html) .bg-slate-100\/80,
 :where(html) .bg-slate-100\/90,
 :where(html) .bg-gray-100 {
   background-color: var(--ez-muted);
@@ -449,6 +452,7 @@ html .hover\:bg-navy\/90:hover { background-color: var(--ez-navy-hover); }
 
 /* Hover & focus surfaces (html beats Tailwind hoisted variants while dark:hover:* still wins) */
 html .hover\:bg-slate-50:hover,
+html .hover\:bg-slate-50\/60:hover,
 html .hover\:bg-slate-50\/70:hover,
 html .hover\:bg-slate-50\/80:hover,
 html .hover\:bg-gray-50:hover,
@@ -460,6 +464,8 @@ html .hover\:bg-slate-100:hover,
 html .hover\:bg-slate-100\/70:hover,
 html .hover\:bg-gray-100:hover,
 html .hover\:bg-slate-200:hover,
+html .hover\:bg-slate-200\/70:hover,
+html .hover\:bg-slate-200\/80:hover,
 html .hover\:bg-gray-200:hover {
   background-color: var(--ez-muted);
 }
@@ -579,7 +585,13 @@ html .group:hover .group-hover\:text-brand-600 {
 :where(html) .bg-eztech-light\/60,
 :where(html) .bg-eztech-light\/70,
 :where(html) .bg-brand-50,
+:where(html) .bg-brand-50\/30,
+:where(html) .bg-brand-50\/40,
+:where(html) .bg-brand-50\/70,
+:where(html) .bg-brand-50\/80,
+:where(html) .bg-brand-50\/90,
 html .hover\:bg-brand-50:hover,
+html .hover\:bg-brand-50\/40:hover,
 html .hover\:bg-eztech-light:hover,
 html .hover\:bg-eztech-light\/20:hover,
 html .hover\:bg-eztech-light\/30:hover,
@@ -588,7 +600,10 @@ html .hover\:bg-eztech-light\/40:hover {
 }
 
 :where(html) .bg-brand-100,
+:where(html) .bg-brand-100\/70,
+:where(html) .bg-brand-100\/80,
 html .hover\:bg-brand-100:hover,
+html .hover\:bg-brand-100\/70:hover,
 html .hover\:bg-eztech-border\/50:hover {
   background-color: var(--ez-brand-tint-strong);
 }
@@ -610,6 +625,7 @@ html .hover\:border-eztech-border:hover {
   color: var(--ez-gold-text);
 }
 :where(html) .bg-gold-light,
+:where(html) .bg-gold-50,
 :where(html) .bg-gold-50\/40 {
   background-color: var(--ez-gold-tint);
 }
@@ -648,8 +664,14 @@ html .hover\:bg-emerald-100:hover {
 }
 
 :where(html) .bg-amber-50,
+:where(html) .bg-amber-50\/30,
+:where(html) .bg-amber-50\/40,
+:where(html) .bg-amber-50\/50,
 :where(html) .bg-amber-50\/60,
+:where(html) .bg-amber-50\/70,
+:where(html) .bg-amber-50\/80,
 :where(html) .bg-amber-100,
+html .hover\:bg-amber-50:hover,
 html .hover\:bg-amber-50\/30:hover,
 html .hover\:bg-amber-100:hover,
 html .hover\:bg-amber-100\/80:hover {
@@ -703,6 +725,7 @@ html .hover\:bg-amber-100\/80:hover {
   color: var(--ez-pink-text);
 }
 
+:where(html) .bg-teal-50,
 :where(html) .bg-teal-100 {
   background-color: var(--ez-teal-bg);
 }
@@ -711,6 +734,7 @@ html .hover\:bg-amber-100\/80:hover {
 }
 
 :where(html) .bg-rose-50,
+:where(html) .bg-rose-50\/30,
 :where(html) .bg-rose-50\/50,
 :where(html) .bg-rose-50\/80,
 :where(html) .bg-red-50,
@@ -766,6 +790,8 @@ html .hover\:border-indigo-300:hover {
 }
 
 :where(html) .bg-blue-50,
+:where(html) .bg-blue-50\/30,
+:where(html) .bg-blue-50\/40,
 :where(html) .bg-blue-50\/50,
 :where(html) .bg-blue-50\/60,
 :where(html) .bg-blue-50\/80,
@@ -789,13 +815,19 @@ html .hover\:text-blue-800:hover {
 }
 
 :where(html) .bg-purple-50,
+:where(html) .bg-purple-50\/30,
+:where(html) .bg-purple-50\/70,
 :where(html) .bg-purple-100,
+:where(html) .bg-violet-50,
+html .hover\:bg-purple-50:hover,
 html .hover\:bg-purple-50\/30:hover {
   background-color: var(--ez-purple-bg);
 }
 :where(html) .text-purple-600,
 :where(html) .text-purple-700,
 :where(html) .text-purple-900,
+:where(html) .text-violet-600,
+:where(html) .text-violet-700,
 html .hover\:text-purple-800:hover {
   color: var(--ez-purple-text);
 }
