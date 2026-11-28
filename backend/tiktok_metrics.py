@@ -268,11 +268,12 @@ def _compute_tiktok_metrics(
                 if dp in pset:
                     post_deals_map[clean_pid] += 1
 
-    # 6. Thống kê bài viết, cảm xúc & loại bài
+    # 6. Thống kê bài viết, cảm xúc, lượt xem & loại bài
     total_posts = len(posts)
     total_reactions = sum(p.reactions_total or p.like_count or 0 for p in posts)
     total_post_comments = sum(p.comment_count or 0 for p in posts)
     total_shares = sum(p.share_count or 0 for p in posts)
+    total_views = sum(p.view_count or 0 for p in posts)
 
     reaction_breakdown = {
         "like": total_reactions,
@@ -399,6 +400,8 @@ def _compute_tiktok_metrics(
             "like_count": p.like_count or 0,
             "love_count": 0,
             "comment_count": c_count,
+            "share_count": p.share_count or 0,
+            "view_count": p.view_count or 0,
             "lead_count": leads_c,
             "phone_count": phones_c,
             "deal_count": deals_c,
@@ -413,6 +416,7 @@ def _compute_tiktok_metrics(
     result = {
         "summary": {
             "total_posts": total_posts,
+            "total_views": total_views,
             "total_reactions": total_reactions,
             "total_comments": total_comments_received,
             "total_post_comments": total_post_comments,
@@ -493,4 +497,18 @@ def get_tiktok_metrics(
             status_code=500,
             detail=f"Lỗi khi xử lý dữ liệu TikTok: {type(e).__name__}: {str(e)}",
         )
+
+
+@router.post("/sync-views")
+def trigger_sync_tiktok_views(
+    days_back: int = Query(30, ge=1, le=180),
+    max_videos: int = Query(25, ge=1, le=60),
+    page_id: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Gọi TikTok API ngoài (TikWM / RapidAPI) cập nhật lượt view thật cho các video TikTok gần đây."""
+    from etl.tiktok_views_sync import sync_tiktok_video_views
+    res = sync_tiktok_video_views(db, days_back=days_back, max_videos=max_videos, delay_sec=1.05, page_id=page_id)
+    clear_tiktok_cache()
+    return {"status": "ok", **res}
 

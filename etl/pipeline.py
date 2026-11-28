@@ -1027,6 +1027,19 @@ def run_etl_pipeline():
         except Exception as b_err:
             logger.warning(f"[BULLETIN] ⚠️ Không thể đồng bộ bản tin nhóm Zalo: {b_err}")
 
+    # Đồng bộ lượt xem (view_count) thật cho video TikTok qua TikWM / RapidAPI
+    if os.getenv("ENABLE_TIKTOK_VIEWS_SYNC", "true").strip().lower() in ("true", "1", "yes"):
+        try:
+            from etl.tiktok_views_sync import sync_tiktok_video_views
+            db_tt = SessionLocal()
+            try:
+                tt_res = sync_tiktok_video_views(db_tt, days_back=30, max_videos=25, delay_sec=1.1)
+                logger.info(f"[TIKTOK_VIEWS] {tt_res.get('message')}")
+            finally:
+                db_tt.close()
+        except Exception as tt_err:
+            logger.warning(f"[TIKTOK_VIEWS] ⚠️ Không thể đồng bộ lượt xem TikTok: {tt_err}")
+
     # Xóa cache trên Render API để dashboard nhận dữ liệu mới ngay
     try:
         import requests

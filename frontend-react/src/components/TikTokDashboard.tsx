@@ -14,6 +14,7 @@ import {
   Radio,
   Inbox,
   TrendingUp,
+  Eye,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -31,6 +32,7 @@ import {
 } from 'recharts';
 import {
   fetchTikTokMetrics,
+  syncTikTokViews,
   clearClientApiCache,
   fetchTikTokPages,
   isAbortError,
@@ -38,6 +40,7 @@ import {
   type TikTokPageItem,
 } from '../services/api';
 import { safeParseDate, toSafeHttpUrl } from '../utils/format';
+import { showAppToast } from '../utils/toast';
 import { ErrorBanner } from './ErrorBanner';
 
 const FALLBACK_PALETTE = ['#1E5BD6', '#00B4D8', '#F5B400', '#10B981', '#8B5CF6', '#EC4899', '#F97316'];
@@ -73,8 +76,9 @@ export function TikTokDashboard() {
 
   // Bộ lọc bảng video
   const [searchPost, setSearchPost] = useState('');
-  const [sortBy, setSortBy] = useState<'leads' | 'phones' | 'deals' | 'comments' | 'reactions' | 'date'>('leads');
+  const [sortBy, setSortBy] = useState<'views' | 'leads' | 'phones' | 'deals' | 'comments' | 'reactions' | 'date'>('leads');
   const [postLimit, setPostLimit] = useState(15);
+  const [syncingViews, setSyncingViews] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
   // Load danh sách Kênh TikTok
@@ -182,6 +186,7 @@ export function TikTokDashboard() {
     }
 
     list.sort((a, b) => {
+      if (sortBy === 'views') return (b.view_count || 0) - (a.view_count || 0);
       if (sortBy === 'leads') return (b.lead_count || 0) - (a.lead_count || 0);
       if (sortBy === 'phones') return (b.phone_count || 0) - (a.phone_count || 0);
       if (sortBy === 'deals') return (b.deal_count || 0) - (a.deal_count || 0);
@@ -830,6 +835,28 @@ export function TikTokDashboard() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5">
+            <button
+              type="button"
+              disabled={syncingViews || loading}
+              onClick={async () => {
+                setSyncingViews(true);
+                try {
+                  const res = await syncTikTokViews(30, 25, pageId || undefined);
+                  showAppToast(res.message || 'Đã cập nhật lượt xem TikTok!', 'success');
+                  await loadMetrics(true);
+                } catch (err: any) {
+                  showAppToast(err?.response?.data?.detail || 'Không thể cập nhật lượt xem lúc này.', 'error');
+                } finally {
+                  setSyncingViews(false);
+                }
+              }}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-eztech bg-blue-50 hover:bg-blue-100 border border-blue-200 transition-colors cursor-pointer disabled:opacity-50"
+              title="Lấy lượt xem (View) thật từ TikTok API ngoài cho các video 30 ngày gần nhất"
+            >
+              <Eye className={`w-3.5 h-3.5 ${syncingViews ? 'animate-pulse' : ''}`} aria-hidden="true" />
+              <span>{syncingViews ? 'Đang lấy View...' : 'Cập nhật View'}</span>
+            </button>
+
             {/* Search Input */}
             <div className="relative">
               <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" aria-hidden="true" />
@@ -847,10 +874,11 @@ export function TikTokDashboard() {
             <select
               aria-label="Sắp xếp danh sách video TikTok"
               value={sortBy}
-              onChange={e => setSortBy(e.target.value as 'leads' | 'phones' | 'deals' | 'comments' | 'reactions' | 'date')}
+              onChange={e => setSortBy(e.target.value as 'views' | 'leads' | 'phones' | 'deals' | 'comments' | 'reactions' | 'date')}
               className="bg-white border border-slate-200 rounded-lg text-xs px-2.5 py-1.5 text-navy font-medium focus:outline-none cursor-pointer"
             >
               <option value="leads">Xếp theo: Lead thu về (Nhiều nhất)</option>
+              <option value="views">Xếp theo: Lượt xem (Nhiều nhất)</option>
               <option value="phones">Xếp theo: SĐT thu được (Nhiều nhất)</option>
               <option value="deals">Xếp theo: Học viên chốt (Nhiều nhất)</option>
               <option value="comments">Xếp theo: Bình luận (Nhiều nhất)</option>
@@ -860,13 +888,14 @@ export function TikTokDashboard() {
           </div>
         </div>
 
-        {/* Bảng dữ liệu: Đầy đủ Lead thu về, SĐT, Deal win */}
+        {/* Bảng dữ liệu: Đầy đủ Lượt xem, Lead thu về, SĐT, Deal win */}
         <div className="overflow-x-auto">
           <table className="w-full text-left text-[13px]">
             <thead>
               <tr className="bg-slate-50/70 border-b border-slate-100 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
                 <th className="px-5 py-3.5">Video & Nội dung</th>
                 <th className="px-4 py-3.5">Kênh</th>
+                <th className="px-4 py-3.5 text-right">Lượt xem</th>
                 <th className="px-4 py-3.5 text-right">Lượt thích</th>
                 <th className="px-4 py-3.5 text-right">Bình luận</th>
                 <th className="px-4 py-3.5 text-right">Lead thu về</th>
@@ -906,6 +935,18 @@ export function TikTokDashboard() {
                         )}
                         <span className="truncate max-w-[140px]">{post.page_name}</span>
                       </span>
+                    </td>
+
+                    {/* Cột Lượt xem */}
+                    <td className="px-4 py-3.5 text-right whitespace-nowrap">
+                      {(post.view_count || 0) > 0 ? (
+                        <span className="inline-flex items-center gap-1 font-mono font-bold text-navy text-xs">
+                          <Eye className="w-3.5 h-3.5 text-slate-400" aria-hidden="true" />
+                          {(post.view_count || 0).toLocaleString()}
+                        </span>
+                      ) : (
+                        <span className="text-slate-300 font-mono text-xs">—</span>
+                      )}
                     </td>
 
                     {/* Cột Lượt thích */}
@@ -985,7 +1026,7 @@ export function TikTokDashboard() {
 
               {filteredPosts.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-6 py-12 text-center text-slate-400 text-xs">
+                  <td colSpan={9} className="px-6 py-12 text-center text-slate-400 text-xs">
                     {loading
                       ? 'Đang tải danh sách video...'
                       : 'Không tìm thấy video TikTok nào phù hợp trong khoảng thời gian này'}

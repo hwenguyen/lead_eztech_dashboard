@@ -1209,6 +1209,8 @@ export interface FacebookPostItem {
   like_count: number;
   love_count: number;
   comment_count: number;
+  share_count?: number;
+  view_count?: number;
   lead_count: number;
   phone_count: number;
   deal_count: number;
@@ -1301,6 +1303,18 @@ export const fetchTikTokMetrics = async (
   if (endDate) params.end_date = endDate;
   if (pageId) params.page_id = pageId;
   const res = await apiClient.get<FacebookMetricsResponse>('/tiktok/metrics', { params, ...(opts || {}) } as any);
+  return res.data;
+};
+
+export const syncTikTokViews = async (
+  daysBack: number = 30,
+  maxVideos: number = 25,
+  pageId?: string
+): Promise<{ status: string; checked: number; updated: number; failed: number; message: string }> => {
+  const params: any = { days_back: daysBack, max_videos: maxVideos };
+  if (pageId) params.page_id = pageId;
+  const res = await apiClient.post('/tiktok/sync-views', null, { params, timeout: 90000 });
+  clearClientApiCache('/tiktok/');
   return res.data;
 };
 
