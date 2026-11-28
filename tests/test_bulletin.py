@@ -12,7 +12,7 @@ import json
 import os
 import sys
 import unittest
-from datetime import timedelta
+from datetime import datetime, timedelta
 from unittest.mock import patch
 
 os.environ["DATABASE_URL"] = "postgresql://test:test@127.0.0.1:5432/test_bulletin"
@@ -336,6 +336,26 @@ class BulletinSystemTests(unittest.TestCase):
         self.assertEqual(len(out["checklist_items"]), 2)
         self.assertEqual(out["suggested_reminder"]["priority"], "high")
         self.assertEqual(out["suggested_reminder"]["remind_at"], "2026-11-25T15:30")
+
+    def test_digest_skips_when_outside_time_window(self):
+        # Giả lập cron bị trễ tới 19:43 tối Thứ 7 (2026-11-28) -> không được gửi nhầm khung 15:00
+        late_vn = datetime(2026, 11, 28, 19, 43, 0)
+        create_checklist(
+            ChecklistCreateRequest(title="Việc chiều", checklist_date="2026-11-28", items=["Gọi khách"]),
+            current_user=self.staff_a,
+            db=self.db,
+        )
+        with patch("backend.bulletin_notifier.get_vn_now", return_value=late_vn):
+            res = dispatch_daily_digest(db=self.db, slot="15h", target_date="2026-11-28", dry_run=False, force=False)
+            self.assertEqual(res["sent"], 0)
+            self.assertIn("ngoài khung giờ hợp lệ", res["message"])
+
+        # Nếu force=True (Admin gửi tay) thì vẫn gửi bình thường
+        with patch("backend.bulletin_notifier.get_vn_now", return_value=late_vn), \
+             patch("backend.bulletin_notifier.get_token_for_page", return_value="dummy"), \
+             patch("etl.pancake_client.PancakeClient.send_message", return_value={"success": True}):
+            res_force = dispatch_daily_digest(db=self.db, slot="15h", target_date="2026-11-28", dry_run=False, force=True)
+            self.assertEqual(res_force["sent"], 1)
 
 
 if __name__ == "__main__":

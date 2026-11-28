@@ -1,9 +1,12 @@
 name: Bulletin Sync & Zalo Reminder (11h / 15h VN)
 
 on:
+  # Lưu ý: GitHub Actions schedule thường bị trễ 1-5 tiếng vào giờ chẵn.
+  # Để chạy đúng 11:00 và 15:00 từng phút, nên dùng dịch vụ cron ngoài (vd cron-job.org)
+  # gọi workflow_dispatch hoặc gọi thẳng API /api/bulletin/cron/dispatch.
   schedule:
-    # 11:00 VN (04:00 UTC) & 15:00 VN (08:00 UTC) hàng ngày
-    - cron: '0 4,8 * * *'
+    # Dự phòng: lệch khỏi phút :00 để giảm nghẽn hàng đợi GitHub (10:50 VN & 14:50 VN, T2-T7)
+    - cron: '50 3,7 * * 1-6'
   workflow_dispatch:
     inputs:
       slot:
@@ -15,6 +18,11 @@ on:
           - 11h
           - 15h
           - exact
+      force:
+        description: 'Bỏ qua kiểm tra khung giờ (dùng khi test thủ công)'
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: bulletin-reminder
@@ -58,20 +66,27 @@ jobs:
 
           event_name = "${{ github.event_name }}"
           input_slot = "${{ github.event.inputs.slot }}"
+          force_flag = "${{ github.event.inputs.force }}" == "true"
           vn_now = datetime.now(timezone(timedelta(hours=7)))
+          cur_mins = vn_now.hour * 60 + vn_now.minute
           if event_name == "workflow_dispatch" and input_slot:
               slot = input_slot
+          elif 10 * 60 + 45 <= cur_mins <= 12 * 60 + 15:
+              slot = "11h"
+          elif 14 * 60 + 45 <= cur_mins <= 16 * 60 + 15:
+              slot = "15h"
           else:
-              slot = "11h" if vn_now.hour < 13 else "15h"
+              slot = "exact"
 
           with SessionLocal() as db:
               sync_res = sync_bulletin_from_group(db=db, max_pages=3)
               print("SYNC:", json.dumps(sync_res, ensure_ascii=False))
               if slot == "exact":
+                  print(f"INFO: Ngoài khung giờ 11h/15h ({vn_now.strftime('%H:%M')}), chỉ chạy exact reminders.")
                   ex_res = dispatch_due_exact_reminders(db=db, dry_run=False)
                   print("EXACT:", json.dumps(ex_res, ensure_ascii=False))
               else:
-                  dig_res = dispatch_daily_digest(db=db, slot=slot, dry_run=False, force=False)
+                  dig_res = dispatch_daily_digest(db=db, slot=slot, dry_run=False, force=force_flag)
                   print("DIGEST:", json.dumps(dig_res, ensure_ascii=False))
                   ex_res = dispatch_due_exact_reminders(db=db, dry_run=False)
                   print("EXACT:", json.dumps(ex_res, ensure_ascii=False))

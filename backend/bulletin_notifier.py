@@ -299,6 +299,32 @@ def dispatch_daily_digest(
         cfg = get_bulletin_source_config(session)
         active_weekdays = cfg.get("active_weekdays", [0, 1, 2, 3, 4, 5])
         if not force and not dry_run and clean_slot in ("11h", "15h"):
+            # Bảo vệ khung giờ: không gửi tin nhắc 11:00 hoặc 15:00 nếu cron bị trễ quá xa (vd GitHub Actions chạy trễ sang 19h)
+            cur_mins = now_vn.hour * 60 + now_vn.minute
+            if clean_slot == "11h" and not (10 * 60 + 45 <= cur_mins <= 12 * 60 + 15):
+                return {
+                    "success": True,
+                    "slot": clean_slot,
+                    "dispatch_date": date_str,
+                    "dry_run": False,
+                    "sent": 0,
+                    "failed": 0,
+                    "skipped": 0,
+                    "results": [],
+                    "message": f"Bỏ qua gửi nhắc khung 11:00 vì hiện tại ({now_vn.strftime('%H:%M')}) đã ngoài khung giờ hợp lệ (10:45–12:15).",
+                }
+            if clean_slot == "15h" and not (14 * 60 + 45 <= cur_mins <= 16 * 60 + 15):
+                return {
+                    "success": True,
+                    "slot": clean_slot,
+                    "dispatch_date": date_str,
+                    "dry_run": False,
+                    "sent": 0,
+                    "failed": 0,
+                    "skipped": 0,
+                    "results": [],
+                    "message": f"Bỏ qua gửi nhắc khung 15:00 vì hiện tại ({now_vn.strftime('%H:%M')}) đã ngoài khung giờ hợp lệ (14:45–16:15).",
+                }
             try:
                 wd = datetime.strptime(date_str, "%Y-%m-%d").weekday()
                 if wd not in active_weekdays:
