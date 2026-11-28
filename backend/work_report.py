@@ -526,7 +526,7 @@ def ai_autofill_work_report(
     if not api_key:
         raise HTTPException(status_code=400, detail="Chưa cấu hình GEMINI_API_KEY để chạy AI tự điền.")
 
-    scoped_emp = resolve_scoped_employee(db, current_user, "work_report", payload.employee_name)
+    scoped_emp = resolve_scoped_employee(current_user, "work_report", payload.employee_name)
     start_str = (payload.start_date or "")[:10]
     end_str = (payload.end_date or "")[:10]
     if not start_str or not end_str:
