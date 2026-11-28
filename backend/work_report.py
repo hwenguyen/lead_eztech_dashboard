@@ -40,6 +40,7 @@ TIKTOK_PAGE_NAMES = {
     "Anh Kế toán làm Data (TikTok)",
     "Hành trang cho kế toán",
     "Chị Kế Toán GenZ",
+    "Học Kế toán cùng EzTech",
     "Anh kế toán Daily",
 }
 
@@ -148,13 +149,13 @@ def get_work_report(
     for l in leads.values():
         pg = l.page_id or "Khác"
         is_tt = _is_tiktok_page(pg)
-        has_ph = bool(l.has_phone and l.phone_event_at)
+        has_ph = bool(l.has_phone)
 
         if is_tt:
             tt_contact += 1
             if l.is_new:
                 tt_new += 1
-            if l.is_recontact:
+            else:
                 tt_recontact += 1
             if has_ph:
                 tt_phones += 1
@@ -162,7 +163,7 @@ def get_work_report(
             fb_contact += 1
             if l.is_new:
                 fb_new += 1
-            if l.is_recontact:
+            else:
                 fb_recontact += 1
             if has_ph:
                 fb_phones += 1
@@ -179,7 +180,7 @@ def get_work_report(
         page_stats_map[pg]["total_contacted"] += 1
         if l.is_new:
             page_stats_map[pg]["new_leads"] += 1
-        if l.is_recontact:
+        else:
             page_stats_map[pg]["recontact_leads"] += 1
         if has_ph:
             page_stats_map[pg]["phone_leads"] += 1
@@ -210,9 +211,9 @@ def get_work_report(
             zalo_contact += 1
             if zl.is_new:
                 zalo_new += 1
-            if zl.is_recontact:
+            else:
                 zalo_recontact += 1
-            if zl.has_phone and zl.phone_event_at:
+            if zl.has_phone:
                 zalo_phones += 1
 
     total_new = tt_new + fb_new
@@ -276,38 +277,48 @@ def get_work_report(
         total_revenue += int(sd.da_thu or 0)
         total_contract += int(sd.tong_tien or 0)
 
-        students_map[key] = {
-            "full_name": sd.ho_ten or "Học viên",
-            "phone_number": sd.sdt or "",
-            "page_id": resolve_canonical_page_name(sd.nguon, fallback=sd.nguon or ""),
-            "industry": sd.linh_vuc or "",
-            "job_title": sd.chuc_vu or "",
-            "expectation": sd.ky_vong or "",
-            "course": sd.chuong_trinh or "",
-            "class_code": sd.lop or "",
-            "revenue": int(sd.da_thu or 0),
-            "total_amount": int(sd.tong_tien or 0),
-            "date": sd.ngay_thu or "",
-            "care_by": sd.nv_cs or "",
-            "note": sd.note or "",
-        }
+        if key in students_map:
+            students_map[key]["revenue"] += int(sd.da_thu or 0)
+            students_map[key]["total_amount"] += int(sd.tong_tien or 0)
+            if sd.lop and sd.lop.strip():
+                existing_cls = split_csv(students_map[key]["class_code"])
+                for c_code in split_csv(sd.lop):
+                    if c_code not in existing_cls:
+                        existing_cls.append(c_code)
+                students_map[key]["class_code"] = ", ".join(existing_cls)
+        else:
+            students_map[key] = {
+                "full_name": sd.ho_ten or "Học viên",
+                "phone_number": sd.sdt or "",
+                "page_id": resolve_canonical_page_name(sd.nguon, fallback=sd.nguon or ""),
+                "industry": sd.linh_vuc or "",
+                "job_title": sd.chuc_vu or "",
+                "expectation": sd.ky_vong or "",
+                "course": sd.chuong_trinh or "",
+                "class_code": sd.lop or "",
+                "revenue": int(sd.da_thu or 0),
+                "total_amount": int(sd.tong_tien or 0),
+                "date": sd.ngay_thu or "",
+                "care_by": sd.nv_cs or "",
+                "note": sd.note or "",
+            }
 
     for dw in matched_deal_wins:
         key = normalize_phone(dw.phone_number) if dw.phone_number else f"dw_{dw.id}"
-        if dw.industry and dw.industry.strip():
-            industries_counter[dw.industry.strip()] += 1
-        if dw.job_title and dw.job_title.strip():
-            jobs_counter[dw.job_title.strip()] += 1
-        if dw.expectation and dw.expectation.strip():
-            exp_str = dw.expectation.strip()
-            if exp_str not in expectations_list and len(expectations_list) < 8:
-                expectations_list.append(exp_str)
-
         if key not in students_map:
+            if dw.industry and dw.industry.strip():
+                industries_counter[dw.industry.strip()] += 1
+            if dw.job_title and dw.job_title.strip():
+                jobs_counter[dw.job_title.strip()] += 1
+            if dw.expectation and dw.expectation.strip():
+                exp_str = dw.expectation.strip()
+                if exp_str not in expectations_list and len(expectations_list) < 8:
+                    expectations_list.append(exp_str)
+            src_raw = dw.source_page or dw.page_id or ""
             students_map[key] = {
                 "full_name": dw.full_name or "Học viên",
                 "phone_number": dw.phone_number or "",
-                "page_id": resolve_canonical_page_name(dw.page_id, fallback=dw.page_id or ""),
+                "page_id": resolve_canonical_page_name(src_raw, fallback=src_raw),
                 "industry": dw.industry or "",
                 "job_title": dw.job_title or "",
                 "expectation": dw.expectation or "",
@@ -321,12 +332,17 @@ def get_work_report(
             }
         else:
             # Bổ sung thông tin nếu SalesDeal còn thiếu
-            if not students_map[key]["industry"] and dw.industry:
-                students_map[key]["industry"] = dw.industry
-            if not students_map[key]["job_title"] and dw.job_title:
-                students_map[key]["job_title"] = dw.job_title
-            if not students_map[key]["expectation"] and dw.expectation:
-                students_map[key]["expectation"] = dw.expectation
+            if not students_map[key]["industry"] and dw.industry and dw.industry.strip():
+                students_map[key]["industry"] = dw.industry.strip()
+                industries_counter[dw.industry.strip()] += 1
+            if not students_map[key]["job_title"] and dw.job_title and dw.job_title.strip():
+                students_map[key]["job_title"] = dw.job_title.strip()
+                jobs_counter[dw.job_title.strip()] += 1
+            if not students_map[key]["expectation"] and dw.expectation and dw.expectation.strip():
+                exp_str = dw.expectation.strip()
+                students_map[key]["expectation"] = exp_str
+                if exp_str not in expectations_list and len(expectations_list) < 8:
+                    expectations_list.append(exp_str)
 
     students_list = list(students_map.values())
     total_students = len(students_list)
