@@ -1,12 +1,9 @@
 name: Bulletin Sync & Zalo Reminder (11h / 15h VN)
 
 on:
-  # Lưu ý: GitHub Actions schedule thường bị trễ 1-5 tiếng vào giờ chẵn.
-  # Để chạy đúng 11:00 và 15:00 từng phút, nên dùng dịch vụ cron ngoài (vd cron-job.org)
-  # gọi workflow_dispatch hoặc gọi thẳng API /api/bulletin/cron/dispatch.
-  schedule:
-    # Dự phòng: lệch khỏi phút :00 để giảm nghẽn hàng đợi GitHub (10:50 VN & 14:50 VN, T2-T7)
-    - cron: '50 3,7 * * 1-6'
+  # Đã tắt schedule nội bộ GitHub (giống pancake-etl.yml) để dùng cronjob ngoài chạy đúng giờ 11:00 & 15:00 VN:
+  # schedule:
+  #   - cron: '50 3,7 * * 1-6'
   workflow_dispatch:
     inputs:
       slot:
