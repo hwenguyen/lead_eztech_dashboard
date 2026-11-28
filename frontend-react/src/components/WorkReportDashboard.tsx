@@ -13,9 +13,11 @@ import {
   Users,
   FileSpreadsheet,
   RotateCcw,
+  Sparkles,
 } from 'lucide-react';
 import {
   fetchWorkReport,
+  aiAutofillWorkReport,
   clearClientApiCache,
   isAbortError,
   getStoredAuth,
@@ -23,6 +25,7 @@ import {
 } from '../services/api';
 import { getTabDataScope } from '../config/permissions';
 import { copyToClipboard } from '../utils/format';
+import { showAppToast } from '../utils/toast';
 import { ErrorBanner } from './ErrorBanner';
 
 export interface SheetSubRow {
@@ -266,6 +269,7 @@ export function WorkReportDashboard() {
   const [sections, setSections] = useState<SheetSection[]>(() => createDefaultSections(null));
   const [loadedStorageKey, setLoadedStorageKey] = useState<string | null>(null);
   const [copiedMode, setCopiedMode] = useState<'all' | 'body' | string | null>(null);
+  const [aiFilling, setAiFilling] = useState<boolean>(false);
 
   const copyTimerRef = useRef<number | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -717,6 +721,78 @@ export function WorkReportDashboard() {
 
         {/* Các nút thao tác: Tự điền lại & Copy Paste Sheet */}
         <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={async () => {
+              if (aiFilling || loading) return;
+              setAiFilling(true);
+              try {
+                const res = await aiAutofillWorkReport({
+                  start_date: startDate,
+                  end_date: endDate,
+                  employee_name: selectedEmployee || undefined,
+                  sections: sections.map((s) => ({
+                    sectionNumber: s.sectionNumber,
+                    title: s.title,
+                    rows: s.rows.map((r) => ({
+                      id: r.id,
+                      task: r.task,
+                      completed: r.completed,
+                      nextPlan: r.nextPlan,
+                    })),
+                  })),
+                });
+
+                if (!res.updates || res.updates.length === 0) {
+                  showAppToast(res.message || 'Không có dữ liệu Checklist phù hợp để điền.', 'info');
+                  return;
+                }
+
+                const protectedIds = new Set(['s1_r1', 's1_r2', 's1_r_zalo']);
+                setSections((prev) => {
+                  const next = prev.map((s) => ({ ...s, rows: s.rows.map((r) => ({ ...r })) }));
+                  for (const upd of res.updates) {
+                    const sec = next.find((s) => s.sectionNumber === upd.sectionNumber);
+                    if (!sec) continue;
+                    const compText = (upd.completed || '').trim();
+                    const planText = (upd.nextPlan || '').trim();
+                    if (!compText && !planText) continue;
+
+                    if (upd.rowId && !protectedIds.has(upd.rowId)) {
+                      const targetRow = sec.rows.find((r) => r.id === upd.rowId);
+                      if (targetRow) {
+                        if (compText) targetRow.completed = targetRow.completed ? `${targetRow.completed}\n${compText}` : compText;
+                        if (planText) targetRow.nextPlan = targetRow.nextPlan ? `${targetRow.nextPlan}\n${planText}` : planText;
+                        continue;
+                      }
+                    }
+
+                    sec.rows.push({
+                      id: `ai_${upd.sectionNumber}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+                      task: (upd.task || 'Công việc từ Checklist').trim(),
+                      completed: compText,
+                      nextPlan: planText,
+                      feedback: '',
+                    });
+                  }
+                  return next;
+                });
+
+                showAppToast(res.message || 'AI đã tự điền xong từ Checklist tuần!', 'success');
+              } catch (err: any) {
+                showAppToast(err?.response?.data?.detail || 'Lỗi khi chạy AI tự điền từ Checklist.', 'error');
+              } finally {
+                setAiFilling(false);
+              }
+            }}
+            disabled={aiFilling || loading}
+            title="Đọc toàn bộ Checklist trong tuần của nhân sự và tự động phân loại vào các mục tương ứng"
+            className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-gradient-to-r from-brand-50 to-indigo-50 hover:from-brand-100 hover:to-indigo-100 text-brand-700 border border-brand-200 flex items-center gap-1.5 transition-all shadow-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Sparkles className={`w-3.5 h-3.5 text-brand-600 ${aiFilling ? 'animate-spin' : ''}`} />
+            <span>{aiFilling ? 'AI đang tổng hợp...' : 'AI tự điền từ Checklist'}</span>
+          </button>
+
           <button
             type="button"
             onClick={handleResetReport}

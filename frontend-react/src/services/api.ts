@@ -1400,6 +1400,38 @@ export const fetchWorkReport = async (
   return res.data;
 };
 
+export interface WorkReportAiUpdate {
+  sectionNumber: number;
+  rowId: string | null;
+  task?: string;
+  completed?: string;
+  nextPlan?: string;
+}
+
+export interface WorkReportAiAutofillResponse {
+  checklist_count: number;
+  done_count: number;
+  pending_count: number;
+  updates: WorkReportAiUpdate[];
+  message: string;
+}
+
+export const aiAutofillWorkReport = async (payload: {
+  start_date: string;
+  end_date: string;
+  employee_name?: string;
+  sections: Array<{
+    sectionNumber: number;
+    title: string;
+    rows: Array<{ id: string; task: string; completed: string; nextPlan: string }>;
+  }>;
+}): Promise<WorkReportAiAutofillResponse> => {
+  const res = await apiClient.post<WorkReportAiAutofillResponse>('/work-report/ai-autofill', payload, {
+    timeout: 60000,
+  });
+  return res.data;
+};
+
 export interface BackfillStatusResponse {
   isRunning: boolean;
   currentPage: string;

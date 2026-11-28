@@ -4,19 +4,22 @@ Tổng hợp tự động toàn bộ số liệu Lead (TikTok, Facebook, Zalo), 
 và Insight khách hàng thu được trong tuần của từng nhân viên để tự động điền vào form báo cáo.
 """
 
+import json
 import logging
+import re
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any, Tuple
 import time
 import threading
 from collections import Counter
 
-from fastapi import APIRouter, Depends, Query
-from sqlalchemy.orm import Session, defer
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
+from sqlalchemy.orm import Session, defer, joinedload
 from sqlalchemy import or_, desc
 
 from database.db import get_db
-from database.models import DealWin, SalesDeal, FactLeadActivity, AppUser
+from database.models import DealWin, SalesDeal, FactLeadActivity, AppUser, DailyChecklist
 from backend.auth import require_tab_access
 from backend.rbac_config import get_module_scope, resolve_scoped_employee
 from backend.lead_metrics import classify_leads, resolve_period, normalize_text, split_csv
@@ -481,3 +484,165 @@ def get_work_report(
         _WORK_REPORT_CACHE[cache_key] = (now_ts, result)
 
     return result
+
+
+class WorkReportAiAutofillRequest(BaseModel):
+    start_date: str
+    end_date: str
+    employee_name: Optional[str] = None
+    sections: List[Dict[str, Any]] = []
+
+
+def _parse_ai_autofill_json(raw_text: str) -> List[Dict[str, Any]]:
+    cleaned = (raw_text or "").strip()
+    fence = re.search(r"```(?:json)?\s*(\{.*?\}|\[.*?\])\s*```", cleaned, flags=re.DOTALL)
+    candidate = fence.group(1) if fence else cleaned
+    if not fence:
+        s_idx = candidate.find("{")
+        e_idx = candidate.rfind("}")
+        if s_idx != -1 and e_idx > s_idx:
+            candidate = candidate[s_idx : e_idx + 1]
+    try:
+        parsed = json.loads(candidate)
+        if isinstance(parsed, dict) and isinstance(parsed.get("updates"), list):
+            return [u for u in parsed["updates"] if isinstance(u, dict)]
+        if isinstance(parsed, list):
+            return [u for u in parsed if isinstance(u, dict)]
+    except Exception:
+        pass
+    return []
+
+
+@router.post("/ai-autofill")
+def ai_autofill_work_report(
+    payload: WorkReportAiAutofillRequest,
+    db: Session = Depends(get_db),
+    current_user: AppUser = Depends(require_tab_access("work_report")),
+):
+    """Đọc toàn bộ Checklist trong tuần của nhân sự và dùng Gemini AI điền vào các mục tương ứng của Báo cáo công việc."""
+    from backend.ai_rag import get_gemini_api_key, call_gemini_generate
+
+    api_key = get_gemini_api_key(db)
+    if not api_key:
+        raise HTTPException(status_code=400, detail="Chưa cấu hình GEMINI_API_KEY để chạy AI tự điền.")
+
+    scoped_emp = resolve_scoped_employee(db, current_user, "work_report", payload.employee_name)
+    start_str = (payload.start_date or "")[:10]
+    end_str = (payload.end_date or "")[:10]
+    if not start_str or not end_str:
+        raise HTTPException(status_code=400, detail="Thiếu khoảng ngày start_date / end_date.")
+
+    q = (
+        db.query(DailyChecklist)
+        .options(joinedload(DailyChecklist.items))
+        .filter(
+            DailyChecklist.is_deleted == False,
+            DailyChecklist.checklist_date >= start_str,
+            DailyChecklist.checklist_date <= end_str,
+        )
+    )
+
+    users_map: Dict[int, str] = {}
+    for u in db.query(AppUser.id, AppUser.full_name, AppUser.username).all():
+        users_map[u.id] = (u.full_name or u.username or "").strip()
+
+    if scoped_emp:
+        target_norm = scoped_emp.strip().lower()
+        matched_ids = [
+            uid for uid, uname in users_map.items()
+            if uname.lower() == target_norm or target_norm in uname.lower()
+        ]
+        if matched_ids:
+            q = q.filter(DailyChecklist.owner_user_id.in_(matched_ids))
+        else:
+            return {
+                "checklist_count": 0,
+                "done_count": 0,
+                "pending_count": 0,
+                "updates": [],
+                "message": f"Không tìm thấy tài khoản Checklist khớp với '{scoped_emp}'.",
+            }
+
+    checklists = q.order_by(DailyChecklist.checklist_date.asc(), DailyChecklist.id.asc()).all()
+    if not checklists:
+        return {
+            "checklist_count": 0,
+            "done_count": 0,
+            "pending_count": 0,
+            "updates": [],
+            "message": f"Không có dữ liệu Checklist nào từ {start_str} đến {end_str}.",
+        }
+
+    done_count = 0
+    pending_count = 0
+    checklist_lines: List[str] = []
+    for cl in checklists:
+        owner_name = users_map.get(cl.owner_user_id, "")
+        header = f"[{cl.checklist_date}] {cl.title}" + (f" ({owner_name})" if not scoped_emp and owner_name else "")
+        if cl.admin_note:
+            header += f" | Admin Note: {cl.admin_note}"
+        checklist_lines.append(header)
+        for it in cl.items:
+            if it.is_done:
+                done_count += 1
+                status_tag = "[ĐÃ XONG]"
+            else:
+                pending_count += 1
+                status_tag = "[CHƯA XONG]"
+            assigned_tag = " [Task được giao]" if it.is_assigned else ""
+            note_part = f" (Ghi chú: {it.note})" if it.note else ""
+            checklist_lines.append(f"  - {status_tag}{assigned_tag} {it.content}{note_part}")
+
+    # Mô tả khung các mục hiện tại (trừ các dòng số liệu tự động s1_r1, s1_r2, s1_r_zalo)
+    protected_row_ids = {"s1_r1", "s1_r2", "s1_r_zalo"}
+    section_outline: List[str] = []
+    for sec in payload.sections:
+        sec_num = sec.get("sectionNumber")
+        sec_title = sec.get("title") or ""
+        section_outline.append(f"Mục {sec_num}: {sec_title}")
+        for r in sec.get("rows") or []:
+            rid = r.get("id")
+            if rid in protected_row_ids:
+                continue
+            section_outline.append(f"  - rowId=\"{rid}\" | Công việc=\"{r.get('task') or ''}\"")
+
+    system_prompt = (
+        "Bạn là Trợ lý tổng hợp Báo cáo Công việc Tuần của EzTech Việt Nam.\n"
+        "Nhiệm vụ: Đọc toàn bộ Checklist công việc trong tuần của nhân sự và phân loại, tổng hợp ngắn gọn, súc tích "
+        "vào đúng các mục tương ứng trong bảng Báo cáo công việc.\n\n"
+        "QUY TẮC BẮT BUỘC:\n"
+        "- Chỉ dùng thông tin có thật trong Checklist đầu vào, KHÔNG tự bịa việc.\n"
+        "- Việc `[ĐÃ XONG]` → tổng hợp gọn theo nhóm việc vào cột `completed` (Đã hoàn thành trong tuần).\n"
+        "- Việc `[CHƯA XONG]` hoặc `[Task được giao]` cần làm tiếp → tổng hợp thành đầu việc ngắn gọn vào cột `nextPlan` (Kế hoạch cho tuần tiếp theo).\n"
+        "- Ưu tiên điền vào các `rowId` có sẵn trong khung bảng; nếu có nhóm việc mới chưa có dòng phù hợp thì đặt `rowId: null` và ghi rõ `task` (tên đầu việc) kèm `sectionNumber` (1..6).\n"
+        "- TUYỆT ĐỐI KHÔNG đụng vào các dòng số liệu tự động (Chăm sóc Lead TikTok/FB/Zalo).\n"
+        "- Viết ngắn gọn, rõ ràng dạng gạch đầu dòng `- ...`, không rào đón.\n"
+        "- BẮT BUỘC trả về DUY NHẤT 1 JSON hợp lệ theo mẫu:\n"
+        '{\n  "updates": [\n    {\n      "sectionNumber": 2,\n      "rowId": "s2_r1",\n      "task": "Tên công việc (nếu rowId là null)",\n      "completed": "- ... (để chuỗi rỗng nếu không có)",\n      "nextPlan": "- ... (để chuỗi rỗng nếu không có)"\n    }\n  ]\n}'
+    )
+
+    user_prompt = (
+        f"=== KHUNG BẢNG BÁO CÁO CÔNG VIỆC ({start_str} đến {end_str}) ===\n"
+        + "\n".join(section_outline)
+        + "\n\n=== DỮ LIỆU CHECKLIST TRONG TUẦN ===\n"
+        + "\n".join(checklist_lines)
+        + "\n\nHãy xuất JSON phân loại và điền vào các mục tương ứng."
+    )
+
+    raw_answer, _, _ = call_gemini_generate(
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        history=[],
+        api_key=api_key,
+        temperature=0.2,
+        enable_search=False,
+    )
+    updates = _parse_ai_autofill_json(raw_answer)
+
+    return {
+        "checklist_count": len(checklists),
+        "done_count": done_count,
+        "pending_count": pending_count,
+        "updates": updates,
+        "message": f"Đã tổng hợp {done_count} việc hoàn thành và {pending_count} việc tiếp theo từ {len(checklists)} checklist.",
+    }
