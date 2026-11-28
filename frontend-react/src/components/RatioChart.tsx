@@ -98,20 +98,20 @@ export const RatioChart = React.memo(function RatioChart({
 
   return (
     <div className="bg-white rounded-xl border border-slate-200/80 p-5 shadow-card h-full flex flex-col justify-between">
-      <div className="mb-3">
+      <div className="mb-2">
         <h3 className="text-[15px] font-semibold tracking-[-0.01em] text-navy">Tỉ lệ chuyển đổi</h3>
       </div>
 
       {data.length > 0 ? (
         <>
-          <ResponsiveContainer width="100%" height={160}>
+          <ResponsiveContainer width="100%" height={132}>
             <PieChart>
               <Pie
                 data={data}
                 cx="50%"
                 cy="50%"
-                innerRadius={44}
-                outerRadius={72}
+                innerRadius={36}
+                outerRadius={58}
                 paddingAngle={3}
                 dataKey="value"
                 labelLine={false}
@@ -148,7 +148,7 @@ export const RatioChart = React.memo(function RatioChart({
             </PieChart>
           </ResponsiveContainer>
 
-          <div className="mt-3 pt-3 border-t border-slate-100 space-y-1.5">
+          <div className="mt-2 pt-2 border-t border-slate-100 space-y-1">
             <button
               type="button"
               onClick={() => handleToggleType('new')}
@@ -186,7 +186,7 @@ export const RatioChart = React.memo(function RatioChart({
               </span>
               <span className="font-mono font-bold text-gold-dark tabular-nums">{phoneRate}%</span>
             </div>
-            <div className="h-px bg-slate-100 my-1.5" />
+            <div className="h-px bg-slate-100 my-1" />
             <div className="flex items-center justify-between text-xs">
               <span className="text-slate-500 font-medium">Tổng Lead</span>
               <span className="font-mono font-bold text-navy tabular-nums">{totalLeads.toLocaleString()}</span>

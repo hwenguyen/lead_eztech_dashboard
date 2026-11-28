@@ -140,9 +140,9 @@ export const TrendChart = React.memo(function TrendChart({ data, selectedDate, o
   };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 h-full">
       {/* Area Chart - chiếm 2/3 */}
-      <div className="lg:col-span-2 bg-white rounded-xl border border-slate-200/80 p-5 shadow-card">
+      <div className="lg:col-span-2 bg-white rounded-xl border border-slate-200/80 p-5 shadow-card h-full flex flex-col justify-between">
         <div className="flex flex-wrap items-center justify-between gap-2 mb-5">
           <div className="flex items-center gap-2 flex-wrap">
             <h3 className="text-[15px] font-semibold tracking-[-0.01em] text-navy">Xu hướng Lead theo thời gian</h3>
@@ -248,7 +248,7 @@ export const TrendChart = React.memo(function TrendChart({ data, selectedDate, o
       </div>
 
       {/* Bar Chart - chiếm 1/3 */}
-      <div className="bg-white rounded-xl border border-slate-200/80 p-5 shadow-card">
+      <div className="bg-white rounded-xl border border-slate-200/80 p-5 shadow-card h-full flex flex-col justify-between">
         <div className="flex flex-wrap items-center justify-between gap-2 mb-5">
           <h3 className="text-[15px] font-semibold tracking-[-0.01em] text-navy">So sánh theo ngày</h3>
           <div className="flex items-center gap-2.5 text-[10px] font-medium text-slate-500">

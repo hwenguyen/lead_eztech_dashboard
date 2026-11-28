@@ -305,94 +305,69 @@ export function TikTokDashboard() {
 
   return (
     <div className="space-y-5">
-      {/* 1. Header & Bộ lọc thiết kế chuẩn mực */}
-      <div className="bg-white rounded-2xl border border-slate-200/90 shadow-sm overflow-hidden">
-        {/* Top Header */}
-        <div className="px-5 py-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3 border-b border-slate-100 bg-gradient-to-r from-slate-900/5 via-white to-blue-50/20 dark:from-slate-800/50 dark:via-slate-900 dark:to-blue-950/30">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-slate-900 dark:bg-slate-800 dark:border dark:border-slate-700 text-white flex items-center justify-center shadow-md shadow-slate-900/20 shrink-0">
-              <TikTokIcon className="w-5 h-5" />
-            </div>
-            <h2 className="text-lg font-bold text-navy tracking-tight">TikTok Analytics</h2>
+      {/* 1. Thanh lọc đồng bộ theo layout Tổng quan */}
+      <div className="bg-white rounded-2xl border border-slate-200/80 shadow-card px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <div className="flex items-center gap-1.5 text-xs font-medium text-slate-500">
+            <Calendar className="w-3.5 h-3.5 text-eztech" aria-hidden="true" />
+            <span>Kỳ báo cáo</span>
           </div>
 
-          <div className="flex items-center gap-2.5 self-start md:self-auto">
-            {lastRefreshed && (
-              <span className="text-[11px] font-mono text-slate-400 tabular-nums">
-                Cập nhật: {format(lastRefreshed, 'HH:mm:ss')}
-              </span>
-            )}
-            <button
-              type="button"
-              onClick={() => { clearClientApiCache('/tiktok/'); loadMetrics(true); }}
-              disabled={loading}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-navy text-xs font-semibold shadow-sm hover:border-slate-300 disabled:opacity-50 transition-all cursor-pointer"
-              title="Làm mới dữ liệu TikTok"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 text-eztech ${loading ? 'animate-spin' : ''}`} aria-hidden="true" />
-              <span>Làm mới</span>
-            </button>
+          <div role="group" aria-label="Chọn khoảng thời gian nhanh" className="inline-flex rounded-lg border border-slate-200/80 bg-slate-50 p-0.5 text-xs">
+            {([7, 14, 30, 'month'] as const).map((p) => (
+              <button
+                key={String(p)}
+                type="button"
+                aria-pressed={activePreset === p}
+                onClick={() => handlePreset(p)}
+                className={`px-2.5 py-1 rounded-md font-medium transition-all cursor-pointer ${
+                  activePreset === p
+                    ? 'bg-navy text-white shadow-sm font-semibold'
+                    : 'text-slate-600 hover:text-navy hover:bg-slate-100/70'
+                }`}
+              >
+                {p === 'month' ? 'Tháng này' : `${p} ngày`}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200/80 rounded-lg px-2.5 py-1">
+            <input
+              type="date"
+              aria-label="Từ ngày"
+              value={startDate}
+              max={endDate}
+              onChange={e => {
+                setStartDate(e.target.value);
+                setActivePreset('custom');
+              }}
+              className="bg-transparent text-xs font-medium text-navy focus:outline-none cursor-pointer tabular-nums"
+            />
+            <span className="text-slate-400 text-xs" aria-hidden="true">→</span>
+            <input
+              type="date"
+              aria-label="Đến ngày"
+              value={endDate}
+              min={startDate}
+              onChange={e => {
+                setEndDate(e.target.value);
+                setActivePreset('custom');
+              }}
+              className="bg-transparent text-xs font-medium text-navy focus:outline-none cursor-pointer tabular-nums"
+            />
           </div>
         </div>
 
-        {/* Filter Toolbar */}
-        <div className="px-5 py-3.5 bg-slate-50/50 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-2.5">
-            <div role="group" aria-label="Chọn khoảng thời gian nhanh" className="inline-flex rounded-lg border border-slate-200/90 bg-white p-0.5 text-xs shadow-sm">
-              {([7, 14, 30, 'month'] as const).map((p) => (
-                <button
-                  key={String(p)}
-                  type="button"
-                  aria-pressed={activePreset === p}
-                  onClick={() => handlePreset(p)}
-                  className={`px-3 py-1.5 rounded-md font-medium transition-all cursor-pointer ${
-                    activePreset === p
-                      ? 'bg-navy text-white shadow-sm font-semibold'
-                      : 'text-slate-600 hover:text-navy hover:bg-slate-100/70'
-                  }`}
-                >
-                  {p === 'month' ? 'Tháng này' : `${p} ngày`}
-                </button>
-              ))}
-            </div>
-
-            <div className="inline-flex items-center gap-1.5 bg-white border border-slate-200/90 px-3 py-1.5 rounded-lg text-xs shadow-sm">
-              <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" aria-hidden="true" />
-              <input
-                type="date"
-                aria-label="Từ ngày"
-                value={startDate}
-                max={endDate}
-                onChange={e => {
-                  setStartDate(e.target.value);
-                  setActivePreset('custom');
-                }}
-                className="border-none bg-transparent text-navy text-xs focus:outline-none font-medium cursor-pointer"
-              />
-              <span className="text-slate-400 font-medium" aria-hidden="true">→</span>
-              <input
-                type="date"
-                aria-label="Đến ngày"
-                value={endDate}
-                min={startDate}
-                onChange={e => {
-                  setEndDate(e.target.value);
-                  setActivePreset('custom');
-                }}
-                className="border-none bg-transparent text-navy text-xs focus:outline-none font-medium cursor-pointer"
-              />
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <label htmlFor="tt-page-select" className="text-xs font-medium text-slate-500 whitespace-nowrap hidden sm:inline">
-              Kênh:
+        <div className="flex flex-wrap items-center gap-2.5 flex-1 sm:justify-end">
+          <div className="flex items-center gap-2 min-w-[220px] flex-1 sm:flex-initial">
+            <label htmlFor="tt-page-select" className="text-[11px] font-medium text-slate-400 uppercase tracking-wider shrink-0">
+              Kênh
             </label>
             <select
               id="tt-page-select"
               value={pageId}
               onChange={e => setPageId(e.target.value)}
-              className="bg-white border border-slate-200/90 text-xs rounded-lg px-3 py-1.5 text-navy font-semibold focus:ring-1 focus:ring-eztech focus:outline-none shadow-sm min-w-[220px] max-w-[320px] cursor-pointer"
+              className="w-full px-2.5 py-1.5 border border-slate-200/90 rounded-lg text-xs font-medium bg-white hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-eztech/15 focus:border-eztech transition-all text-navy cursor-pointer min-w-[200px] max-w-[300px]"
             >
               <option value="">Tất cả Kênh TikTok</option>
               {pagesList.map(p => (
@@ -402,6 +377,17 @@ export function TikTokDashboard() {
               ))}
             </select>
           </div>
+
+          <button
+            type="button"
+            onClick={() => { clearClientApiCache('/tiktok/'); loadMetrics(true); }}
+            disabled={loading}
+            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-200/90 bg-white hover:bg-slate-50 text-navy text-xs font-medium shadow-sm hover:border-slate-300 disabled:opacity-50 transition-all cursor-pointer"
+            title={lastRefreshed ? `Làm mới dữ liệu TikTok (Cập nhật: ${format(lastRefreshed, 'HH:mm:ss')})` : 'Làm mới dữ liệu TikTok'}
+          >
+            <RefreshCw className={`w-3.5 h-3.5 text-eztech ${loading ? 'animate-spin' : ''}`} aria-hidden="true" />
+            <span>Làm mới</span>
+          </button>
         </div>
       </div>
 
@@ -411,96 +397,96 @@ export function TikTokDashboard() {
       {/* 2. Hàng 5 Thẻ KPI Tóm tắt Toàn kênh */}
       <div className="ez-kpi-grid grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3.5">
         {/* Card 1: Video xuất bản */}
-        <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-card hover:shadow-card-hover transition-all">
-          <div className="flex items-center justify-between text-slate-500 mb-2">
-            <span className="text-xs font-medium">Video xuất bản</span>
-            <div className="w-7 h-7 rounded-lg bg-slate-100 text-slate-800 flex items-center justify-center">
+        <div className="group bg-white rounded-2xl border border-slate-200/80 hover:border-brand-400/50 p-4 shadow-card hover:shadow-card-hover transition-all duration-200 flex flex-col gap-3">
+          <div className="flex items-center justify-between gap-2 min-h-[32px]">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.05em] text-slate-500 truncate min-w-0">Video xuất bản</span>
+            <div className="w-8 h-8 rounded-lg bg-slate-100 text-slate-800 flex items-center justify-center shrink-0">
               <Video className="w-4 h-4" />
             </div>
           </div>
-          <div className="text-2xl font-bold font-mono text-navy">
+          <div className="text-2xl sm:text-[26px] font-bold text-navy tracking-tight tabular-nums leading-none">
             {loading ? '...' : (summary?.total_posts || 0).toLocaleString()}
           </div>
-          <div className="mt-2 pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
+          <div className="mt-auto min-h-[16px] flex items-center justify-between text-[11px] font-medium text-slate-500 tabular-nums">
             <span>TB/Video:</span>
-            <span className="font-mono font-semibold text-navy">
+            <span className="font-semibold text-navy">
               {summary?.avg_comments_per_post || 0} bình luận
             </span>
           </div>
         </div>
 
         {/* Card 2: Lượt Thích / Tim */}
-        <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-card hover:shadow-card-hover transition-all">
-          <div className="flex items-center justify-between text-slate-500 mb-2">
-            <span className="text-xs font-medium">Tổng Lượt Thích</span>
-            <div className="w-7 h-7 rounded-lg bg-rose-50 text-rose-500 flex items-center justify-center">
+        <div className="group bg-white rounded-2xl border border-slate-200/80 hover:border-brand-400/50 p-4 shadow-card hover:shadow-card-hover transition-all duration-200 flex flex-col gap-3">
+          <div className="flex items-center justify-between gap-2 min-h-[32px]">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.05em] text-slate-500 truncate min-w-0">Tổng Lượt Thích</span>
+            <div className="w-8 h-8 rounded-lg bg-rose-50 text-rose-500 flex items-center justify-center shrink-0">
               <ThumbsUp className="w-4 h-4" />
             </div>
           </div>
-          <div className="text-2xl font-bold font-mono text-navy">
+          <div className="text-2xl sm:text-[26px] font-bold text-navy tracking-tight tabular-nums leading-none">
             {loading ? '...' : (summary?.total_reactions || 0).toLocaleString()}
           </div>
-          <div className="mt-2 pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
+          <div className="mt-auto min-h-[16px] flex items-center justify-between text-[11px] font-medium text-slate-500 tabular-nums">
             <span>Chia sẻ:</span>
-            <span className="font-mono font-semibold text-navy">
+            <span className="font-semibold text-navy">
               {summary?.total_shares || 0} lượt
             </span>
           </div>
         </div>
 
         {/* Card 3: Bình luận */}
-        <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-card hover:shadow-card-hover transition-all">
-          <div className="flex items-center justify-between text-slate-500 mb-2">
-            <span className="text-xs font-medium">Bình luận thu về</span>
-            <div className="w-7 h-7 rounded-lg bg-eztech-light text-eztech flex items-center justify-center">
+        <div className="group bg-white rounded-2xl border border-slate-200/80 hover:border-brand-400/50 p-4 shadow-card hover:shadow-card-hover transition-all duration-200 flex flex-col gap-3">
+          <div className="flex items-center justify-between gap-2 min-h-[32px]">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.05em] text-slate-500 truncate min-w-0">Bình luận thu về</span>
+            <div className="w-8 h-8 rounded-lg bg-eztech-light text-eztech flex items-center justify-center shrink-0">
               <MessageSquare className="w-4 h-4" />
             </div>
           </div>
-          <div className="text-2xl font-bold font-mono text-navy">
+          <div className="text-2xl sm:text-[26px] font-bold text-navy tracking-tight tabular-nums leading-none">
             {loading ? '...' : (summary?.total_comments || 0).toLocaleString()}
           </div>
-          <div className="mt-2 pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
+          <div className="mt-auto min-h-[16px] flex items-center justify-between text-[11px] font-medium text-slate-500 tabular-nums">
             <span>SĐT từ bình luận:</span>
-            <span className="font-mono font-semibold text-emerald-600">
+            <span className="font-semibold text-emerald-600">
               {summary?.comment_phones || 0} SĐT
             </span>
           </div>
         </div>
 
         {/* Card 4: SĐT thu được / Lead */}
-        <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-card hover:shadow-card-hover transition-all">
-          <div className="flex items-center justify-between text-slate-500 mb-2">
-            <span className="text-xs font-medium">SĐT thu được / Lead</span>
-            <div className="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
+        <div className="group bg-white rounded-2xl border border-slate-200/80 hover:border-brand-400/50 p-4 shadow-card hover:shadow-card-hover transition-all duration-200 flex flex-col gap-3">
+          <div className="flex items-center justify-between gap-2 min-h-[32px]">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.05em] text-slate-500 truncate min-w-0">SĐT thu được / Lead</span>
+            <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
               <PhoneCall className="w-4 h-4" />
             </div>
           </div>
-          <div className="text-2xl font-bold font-mono text-navy flex items-baseline gap-1.5">
+          <div className="text-2xl sm:text-[26px] font-bold text-navy tracking-tight tabular-nums leading-none flex items-baseline gap-1.5">
             <span>{loading ? '...' : (summary?.phone_leads || 0).toLocaleString()}</span>
             <span className="text-xs font-normal text-slate-400">/ {summary?.total_leads || 0} leads</span>
           </div>
-          <div className="mt-2 pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
+          <div className="mt-auto min-h-[16px] flex items-center justify-between text-[11px] font-medium text-slate-500 tabular-nums">
             <span>Tỷ lệ có số:</span>
-            <span className="font-mono font-bold text-emerald-600">
+            <span className="font-semibold text-emerald-600">
               {summary?.phone_conversion_rate || 0}%
             </span>
           </div>
         </div>
 
         {/* Card 5: Học viên chốt (Deal Win) */}
-        <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-card hover:shadow-card-hover transition-all col-span-2 md:col-span-1">
-          <div className="flex items-center justify-between text-slate-500 mb-2">
-            <span className="text-xs font-medium">Học viên chốt (Deal Win)</span>
-            <div className="w-7 h-7 rounded-lg bg-gold-light text-gold-dark flex items-center justify-center">
+        <div className="group bg-white rounded-2xl border border-gold-400/80 bg-gradient-to-b from-white to-gold-50/40 dark:from-slate-900 dark:to-amber-950/30 p-4 shadow-card hover:shadow-card-hover transition-all duration-200 flex flex-col gap-3 col-span-2 md:col-span-1">
+          <div className="flex items-center justify-between gap-2 min-h-[32px]">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.05em] text-slate-500 truncate min-w-0">Học viên chốt (Deal Win)</span>
+            <div className="w-8 h-8 rounded-lg bg-gold-light text-gold-dark flex items-center justify-center shrink-0">
               <Award className="w-4 h-4" />
             </div>
           </div>
-          <div className="text-2xl font-bold font-mono text-navy">
+          <div className="text-2xl sm:text-[26px] font-bold text-navy tracking-tight tabular-nums leading-none">
             {loading ? '...' : (summary?.deal_wins || 0).toLocaleString()}
           </div>
-          <div className="mt-2 pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
+          <div className="mt-auto min-h-[16px] flex items-center justify-between text-[11px] font-medium text-slate-500 tabular-nums">
             <span>Tỷ lệ chốt/SĐT:</span>
-            <span className="font-mono font-bold text-gold-dark">
+            <span className="font-semibold text-gold-dark">
               {loading ? '...' : `${summary?.deal_conversion_rate || 0}%`}
             </span>
           </div>
@@ -677,73 +663,73 @@ export function TikTokDashboard() {
       {/* 4. PHÂN TÍCH NGUỒN LEAD: VIDEO VS ORGANIC */}
       <div className="space-y-3.5">
         <div className="flex items-center justify-between">
-          <h3 className="text-[15px] font-bold text-navy tracking-tight">Nguồn Lead: Video vs Organic</h3>
+          <h3 className="text-[15px] font-semibold tracking-[-0.01em] text-navy">Nguồn Lead: Video vs Organic</h3>
         </div>
 
         {/* 3 Thẻ KPI Tóm tắt Nguồn Lead */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
           {/* KPI 1: Lead từ Video - EzTech Blue */}
-          <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-card hover:shadow-card-hover transition-all">
-            <div className="flex items-center justify-between text-slate-500 mb-1.5">
-              <span className="text-xs font-semibold text-navy flex items-center gap-1.5">
+          <div className="bg-white rounded-2xl border border-slate-200/80 p-4 shadow-card hover:shadow-card-hover transition-all">
+            <div className="flex items-center justify-between text-slate-500 mb-2">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.05em] text-slate-500 flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full bg-eztech" />
                 Từ Video (TikTok)
               </span>
-              <div className="w-6 h-6 rounded-md bg-blue-50 text-eztech flex items-center justify-center">
+              <div className="w-7 h-7 rounded-lg bg-blue-50 text-eztech flex items-center justify-center">
                 <Video className="w-3.5 h-3.5" />
               </div>
             </div>
-            <div className="text-2xl font-bold font-mono text-navy">
+            <div className="text-2xl sm:text-[26px] font-bold text-navy tracking-tight tabular-nums leading-none">
               {loading ? '...' : (summary?.post_leads || 0).toLocaleString()} <span className="text-xs font-normal text-slate-400">khách</span>
             </div>
-            <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500 font-mono">
+            <div className="mt-3 pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] font-medium text-slate-500 tabular-nums">
               <span className="text-emerald-600 font-semibold flex items-center gap-1">
                 <PhoneCall className="w-3 h-3" /> {summary?.post_phones || 0} SĐT
               </span>
-              <span className="text-eztech font-bold bg-blue-50 px-1.5 py-0.5 rounded text-[11px]">
+              <span className="text-eztech font-semibold bg-blue-50 px-1.5 py-0.5 rounded text-[11px]">
                 {summary?.post_phone_rate || 0}% có số
               </span>
             </div>
           </div>
 
           {/* KPI 2: Lead Tự nhiên (Organic) - EzTech Gold */}
-          <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-card hover:shadow-card-hover transition-all">
-            <div className="flex items-center justify-between text-slate-500 mb-1.5">
-              <span className="text-xs font-semibold text-navy flex items-center gap-1.5">
+          <div className="bg-white rounded-2xl border border-slate-200/80 p-4 shadow-card hover:shadow-card-hover transition-all">
+            <div className="flex items-center justify-between text-slate-500 mb-2">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.05em] text-slate-500 flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full bg-gold" />
                 Tự nhiên (Organic Inbox)
               </span>
-              <div className="w-6 h-6 rounded-md bg-gold-light text-gold-dark flex items-center justify-center">
+              <div className="w-7 h-7 rounded-lg bg-gold-light text-gold-dark flex items-center justify-center">
                 <Inbox className="w-3.5 h-3.5" />
               </div>
             </div>
-            <div className="text-2xl font-bold font-mono text-navy">
+            <div className="text-2xl sm:text-[26px] font-bold text-navy tracking-tight tabular-nums leading-none">
               {loading ? '...' : (summary?.organic_leads || 0).toLocaleString()} <span className="text-xs font-normal text-slate-400">leads</span>
             </div>
-            <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500 font-mono">
+            <div className="mt-3 pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] font-medium text-slate-500 tabular-nums">
               <span className="text-emerald-600 font-semibold flex items-center gap-1">
                 <PhoneCall className="w-3 h-3" /> {summary?.organic_phones || 0} SĐT
               </span>
-              <span className="text-gold-dark font-bold bg-gold-light px-1.5 py-0.5 rounded text-[11px]">
+              <span className="text-gold-dark font-semibold bg-gold-light px-1.5 py-0.5 rounded text-[11px]">
                 {summary?.organic_phone_rate || 0}% có số
               </span>
             </div>
           </div>
 
           {/* KPI 3: Cơ cấu đóng góp Kênh */}
-          <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-card hover:shadow-card-hover transition-all">
-            <div className="flex items-center justify-between text-slate-500 mb-1.5">
-              <span className="text-xs font-semibold text-navy">Tỷ trọng nguồn</span>
-              <div className="w-6 h-6 rounded-md bg-slate-100 text-slate-600 flex items-center justify-center">
+          <div className="bg-white rounded-2xl border border-slate-200/80 p-4 shadow-card hover:shadow-card-hover transition-all">
+            <div className="flex items-center justify-between text-slate-500 mb-2">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.05em] text-slate-500">Tỷ trọng nguồn</span>
+              <div className="w-7 h-7 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center">
                 <TrendingUp className="w-3.5 h-3.5" />
               </div>
             </div>
-            <div className="text-xl font-bold font-mono text-navy flex items-baseline gap-1.5">
+            <div className="text-xl font-bold text-navy tracking-tight tabular-nums leading-none flex items-baseline gap-1.5">
               <span className="text-gold-dark">{organicLeadPct}% Organic</span>
               <span className="text-slate-300">•</span>
               <span className="text-eztech">{postLeadPct}% Video</span>
             </div>
-            <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500 font-mono">
+            <div className="mt-3 pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] font-medium text-slate-500 tabular-nums">
               <span>Đóng góp SĐT:</span>
               <span className="font-semibold text-navy">
                 {organicPhonePct}% Inbox • {postPhonePct}% Video
