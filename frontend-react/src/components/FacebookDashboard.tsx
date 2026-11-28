@@ -45,6 +45,7 @@ import {
 } from '../services/api';
 import { safeParseDate, toSafeHttpUrl, copyToClipboard } from '../utils/format';
 import { ErrorBanner } from './ErrorBanner';
+import { AiDailyReviewCard } from './AiDailyReviewCard';
 
 const REACTION_COLORS: Record<string, string> = {
   like: '#1877F2',     // Facebook Blue
@@ -478,6 +479,9 @@ export function FacebookDashboard() {
           </div>
         </div>
       </div>
+
+      {/* 2.5 AI Đánh giá Hiệu suất, Gợi ý bài đăng, Giờ đăng & Insight Facebook hằng ngày */}
+      <AiDailyReviewCard channel="facebook" />
 
       {/* 3. Hàng Biểu đồ: Xu hướng (AreaChart) + Phân bổ Cảm xúc & Nội dung */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">

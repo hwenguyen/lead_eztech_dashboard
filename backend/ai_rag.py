@@ -70,9 +70,14 @@ _API_KEY_CACHE: Optional[Tuple[float, str]] = None
 _SLA_REMIND_CACHE: Optional[Tuple[float, Dict[str, Any]]] = None
 SLA_REMIND_CACHE_TTL = 300  # 5 phút
 DAILY_REVIEW_CONFIG_KEY = "AI_DAILY_REVIEW_JSON"
-_DAILY_REVIEW_CACHE: Optional[Tuple[float, Dict[str, Any]]] = None
+DAILY_REVIEW_CONFIG_KEYS: Dict[str, str] = {
+    "overview": DAILY_REVIEW_CONFIG_KEY,
+    "facebook": "AI_DAILY_REVIEW_FACEBOOK_JSON",
+    "tiktok": "AI_DAILY_REVIEW_TIKTOK_JSON",
+}
+_DAILY_REVIEW_CACHES: Dict[str, Tuple[float, Dict[str, Any]]] = {}
 _DAILY_REVIEW_CACHE_TTL = 300  # 5 phút
-_DAILY_REVIEW_GENERATING = False
+_DAILY_REVIEW_GENERATING: Dict[str, bool] = {}
 
 
 AI_ASSISTANTS: Dict[str, Dict[str, Any]] = {
@@ -350,13 +355,13 @@ DEFAULT_SEED_DOCS: List[Dict[str, str]] = [
 
 
 def clear_ai_knowledge_cache():
-    global _KNOWLEDGE_CACHE, _KNOWLEDGE_CACHE_TS, _API_KEY_CACHE, _SLA_REMIND_CACHE, _DAILY_REVIEW_CACHE
+    global _KNOWLEDGE_CACHE, _KNOWLEDGE_CACHE_TS, _API_KEY_CACHE, _SLA_REMIND_CACHE
     with _CACHE_LOCK:
         _KNOWLEDGE_CACHE = None
         _KNOWLEDGE_CACHE_TS = 0.0
         _API_KEY_CACHE = None
         _SLA_REMIND_CACHE = None
-        _DAILY_REVIEW_CACHE = None
+        _DAILY_REVIEW_CACHES.clear()
 
 
 def get_gemini_api_key(db: Session) -> str:
@@ -1933,8 +1938,7 @@ def _collect_recent_customer_messages_sample(db: Session, now_vn: datetime, limi
     return "[MẪU TIN NHẮN & BÌNH LUẬN KHÁCH HÀNG GẦN ĐÂY (7 NGÀY)]\n" + "\n".join(samples)
 
 
-def _parse_daily_review_json(raw_text: str) -> Dict[str, Any]:
-    """Tách và chuẩn hoá JSON đánh giá từ phản hồi Gemini, luôn trả về đúng schema 4 phần."""
+def _extract_json_candidate(raw_text: str) -> str:
     cleaned = (raw_text or "").strip()
     fence = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", cleaned, flags=re.DOTALL)
     candidate = fence.group(1) if fence else cleaned
@@ -1943,13 +1947,21 @@ def _parse_daily_review_json(raw_text: str) -> Dict[str, Any]:
         e_idx = candidate.rfind("}")
         if s_idx != -1 and e_idx > s_idx:
             candidate = candidate[s_idx : e_idx + 1]
+    return candidate
 
-    def _as_list(val: Any) -> List[str]:
-        if isinstance(val, list):
-            return [str(x).strip() for x in val if str(x).strip()]
-        if isinstance(val, str) and val.strip():
-            return [ln.lstrip("-•*0123456789. ").strip() for ln in val.splitlines() if ln.strip()]
-        return []
+
+def _as_bullet_list(val: Any) -> List[str]:
+    if isinstance(val, list):
+        return [str(x).strip() for x in val if str(x).strip()]
+    if isinstance(val, str) and val.strip():
+        return [ln.lstrip("-•*0123456789. ").strip() for ln in val.splitlines() if ln.strip()]
+    return []
+
+
+def _parse_daily_review_json(raw_text: str) -> Dict[str, Any]:
+    """Tách và chuẩn hoá JSON đánh giá tổng quan từ phản hồi Gemini, luôn trả về đúng schema 4 phần."""
+    cleaned = (raw_text or "").strip()
+    candidate = _extract_json_candidate(cleaned)
 
     try:
         parsed = json.loads(candidate)
@@ -1960,10 +1972,10 @@ def _parse_daily_review_json(raw_text: str) -> Dict[str, Any]:
             return {
                 "summary_status": status,
                 "headline": str(parsed.get("headline") or "").strip(),
-                "overview": _as_list(parsed.get("overview")),
-                "customer_insight": _as_list(parsed.get("customer_insight")),
-                "process_sla": _as_list(parsed.get("process_sla")),
-                "actions": _as_list(parsed.get("actions")),
+                "overview": _as_bullet_list(parsed.get("overview")),
+                "customer_insight": _as_bullet_list(parsed.get("customer_insight")),
+                "process_sla": _as_bullet_list(parsed.get("process_sla")),
+                "actions": _as_bullet_list(parsed.get("actions")),
             }
     except Exception:
         pass
@@ -1979,30 +1991,459 @@ def _parse_daily_review_json(raw_text: str) -> Dict[str, Any]:
     }
 
 
-def _load_saved_daily_review(db: Session) -> Optional[Dict[str, Any]]:
-    global _DAILY_REVIEW_CACHE
+def _parse_channel_review_json(raw_text: str, channel_label: str) -> Dict[str, Any]:
+    """Tách và chuẩn hoá JSON đánh giá kênh (Facebook / TikTok) với 4 phần: hiệu suất, gợi ý bài đăng, giờ đăng, insight."""
+    cleaned = (raw_text or "").strip()
+    candidate = _extract_json_candidate(cleaned)
+
+    try:
+        parsed = json.loads(candidate)
+        if isinstance(parsed, dict):
+            status = str(parsed.get("summary_status") or "warning").strip().lower()
+            if status not in ("good", "warning", "critical"):
+                status = "warning"
+            return {
+                "summary_status": status,
+                "headline": str(parsed.get("headline") or "").strip(),
+                "overview": _as_bullet_list(parsed.get("overview")),
+                "post_suggestions": _as_bullet_list(parsed.get("post_suggestions")),
+                "best_times": _as_bullet_list(parsed.get("best_times")),
+                "channel_insights": _as_bullet_list(parsed.get("channel_insights")),
+            }
+    except Exception:
+        pass
+
+    lines = [ln.lstrip("-•* ").strip() for ln in cleaned.splitlines() if ln.strip()]
+    return {
+        "summary_status": "warning",
+        "headline": lines[0][:220] if lines else f"Đã hoàn tất phân tích kênh {channel_label}.",
+        "overview": lines[1:5] if len(lines) > 1 else [cleaned[:500]],
+        "post_suggestions": [],
+        "best_times": [],
+        "channel_insights": [],
+    }
+
+
+def _load_saved_daily_review(db: Session, channel: str = "overview") -> Optional[Dict[str, Any]]:
     now_ts = time.time()
     with _CACHE_LOCK:
-        if _DAILY_REVIEW_CACHE and (now_ts - _DAILY_REVIEW_CACHE[0] < _DAILY_REVIEW_CACHE_TTL):
-            return _DAILY_REVIEW_CACHE[1]
+        cached = _DAILY_REVIEW_CACHES.get(channel)
+        if cached and (now_ts - cached[0] < _DAILY_REVIEW_CACHE_TTL):
+            return cached[1]
 
-    cfg = db.query(AppConfig).filter(AppConfig.config_key == DAILY_REVIEW_CONFIG_KEY).first()
+    config_key = DAILY_REVIEW_CONFIG_KEYS.get(channel, DAILY_REVIEW_CONFIG_KEY)
+    cfg = db.query(AppConfig).filter(AppConfig.config_key == config_key).first()
     if not cfg or not cfg.config_value:
         return None
     try:
         data = json.loads(cfg.config_value)
         if isinstance(data, dict):
             with _CACHE_LOCK:
-                _DAILY_REVIEW_CACHE = (now_ts, data)
+                _DAILY_REVIEW_CACHES[channel] = (now_ts, data)
             return data
     except Exception:
         return None
     return None
 
 
+def _save_daily_review(db: Session, channel: str, review_payload: Dict[str, Any]) -> None:
+    config_key = DAILY_REVIEW_CONFIG_KEYS.get(channel, DAILY_REVIEW_CONFIG_KEY)
+    encoded = json.dumps(review_payload, ensure_ascii=False)
+    cfg = db.query(AppConfig).filter(AppConfig.config_key == config_key).first()
+    if cfg:
+        cfg.config_value = encoded
+    else:
+        db.add(AppConfig(config_key=config_key, config_value=encoded))
+    db.commit()
+    with _CACHE_LOCK:
+        _DAILY_REVIEW_CACHES[channel] = (time.time(), review_payload)
+
+
+def _parse_post_dt(val: Any) -> Optional[datetime]:
+    if not val:
+        return None
+    if isinstance(val, datetime):
+        return val
+    s = str(val).strip()
+    if not s:
+        return None
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M"):
+        try:
+            return datetime.strptime(s[:19], fmt)
+        except Exception:
+            pass
+    try:
+        return datetime.fromisoformat(s.replace("Z", "+00:00")).replace(tzinfo=None)
+    except Exception:
+        return None
+
+
+def _summarize_posting_schedule(posts: List[Dict[str, Any]], use_views: bool = False) -> Tuple[str, str]:
+    """Tính thống kê hiệu suất theo khung giờ đăng (0h-23h) và thứ trong tuần (T2-CN)."""
+    hour_stats: Dict[int, Dict[str, int]] = {}
+    dow_stats: Dict[int, Dict[str, int]] = {}
+    dow_labels = ["T2", "T3", "T4", "T5", "T6", "T7", "CN"]
+
+    for p in posts:
+        if use_views and str(p.get("type") or "").lower() == "livestream":
+            continue
+        dt = _parse_post_dt(p.get("inserted_at"))
+        if not dt:
+            continue
+        h = dt.hour
+        d = dt.weekday()
+        views = int(p.get("view_count") or 0)
+        reacts = int(p.get("reactions_total") or 0)
+        comments = int(p.get("comment_count") or 0)
+        leads = int(p.get("lead_count") or 0)
+        phones = int(p.get("phone_count") or 0)
+
+        for bucket_map, key in ((hour_stats, h), (dow_stats, d)):
+            b = bucket_map.setdefault(key, {"count": 0, "views": 0, "reacts": 0, "comments": 0, "leads": 0, "phones": 0})
+            b["count"] += 1
+            b["views"] += views
+            b["reacts"] += reacts
+            b["comments"] += comments
+            b["leads"] += leads
+            b["phones"] += phones
+
+    if not hour_stats:
+        return ("Chưa đủ dữ liệu khung giờ đăng.", "Chưa đủ dữ liệu theo thứ.")
+
+    if use_views:
+        ranked_hours = sorted(
+            hour_stats.items(),
+            key=lambda kv: (kv[1]["views"] / max(kv[1]["count"], 1), kv[1]["leads"]),
+            reverse=True,
+        )
+        hour_lines = [
+            f"- {h:02d}h: {b['count']} video | TB {b['views'] // max(b['count'], 1):,} view (Tổng {b['views']:,}) | {b['leads']} Lead, {b['phones']} SĐT"
+            for h, b in ranked_hours[:12]
+        ]
+        dow_lines = [
+            f"- {dow_labels[d]}: {b['count']} video | TB {b['views'] // max(b['count'], 1):,} view | {b['leads']} Lead, {b['phones']} SĐT"
+            for d, b in sorted(dow_stats.items())
+        ]
+    else:
+        ranked_hours = sorted(
+            hour_stats.items(),
+            key=lambda kv: (kv[1]["leads"], kv[1]["reacts"] / max(kv[1]["count"], 1)),
+            reverse=True,
+        )
+        hour_lines = [
+            f"- {h:02d}h: {b['count']} bài | TB {b['reacts'] // max(b['count'], 1):,} cảm xúc, {b['comments']} bình luận | {b['leads']} Lead, {b['phones']} SĐT"
+            for h, b in ranked_hours[:12]
+        ]
+        dow_lines = [
+            f"- {dow_labels[d]}: {b['count']} bài | TB {b['reacts'] // max(b['count'], 1):,} cảm xúc | {b['leads']} Lead, {b['phones']} SĐT"
+            for d, b in sorted(dow_stats.items())
+        ]
+
+    return ("\n".join(hour_lines), "\n".join(dow_lines))
+
+
+def _build_facebook_daily_review_context(db: Session, now_vn: datetime) -> Tuple[str, List[str]]:
+    """Tổng hợp dữ liệu Facebook 7 ngày & 30 ngày cho Gemini đánh giá kênh."""
+    from backend.facebook_metrics import get_facebook_metrics
+
+    end_today = now_vn.replace(tzinfo=None)
+    start_7d = (now_vn - timedelta(days=6)).replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=None)
+    start_30d = (now_vn - timedelta(days=29)).replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=None)
+
+    m7 = get_facebook_metrics(start_date=start_7d, end_date=end_today, page_id=None, db=db) or {}
+    m30 = get_facebook_metrics(start_date=start_30d, end_date=end_today, page_id=None, db=db) or {}
+
+    s7 = m7.get("summary") or {}
+    s30 = m30.get("summary") or {}
+    posts_30d = m30.get("top_posts") or []
+    ads_30d = m30.get("top_ads") or []
+
+    # Thống kê theo Fanpage
+    page_agg: Dict[str, Dict[str, int]] = {}
+    for p in posts_30d:
+        pname = p.get("page_name") or "Khác"
+        agg = page_agg.setdefault(pname, {"posts": 0, "reacts": 0, "comments": 0, "leads": 0, "phones": 0, "deals": 0})
+        agg["posts"] += 1
+        agg["reacts"] += int(p.get("reactions_total") or 0)
+        agg["comments"] += int(p.get("comment_count") or 0)
+        agg["leads"] += int(p.get("lead_count") or 0)
+        agg["phones"] += int(p.get("phone_count") or 0)
+        agg["deals"] += int(p.get("deal_count") or 0)
+
+    page_lines = [
+        f"- {pn}: {a['posts']} bài | {a['reacts']:,} cảm xúc | {a['comments']:,} cmt | {a['leads']} Lead | {a['phones']} SĐT | {a['deals']} Deal"
+        for pn, a in sorted(page_agg.items(), key=lambda kv: kv[1]["leads"], reverse=True)
+    ]
+
+    hour_text, dow_text = _summarize_posting_schedule(posts_30d, use_views=False)
+
+    # Top 12 bài viết hiệu quả nhất (theo Lead + Cảm xúc)
+    top_posts = sorted(
+        posts_30d,
+        key=lambda p: (int(p.get("lead_count") or 0), int(p.get("phone_count") or 0), int(p.get("reactions_total") or 0)),
+        reverse=True,
+    )[:12]
+    top_post_lines = []
+    for idx, p in enumerate(top_posts, 1):
+        msg = " ".join(str(p.get("message") or "(Không có nội dung)").split())[:170]
+        top_post_lines.append(
+            f"{idx}. [{p.get('inserted_at') or ''}] ({p.get('page_name') or ''} | {p.get('type') or 'post'}) "
+            f"Lead={p.get('lead_count', 0)}, SĐT={p.get('phone_count', 0)}, Deal={p.get('deal_count', 0)}, "
+            f"React={p.get('reactions_total', 0)}, Cmt={p.get('comment_count', 0)} | Nội dung: {msg}"
+        )
+
+    # 5 bài đăng gần nhất
+    recent_posts = sorted(
+        posts_30d,
+        key=lambda p: _parse_post_dt(p.get("inserted_at")) or datetime.min,
+        reverse=True,
+    )[:5]
+    recent_lines = []
+    for p in recent_posts:
+        msg = " ".join(str(p.get("message") or "(Không có nội dung)").split())[:120]
+        recent_lines.append(
+            f"- [{p.get('inserted_at') or ''}] ({p.get('page_name') or ''}) "
+            f"React={p.get('reactions_total', 0)}, Cmt={p.get('comment_count', 0)}, Lead={p.get('lead_count', 0)}, SĐT={p.get('phone_count', 0)} | {msg}"
+        )
+
+    # Top 6 mẫu Ads
+    top_ad_lines = []
+    for idx, a in enumerate(ads_30d[:6], 1):
+        snippet = " ".join(str(a.get("post_message") or "").split())[:110]
+        top_ad_lines.append(
+            f"{idx}. Chiến dịch: {a.get('campaign_name') or a.get('ad_id')} | Mẫu: {a.get('ad_name') or '-'} | "
+            f"Lead={a.get('lead_count', 0)}, SĐT={a.get('phone_count', 0)} ({a.get('phone_rate', 0)}%), Deal={a.get('deal_count', 0)}"
+            + (f" | Caption: {snippet}" if snippet else "")
+        )
+
+    blocks = [
+        f"=== TỔNG QUAN KÊNH FACEBOOK (7 NGÀY GẦN NHẤT: {start_7d.strftime('%d/%m')} - {end_today.strftime('%d/%m')}) ===",
+        f"- Bài viết xuất bản: {s7.get('total_posts', 0)} (TB {s7.get('avg_reactions_per_post', 0)} cảm xúc/bài)",
+        f"- Tổng cảm xúc: {s7.get('total_reactions', 0):,} | Bình luận: {s7.get('total_comments', 0):,} (SĐT từ cmt: {s7.get('comment_phones', 0)})",
+        f"- Tổng Lead: {s7.get('total_leads', 0):,} | SĐT thu được: {s7.get('phone_leads', 0):,} (CR SĐT: {s7.get('phone_conversion_rate', 0)}%)",
+        f"- Học viên chốt (Deal Win): {s7.get('deal_wins', 0)} (Tỷ lệ chốt/SĐT: {s7.get('deal_conversion_rate', 0)}%)",
+        f"- Cơ cấu nguồn 7 ngày: Ads={s7.get('ads_leads', 0)} Lead / {s7.get('ads_phones', 0)} SĐT / {s7.get('ads_deals', 0)} Deal | "
+        f"Bài viết={s7.get('post_leads', 0)} Lead / {s7.get('post_phones', 0)} SĐT / {s7.get('post_deals', 0)} Deal | "
+        f"Organic={s7.get('organic_leads', 0)} Lead / {s7.get('organic_phones', 0)} SĐT / {s7.get('organic_deals', 0)} Deal",
+        "",
+        f"=== SO SÁNH NỀN 30 NGÀY ({start_30d.strftime('%d/%m')} - {end_today.strftime('%d/%m')}) ===",
+        f"- Bài viết: {s30.get('total_posts', 0)} | Cảm xúc: {s30.get('total_reactions', 0):,} (TB {s30.get('avg_reactions_per_post', 0)}/bài) | Bình luận: {s30.get('total_comments', 0):,}",
+        f"- Lead: {s30.get('total_leads', 0):,} | SĐT: {s30.get('phone_leads', 0):,} (CR {s30.get('phone_conversion_rate', 0)}%) | Deal Win: {s30.get('deal_wins', 0)} ({s30.get('deal_conversion_rate', 0)}%)",
+        f"- Cơ cấu 30 ngày: Ads={s30.get('ads_leads', 0)} Lead/{s30.get('ads_phones', 0)} SĐT/{s30.get('ads_deals', 0)} Deal | "
+        f"Bài viết={s30.get('post_leads', 0)} Lead/{s30.get('post_phones', 0)} SĐT/{s30.get('post_deals', 0)} Deal | "
+        f"Organic={s30.get('organic_leads', 0)} Lead/{s30.get('organic_phones', 0)} SĐT/{s30.get('organic_deals', 0)} Deal",
+        f"- Định dạng bài viết 30 ngày: {json.dumps(m30.get('post_type_stats') or {}, ensure_ascii=False)}",
+        "",
+        "=== PHÂN BỔ THEO FANPAGE (30 NGÀY) ===",
+        "\n".join(page_lines) if page_lines else "Chưa có dữ liệu Fanpage.",
+        "",
+        "=== HIỆU SUẤT THEO KHUNG GIỜ ĐĂNG BÀI (0h-23h, 30 NGÀY) ===",
+        hour_text,
+        "",
+        "=== HIỆU SUẤT THEO THỨ TRONG TUẦN (30 NGÀY) ===",
+        dow_text,
+        "",
+        "=== TOP 12 BÀI VIẾT HIỆU QUẢ NHẤT (30 NGÀY) ===",
+        "\n".join(top_post_lines) if top_post_lines else "Chưa có bài viết.",
+        "",
+        "=== 5 BÀI VIẾT ĐĂNG GẦN NHẤT ===",
+        "\n".join(recent_lines) if recent_lines else "Chưa có bài viết gần đây.",
+        "",
+        "=== TOP 6 MẪU QUẢNG CÁO FACEBOOK ADS (30 NGÀY) ===",
+        "\n".join(top_ad_lines) if top_ad_lines else "Chưa có dữ liệu Ads.",
+    ]
+    return ("\n".join(blocks), ["Facebook Analytics (7 ngày & 30 ngày)", "Top Bài viết & Ads", "Phân bổ khung giờ đăng bài"])
+
+
+def _build_tiktok_daily_review_context(db: Session, now_vn: datetime) -> Tuple[str, List[str]]:
+    """Tổng hợp dữ liệu TikTok 7 ngày & 30 ngày (bao gồm view thật, caption, khung giờ đăng 0h-23h) cho Gemini."""
+    from backend.tiktok_metrics import _compute_tiktok_metrics
+
+    end_today = now_vn.replace(tzinfo=None)
+    start_7d = (now_vn - timedelta(days=6)).replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=None)
+    start_30d = (now_vn - timedelta(days=29)).replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=None)
+
+    m7 = _compute_tiktok_metrics(start_date=start_7d, end_date=end_today, page_id=None, db=db) or {}
+    m30 = _compute_tiktok_metrics(start_date=start_30d, end_date=end_today, page_id=None, db=db) or {}
+
+    s7 = m7.get("summary") or {}
+    s30 = m30.get("summary") or {}
+    posts_30d = m30.get("top_posts") or []
+
+    # Thống kê theo từng kênh TikTok
+    ch_agg: Dict[str, Dict[str, int]] = {}
+    for p in posts_30d:
+        cname = p.get("page_name") or "Khác"
+        agg = ch_agg.setdefault(cname, {"videos": 0, "views": 0, "likes": 0, "comments": 0, "leads": 0, "phones": 0, "deals": 0})
+        agg["videos"] += 1
+        agg["views"] += int(p.get("view_count") or 0)
+        agg["likes"] += int(p.get("reactions_total") or 0)
+        agg["comments"] += int(p.get("comment_count") or 0)
+        agg["leads"] += int(p.get("lead_count") or 0)
+        agg["phones"] += int(p.get("phone_count") or 0)
+        agg["deals"] += int(p.get("deal_count") or 0)
+
+    ch_lines = [
+        f"- {cn}: {a['videos']} video | {a['views']:,} view (TB {a['views'] // max(a['videos'], 1):,}/video) | "
+        f"{a['likes']:,} thích | {a['comments']:,} cmt | {a['leads']} Lead | {a['phones']} SĐT | {a['deals']} Deal"
+        for cn, a in sorted(ch_agg.items(), key=lambda kv: (kv[1]["leads"], kv[1]["views"]), reverse=True)
+    ]
+
+    hour_text, dow_text = _summarize_posting_schedule(posts_30d, use_views=True)
+
+    # Top 10 Video theo Lead
+    top_by_lead = sorted(
+        posts_30d,
+        key=lambda p: (int(p.get("lead_count") or 0), int(p.get("phone_count") or 0), int(p.get("view_count") or 0)),
+        reverse=True,
+    )[:10]
+    top_lead_lines = []
+    seen_ids = set()
+    for idx, p in enumerate(top_by_lead, 1):
+        seen_ids.add(p.get("post_id"))
+        msg = " ".join(str(p.get("message") or "(Chưa có caption)").split())[:170]
+        top_lead_lines.append(
+            f"{idx}. [{p.get('inserted_at') or ''}] ({p.get('page_name') or ''} | {p.get('type') or 'video'}) "
+            f"View={int(p.get('view_count') or 0):,}, Like={int(p.get('reactions_total') or 0):,}, Cmt={p.get('comment_count', 0)}, "
+            f"Lead={p.get('lead_count', 0)}, SĐT={p.get('phone_count', 0)}, Deal={p.get('deal_count', 0)} | Caption: {msg}"
+        )
+
+    # Top 8 Video nhiều View nhất (bổ sung video viral chưa nằm trong top Lead)
+    top_by_view = [
+        p for p in sorted(posts_30d, key=lambda x: int(x.get("view_count") or 0), reverse=True)
+        if int(p.get("view_count") or 0) > 0 and p.get("post_id") not in seen_ids
+    ][:8]
+    top_view_lines = []
+    for idx, p in enumerate(top_by_view, 1):
+        msg = " ".join(str(p.get("message") or "(Chưa có caption)").split())[:160]
+        top_view_lines.append(
+            f"{idx}. [{p.get('inserted_at') or ''}] ({p.get('page_name') or ''}) "
+            f"View={int(p.get('view_count') or 0):,}, Like={int(p.get('reactions_total') or 0):,}, Cmt={p.get('comment_count', 0)}, "
+            f"Lead={p.get('lead_count', 0)}, SĐT={p.get('phone_count', 0)} | Caption: {msg}"
+        )
+
+    # 6 Video đăng gần nhất (bỏ livestream)
+    recent_videos = sorted(
+        [p for p in posts_30d if str(p.get("type") or "").lower() != "livestream"],
+        key=lambda p: _parse_post_dt(p.get("inserted_at")) or datetime.min,
+        reverse=True,
+    )[:6]
+    recent_lines = []
+    for p in recent_videos:
+        msg = " ".join(str(p.get("message") or "(Chưa có caption)").split())[:120]
+        recent_lines.append(
+            f"- [{p.get('inserted_at') or ''}] ({p.get('page_name') or ''}) "
+            f"View={int(p.get('view_count') or 0):,}, Cmt={p.get('comment_count', 0)}, Lead={p.get('lead_count', 0)}, SĐT={p.get('phone_count', 0)} | {msg}"
+        )
+
+    blocks = [
+        f"=== TỔNG QUAN KÊNH TIKTOK (7 NGÀY GẦN NHẤT: {start_7d.strftime('%d/%m')} - {end_today.strftime('%d/%m')}) ===",
+        f"- Video/Live xuất bản: {s7.get('total_posts', 0)} | Tổng Lượt xem: {s7.get('total_views', 0):,} | Thích: {s7.get('total_reactions', 0):,} | Bình luận: {s7.get('total_comments', 0):,} | Chia sẻ: {s7.get('total_shares', 0):,}",
+        f"- Tổng Lead: {s7.get('total_leads', 0):,} | SĐT thu được: {s7.get('phone_leads', 0):,} (CR SĐT: {s7.get('phone_conversion_rate', 0)}%) | SĐT từ cmt: {s7.get('comment_phones', 0)}",
+        f"- Học viên chốt (Deal Win): {s7.get('deal_wins', 0)} (Tỷ lệ chốt/SĐT: {s7.get('deal_conversion_rate', 0)}%)",
+        f"- Cơ cấu nguồn 7 ngày: Từ Video={s7.get('post_leads', 0)} Lead / {s7.get('post_phones', 0)} SĐT / {s7.get('post_deals', 0)} Deal | "
+        f"Organic={s7.get('organic_leads', 0)} Lead / {s7.get('organic_phones', 0)} SĐT / {s7.get('organic_deals', 0)} Deal",
+        "",
+        f"=== SO SÁNH NỀN 30 NGÀY ({start_30d.strftime('%d/%m')} - {end_today.strftime('%d/%m')}) ===",
+        f"- Video/Live: {s30.get('total_posts', 0)} | Lượt xem: {s30.get('total_views', 0):,} | Thích: {s30.get('total_reactions', 0):,} | Bình luận: {s30.get('total_comments', 0):,}",
+        f"- Lead: {s30.get('total_leads', 0):,} | SĐT: {s30.get('phone_leads', 0):,} (CR {s30.get('phone_conversion_rate', 0)}%) | Deal Win: {s30.get('deal_wins', 0)} ({s30.get('deal_conversion_rate', 0)}%)",
+        f"- Cơ cấu 30 ngày: Từ Video={s30.get('post_leads', 0)} Lead/{s30.get('post_phones', 0)} SĐT/{s30.get('post_deals', 0)} Deal | "
+        f"Organic={s30.get('organic_leads', 0)} Lead/{s30.get('organic_phones', 0)} SĐT/{s30.get('organic_deals', 0)} Deal",
+        "",
+        "=== HIỆU SUẤT THEO TỪNG KÊNH TIKTOK (30 NGÀY) ===",
+        "\n".join(ch_lines) if ch_lines else "Chưa có dữ liệu kênh.",
+        "",
+        "=== PHÂN BỔ LƯỢT XEM & LEAD THEO KHUNG GIỜ ĐĂNG VIDEO (0h-23h, 30 NGÀY) ===",
+        hour_text,
+        "",
+        "=== HIỆU SUẤT THEO THỨ TRONG TUẦN (30 NGÀY) ===",
+        dow_text,
+        "",
+        "=== TOP 10 VIDEO/LIVE CHUYỂN ĐỔI LEAD CAO NHẤT (30 NGÀY) ===",
+        "\n".join(top_lead_lines) if top_lead_lines else "Chưa có dữ liệu video.",
+        "",
+        "=== TOP VIDEO VIRAL NHIỀU VIEW NHẤT (30 NGÀY) ===",
+        "\n".join(top_view_lines) if top_view_lines else "Đã bao gồm trong Top Lead ở trên.",
+        "",
+        "=== 6 VIDEO ĐĂNG GẦN NHẤT ===",
+        "\n".join(recent_lines) if recent_lines else "Chưa có video gần đây.",
+    ]
+    return ("\n".join(blocks), ["TikTok Analytics (7 ngày & 30 ngày)", "Top Video & Caption", "Phân bổ lượt xem theo khung giờ 0h-23h"])
+
+
+def generate_channel_daily_review(db: Session, channel: str) -> Dict[str, Any]:
+    """Tạo bản AI Đánh giá hiệu suất, Gợi ý bài đăng/video, Giờ đăng tối ưu & Insight kênh hằng ngày cho Facebook hoặc TikTok."""
+    if channel not in ("facebook", "tiktok"):
+        raise HTTPException(status_code=400, detail=f"Kênh không hợp lệ: {channel}")
+
+    now_vn = get_vn_now()
+    api_key = get_gemini_api_key(db)
+    if not api_key:
+        raise HTTPException(status_code=400, detail="Chưa cấu hình GEMINI_API_KEY để tạo AI Đánh giá kênh hằng ngày.")
+
+    is_tiktok = channel == "tiktok"
+    channel_label = "TikTok" if is_tiktok else "Facebook"
+    if is_tiktok:
+        context_text, sources = _build_tiktok_daily_review_context(db, now_vn)
+    else:
+        context_text, sources = _build_facebook_daily_review_context(db, now_vn)
+
+    content_unit = "video TikTok / livestream" if is_tiktok else "bài đăng / mẫu Ads Facebook"
+    system_prompt = (
+        f"Bạn là Giám đốc Tăng trưởng & Chiến lược Nội dung {channel_label} (Social Growth & Content Strategist) của EzTech Việt Nam "
+        "(đơn vị đào tạo Data Finance, Power Query, Power BI, Excel & AI ứng dụng cho Kế toán – Tài chính).\n"
+        f"Nhiệm vụ: Phân tích dữ liệu thực tế 7 ngày và 30 ngày của kênh {channel_label} để đưa ra đánh giá hiệu suất, "
+        f"gợi ý ý tưởng {content_unit} có thể làm ngay, khung giờ vàng đăng bài tối ưu và insight thực chiến hằng ngày.\n\n"
+        "QUY TẮC BẮT BUỘC:\n"
+        "- Dùng 100% số liệu thật trong dữ liệu đầu vào, TUYỆT ĐỐI KHÔNG tự bịa số liệu hay tên kênh/fanpage.\n"
+        "- Viết cực kỳ súc tích, thực chiến, định lượng rõ con số (view, tương tác, Lead, SĐT, CR%, khung giờ, tên kênh/page), dùng **in đậm** cho từ khóa/con số chính, KHÔNG rào đón.\n"
+        "- Phần `post_suggestions` phải gợi ý cụ thể tiêu đề/hook, chủ đề sát với các nội dung đang hút view/lead thật của EzTech (Kế toán, Excel, Power BI, AI, báo cáo tài chính, workshop...).\n"
+        "- Phần `best_times` phải dựa trực tiếp trên bảng phân bổ khung giờ 0h-23h và thứ trong tuần từ dữ liệu thực tế.\n"
+        "- Đánh giá `summary_status`: `good` nếu kênh tăng trưởng/chuyển đổi tốt, `warning` nếu có điểm cần tối ưu (tần suất đăng, CR SĐT, kênh lệch), `critical` nếu sụt giảm mạnh hoặc tắc nghẽn chuyển đổi.\n"
+        "- BẮT BUỘC trả về DUY NHẤT 1 JSON hợp lệ (không thêm chữ ngoài JSON) theo đúng cấu trúc:\n"
+        "{\n"
+        '  "summary_status": "good | warning | critical",\n'
+        f'  "headline": "1 câu tóm tắt ngắn gọn tình trạng kênh {channel_label} hôm nay kèm 2-3 con số nổi bật nhất",\n'
+        f'  "overview": ["3-4 ý định lượng đánh giá hiệu suất kênh {channel_label} 7 ngày vs nền 30 ngày: sản lượng đăng, view/tương tác, Lead, SĐT, CR%, Deal Win, cơ cấu nguồn & so sánh giữa các kênh/page"],\n'
+        f'  "post_suggestions": ["3-5 gợi ý {content_unit} cụ thể nên triển khai ngay (ghi rõ: Tiêu đề/Hook đề xuất + Góc nội dung/CTA + Lý do dựa trên nội dung top hiện có)"],\n'
+        '  "best_times": ["3-4 ý về khung giờ vàng & ngày đăng tối ưu (chỉ rõ khung giờ cụ thể kèm số liệu thực tế từ bảng 0h-23h, ngày đăng tốt nhất, tần suất đăng đề xuất và khung giờ nên tránh)"],\n'
+        f'  "channel_insights": ["3-4 insight chuyên sâu của kênh {channel_label} & hành động ưu tiên hôm nay (điểm mạnh cần nhân bản, khoảng trống chuyển đổi view/tương tác -> SĐT/Deal, kênh/page hoặc CTA cần cải thiện)"]\n'
+        "}"
+    )
+
+    user_prompt = (
+        f"=== DỮ LIỆU THỰC TẾ KÊNH {channel_label.upper()} HÔM NAY ({now_vn.strftime('%d/%m/%Y')}) ===\n"
+        + context_text
+        + f"\n\nHãy xuất JSON báo cáo đánh giá hiệu suất, gợi ý {content_unit}, khung giờ đăng tối ưu và insight hằng ngày cho kênh {channel_label}."
+    )
+
+    raw_answer, model_used, _ = call_gemini_generate(
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        history=[],
+        api_key=api_key,
+        temperature=0.3,
+        enable_search=False,
+    )
+    sections = _parse_channel_review_json(raw_answer, channel_label)
+
+    start_7d = (now_vn - timedelta(days=6)).strftime("%d/%m/%Y")
+    end_today = now_vn.strftime("%d/%m/%Y")
+    review_payload: Dict[str, Any] = {
+        "channel": channel,
+        "date": now_vn.strftime("%Y-%m-%d"),
+        "generated_at": now_vn.strftime("%d/%m/%Y %H:%M"),
+        "period_label": f"7 ngày ({start_7d} – {end_today}) & nền 30 ngày",
+        "model": model_used,
+        "sources": sources,
+        **sections,
+    }
+    _save_daily_review(db, channel, review_payload)
+    return review_payload
+
+
 def generate_daily_review(db: Session) -> Dict[str, Any]:
     """Tổng hợp thông số từ toàn bộ Dashboard + mẫu tin nhắn khách, gọi Gemini đánh giá và lưu DB."""
-    global _DAILY_REVIEW_CACHE
     now_vn = get_vn_now()
     api_key = get_gemini_api_key(db)
     if not api_key:
@@ -2067,6 +2508,7 @@ def generate_daily_review(db: Session) -> Dict[str, Any]:
     start_7d = (now_vn - timedelta(days=6)).strftime("%d/%m/%Y")
     end_today = now_vn.strftime("%d/%m/%Y")
     review_payload: Dict[str, Any] = {
+        "channel": "overview",
         "date": now_vn.strftime("%Y-%m-%d"),
         "generated_at": now_vn.strftime("%d/%m/%Y %H:%M"),
         "period_label": f"7 ngày gần nhất ({start_7d} – {end_today})",
@@ -2075,56 +2517,46 @@ def generate_daily_review(db: Session) -> Dict[str, Any]:
         **sections,
     }
 
-    encoded = json.dumps(review_payload, ensure_ascii=False)
-    cfg = db.query(AppConfig).filter(AppConfig.config_key == DAILY_REVIEW_CONFIG_KEY).first()
-    if cfg:
-        cfg.config_value = encoded
-    else:
-        db.add(AppConfig(config_key=DAILY_REVIEW_CONFIG_KEY, config_value=encoded))
-    db.commit()
-
-    with _CACHE_LOCK:
-        _DAILY_REVIEW_CACHE = (time.time(), review_payload)
+    _save_daily_review(db, "overview", review_payload)
     return review_payload
 
 
-def _trigger_daily_review_bg() -> bool:
-    """Kích hoạt tạo báo cáo AI hằng ngày ở luồng nền (single-flight: tránh gọi đúp khi nhiều người mở cùng lúc)."""
-    global _DAILY_REVIEW_GENERATING
+def _trigger_daily_review_bg(channel: str = "overview") -> bool:
+    """Kích hoạt tạo báo cáo AI hằng ngày ở luồng nền (single-flight theo từng kênh)."""
     with _CACHE_LOCK:
-        if _DAILY_REVIEW_GENERATING:
+        if _DAILY_REVIEW_GENERATING.get(channel):
             return False
-        _DAILY_REVIEW_GENERATING = True
+        _DAILY_REVIEW_GENERATING[channel] = True
 
     def _worker():
-        global _DAILY_REVIEW_GENERATING
         try:
             with SessionLocal() as bg_db:
-                generate_daily_review(bg_db)
+                if channel == "overview":
+                    generate_daily_review(bg_db)
+                else:
+                    generate_channel_daily_review(bg_db, channel)
         except Exception as e:
-            logger.warning(f"Background daily review generation error: {e}")
+            logger.warning(f"Background daily review generation error ({channel}): {e}")
         finally:
             with _CACHE_LOCK:
-                _DAILY_REVIEW_GENERATING = False
+                _DAILY_REVIEW_GENERATING[channel] = False
 
-    threading.Thread(target=_worker, daemon=True, name="ai-daily-review").start()
+    threading.Thread(target=_worker, daemon=True, name=f"ai-daily-review-{channel}").start()
     return True
 
 
-@router.get("/daily-review", dependencies=[Depends(require_tab_access("overview"))])
-def get_daily_review(db: Session = Depends(get_db)):
-    """Trả về bản AI Đánh giá hiệu suất hằng ngày mới nhất; tự động kích hoạt tạo mới 1 lần/ngày khi sang ngày mới."""
+def _get_daily_review_response(db: Session, channel: str) -> Dict[str, Any]:
     now_vn = get_vn_now()
     today_str = now_vn.strftime("%Y-%m-%d")
-    saved = _load_saved_daily_review(db)
+    saved = _load_saved_daily_review(db, channel)
     is_today = bool(saved and saved.get("date") == today_str)
     has_key = bool(get_gemini_api_key(db))
 
     if not is_today and has_key:
-        _trigger_daily_review_bg()
+        _trigger_daily_review_bg(channel)
 
     with _CACHE_LOCK:
-        generating = _DAILY_REVIEW_GENERATING
+        generating = bool(_DAILY_REVIEW_GENERATING.get(channel))
 
     return {
         "review": saved,
@@ -2134,14 +2566,11 @@ def get_daily_review(db: Session = Depends(get_db)):
     }
 
 
-@router.post("/daily-review/refresh", dependencies=[Depends(require_tab_access("overview"))])
-def refresh_daily_review(db: Session = Depends(get_db)):
-    """Ép AI đọc lại toàn bộ thông số Dashboard và cập nhật bản đánh giá mới ngay lập tức (dùng cho nút bấm hoặc cron API)."""
-    global _DAILY_REVIEW_GENERATING
+def _refresh_daily_review_response(db: Session, channel: str) -> Dict[str, Any]:
     with _CACHE_LOCK:
-        _DAILY_REVIEW_GENERATING = True
+        _DAILY_REVIEW_GENERATING[channel] = True
     try:
-        review = generate_daily_review(db)
+        review = generate_daily_review(db) if channel == "overview" else generate_channel_daily_review(db, channel)
         return {
             "review": review,
             "is_today": True,
@@ -2150,4 +2579,40 @@ def refresh_daily_review(db: Session = Depends(get_db)):
         }
     finally:
         with _CACHE_LOCK:
-            _DAILY_REVIEW_GENERATING = False
+            _DAILY_REVIEW_GENERATING[channel] = False
+
+
+@router.get("/daily-review", dependencies=[Depends(require_tab_access("overview"))])
+def get_daily_review(db: Session = Depends(get_db)):
+    """Trả về bản AI Đánh giá hiệu suất hằng ngày (Tổng quan); tự động tạo mới 1 lần/ngày."""
+    return _get_daily_review_response(db, "overview")
+
+
+@router.post("/daily-review/refresh", dependencies=[Depends(require_tab_access("overview"))])
+def refresh_daily_review(db: Session = Depends(get_db)):
+    """Ép AI đọc lại toàn bộ thông số Dashboard Tổng quan và cập nhật bản đánh giá mới ngay lập tức."""
+    return _refresh_daily_review_response(db, "overview")
+
+
+@router.get("/daily-review/facebook", dependencies=[Depends(require_tab_access("facebook"))])
+def get_facebook_daily_review(db: Session = Depends(get_db)):
+    """Trả về bản AI Đánh giá hiệu suất, Gợi ý bài đăng, Giờ đăng & Insight kênh Facebook hằng ngày."""
+    return _get_daily_review_response(db, "facebook")
+
+
+@router.post("/daily-review/facebook/refresh", dependencies=[Depends(require_tab_access("facebook"))])
+def refresh_facebook_daily_review(db: Session = Depends(get_db)):
+    """Ép AI phân tích lại kênh Facebook ngay lập tức."""
+    return _refresh_daily_review_response(db, "facebook")
+
+
+@router.get("/daily-review/tiktok", dependencies=[Depends(require_tab_access("tiktok"))])
+def get_tiktok_daily_review(db: Session = Depends(get_db)):
+    """Trả về bản AI Đánh giá hiệu suất, Gợi ý video, Giờ đăng & Insight kênh TikTok hằng ngày."""
+    return _get_daily_review_response(db, "tiktok")
+
+
+@router.post("/daily-review/tiktok/refresh", dependencies=[Depends(require_tab_access("tiktok"))])
+def refresh_tiktok_daily_review(db: Session = Depends(get_db)):
+    """Ép AI phân tích lại kênh TikTok ngay lập tức."""
+    return _refresh_daily_review_response(db, "tiktok")

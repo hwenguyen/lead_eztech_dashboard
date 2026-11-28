@@ -42,6 +42,7 @@ import {
 import { safeParseDate, toSafeHttpUrl } from '../utils/format';
 import { showAppToast } from '../utils/toast';
 import { ErrorBanner } from './ErrorBanner';
+import { AiDailyReviewCard } from './AiDailyReviewCard';
 
 const FALLBACK_PALETTE = ['#1E5BD6', '#00B4D8', '#F5B400', '#10B981', '#8B5CF6', '#EC4899', '#F97316'];
 const CHANNEL_COLORS: Record<string, string> = {
@@ -505,6 +506,9 @@ export function TikTokDashboard() {
           </div>
         </div>
       </div>
+
+      {/* 2.5 AI Đánh giá Hiệu suất, Gợi ý video, Giờ đăng & Insight TikTok hằng ngày */}
+      <AiDailyReviewCard channel="tiktok" />
 
       {/* 3. Hàng Biểu đồ: Xu hướng (AreaChart) + Phân bổ Kênh TikTok */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">

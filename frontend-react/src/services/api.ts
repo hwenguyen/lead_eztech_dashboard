@@ -1779,7 +1779,10 @@ export const sendAiChatMessage = async (payload: {
   return res.data;
 };
 
+export type AiDailyReviewChannel = 'overview' | 'facebook' | 'tiktok';
+
 export interface AiDailyReviewData {
+  channel?: AiDailyReviewChannel;
   date: string;
   generated_at: string;
   period_label: string;
@@ -1788,9 +1791,12 @@ export interface AiDailyReviewData {
   summary_status: 'good' | 'warning' | 'critical';
   headline: string;
   overview: string[];
-  customer_insight: string[];
-  process_sla: string[];
-  actions: string[];
+  customer_insight?: string[];
+  process_sla?: string[];
+  actions?: string[];
+  post_suggestions?: string[];
+  best_times?: string[];
+  channel_insights?: string[];
 }
 
 export interface AiDailyReviewResponse {
@@ -1800,13 +1806,19 @@ export interface AiDailyReviewResponse {
   has_api_key: boolean;
 }
 
-export const fetchAiDailyReview = async (): Promise<AiDailyReviewResponse> => {
-  const res = await apiClient.get<AiDailyReviewResponse>('/ai/daily-review');
+export const fetchAiDailyReview = async (
+  channel: AiDailyReviewChannel = 'overview',
+): Promise<AiDailyReviewResponse> => {
+  const path = channel === 'overview' ? '/ai/daily-review' : `/ai/daily-review/${channel}`;
+  const res = await apiClient.get<AiDailyReviewResponse>(path);
   return res.data;
 };
 
-export const refreshAiDailyReview = async (): Promise<AiDailyReviewResponse> => {
-  const res = await apiClient.post<AiDailyReviewResponse>('/ai/daily-review/refresh', undefined, {
+export const refreshAiDailyReview = async (
+  channel: AiDailyReviewChannel = 'overview',
+): Promise<AiDailyReviewResponse> => {
+  const path = channel === 'overview' ? '/ai/daily-review/refresh' : `/ai/daily-review/${channel}/refresh`;
+  const res = await apiClient.post<AiDailyReviewResponse>(path, undefined, {
     timeout: 60000,
   });
   return res.data;
