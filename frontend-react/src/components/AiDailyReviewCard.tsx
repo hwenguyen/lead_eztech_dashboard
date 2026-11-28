@@ -60,7 +60,7 @@ const CHANNEL_META: Record<
       'AI đang thu thập thông số từ các Dashboard (Tổng quan, Facebook, TikTok, Remind SLA, Deal Win) và phân tích cho hôm nay...',
     refreshTitle: 'Gửi toàn bộ thông số Dashboard qua Gemini AI đánh giá lại ngay',
     iconBgClass: 'gradient-brand text-white',
-    headerGradientClass: 'from-brand-50/60 via-white to-gold-light/30',
+    headerGradientClass: 'from-brand-50/60 via-white to-gold-light/30 dark:from-brand-950/40 dark:via-slate-900 dark:to-amber-950/25',
   },
   facebook: {
     title: 'AI Đánh Giá Hiệu Suất & Gợi Ý Kênh Facebook Hằng Ngày',
@@ -68,7 +68,7 @@ const CHANNEL_META: Record<
       'AI đang phân tích dữ liệu Fanpage, Top bài viết, Facebook Ads và khung giờ đăng bài 0h–23h cho hôm nay...',
     refreshTitle: 'Gửi dữ liệu kênh Facebook qua Gemini AI đánh giá & gợi ý lại ngay',
     iconBgClass: 'bg-gradient-to-br from-[#1877F2] to-indigo-600 text-white',
-    headerGradientClass: 'from-blue-50/70 via-white to-indigo-50/30',
+    headerGradientClass: 'from-blue-50/70 via-white to-indigo-50/30 dark:from-blue-950/40 dark:via-slate-900 dark:to-indigo-950/30',
   },
   tiktok: {
     title: 'AI Đánh Giá Hiệu Suất & Gợi Ý Kênh TikTok Hằng Ngày',
@@ -76,7 +76,7 @@ const CHANNEL_META: Record<
       'AI đang phân tích dữ liệu 5 kênh TikTok, Top video, lượt xem theo khung giờ 0h–23h và tỷ lệ ra SĐT cho hôm nay...',
     refreshTitle: 'Gửi dữ liệu kênh TikTok qua Gemini AI đánh giá & gợi ý lại ngay',
     iconBgClass: 'bg-gradient-to-br from-slate-900 to-slate-700 text-white',
-    headerGradientClass: 'from-slate-100/70 via-white to-blue-50/30',
+    headerGradientClass: 'from-slate-100/70 via-white to-blue-50/30 dark:from-slate-800/60 dark:via-slate-900 dark:to-blue-950/30',
   },
 };
 
@@ -371,7 +371,7 @@ export const AiDailyReviewCard: React.FC<AiDailyReviewCardProps> = ({ channel = 
                   {/* 3. Gợi ý khung giờ đăng tối ưu */}
                   <div className="rounded-xl border border-slate-200/70 bg-slate-50/40 p-4 space-y-2.5">
                     <div className="flex items-center gap-2">
-                      <div className="w-6 h-6 rounded-lg bg-violet-50 text-violet-600 flex items-center justify-center shrink-0">
+                      <div className="w-6 h-6 rounded-lg bg-violet-50 text-violet-600 dark:bg-violet-950/50 dark:text-violet-300 flex items-center justify-center shrink-0">
                         <Clock className="w-3.5 h-3.5" />
                       </div>
                       <h4 className="text-xs font-bold uppercase tracking-wider text-navy">
