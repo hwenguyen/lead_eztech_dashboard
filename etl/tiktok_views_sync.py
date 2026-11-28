@@ -80,11 +80,13 @@ def fetch_tiktok_video_stats(
         digg_cnt = int(data.get("digg_count") or data.get("like_count") or 0)
         cmt_cnt = int(data.get("comment_count") or 0)
         share_cnt = int(data.get("share_count") or 0)
+        title = str(data.get("title") or "").strip()
         return {
             "view_count": max(0, play_cnt),
             "like_count": max(0, digg_cnt),
             "comment_count": max(0, cmt_cnt),
             "share_count": max(0, share_cnt),
+            "message": title,
         }
     except Exception as exc:
         logger.debug("Lỗi gọi TikTok views API cho video %s: %s", video_id, exc)
@@ -122,10 +124,21 @@ def sync_tiktok_video_views(
             )
         )
 
-    # Ưu tiên video chưa có view (view_count IS NULL hoặc = 0), ưu tiên bài nhiều comment & mới nhất
-    zero_first = case((or_(Post.view_count.is_(None), Post.view_count == 0), 0), else_=1)
+    # Ưu tiên video chưa có view hoặc chưa có mô tả (message), ưu tiên bài nhiều comment & mới nhất
+    needs_sync_first = case(
+        (
+            or_(
+                Post.view_count.is_(None),
+                Post.view_count == 0,
+                Post.message.is_(None),
+                Post.message == "",
+            ),
+            0,
+        ),
+        else_=1,
+    )
     candidates = (
-        query.order_by(zero_first.asc(), desc(Post.comment_count), desc(Post.inserted_at))
+        query.order_by(needs_sync_first.asc(), desc(Post.comment_count), desc(Post.inserted_at))
         .limit(max(1, min(int(max_videos), 100)))
         .all()
     )
@@ -159,6 +172,9 @@ def sync_tiktok_video_views(
             changed = True
         if stats["like_count"] > (post.reactions_total or 0):
             post.reactions_total = stats["like_count"]
+            changed = True
+        if stats.get("message") and not (post.message or "").strip():
+            post.message = stats["message"]
             changed = True
 
         post.updated_at = now_vn
