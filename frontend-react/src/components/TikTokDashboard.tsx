@@ -48,6 +48,7 @@ const CHANNEL_COLORS: Record<string, string> = {
   'Anh Kế toán làm Data (TikTok)': '#1E5BD6',
   'Hành trang cho kế toán': '#00B4D8',
   'Chị Kế Toán GenZ': '#F5B400',
+  'Học Kế toán cùng EzTech': '#8B5CF6',
   'Anh kế toán Daily': '#10B981',
 };
 
@@ -74,9 +75,17 @@ export function TikTokDashboard() {
   const [error, setError] = useState<string | null>(null);
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
 
-  // Bộ lọc bảng video
+  // Bộ lọc & sắp xếp 2 bảng video + Chart theo giờ đăng
+  const [hourlyMetric, setHourlyMetric] = useState<'total' | 'avg'>('total');
+  const [recentChannelFilter, setRecentChannelFilter] = useState('');
+  const [recentSortBy, setRecentSortBy] = useState<'date' | 'views' | 'leads' | 'phones' | 'reactions'>('date');
+
   const [searchPost, setSearchPost] = useState('');
+  const [topChannelFilter, setTopChannelFilter] = useState('');
+  const [topTypeFilter, setTopTypeFilter] = useState<'all' | 'video' | 'livestream'>('all');
+  const [topMetricFilter, setTopMetricFilter] = useState<'all' | 'has_views' | 'has_leads' | 'has_phones' | 'has_deals'>('all');
   const [sortBy, setSortBy] = useState<'views' | 'leads' | 'phones' | 'deals' | 'comments' | 'reactions' | 'date'>('leads');
+  const [sortDir, setSortDir] = useState<'desc' | 'asc'>('desc');
   const [postLimit, setPostLimit] = useState(15);
   const [syncingViews, setSyncingViews] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
@@ -172,19 +181,91 @@ export function TikTokDashboard() {
     ].filter((d) => d.value > 0);
   }, [data?.summary.post_leads, data?.summary.organic_leads]);
 
-  // 10 Video gần nhất (bỏ livestream để luôn hiển thị các video đăng mới nhất)
+  // Phân bổ lượt xem theo khung giờ đăng video (0h - 23h)
+  const hourlyViewData = useMemo(() => {
+    const buckets = Array.from({ length: 24 }, (_, h) => ({
+      hour: h,
+      label: `${h}h`,
+      videoCount: 0,
+      totalViews: 0,
+      avgViews: 0,
+    }));
+    (data?.top_posts || []).forEach((p) => {
+      if (p.type === 'livestream') return;
+      const dt = safeParseDate(p.inserted_at);
+      if (!dt) return;
+      const h = dt.getHours();
+      if (h >= 0 && h < 24) {
+        buckets[h].videoCount += 1;
+        buckets[h].totalViews += p.view_count || 0;
+      }
+    });
+    buckets.forEach((b) => {
+      b.avgViews = b.videoCount > 0 ? Math.round(b.totalViews / b.videoCount) : 0;
+    });
+    return buckets;
+  }, [data?.top_posts]);
+
+  const peakHourBucket = useMemo(() => {
+    const metricKey = hourlyMetric === 'total' ? 'totalViews' : 'avgViews';
+    let best: (typeof hourlyViewData)[number] | null = null;
+    for (const b of hourlyViewData) {
+      if (b.videoCount === 0 || b[metricKey] <= 0) continue;
+      if (!best || b[metricKey] > best[metricKey]) best = b;
+    }
+    return best;
+  }, [hourlyViewData, hourlyMetric]);
+
+  // Danh sách kênh có trong bảng video để lọc nhanh
+  const availableVideoChannels = useMemo(() => {
+    const set = new Set<string>();
+    (data?.top_posts || []).forEach((p) => {
+      if (p.page_name) set.add(p.page_name);
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'vi'));
+  }, [data?.top_posts]);
+
+  // 10 Video gần nhất (lọc theo kênh nếu chọn, lấy 10 video mới nhất rồi sort theo lựa chọn)
   const recentPosts = useMemo(() => {
     if (!data?.top_posts) return [];
-    return [...data.top_posts]
-      .filter((p) => p.type !== 'livestream')
-      .sort((a, b) => (safeParseDate(b.inserted_at)?.getTime() || 0) - (safeParseDate(a.inserted_at)?.getTime() || 0))
-      .slice(0, 10);
-  }, [data?.top_posts]);
+    let list = [...data.top_posts].filter((p) => p.type !== 'livestream');
+    if (recentChannelFilter) {
+      list = list.filter((p) => p.page_name === recentChannelFilter);
+    }
+    list.sort((a, b) => (safeParseDate(b.inserted_at)?.getTime() || 0) - (safeParseDate(a.inserted_at)?.getTime() || 0));
+    const latest10 = list.slice(0, 10);
+    if (recentSortBy === 'date') return latest10;
+    return [...latest10].sort((a, b) => {
+      if (recentSortBy === 'views') return (b.view_count || 0) - (a.view_count || 0);
+      if (recentSortBy === 'leads') return (b.lead_count || 0) - (a.lead_count || 0);
+      if (recentSortBy === 'phones') return (b.phone_count || 0) - (a.phone_count || 0);
+      if (recentSortBy === 'reactions') return (b.reactions_total || 0) - (a.reactions_total || 0);
+      return 0;
+    });
+  }, [data?.top_posts, recentChannelFilter, recentSortBy]);
 
   // Lọc và sắp xếp bảng Top video
   const filteredPosts = useMemo(() => {
     if (!data?.top_posts) return [];
     let list = [...data.top_posts];
+
+    if (topChannelFilter) {
+      list = list.filter((p) => p.page_name === topChannelFilter);
+    }
+    if (topTypeFilter === 'video') {
+      list = list.filter((p) => p.type !== 'livestream');
+    } else if (topTypeFilter === 'livestream') {
+      list = list.filter((p) => p.type === 'livestream');
+    }
+    if (topMetricFilter === 'has_views') {
+      list = list.filter((p) => (p.view_count || 0) > 0);
+    } else if (topMetricFilter === 'has_leads') {
+      list = list.filter((p) => (p.lead_count || 0) > 0);
+    } else if (topMetricFilter === 'has_phones') {
+      list = list.filter((p) => (p.phone_count || 0) > 0);
+    } else if (topMetricFilter === 'has_deals') {
+      list = list.filter((p) => (p.deal_count || 0) > 0);
+    }
 
     if (searchPost.trim()) {
       const q = searchPost.toLowerCase().trim();
@@ -194,18 +275,21 @@ export function TikTokDashboard() {
       );
     }
 
+    const dir = sortDir === 'desc' ? 1 : -1;
     list.sort((a, b) => {
-      if (sortBy === 'views') return (b.view_count || 0) - (a.view_count || 0);
-      if (sortBy === 'leads') return (b.lead_count || 0) - (a.lead_count || 0);
-      if (sortBy === 'phones') return (b.phone_count || 0) - (a.phone_count || 0);
-      if (sortBy === 'deals') return (b.deal_count || 0) - (a.deal_count || 0);
-      if (sortBy === 'comments') return (b.comment_count || 0) - (a.comment_count || 0);
-      if (sortBy === 'reactions') return (b.reactions_total || 0) - (a.reactions_total || 0);
-      return (safeParseDate(b.inserted_at)?.getTime() || 0) - (safeParseDate(a.inserted_at)?.getTime() || 0);
+      let diff = 0;
+      if (sortBy === 'views') diff = (b.view_count || 0) - (a.view_count || 0);
+      else if (sortBy === 'leads') diff = (b.lead_count || 0) - (a.lead_count || 0);
+      else if (sortBy === 'phones') diff = (b.phone_count || 0) - (a.phone_count || 0);
+      else if (sortBy === 'deals') diff = (b.deal_count || 0) - (a.deal_count || 0);
+      else if (sortBy === 'comments') diff = (b.comment_count || 0) - (a.comment_count || 0);
+      else if (sortBy === 'reactions') diff = (b.reactions_total || 0) - (a.reactions_total || 0);
+      else diff = (safeParseDate(b.inserted_at)?.getTime() || 0) - (safeParseDate(a.inserted_at)?.getTime() || 0);
+      return diff * dir;
     });
 
     return list;
-  }, [data?.top_posts, searchPost, sortBy]);
+  }, [data?.top_posts, topChannelFilter, topTypeFilter, topMetricFilter, searchPost, sortBy, sortDir]);
 
   const summary = data?.summary;
 
@@ -832,16 +916,152 @@ export function TikTokDashboard() {
         </div>
       </div>
 
+      {/* 4.5 PHÂN BỔ LƯỢT XEM THEO KHUNG GIỜ ĐĂNG VIDEO (0h - 23h) */}
+      <div className="bg-white rounded-xl border border-slate-200/80 p-5 shadow-card">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="text-[15px] font-semibold text-navy tracking-tight">
+              Phân bổ lượt xem theo khung giờ đăng video (0h – 23h)
+            </h3>
+            {peakHourBucket && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-800 border border-amber-200">
+                Giờ vàng: {peakHourBucket.label} ({(hourlyMetric === 'total' ? peakHourBucket.totalViews : peakHourBucket.avgViews).toLocaleString()} view)
+              </span>
+            )}
+          </div>
+
+          <div className="inline-flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200/80 self-start sm:self-auto">
+            <button
+              type="button"
+              onClick={() => setHourlyMetric('total')}
+              className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer ${
+                hourlyMetric === 'total' ? 'bg-white text-navy shadow-xs' : 'text-slate-500 hover:text-navy'
+              }`}
+            >
+              Tổng View
+            </button>
+            <button
+              type="button"
+              onClick={() => setHourlyMetric('avg')}
+              className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer ${
+                hourlyMetric === 'avg' ? 'bg-white text-navy shadow-xs' : 'text-slate-500 hover:text-navy'
+              }`}
+            >
+              TB View / Video
+            </button>
+          </div>
+        </div>
+
+        <div className="h-60">
+          {hourlyViewData.some((b) => b.totalViews > 0) ? (
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={hourlyViewData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--ez-chart-grid)" />
+                <XAxis
+                  dataKey="label"
+                  tick={{ fontSize: 11, fill: 'var(--ez-chart-axis)' }}
+                  axisLine={false}
+                  tickLine={false}
+                  interval={1}
+                />
+                <YAxis
+                  tick={{ fontSize: 11, fill: 'var(--ez-chart-axis)' }}
+                  axisLine={false}
+                  tickLine={false}
+                  width={48}
+                  tickFormatter={(v: number) => (v >= 1000 ? `${(v / 1000).toFixed(v >= 10000 ? 0 : 1)}k` : String(v))}
+                />
+                <Tooltip
+                  cursor={{ fill: 'rgba(30, 91, 214, 0.06)' }}
+                  content={({ active, payload }) => {
+                    if (active && payload && payload.length) {
+                      const d = payload[0].payload as (typeof hourlyViewData)[number];
+                      return (
+                        <div className="bg-white border border-slate-200 rounded-xl shadow-lg p-3 text-xs space-y-1">
+                          <div className="font-bold text-navy border-b border-slate-100 pb-1">
+                            Khung giờ đăng: {d.hour}:00 – {d.hour}:59
+                          </div>
+                          <div className="flex items-center justify-between gap-4">
+                            <span className="text-slate-500">Số video đã đăng:</span>
+                            <span className="font-mono font-bold text-navy">{d.videoCount} video</span>
+                          </div>
+                          <div className="flex items-center justify-between gap-4">
+                            <span className="text-slate-500">Tổng lượt xem:</span>
+                            <span className="font-mono font-bold text-eztech">{d.totalViews.toLocaleString()}</span>
+                          </div>
+                          <div className="flex items-center justify-between gap-4">
+                            <span className="text-slate-500">TB view / video:</span>
+                            <span className="font-mono font-bold text-emerald-700">{d.avgViews.toLocaleString()}</span>
+                          </div>
+                        </div>
+                      );
+                    }
+                    return null;
+                  }}
+                />
+                <Bar
+                  dataKey={hourlyMetric === 'total' ? 'totalViews' : 'avgViews'}
+                  radius={[4, 4, 0, 0]}
+                  maxBarSize={26}
+                >
+                  {hourlyViewData.map((entry) => {
+                    const isPeak = peakHourBucket && entry.hour === peakHourBucket.hour;
+                    return (
+                      <Cell
+                        key={`hour_${entry.hour}`}
+                        fill={isPeak ? '#F5B400' : entry.videoCount > 0 ? '#1E5BD6' : '#CBD5E1'}
+                      />
+                    );
+                  })}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="h-full flex items-center justify-center text-xs text-slate-400">
+              {loading
+                ? 'Đang tải phân bổ lượt xem theo giờ...'
+                : 'Chưa có dữ liệu lượt xem theo giờ đăng (hãy bấm "Cập nhật View" ở bảng bên dưới)'}
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* 5. Bảng 10 Video TikTok gần nhất */}
       <div className="bg-white rounded-xl border border-slate-200/80 shadow-card overflow-hidden">
-        <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between gap-3 bg-slate-50/40">
+        <div className="p-4 sm:p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-slate-50/40">
           <div className="flex items-center gap-2">
             <h3 className="text-[15px] font-bold text-navy">10 Video TikTok gần nhất</h3>
             <span className="px-2 py-0.5 rounded-md text-[11px] font-mono font-medium bg-blue-50 text-eztech border border-blue-200">
               {recentPosts.length} video mới nhất
             </span>
           </div>
-          <span className="text-xs text-slate-400 hidden sm:inline">Sắp xếp theo thời gian đăng gần nhất</span>
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              aria-label="Lọc kênh cho 10 video gần nhất"
+              value={recentChannelFilter}
+              onChange={(e) => setRecentChannelFilter(e.target.value)}
+              className="bg-white border border-slate-200 rounded-lg text-xs px-2.5 py-1.5 text-navy font-medium focus:outline-none cursor-pointer"
+            >
+              <option value="">Tất cả kênh</option>
+              {availableVideoChannels.map((ch) => (
+                <option key={`recent_ch_${ch}`} value={ch}>
+                  {ch}
+                </option>
+              ))}
+            </select>
+            <select
+              aria-label="Sắp xếp 10 video gần nhất"
+              value={recentSortBy}
+              onChange={(e) => setRecentSortBy(e.target.value as 'date' | 'views' | 'leads' | 'phones' | 'reactions')}
+              className="bg-white border border-slate-200 rounded-lg text-xs px-2.5 py-1.5 text-navy font-medium focus:outline-none cursor-pointer"
+            >
+              <option value="date">Xếp theo: Mới nhất</option>
+              <option value="views">Xếp theo: Lượt xem (Nhiều nhất)</option>
+              <option value="leads">Xếp theo: Lead thu về (Nhiều nhất)</option>
+              <option value="phones">Xếp theo: SĐT thu được (Nhiều nhất)</option>
+              <option value="reactions">Xếp theo: Lượt thích (Nhiều nhất)</option>
+            </select>
+          </div>
         </div>
 
         <div className="overflow-x-auto">
@@ -974,7 +1194,7 @@ export function TikTokDashboard() {
             </span>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2.5">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               disabled={syncingViews || loading}
@@ -997,6 +1217,49 @@ export function TikTokDashboard() {
               <span>{syncingViews ? 'Đang lấy View...' : 'Cập nhật View'}</span>
             </button>
 
+            {/* Lọc kênh */}
+            <select
+              aria-label="Lọc theo kênh TikTok"
+              value={topChannelFilter}
+              onChange={(e) => setTopChannelFilter(e.target.value)}
+              className="bg-white border border-slate-200 rounded-lg text-xs px-2.5 py-1.5 text-navy font-medium focus:outline-none cursor-pointer max-w-[170px]"
+            >
+              <option value="">Tất cả kênh</option>
+              {availableVideoChannels.map((ch) => (
+                <option key={`top_ch_${ch}`} value={ch}>
+                  {ch}
+                </option>
+              ))}
+            </select>
+
+            {/* Lọc loại bài */}
+            <select
+              aria-label="Lọc loại video hoặc livestream"
+              value={topTypeFilter}
+              onChange={(e) => setTopTypeFilter(e.target.value as 'all' | 'video' | 'livestream')}
+              className="bg-white border border-slate-200 rounded-lg text-xs px-2.5 py-1.5 text-navy font-medium focus:outline-none cursor-pointer"
+            >
+              <option value="all">Tất cả loại</option>
+              <option value="video">Chỉ Video</option>
+              <option value="livestream">Chỉ Livestream</option>
+            </select>
+
+            {/* Lọc theo chỉ số có dữ liệu */}
+            <select
+              aria-label="Lọc theo chỉ số hiệu quả"
+              value={topMetricFilter}
+              onChange={(e) =>
+                setTopMetricFilter(e.target.value as 'all' | 'has_views' | 'has_leads' | 'has_phones' | 'has_deals')
+              }
+              className="bg-white border border-slate-200 rounded-lg text-xs px-2.5 py-1.5 text-navy font-medium focus:outline-none cursor-pointer"
+            >
+              <option value="all">Mọi chỉ số</option>
+              <option value="has_views">Có Lượt xem</option>
+              <option value="has_leads">Có Lead</option>
+              <option value="has_phones">Có SĐT</option>
+              <option value="has_deals">Có Deal Win</option>
+            </select>
+
             {/* Search Input */}
             <div className="relative">
               <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" aria-hidden="true" />
@@ -1006,25 +1269,35 @@ export function TikTokDashboard() {
                 placeholder="Tìm nội dung / ID..."
                 value={searchPost}
                 onChange={e => setSearchPost(e.target.value)}
-                className="pl-8 pr-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs text-navy placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-eztech w-44 sm:w-52"
+                className="pl-8 pr-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs text-navy placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-eztech w-40 sm:w-48"
               />
             </div>
 
-            {/* Sort Dropdown */}
-            <select
-              aria-label="Sắp xếp danh sách video TikTok"
-              value={sortBy}
-              onChange={e => setSortBy(e.target.value as 'views' | 'leads' | 'phones' | 'deals' | 'comments' | 'reactions' | 'date')}
-              className="bg-white border border-slate-200 rounded-lg text-xs px-2.5 py-1.5 text-navy font-medium focus:outline-none cursor-pointer"
-            >
-              <option value="leads">Xếp theo: Lead thu về (Nhiều nhất)</option>
-              <option value="views">Xếp theo: Lượt xem (Nhiều nhất)</option>
-              <option value="phones">Xếp theo: SĐT thu được (Nhiều nhất)</option>
-              <option value="deals">Xếp theo: Học viên chốt (Nhiều nhất)</option>
-              <option value="comments">Xếp theo: Bình luận (Nhiều nhất)</option>
-              <option value="reactions">Xếp theo: Lượt thích (Nhiều nhất)</option>
-              <option value="date">Xếp theo: Mới nhất</option>
-            </select>
+            {/* Sort Dropdown + Direction Toggle */}
+            <div className="inline-flex items-center gap-1">
+              <select
+                aria-label="Sắp xếp danh sách video TikTok"
+                value={sortBy}
+                onChange={e => setSortBy(e.target.value as 'views' | 'leads' | 'phones' | 'deals' | 'comments' | 'reactions' | 'date')}
+                className="bg-white border border-slate-200 rounded-lg text-xs px-2.5 py-1.5 text-navy font-medium focus:outline-none cursor-pointer"
+              >
+                <option value="leads">Xếp: Lead thu về</option>
+                <option value="views">Xếp: Lượt xem</option>
+                <option value="phones">Xếp: SĐT thu được</option>
+                <option value="deals">Xếp: Học viên chốt</option>
+                <option value="comments">Xếp: Bình luận</option>
+                <option value="reactions">Xếp: Lượt thích</option>
+                <option value="date">Xếp: Ngày đăng</option>
+              </select>
+              <button
+                type="button"
+                onClick={() => setSortDir((d) => (d === 'desc' ? 'asc' : 'desc'))}
+                title={sortDir === 'desc' ? 'Đang xếp giảm dần (nhấn để đảo chiều)' : 'Đang xếp tăng dần (nhấn để đảo chiều)'}
+                className="px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-mono font-bold text-navy hover:bg-slate-50 cursor-pointer"
+              >
+                {sortDir === 'desc' ? '↓' : '↑'}
+              </button>
+            </div>
           </div>
         </div>
 
