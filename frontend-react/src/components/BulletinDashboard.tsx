@@ -454,8 +454,10 @@ export function BulletinDashboard({ onUnreadCountChange }: BulletinDashboardProp
   useEffect(() => {
     if (workTab === 'admin') {
       loadAdminStaffAndLogs();
+    } else if (isAdmin) {
+      ensureStaffListLoaded();
     }
-  }, [workTab, loadAdminStaffAndLogs]);
+  }, [workTab, isAdmin, loadAdminStaffAndLogs, ensureStaffListLoaded]);
 
   const handleSyncGroup = async () => {
     setSyncingPosts(true);

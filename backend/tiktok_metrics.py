@@ -38,6 +38,7 @@ TIKTOK_KNOWN_PAGES = [
     {"id": "tt_7196601676597871618", "name": "Anh Kế toán làm Data (TikTok)"},
     {"id": "tt_7456003523327919120", "name": "Hành trang cho kế toán"},
     {"id": "tt_7661860189083943944", "name": "Chị Kế Toán GenZ"},
+    {"id": "tt_7657393326631863314", "name": "Học Kế toán cùng EzTech"},
     {"id": "tt_7602128557942293512", "name": "Anh kế toán Daily"},
 ]
 
@@ -140,6 +141,7 @@ def _compute_tiktok_metrics(
 
     post_leads_set: Dict[str, Set[str]] = {}
     post_phones_set: Dict[str, Set[str]] = {}
+    post_deal_phones_set: Dict[str, Set[str]] = {}
     uid_to_posts: Dict[str, Set[str]] = {}
 
     for c in comments:
@@ -161,11 +163,11 @@ def _compute_tiktok_metrics(
             if clean_pid not in post_leads_set:
                 post_leads_set[clean_pid] = set()
                 post_phones_set[clean_pid] = set()
+                post_deal_phones_set[clean_pid] = set()
 
-            # Chỉ lưu SĐT nếu khách để lại trực tiếp trên bình luận
             if has_phone:
                 p_norm = normalize_phone(c.phone_number) or c.phone_number.strip()
-                post_phones_set[clean_pid].add(p_norm)
+                post_deal_phones_set[clean_pid].add(p_norm)
 
             # Thu thập TikTok User ID của người comment để map với cuộc trò chuyện Inbox (lấy trực tiếp từ from_id)
             tt_uid = str(c.from_id or "").replace("tt_", "").strip()
@@ -174,7 +176,7 @@ def _compute_tiktok_metrics(
                     uid_to_posts[tt_uid] = set()
                 uid_to_posts[tt_uid].add(clean_pid)
 
-    # 4. Phân loại Lead từ TikTok (qua classify_leads)
+    # 4. Phân loại Lead từ TikTok (qua classify_leads — đồng nhất 100% với Tổng quan & Chỉ số)
     leads = {}
     if target_page_name:
         leads = classify_leads(db, start, end, page_id=target_page_name)
@@ -185,8 +187,8 @@ def _compute_tiktok_metrics(
 
     tt_leads_total = len(leads)
     tt_new_leads = sum(1 for l in leads.values() if l.is_new)
-    tt_recontact_leads = sum(1 for l in leads.values() if l.is_recontact)
-    tt_phone_leads = sum(1 for l in leads.values() if l.has_phone and l.phone_event_at)
+    tt_recontact_leads = sum(1 for l in leads.values() if not l.is_new)
+    tt_phone_leads = sum(1 for l in leads.values() if l.has_phone)
 
     # Đếm số Lead và SĐT của từng video từ Leads có post_id sẵn
     for l_id, l in leads.items():
@@ -196,11 +198,14 @@ def _compute_tiktok_metrics(
             if clean_pid not in post_leads_set:
                 post_leads_set[clean_pid] = set()
                 post_phones_set[clean_pid] = set()
+                post_deal_phones_set[clean_pid] = set()
 
             post_leads_set[clean_pid].add(str(l_id))
+            if l.has_phone:
+                post_phones_set[clean_pid].add(str(l_id))
             if l.phone_number:
                 p_norm = normalize_phone(l.phone_number) or l.phone_number.strip()
-                post_phones_set[clean_pid].add(p_norm)
+                post_deal_phones_set[clean_pid].add(p_norm)
 
     # Ánh xạ thông minh qua TikTok UID:
     # Khách bình luận vào Video (có UID và post_id) -> sau đó vào Inbox nhắn tin để lại SĐT (conversation_id dạng tt_0:1:<uid>:<page_id>)
@@ -218,14 +223,16 @@ def _compute_tiktok_metrics(
                     if pids:
                         lead_obj = leads.get(l_id)
                         p_norm = normalize_phone(lead_obj.phone_number) if lead_obj and lead_obj.phone_number else None
-                        has_phone_ev = bool(lead_obj and lead_obj.has_phone and lead_obj.phone_event_at and p_norm)
                         for clean_pid in pids:
                             if clean_pid not in post_leads_set:
                                 post_leads_set[clean_pid] = set()
                                 post_phones_set[clean_pid] = set()
+                                post_deal_phones_set[clean_pid] = set()
                             post_leads_set[clean_pid].add(str(l_id))
-                            if has_phone_ev and p_norm:
-                                post_phones_set[clean_pid].add(p_norm)
+                            if lead_obj and lead_obj.has_phone:
+                                post_phones_set[clean_pid].add(str(l_id))
+                            if p_norm:
+                                post_deal_phones_set[clean_pid].add(p_norm)
 
     # 5. Truy vấn Deal Win (Học viên chốt từ TikTok)
     deal_query = db.query(DealWin).filter(
@@ -257,7 +264,7 @@ def _compute_tiktok_metrics(
     for (d_phone,) in deals:
         if d_phone:
             dp = normalize_phone(d_phone) or d_phone.strip()
-            for clean_pid, pset in post_phones_set.items():
+            for clean_pid, pset in post_deal_phones_set.items():
                 if dp in pset:
                     post_deals_map[clean_pid] += 1
 
@@ -285,26 +292,26 @@ def _compute_tiktok_metrics(
         type_counter[t_name] += 1
 
     # 7. Xây dựng chuỗi xu hướng theo từng ngày trong kỳ
-    # Phân loại tổng thể nguồn: Video (Post) vs Tự nhiên (Organic Inbox)
+    # Phân loại tổng thể nguồn phân hoạch 100% khớp Tổng quan & Chỉ số: Video (Post) vs Tự nhiên (Organic Inbox)
     post_lead_ids = set()
     for cset in post_leads_set.values():
         post_lead_ids.update(cset)
-    total_post_cust = len(post_lead_ids)
 
-    post_phone_set = set()
-    for pset in post_phones_set.values():
-        post_phone_set.update(pset)
-    total_post_phones = len(post_phone_set)
+    total_post_cust = 0
+    total_post_phones = 0
+    organic_lead_count = 0
+    organic_phone_count = 0
 
-    organic_lead_count = sum(
-        1 for l_id, l in leads.items()
-        if str(l_id) not in post_lead_ids and str(l.customer_id) not in post_lead_ids and not l.post_id
-    )
-    organic_phone_count = sum(
-        1 for l_id, l in leads.items()
-        if (str(l_id) not in post_lead_ids and str(l.customer_id) not in post_lead_ids and not l.post_id)
-        and l.has_phone and l.phone_event_at
-    )
+    for l_id, l in leads.items():
+        lid_str = str(l_id)
+        if lid_str in post_lead_ids or bool(l.post_id):
+            total_post_cust += 1
+            if l.has_phone:
+                total_post_phones += 1
+        else:
+            organic_lead_count += 1
+            if l.has_phone:
+                organic_phone_count += 1
 
     post_phone_rate = round((total_post_phones / total_post_cust * 100), 1) if total_post_cust > 0 else 0.0
     organic_phone_rate = round((organic_phone_count / organic_lead_count * 100), 1) if organic_lead_count > 0 else 0.0
@@ -322,36 +329,34 @@ def _compute_tiktok_metrics(
     leads_by_date: Dict[str, int] = Counter()
     phones_by_date: Dict[str, int] = Counter()
     post_leads_by_date: Dict[str, int] = Counter()
+    post_phones_by_date: Dict[str, int] = Counter()
     organic_leads_by_date: Dict[str, int] = Counter()
     organic_phones_by_date: Dict[str, int] = Counter()
 
-    for c in comments:
-        if c.inserted_at:
-            cd_str = c.inserted_at.strftime("%Y-%m-%d")
-            post_leads_by_date[cd_str] += 1
-
     for l_id, l in leads.items():
-        if l.is_new and l.first_created_at:
-            ld_str = l.first_created_at.strftime("%Y-%m-%d")
-            leads_by_date[ld_str] += 1
-        elif l.is_recontact:
-            for cday in l.contact_days:
-                leads_by_date[cday] += 1
-        if l.phone_event_at:
-            ph_str = l.phone_event_at.strftime("%Y-%m-%d")
-            phones_by_date[ph_str] += 1
+        lid_str = str(l_id)
+        is_post = (lid_str in post_lead_ids) or bool(l.post_id)
 
-        is_post = (str(l_id) in post_lead_ids) or (str(l.customer_id) in post_lead_ids) or bool(l.post_id)
-        if not is_post:
-            if l.is_new and l.first_created_at:
-                ld_str = l.first_created_at.strftime("%Y-%m-%d")
-                organic_leads_by_date[ld_str] += 1
-            elif l.is_recontact:
-                for cday in l.contact_days:
-                    organic_leads_by_date[cday] += 1
-            if l.phone_event_at:
-                ph_str = l.phone_event_at.strftime("%Y-%m-%d")
-                organic_phones_by_date[ph_str] += 1
+        active_days: Set[str] = set()
+        if l.is_new and l.first_created_at:
+            active_days.add(l.first_created_at.strftime("%Y-%m-%d"))
+        else:
+            active_days.update(l.contact_days)
+            if not active_days and l.phone_event_at:
+                active_days.add(l.phone_event_at.strftime("%Y-%m-%d"))
+
+        for d_str in active_days:
+            leads_by_date[d_str] += 1
+            if l.has_phone:
+                phones_by_date[d_str] += 1
+            if is_post:
+                post_leads_by_date[d_str] += 1
+                if l.has_phone:
+                    post_phones_by_date[d_str] += 1
+            else:
+                organic_leads_by_date[d_str] += 1
+                if l.has_phone:
+                    organic_phones_by_date[d_str] += 1
 
     while day <= end:
         d_str = day.strftime("%Y-%m-%d")
@@ -364,7 +369,7 @@ def _compute_tiktok_metrics(
             "phones": phones_by_date.get(d_str, 0),
             "post_leads": post_leads_by_date.get(d_str, 0),
             "organic_leads": organic_leads_by_date.get(d_str, 0),
-            "post_phones": comment_phones_by_date.get(d_str, 0),
+            "post_phones": post_phones_by_date.get(d_str, 0),
             "organic_phones": organic_phones_by_date.get(d_str, 0),
         })
         day += timedelta(days=1)

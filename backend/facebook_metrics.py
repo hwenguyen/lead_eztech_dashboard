@@ -265,7 +265,8 @@ def get_facebook_metrics(
 
     # Ánh xạ bóc tách Lead, SĐT theo từng bài viết (hỗ trợ cả ID đầy đủ lẫn ID rút gọn sau dấu gạch dưới)
     post_leads_set: Dict[str, Set[str]] = {}
-    post_phones_set: Dict[str, Set[str]] = {}
+    post_phone_leads_set: Dict[str, Set[str]] = {}
+    post_deal_phones_set: Dict[str, Set[str]] = {}
     fbid_to_posts: Dict[str, Set[str]] = {}
 
     for c in comments:
@@ -284,12 +285,12 @@ def get_facebook_metrics(
             clean_pid = raw_pid.split("_")[-1] if "_" in raw_pid else raw_pid
             if clean_pid not in post_leads_set:
                 post_leads_set[clean_pid] = set()
-                post_phones_set[clean_pid] = set()
+                post_phone_leads_set[clean_pid] = set()
+                post_deal_phones_set[clean_pid] = set()
 
-            # Chỉ lưu SĐT nếu để lại trực tiếp trên bình luận
             if has_phone:
                 p_norm = normalize_phone(c.phone_number) or c.phone_number.strip()
-                post_phones_set[clean_pid].add(p_norm)
+                post_deal_phones_set[clean_pid].add(p_norm)
 
             # Thu thập FB PSID của người comment để map với cuộc trò chuyện Inbox (lấy trực tiếp từ from_id)
             fid = str(c.from_id or "").strip()
@@ -298,14 +299,19 @@ def get_facebook_metrics(
                     fbid_to_posts[fid] = set()
                 fbid_to_posts[fid].add(clean_pid)
 
-    # 4. Phân loại Lead từ Facebook (qua classify_leads)
-    lead_scope_page = target_page_name if target_page_name else "Anh Kế toán làm Data (Facebook)"
-    leads = classify_leads(db, start, end, page_id=lead_scope_page)
+    # 4. Phân loại Lead từ Facebook (qua classify_leads — đồng nhất 100% với Tổng quan & Chỉ số)
+    leads = {}
+    if target_page_name:
+        leads = classify_leads(db, start, end, page_id=target_page_name)
+    else:
+        page_list = fb_page_names or ["Anh Kế toán làm Data (Facebook)"]
+        for p_name in page_list:
+            leads.update(classify_leads(db, start, end, page_id=p_name))
 
     fb_leads_total = len(leads)
     fb_new_leads = sum(1 for l in leads.values() if l.is_new)
-    fb_recontact_leads = sum(1 for l in leads.values() if l.is_recontact)
-    fb_phone_leads = sum(1 for l in leads.values() if l.has_phone and l.phone_event_at)
+    fb_recontact_leads = sum(1 for l in leads.values() if not l.is_new)
+    fb_phone_leads = sum(1 for l in leads.values() if l.has_phone)
 
     # Đếm số Lead và SĐT của từng bài viết từ Leads có post_id sẵn
     for l_id, l in leads.items():
@@ -314,12 +320,15 @@ def get_facebook_metrics(
             clean_pid = raw_pid.split("_")[-1] if "_" in raw_pid else raw_pid
             if clean_pid not in post_leads_set:
                 post_leads_set[clean_pid] = set()
-                post_phones_set[clean_pid] = set()
+                post_phone_leads_set[clean_pid] = set()
+                post_deal_phones_set[clean_pid] = set()
 
             post_leads_set[clean_pid].add(str(l_id))
+            if l.has_phone:
+                post_phone_leads_set[clean_pid].add(str(l_id))
             if l.phone_number:
                 p_norm = normalize_phone(l.phone_number) or l.phone_number.strip()
-                post_phones_set[clean_pid].add(p_norm)
+                post_deal_phones_set[clean_pid].add(p_norm)
 
     # Ánh xạ qua Facebook PSID:
     # Khách bình luận vào Bài viết (có PSID và post_id) -> sau đó vào Inbox nhắn tin (conversation_id dạng <page_id>_<psid>)
@@ -337,14 +346,16 @@ def get_facebook_metrics(
                     if pids:
                         lead_obj = leads.get(l_id)
                         p_norm = normalize_phone(lead_obj.phone_number) if lead_obj and lead_obj.phone_number else None
-                        has_phone_ev = bool(lead_obj and lead_obj.has_phone and lead_obj.phone_event_at and p_norm)
                         for clean_pid in pids:
                             if clean_pid not in post_leads_set:
                                 post_leads_set[clean_pid] = set()
-                                post_phones_set[clean_pid] = set()
+                                post_phone_leads_set[clean_pid] = set()
+                                post_deal_phones_set[clean_pid] = set()
                             post_leads_set[clean_pid].add(str(l_id))
-                            if has_phone_ev and p_norm:
-                                post_phones_set[clean_pid].add(p_norm)
+                            if lead_obj and lead_obj.has_phone:
+                                post_phone_leads_set[clean_pid].add(str(l_id))
+                            if p_norm:
+                                post_deal_phones_set[clean_pid].add(p_norm)
 
     # Phân bổ nhân viên & Tag từ Facebook Leads
     employee_counter: Dict[str, int] = Counter()
@@ -387,7 +398,7 @@ def get_facebook_metrics(
     for (d_phone,) in deals:
         if d_phone:
             dp = normalize_phone(d_phone) or d_phone.strip()
-            for clean_pid, pset in post_phones_set.items():
+            for clean_pid, pset in post_deal_phones_set.items():
                 if dp in pset:
                     post_deals_map[clean_pid] += 1
 
@@ -429,7 +440,6 @@ def get_facebook_metrics(
     for l_id, l in leads.items():
         if l.ad_id:
             p_norm = (normalize_phone(l.phone_number) or l.phone_number.strip()) if l.phone_number else None
-            has_period_phone = bool(l.has_phone and l.phone_event_at and p_norm)
             for aid in split_csv(l.ad_id):
                 if aid not in ad_leads_map:
                     ad_leads_map[aid] = set()
@@ -439,8 +449,8 @@ def get_facebook_metrics(
                 ad_leads_map[aid].add(str(l_id))
                 if p_norm:
                     ad_all_phones_map[aid].add(p_norm)
-                if has_period_phone and p_norm:
-                    ad_phones_map[aid].add(p_norm)
+                if l.has_phone:
+                    ad_phones_map[aid].add(str(l_id))
                 if l.post_id:
                     ad_post_counter[aid][str(l.post_id).strip()] += 1
 
@@ -469,41 +479,31 @@ def get_facebook_metrics(
             if dp in pset:
                 ad_deals_map[aid] += 1
 
-    # Tính tổng số liệu 3 nguồn
-    all_ads_lead_ids = set()
-    all_ads_phones_set = set()
-    for aid, lset in ad_leads_map.items():
-        all_ads_lead_ids.update(lset)
-        all_ads_phones_set.update(ad_phones_map[aid])
+    # Tính tổng số liệu 3 nguồn phân hoạch 100% khớp Tổng Lead & Tổng SĐT (giống Tổng quan & Chỉ số)
+    total_ads_leads = 0
+    total_ads_phones = 0
+    total_post_cust = 0
+    total_post_phones = 0
+    organic_lead_count = 0
+    organic_phone_count = 0
 
-    total_ads_leads = len(all_ads_lead_ids)
-    total_ads_phones = len(all_ads_phones_set)
+    for l_id, l in leads.items():
+        lid_str = str(l_id)
+        if l.ad_id:
+            total_ads_leads += 1
+            if l.has_phone:
+                total_ads_phones += 1
+        elif lid_str in post_lead_ids or bool(l.post_id):
+            total_post_cust += 1
+            if l.has_phone:
+                total_post_phones += 1
+        else:
+            organic_lead_count += 1
+            if l.has_phone:
+                organic_phone_count += 1
+
     ads_phone_rate = round((total_ads_phones / total_ads_leads * 100), 1) if total_ads_leads > 0 else 0.0
-
-    # Post leads: chỉ tính những người tương tác bài viết mà KHÔNG thuộc Ads
-    post_pure_lead_ids = {lid for lid in post_lead_ids if lid not in all_ads_lead_ids}
-    total_post_cust = len(post_pure_lead_ids)
-    post_phone_set = set()
-    for pset in post_phones_set.values():
-        post_phone_set.update(pset)
-    post_pure_phones = {p for p in post_phone_set if p not in all_ads_phones_set}
-    total_post_phones = len(post_pure_phones)
     post_phone_rate = round((total_post_phones / total_post_cust * 100), 1) if total_post_cust > 0 else 0.0
-
-    # Organic leads: không Ads, không Post
-    organic_lead_count = sum(
-        1 for l_id, l in leads.items()
-        if str(l_id) not in all_ads_lead_ids and str(l.customer_id) not in all_ads_lead_ids
-        and str(l_id) not in post_lead_ids and str(l.customer_id) not in post_lead_ids
-        and not l.post_id and not l.ad_id
-    )
-    organic_phone_count = sum(
-        1 for l_id, l in leads.items()
-        if str(l_id) not in all_ads_lead_ids and str(l.customer_id) not in all_ads_lead_ids
-        and str(l_id) not in post_lead_ids and str(l.customer_id) not in post_lead_ids
-        and not l.post_id and not l.ad_id
-        and l.has_phone and l.phone_event_at
-    )
     organic_phone_rate = round((organic_phone_count / organic_lead_count * 100), 1) if organic_lead_count > 0 else 0.0
 
     trend_data = []
@@ -517,49 +517,45 @@ def get_facebook_metrics(
             posts_by_date[pd_str] += 1
             reactions_by_date[pd_str] += (p.reactions_total or 0)
 
-    # Nhóm leads theo ngày (tổng và chia 3 nguồn: Ads, Post, Organic)
+    # Nhóm leads & SĐT theo ngày (khớp logic get_trend của Tổng quan & Chỉ số)
     leads_by_date: Dict[str, int] = Counter()
     phones_by_date: Dict[str, int] = Counter()
     ads_leads_by_date: Dict[str, int] = Counter()
     ads_phones_by_date: Dict[str, int] = Counter()
     post_leads_by_date: Dict[str, int] = Counter()
+    post_phones_by_date: Dict[str, int] = Counter()
     organic_leads_by_date: Dict[str, int] = Counter()
     organic_phones_by_date: Dict[str, int] = Counter()
 
-    for c in comments:
-        if c.inserted_at:
-            cd_str = c.inserted_at.strftime("%Y-%m-%d")
-            post_leads_by_date[cd_str] += 1
-
     for l_id, l in leads.items():
-        d_str = None
+        lid_str = str(l_id)
+        is_ad = bool(l.ad_id)
+        is_post = (not is_ad) and (lid_str in post_lead_ids or bool(l.post_id))
+
+        active_days: Set[str] = set()
         if l.is_new and l.first_created_at:
-            d_str = l.first_created_at.strftime("%Y-%m-%d")
+            active_days.add(l.first_created_at.strftime("%Y-%m-%d"))
+        else:
+            active_days.update(l.contact_days)
+            if not active_days and l.phone_event_at:
+                active_days.add(l.phone_event_at.strftime("%Y-%m-%d"))
+
+        for d_str in active_days:
             leads_by_date[d_str] += 1
-        elif l.is_recontact:
-            for cday in l.contact_days:
-                leads_by_date[cday] += 1
-                if not d_str:
-                    d_str = cday
-        if l.phone_event_at:
-            ph_str = l.phone_event_at.strftime("%Y-%m-%d")
-            phones_by_date[ph_str] += 1
-
-        is_ad = bool(l.ad_id) or (str(l_id) in all_ads_lead_ids)
-        is_post = not is_ad and ((str(l_id) in post_lead_ids) or (str(l.customer_id) in post_lead_ids) or bool(l.post_id))
-
-        if is_ad:
-            if d_str:
+            if l.has_phone:
+                phones_by_date[d_str] += 1
+            if is_ad:
                 ads_leads_by_date[d_str] += 1
-            if l.phone_event_at:
-                ph_str = l.phone_event_at.strftime("%Y-%m-%d")
-                ads_phones_by_date[ph_str] += 1
-        elif not is_post:
-            if d_str:
+                if l.has_phone:
+                    ads_phones_by_date[d_str] += 1
+            elif is_post:
+                post_leads_by_date[d_str] += 1
+                if l.has_phone:
+                    post_phones_by_date[d_str] += 1
+            else:
                 organic_leads_by_date[d_str] += 1
-            if l.phone_event_at:
-                ph_str = l.phone_event_at.strftime("%Y-%m-%d")
-                organic_phones_by_date[ph_str] += 1
+                if l.has_phone:
+                    organic_phones_by_date[d_str] += 1
 
     while day <= end:
         d_str = day.strftime("%Y-%m-%d")
@@ -573,7 +569,7 @@ def get_facebook_metrics(
             "ads_leads": ads_leads_by_date.get(d_str, 0),
             "ads_phones": ads_phones_by_date.get(d_str, 0),
             "post_leads": post_leads_by_date.get(d_str, 0),
-            "post_phones": comment_phones_by_date.get(d_str, 0),
+            "post_phones": post_phones_by_date.get(d_str, 0),
             "organic_leads": organic_leads_by_date.get(d_str, 0),
             "organic_phones": organic_phones_by_date.get(d_str, 0),
         })
@@ -588,7 +584,7 @@ def get_facebook_metrics(
         clean_pid = raw_pid.split("_")[-1] if "_" in raw_pid else raw_pid
 
         leads_c = len(post_leads_set.get(clean_pid, set()))
-        phones_c = len(post_phones_set.get(clean_pid, set()))
+        phones_c = len(post_phone_leads_set.get(clean_pid, set()))
         deals_c = post_deals_map.get(clean_pid, 0)
 
         top_posts_data.append({
